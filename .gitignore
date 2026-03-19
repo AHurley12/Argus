@@ -37,3 +37,7 @@ coverage/
 # Backup files
 *.bak
 *.backup
+
+#supabase
+supabase/.env
+supabase/.temp

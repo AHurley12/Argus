@@ -1,0 +1,878 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>ARGUS — Watch the World</title>
+<link href="https://fonts.googleapis.com/css2?family=Syncopate:wght@400;700&family=DM+Mono:ital,wght@0,300;0,400;1,300&family=Barlow+Condensed:wght@200;300;400;600&display=swap" rel="stylesheet" />
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --navy:     #040d18;
+    --deep:     #071525;
+    --mid:      #0a1e35;
+    --border:   #0f2d48;
+    --accent:   #0af;
+    --accent2:  #00ff9d;
+    --text:     #c8dff0;
+    --dim:      #3a6a8a;
+    --white:    #f0f8ff;
+    --danger:   #ff4466;
+  }
+
+  html, body {
+    width: 100%; height: 100%;
+    background: var(--navy);
+    font-family: 'Barlow Condensed', sans-serif;
+    color: var(--text);
+    overflow: hidden;
+  }
+
+  /* ── Canvas globe ─────────────────────────────────────────────────────── */
+  #globe-canvas {
+    position: fixed;
+    inset: 0;
+    width: 100%; height: 100%;
+    z-index: 0;
+  }
+
+  /* ── Scanlines ────────────────────────────────────────────────────────── */
+  #scan {
+    position: fixed; inset: 0; z-index: 1; pointer-events: none;
+    background: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(0,0,0,0.08) 2px,
+      rgba(0,0,0,0.08) 4px
+    );
+  }
+
+  /* ── Vignette ─────────────────────────────────────────────────────────── */
+  #vignette {
+    position: fixed; inset: 0; z-index: 2; pointer-events: none;
+    background: radial-gradient(ellipse at center,
+      transparent 30%,
+      rgba(4,13,24,0.6) 70%,
+      rgba(4,13,24,0.92) 100%
+    );
+  }
+
+  /* ── Layout ───────────────────────────────────────────────────────────── */
+  #layout {
+    position: fixed; inset: 0; z-index: 10;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 8vw;
+    pointer-events: none;
+  }
+
+  /* ── Left — branding ──────────────────────────────────────────────────── */
+  #brand {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    pointer-events: none;
+    animation: fadeUp 1.2s cubic-bezier(0.22,1,0.36,1) both;
+  }
+
+  #brand-eye {
+    font-family: 'DM Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 6px;
+    color: var(--accent);
+    font-weight: 300;
+    margin-bottom: 10px;
+    opacity: 0.8;
+  }
+
+  #brand-title {
+    font-family: 'Syncopate', sans-serif;
+    font-size: clamp(64px, 8vw, 112px);
+    font-weight: 700;
+    color: var(--white);
+    letter-spacing: -2px;
+    line-height: 0.9;
+    text-shadow: 0 0 80px rgba(0,170,255,0.25);
+  }
+
+  #brand-title span {
+    display: block;
+    color: var(--accent);
+    font-size: 0.22em;
+    letter-spacing: 12px;
+    font-weight: 400;
+    margin-top: 14px;
+    text-shadow: none;
+    opacity: 0.9;
+  }
+
+  #brand-tagline {
+    margin-top: 18px;
+    font-size: 13px;
+    letter-spacing: 4px;
+    color: var(--dim);
+    font-weight: 300;
+    text-transform: uppercase;
+  }
+
+  #brand-line {
+    width: 60px;
+    height: 1px;
+    background: linear-gradient(90deg, var(--accent), transparent);
+    margin-top: 20px;
+  }
+
+  #brand-stats {
+    margin-top: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .brand-stat {
+    font-family: 'DM Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 2px;
+    color: var(--dim);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .brand-stat::before {
+    content: '';
+    width: 4px; height: 4px;
+    background: var(--accent2);
+    border-radius: 50%;
+    flex-shrink: 0;
+    box-shadow: 0 0 6px var(--accent2);
+    animation: pulse 2s ease-in-out infinite;
+  }
+
+  .brand-stat:nth-child(2)::before { animation-delay: 0.4s; background: var(--accent); box-shadow: 0 0 6px var(--accent); }
+  .brand-stat:nth-child(3)::before { animation-delay: 0.8s; }
+
+  /* ── Right — auth card ────────────────────────────────────────────────── */
+  #auth-card {
+    pointer-events: all;
+    width: 360px;
+    background: rgba(7, 21, 37, 0.85);
+    border: 1px solid var(--border);
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+    padding: 36px 32px;
+    position: relative;
+    animation: fadeUp 1.2s 0.2s cubic-bezier(0.22,1,0.36,1) both;
+  }
+
+  /* corner accent */
+  #auth-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0;
+    width: 40px; height: 40px;
+    border-top: 2px solid var(--accent);
+    border-left: 2px solid var(--accent);
+  }
+  #auth-card::after {
+    content: '';
+    position: absolute;
+    bottom: 0; right: 0;
+    width: 40px; height: 40px;
+    border-bottom: 2px solid var(--dim);
+    border-right: 2px solid var(--dim);
+  }
+
+  .auth-label {
+    font-family: 'DM Mono', monospace;
+    font-size: 9px;
+    letter-spacing: 4px;
+    color: var(--accent);
+    margin-bottom: 6px;
+    font-weight: 300;
+  }
+
+  .auth-title {
+    font-family: 'Syncopate', sans-serif;
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--white);
+    letter-spacing: 1px;
+    margin-bottom: 28px;
+  }
+
+  /* tabs */
+  #auth-tabs {
+    display: flex;
+    gap: 0;
+    margin-bottom: 28px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .auth-tab {
+    flex: 1;
+    background: none;
+    border: none;
+    padding: 10px 0;
+    font-family: 'Barlow Condensed', sans-serif;
+    font-size: 12px;
+    letter-spacing: 3px;
+    color: var(--dim);
+    cursor: pointer;
+    text-transform: uppercase;
+    transition: color 0.2s;
+    position: relative;
+  }
+
+  .auth-tab::after {
+    content: '';
+    position: absolute;
+    bottom: -1px; left: 0; right: 0;
+    height: 2px;
+    background: var(--accent);
+    transform: scaleX(0);
+    transition: transform 0.25s cubic-bezier(0.22,1,0.36,1);
+  }
+
+  .auth-tab.active { color: var(--white); }
+  .auth-tab.active::after { transform: scaleX(1); }
+  .auth-tab:hover { color: var(--text); }
+
+  /* form */
+  .auth-form { display: none; flex-direction: column; gap: 14px; }
+  .auth-form.active { display: flex; }
+
+  .field-group { display: flex; flex-direction: column; gap: 6px; }
+
+  .field-label {
+    font-family: 'DM Mono', monospace;
+    font-size: 9px;
+    letter-spacing: 3px;
+    color: var(--dim);
+    font-weight: 300;
+  }
+
+  .field-input {
+    background: rgba(4, 13, 24, 0.6);
+    border: 1px solid var(--border);
+    color: var(--white);
+    font-family: 'DM Mono', monospace;
+    font-size: 13px;
+    padding: 10px 12px;
+    outline: none;
+    transition: border-color 0.2s, box-shadow 0.2s;
+    letter-spacing: 1px;
+  }
+
+  .field-input::placeholder { color: var(--dim); opacity: 0.6; }
+
+  .field-input:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 1px rgba(0,170,255,0.15), inset 0 0 20px rgba(0,170,255,0.04);
+  }
+
+  .auth-btn {
+    margin-top: 6px;
+    background: transparent;
+    border: 1px solid var(--accent);
+    color: var(--accent);
+    font-family: 'Syncopate', sans-serif;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 3px;
+    padding: 13px;
+    cursor: pointer;
+    text-transform: uppercase;
+    transition: background 0.2s, color 0.2s, box-shadow 0.2s;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .auth-btn::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: var(--accent);
+    transform: translateX(-100%);
+    transition: transform 0.3s cubic-bezier(0.22,1,0.36,1);
+    z-index: 0;
+  }
+
+  .auth-btn:hover::before { transform: translateX(0); }
+  .auth-btn:hover { color: var(--navy); box-shadow: 0 0 30px rgba(0,170,255,0.3); }
+  .auth-btn span { position: relative; z-index: 1; }
+
+  .auth-btn.loading { opacity: 0.6; pointer-events: none; }
+
+  #auth-message {
+    font-family: 'DM Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 1px;
+    padding: 10px 12px;
+    margin-top: 4px;
+    display: none;
+    border-left: 2px solid var(--accent2);
+    background: rgba(0,255,157,0.05);
+    color: var(--accent2);
+    line-height: 1.5;
+  }
+
+  #auth-message.error {
+    border-color: var(--danger);
+    background: rgba(255,68,102,0.05);
+    color: var(--danger);
+  }
+
+  #auth-message.visible { display: block; }
+
+  .auth-divider {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin: 4px 0;
+  }
+
+  .auth-divider-line { flex: 1; height: 1px; background: var(--border); }
+  .auth-divider-text {
+    font-family: 'DM Mono', monospace;
+    font-size: 9px;
+    letter-spacing: 2px;
+    color: var(--dim);
+  }
+
+  .auth-footer {
+    margin-top: 20px;
+    font-family: 'DM Mono', monospace;
+    font-size: 9px;
+    letter-spacing: 1px;
+    color: var(--dim);
+    line-height: 1.6;
+    opacity: 0.7;
+  }
+
+  /* Guest tab accent */
+  .guest-tab { color: var(--accent2) !important; }
+  .guest-tab.active { color: var(--accent2) !important; }
+  .guest-tab.active::after { background: var(--accent2) !important; }
+
+  /* Guest tier list */
+  .guest-info {
+    background: rgba(4,13,24,0.5);
+    border: 1px solid var(--border);
+    padding: 14px;
+    margin-bottom: 4px;
+  }
+
+  .guest-tier-row { display: flex; flex-direction: column; gap: 8px; }
+
+  .guest-tier-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-family: 'DM Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 1px;
+    color: var(--text);
+  }
+
+  .guest-tier-item.locked { color: var(--dim); opacity: 0.6; }
+
+  .guest-tier-check {
+    width: 16px; height: 16px;
+    border-radius: 50%;
+    background: rgba(0,255,157,0.12);
+    border: 1px solid var(--accent2);
+    color: var(--accent2);
+    font-size: 9px;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+  }
+
+  .guest-tier-lock {
+    width: 16px; height: 16px;
+    border-radius: 50%;
+    background: rgba(255,68,102,0.08);
+    border: 1px solid #ff4466;
+    color: #ff4466;
+    font-size: 9px;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+  }
+
+  /* Upgrade banner */
+  .upgrade-banner {
+    margin-top: 14px;
+    border: 1px solid rgba(0,170,255,0.25);
+    background: rgba(0,170,255,0.04);
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .upgrade-banner-label {
+    font-family: 'DM Mono', monospace;
+    font-size: 9px;
+    letter-spacing: 3px;
+    color: var(--accent);
+    font-weight: 400;
+  }
+
+  .upgrade-banner-sub {
+    font-size: 11px;
+    color: var(--dim);
+    letter-spacing: 0.5px;
+    line-height: 1.4;
+  }
+
+  .upgrade-banner-btn {
+    display: block;
+    margin-top: 6px;
+    text-align: center;
+    background: var(--accent);
+    color: var(--navy);
+    font-family: 'Syncopate', sans-serif;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 2px;
+    padding: 10px;
+    text-decoration: none;
+    transition: opacity 0.2s, box-shadow 0.2s;
+  }
+
+  .upgrade-banner-btn:hover {
+    opacity: 0.85;
+    box-shadow: 0 0 20px rgba(0,170,255,0.3);
+  }
+
+  /* ── Animations ───────────────────────────────────────────────────────── */
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(24px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50%       { opacity: 0.4; transform: scale(0.7); }
+  }
+
+  /* ── HUD corner decorations ───────────────────────────────────────────── */
+  .hud-corner {
+    position: fixed;
+    z-index: 10;
+    pointer-events: none;
+    font-family: 'DM Mono', monospace;
+    font-size: 9px;
+    letter-spacing: 2px;
+    color: var(--dim);
+    opacity: 0.5;
+    animation: fadeUp 2s 0.8s both;
+  }
+
+  #hud-tl { top: 24px; left: 28px; }
+  #hud-tr { top: 24px; right: 28px; text-align: right; }
+  #hud-bl { bottom: 24px; left: 28px; }
+  #hud-br { bottom: 24px; right: 28px; text-align: right; }
+
+  /* ── Responsive ───────────────────────────────────────────────────────── */
+  @media (max-width: 800px) {
+    #layout {
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      gap: 40px;
+      padding: 40px 24px;
+      overflow-y: auto;
+    }
+    #brand { align-items: center; text-align: center; }
+    #brand-line { margin: 20px auto 0; }
+    #brand-stats { align-items: center; }
+    #auth-card { width: 100%; max-width: 360px; }
+  }
+</style>
+</head>
+<body>
+
+<canvas id="globe-canvas"></canvas>
+<div id="scan"></div>
+<div id="vignette"></div>
+
+<!-- HUD corners -->
+<div class="hud-corner" id="hud-tl">ARGUS v3.0<br>SUPPLY CHAIN INTELLIGENCE</div>
+<div class="hud-corner" id="hud-tr" id="hud-clock">--:--:-- ET</div>
+<div class="hud-corner" id="hud-bl">SYS: NOMINAL<br>FEEDS: ACTIVE</div>
+<div class="hud-corner" id="hud-br">ARGUS INTELLIGENCE PLATFORM<br>ANALYST ACCESS</div>
+
+<div id="layout">
+
+  <!-- Left branding -->
+  <div id="brand">
+    <div id="brand-eye">GLOBAL INTELLIGENCE SYSTEM</div>
+    <div id="brand-title">
+      ARGUS
+      <span>WATCH THE WORLD</span>
+    </div>
+    <div id="brand-tagline">Supply Chain · Geopolitical · Energy</div>
+    <div id="brand-line"></div>
+    <div id="brand-stats">
+      <div class="brand-stat">LIVE GDELT EVENT FEED</div>
+      <div class="brand-stat">REAL-TIME ENERGY MARKETS</div>
+      <div class="brand-stat">AI-POWERED QUERY ENGINE</div>
+    </div>
+  </div>
+
+  <!-- Right auth -->
+  <div id="auth-card">
+    <div class="auth-label">ACCESS LEVEL</div>
+    <div class="auth-title">ENTER ARGUS</div>
+
+    <div id="auth-tabs">
+      <button class="auth-tab active" onclick="switchTab('signin')">SIGN IN</button>
+      <button class="auth-tab" onclick="switchTab('register')">REGISTER</button>
+      <button class="auth-tab guest-tab" onclick="switchTab('guest')">GUEST</button>
+    </div>
+
+    <!-- Sign In -->
+    <div id="form-signin" class="auth-form active">
+      <div class="field-group">
+        <div class="field-label">EMAIL ADDRESS</div>
+        <input class="field-input" type="email" id="signin-email" placeholder="analyst@domain.com" autocomplete="email" />
+      </div>
+      <div class="field-group">
+        <div class="field-label">PASSWORD</div>
+        <input class="field-input" type="password" id="signin-password" placeholder="••••••••••••" autocomplete="current-password"
+          onkeydown="if(event.key==='Enter') handleSignIn()" />
+      </div>
+      <button class="auth-btn" onclick="handleSignIn()"><span>AUTHENTICATE →</span></button>
+    </div>
+
+    <!-- Register -->
+    <div id="form-register" class="auth-form">
+      <div class="field-group">
+        <div class="field-label">EMAIL ADDRESS</div>
+        <input class="field-input" type="email" id="reg-email" placeholder="analyst@domain.com" autocomplete="email" />
+      </div>
+      <div class="field-group">
+        <div class="field-label">PASSWORD</div>
+        <input class="field-input" type="password" id="reg-password" placeholder="Min. 8 characters" autocomplete="new-password" />
+      </div>
+      <div class="field-group">
+        <div class="field-label">CONFIRM PASSWORD</div>
+        <input class="field-input" type="password" id="reg-confirm" placeholder="Confirm password" autocomplete="new-password"
+          onkeydown="if(event.key==='Enter') handleRegister()" />
+      </div>
+      <button class="auth-btn" onclick="handleRegister()"><span>CREATE ACCOUNT →</span></button>
+    </div>
+
+    <!-- Guest -->
+    <div id="form-guest" class="auth-form">
+      <div class="guest-info">
+        <div class="guest-tier-row">
+          <div class="guest-tier-item">
+            <div class="guest-tier-check">✓</div>
+            <div>Globe &amp; live event feeds</div>
+          </div>
+          <div class="guest-tier-item">
+            <div class="guest-tier-check">✓</div>
+            <div>Energy &amp; market data</div>
+          </div>
+          <div class="guest-tier-item">
+            <div class="guest-tier-check">✓</div>
+            <div>Geopolitical risk markers</div>
+          </div>
+          <div class="guest-tier-item locked">
+            <div class="guest-tier-lock">✕</div>
+            <div>AI intelligence query engine</div>
+          </div>
+        </div>
+      </div>
+      <div class="field-group">
+        <div class="field-label">YOUR EMAIL <span style="font-size:8px;color:#1a4a70;letter-spacing:1px;">(OPTIONAL — FOR UPDATES)</span></div>
+        <input class="field-input" type="email" id="guest-email" placeholder="you@domain.com" autocomplete="email"
+          onkeydown="if(event.key==='Enter') handleGuest()" />
+      </div>
+      <button class="auth-btn" onclick="handleGuest()"><span>CONTINUE AS GUEST →</span></button>
+      <div class="upgrade-banner">
+        <div class="upgrade-banner-label">UNLOCK AI QUERY ENGINE</div>
+        <div class="upgrade-banner-sub">Ask questions across live geopolitical, energy &amp; supply chain data</div>
+        <a href="YOUR-STRIPE-LINK" class="upgrade-banner-btn" target="_blank">UPGRADE TO PRO →</a>
+      </div>
+    </div>
+
+    <div id="auth-message"></div>
+
+    <div class="auth-footer">
+      ARGUS is a global supply chain intelligence platform.<br>
+      Sign in or create an account to get started.
+    </div>
+  </div>
+
+</div>
+
+<!-- Three.js globe -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+// ── Supabase config — replace with your values ──────────────────────────────
+var SUPABASE_URL    = 'https://wbvzlxtroewxrmonxodx.supabase.co';
+var SUPABASE_ANON   = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndidnpseHRyb2V3eHJtb254b2R4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM3OTQzNzMsImV4cCI6MjA4OTM3MDM3M30.0zp-wQ3wKpYc0f7LqFCOEea_d9HJuWnUSWgF4BAW82w';
+
+// ── Handle email confirmation redirect ──────────────────────────────────────
+(function handleAuthCallback() {
+  var hash = window.location.hash;
+  if (!hash) return;
+  var params = {};
+  hash.replace('#', '').split('&').forEach(function(p) {
+    var kv = p.split('=');
+    params[decodeURIComponent(kv[0])] = decodeURIComponent(kv[1] || '');
+  });
+  if (params.error) {
+    showMessage('EMAIL LINK EXPIRED. PLEASE SIGN IN BELOW.', true);
+    return;
+  }
+  if (params.access_token) {
+    // Valid email confirmation — build session object and redirect
+    var session = {
+      access_token:  params.access_token,
+      refresh_token: params.refresh_token,
+      user: { id: '', email: '' }
+    };
+    // Fetch user info with the token
+    fetch(SUPABASE_URL + '/auth/v1/user', {
+      headers: { 'apikey': SUPABASE_ANON, 'Authorization': 'Bearer ' + params.access_token }
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(u) {
+      session.user = u;
+      localStorage.setItem('argus_session', JSON.stringify(session));
+      showMessage('EMAIL CONFIRMED — LAUNCHING ARGUS...', false);
+      setTimeout(function() { window.location.href = 'index.html'; }, 1200);
+    })
+    .catch(function() {
+      localStorage.setItem('argus_session', JSON.stringify(session));
+      window.location.href = 'index.html';
+    });
+  }
+})();
+
+// ── Tab switching ────────────────────────────────────────────────────────────
+function switchTab(tab) {
+  var tabs = ['signin', 'register', 'guest'];
+  document.querySelectorAll('.auth-tab').forEach(function(t, i) {
+    t.classList.toggle('active', tabs[i] === tab);
+  });
+  tabs.forEach(function(t) {
+    var f = document.getElementById('form-' + t);
+    if (f) f.classList.toggle('active', t === tab);
+  });
+  hideMessage();
+}
+
+// ── Message helpers ──────────────────────────────────────────────────────────
+function showMessage(text, isError) {
+  var el = document.getElementById('auth-message');
+  el.textContent = text;
+  el.className = 'auth-message visible' + (isError ? ' error' : '');
+  el.style.display = 'block';
+}
+
+function hideMessage() {
+  var el = document.getElementById('auth-message');
+  el.style.display = 'none';
+  el.className = 'auth-message';
+}
+
+// ── Auth calls ───────────────────────────────────────────────────────────────
+async function supabaseAuth(endpoint, payload) {
+  var res = await fetch(SUPABASE_URL + '/auth/v1/' + endpoint, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'apikey': SUPABASE_ANON,
+    },
+    body: JSON.stringify(payload)
+  });
+  return res.json();
+}
+
+async function handleSignIn() {
+  var email    = document.getElementById('signin-email').value.trim();
+  var password = document.getElementById('signin-password').value;
+  if (!email || !password) { showMessage('EMAIL AND PASSWORD REQUIRED', true); return; }
+
+  var btn = document.querySelector('#form-signin .auth-btn');
+  btn.classList.add('loading');
+  btn.querySelector('span').textContent = 'AUTHENTICATING...';
+  hideMessage();
+
+  try {
+    var data = await supabaseAuth('token?grant_type=password', { email: email, password: password });
+    if (data.error) throw new Error(data.error_description || data.error);
+    showMessage('ACCESS GRANTED — REDIRECTING TO ARGUS...', false);
+    // Store session
+    localStorage.setItem('argus_session', JSON.stringify(data));
+    setTimeout(function() { window.location.href = 'index.html'; }, 1200);
+  } catch(err) {
+    showMessage('ACCESS DENIED: ' + err.message.toUpperCase(), true);
+    btn.classList.remove('loading');
+    btn.querySelector('span').textContent = 'AUTHENTICATE →';
+  }
+}
+
+async function handleRegister() {
+  var email    = document.getElementById('reg-email').value.trim();
+  var password = document.getElementById('reg-password').value;
+  var confirm  = document.getElementById('reg-confirm').value;
+  if (!email || !password) { showMessage('ALL FIELDS REQUIRED', true); return; }
+  if (password !== confirm) { showMessage('PASSWORDS DO NOT MATCH', true); return; }
+  if (password.length < 8)  { showMessage('PASSWORD MIN 8 CHARACTERS', true); return; }
+
+  var btn = document.querySelector('#form-register .auth-btn');
+  btn.classList.add('loading');
+  btn.querySelector('span').textContent = 'CREATING ACCOUNT...';
+  hideMessage();
+
+  try {
+    var data = await supabaseAuth('signup', { email: email, password: password, options: { emailRedirectTo: 'https://ahurley12.github.io/Argus/login.html' } });
+    if (data.error) throw new Error(data.error_description || data.error);
+    showMessage('ACCOUNT CREATED. CHECK YOUR EMAIL TO CONFIRM ACCESS.', false);
+    btn.classList.remove('loading');
+    btn.querySelector('span').textContent = 'CREATE ACCOUNT →';
+  } catch(err) {
+    showMessage('REGISTRATION FAILED: ' + err.message.toUpperCase(), true);
+    btn.classList.remove('loading');
+    btn.querySelector('span').textContent = 'CREATE ACCOUNT →';
+  }
+}
+
+// ── Guest access ─────────────────────────────────────────────────────────────
+function handleGuest() {
+  var email = (document.getElementById('guest-email').value || '').trim();
+  // Store minimal guest session — tier = 'viewer', no token
+  var session = {
+    access_token: null,
+    user: { id: 'guest', email: email || null },
+    tier: 'viewer',
+    is_guest: true
+  };
+  localStorage.setItem('argus_session', JSON.stringify(session));
+  showMessage('ENTERING ARGUS AS GUEST...', false);
+  setTimeout(function() { window.location.href = 'index.html'; }, 900);
+}
+
+// ── Clock ─────────────────────────────────────────────────────────────────────
+(function() {
+  var tz   = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  var abbr = new Date().toLocaleTimeString('en-US', { timeZone: tz, timeZoneName: 'short' }).split(' ').pop();
+  var el   = document.getElementById('hud-tr');
+  setInterval(function() {
+    var t = new Date().toLocaleTimeString('en-US', { timeZone: tz, hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+    el.textContent = t + ' ' + abbr;
+  }, 1000);
+})();
+
+// ── Three.js Globe ───────────────────────────────────────────────────────────
+(function() {
+  var canvas   = document.getElementById('globe-canvas');
+  var renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true, alpha: true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.setClearColor(0x000000, 0);
+
+  var scene  = new THREE.Scene();
+  var camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+  camera.position.set(0, 0, 2.8);
+
+  // Globe sphere
+  var geo  = new THREE.SphereGeometry(1, 64, 64);
+  var mat  = new THREE.MeshPhongMaterial({
+    color:       0x061525,
+    emissive:    0x020810,
+    specular:    0x0a3060,
+    shininess:   40,
+    transparent: true,
+    opacity:     0.92,
+    wireframe:   false,
+  });
+  var globe = new THREE.Mesh(geo, mat);
+  scene.add(globe);
+
+  // Wireframe overlay
+  var wireMat  = new THREE.MeshBasicMaterial({ color: 0x0a2a4a, wireframe: true, transparent: true, opacity: 0.18 });
+  var wireGeo  = new THREE.SphereGeometry(1.001, 32, 32);
+  var wireframe = new THREE.Mesh(wireGeo, wireMat);
+  scene.add(wireframe);
+
+  // Atmosphere glow
+  var atmGeo = new THREE.SphereGeometry(1.08, 64, 64);
+  var atmMat = new THREE.MeshBasicMaterial({
+    color: 0x0055aa,
+    transparent: true,
+    opacity: 0.07,
+    side: THREE.BackSide,
+  });
+  scene.add(new THREE.Mesh(atmGeo, atmMat));
+
+  // Outer glow ring
+  var ringGeo = new THREE.SphereGeometry(1.14, 64, 64);
+  var ringMat = new THREE.MeshBasicMaterial({
+    color: 0x0099ff,
+    transparent: true,
+    opacity: 0.03,
+    side: THREE.BackSide,
+  });
+  scene.add(new THREE.Mesh(ringGeo, ringMat));
+
+  // Random dots for cities/events
+  var dotGroup = new THREE.Group();
+  for (var i = 0; i < 120; i++) {
+    var phi   = Math.acos(-1 + (2 * i) / 120);
+    var theta = Math.sqrt(120 * Math.PI) * phi;
+    var x = Math.sin(phi) * Math.cos(theta);
+    var y = Math.cos(phi);
+    var z = Math.sin(phi) * Math.sin(theta);
+    var dotGeo = new THREE.SphereGeometry(0.004, 4, 4);
+    var col    = Math.random() > 0.85 ? 0x00aaff : (Math.random() > 0.7 ? 0x00ff9d : 0x0a3060);
+    var dotMat = new THREE.MeshBasicMaterial({ color: col });
+    var dot    = new THREE.Mesh(dotGeo, dotMat);
+    dot.position.set(x, y, z);
+    dotGroup.add(dot);
+  }
+  scene.add(dotGroup);
+
+  // Lights
+  scene.add(new THREE.AmbientLight(0x112233, 2));
+  var dirLight = new THREE.DirectionalLight(0x4488bb, 1.5);
+  dirLight.position.set(5, 3, 5);
+  scene.add(dirLight);
+  var rimLight = new THREE.DirectionalLight(0x0044aa, 0.8);
+  rimLight.position.set(-5, -2, -3);
+  scene.add(rimLight);
+
+  // Resize
+  window.addEventListener('resize', function() {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+  });
+
+  // Animate
+  var t = 0;
+  (function animate() {
+    requestAnimationFrame(animate);
+    t += 0.0008;
+    globe.rotation.y     = t;
+    wireframe.rotation.y = t;
+    dotGroup.rotation.y  = t;
+    // Subtle tilt oscillation
+    globe.rotation.x     = Math.sin(t * 0.3) * 0.05;
+    wireframe.rotation.x = globe.rotation.x;
+    dotGroup.rotation.x  = globe.rotation.x;
+    renderer.render(scene, camera);
+  })();
+})();
+</script>
+</body>
+</html>

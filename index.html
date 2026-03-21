@@ -3462,10 +3462,52 @@ window.ArgusUI = (function() {
   var aiOpen = false;
 
   function toggleAI() {
+    // Tier gate — viewers see upgrade prompt instead of AI panel
+    var tier = window.ArgusSession ? window.ArgusSession.tier : 'viewer';
+    if (tier !== 'pro') {
+      showUpgradePrompt();
+      return;
+    }
     aiOpen = !aiOpen;
     document.getElementById('panel-ai').classList.toggle('is-open', aiOpen);
     document.getElementById('panel-ai').setAttribute('aria-hidden', String(!aiOpen));
     document.getElementById('btn-ai-query').classList.toggle('is-active', aiOpen);
+  }
+
+  function showUpgradePrompt() {
+    var existing = document.getElementById('upgrade-modal');
+    if (existing) { existing.classList.add('is-open'); return; }
+    var modal = document.createElement('div');
+    modal.id = 'upgrade-modal';
+    modal.style.cssText = [
+      'position:fixed','inset:0','z-index:999',
+      'display:flex','align-items:center','justify-content:center',
+      'background:rgba(4,13,24,0.85)','backdrop-filter:blur(8px)',
+    ].join(';');
+    modal.innerHTML = [
+      '<div style="width:340px;background:#071525;border:1px solid #0f2d48;padding:32px;position:relative;font-family:\'Barlow Condensed\',sans-serif;">',
+        '<div style="position:absolute;top:0;left:0;width:32px;height:32px;border-top:2px solid #0af;border-left:2px solid #0af;"></div>',
+        '<div style="font-size:9px;letter-spacing:4px;color:#0af;margin-bottom:8px;">ARGUS PRO</div>',
+        '<div style="font-size:20px;font-weight:700;color:#f0f8ff;letter-spacing:1px;margin-bottom:12px;">AI QUERY ENGINE</div>',
+        '<div style="font-size:13px;color:#3a6a8a;line-height:1.6;margin-bottom:20px;">',
+          'The AI intelligence query engine is available to Pro analysts. ',
+          'Upgrade to ask questions across live geopolitical, energy, and supply chain data.',
+        '</div>',
+        '<div style="display:flex;flex-direction:column;gap:10px;">',
+          '<button onclick="document.getElementById(\'upgrade-modal\').classList.remove(\'is-open\');document.getElementById(\'upgrade-modal\').style.display=\'none\'" ',
+            'style="background:transparent;border:1px solid #0af;color:#0af;padding:12px;font-family:\'Barlow Condensed\',sans-serif;font-size:12px;letter-spacing:3px;cursor:pointer;">',
+            'UPGRADE TO PRO →',
+          '</button>',
+          '<button onclick="document.getElementById(\'upgrade-modal\').style.display=\'none\'" ',
+            'style="background:transparent;border:1px solid #0f2d48;color:#3a6a8a;padding:10px;font-family:\'Barlow Condensed\',sans-serif;font-size:11px;letter-spacing:2px;cursor:pointer;">',
+            'CONTINUE AS VIEWER',
+          '</button>',
+        '</div>',
+      '</div>',
+    ].join('');
+    modal.classList.add('is-open');
+    document.body.appendChild(modal);
+    modal.addEventListener('click', function(e) { if (e.target === modal) modal.style.display = 'none'; });
   }
 
   function setSuggestion(el) {
@@ -3758,9 +3800,12 @@ window.ArgusAI = (function() {
       if (content && !m.querySelector('.argus-thinking')) history.push({ role: role, content: content });
     });
     try {
-      var res = await fetch(PP('https://api.anthropic.com/v1/messages'), {
+      var res = await fetch('https://wbvzlxtroewxrmonxodx.supabase.co/functions/v1/ai-proxy', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndidnpseHRyb2V3eHJtb254b2R4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM3OTQzNzMsImV4cCI6MjA4OTM3MDM3M30.0zp-wQ3wKpYc0f7LqFCOEea_d9HJuWnUSWgF4BAW82w'
+        },
         body: JSON.stringify({ model: 'claude-sonnet-4-20250514', max_tokens: 1000, system: sys, messages: history.concat([{ role: 'user', content: q }]) })
       });
       if (!res.ok) throw new Error('API ' + res.status);
@@ -4935,5 +4980,90 @@ return { getCountryData: getCountryData, getDisasters: getDisasters, init: init 
     <div class="exchanges-popup__footer">DATA · ALPHA VANTAGE · ETF PROXIES · CLICK ROW FOR 30-DAY CHART</div>
   </div>
 
+
+<!-- ── ARGUS Auth Session Bootstrap ─────────────────────────────────────── -->
+<script>
+(function() {
+  var SUPABASE_URL  = 'https://wbvzlxtroewxrmonxodx.supabase.co';
+  var SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndidnpseHRyb2V3eHJtb254b2R4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM3OTQzNzMsImV4cCI6MjA4OTM3MDM3M30.0zp-wQ3wKpYc0f7LqFCOEea_d9HJuWnUSWgF4BAW82w';
+
+  window.ArgusSession = { tier: 'viewer', email: null, token: null };
+
+  async function initSession() {
+    // Check for stored session
+    var stored = null;
+    try { stored = JSON.parse(localStorage.getItem('argus_session')); } catch(e) {}
+    if (!stored || !stored.access_token) return;
+
+    window.ArgusSession.token = stored.access_token;
+    window.ArgusSession.email = stored.user && stored.user.email;
+
+    // Fetch tier from profiles table
+    try {
+      var res = await fetch(SUPABASE_URL + '/rest/v1/profiles?select=tier&id=eq.' + stored.user.id, {
+        headers: {
+          'apikey': SUPABASE_ANON,
+          'Authorization': 'Bearer ' + stored.access_token,
+        }
+      });
+      var data = await res.json();
+      if (data && data[0] && data[0].tier) {
+        window.ArgusSession.tier = data[0].tier;
+      }
+    } catch(e) { console.warn('ARGUS: could not fetch tier', e); }
+
+    // Update last_seen
+    try {
+      await fetch(SUPABASE_URL + '/rest/v1/profiles?id=eq.' + stored.user.id, {
+        method: 'PATCH',
+        headers: {
+          'apikey': SUPABASE_ANON,
+          'Authorization': 'Bearer ' + stored.access_token,
+          'Content-Type': 'application/json',
+          'Prefer': 'return=minimal',
+        },
+        body: JSON.stringify({ last_seen: new Date().toISOString() })
+      });
+    } catch(e) {}
+
+    renderSessionUI();
+  }
+
+  function renderSessionUI() {
+    var tier  = window.ArgusSession.tier;
+    var email = window.ArgusSession.email;
+
+    // PRO badge next to AI QUERY button
+    var btn = document.getElementById('btn-ai-query');
+    if (btn && tier === 'pro') {
+      btn.innerHTML = '◈ AI QUERY <span style="font-size:9px;letter-spacing:2px;background:#0af;color:#040d18;padding:2px 6px;margin-left:6px;font-weight:700;">PRO</span>';
+    }
+
+    // User indicator in header
+    if (email) {
+      var header = document.querySelector('#header > div:last-child');
+      if (header) {
+        var userEl = document.createElement('div');
+        userEl.style.cssText = 'font-family:\'DM Mono\',monospace;font-size:9px;letter-spacing:2px;color:#3a6a8a;display:flex;align-items:center;gap:8px;';
+        userEl.innerHTML = [
+          '<span style="width:6px;height:6px;border-radius:50%;background:' + (tier === 'pro' ? '#0af' : '#00ff9d') + ';display:inline-block;"></span>',
+          '<span>' + email.split('@')[0].toUpperCase() + '</span>',
+          '<button onclick="ArgusAuth.signOut()" style="background:none;border:1px solid #0f2d48;color:#3a6a8a;font-family:inherit;font-size:8px;letter-spacing:2px;padding:2px 7px;cursor:pointer;">OUT</button>'
+        ].join('');
+        header.insertBefore(userEl, header.firstChild);
+      }
+    }
+  }
+
+  window.ArgusAuth = {
+    signOut: function() {
+      localStorage.removeItem('argus_session');
+      window.location.href = 'login.html';
+    }
+  };
+
+  initSession();
+})();
+</script>
 </body>
 </html>

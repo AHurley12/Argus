@@ -530,9 +530,9 @@
     <div class="auth-title">ENTER ARGUS</div>
 
     <div id="auth-tabs">
-      <button class="auth-tab active" onclick="switchTab('signin')">SIGN IN</button>
-      <button class="auth-tab" onclick="switchTab('register')">REGISTER</button>
-      <button class="auth-tab guest-tab" onclick="switchTab('guest')">GUEST</button>
+      <button class="auth-tab active" data-tab="signin" onclick="switchTab('signin')">SIGN IN</button>
+      <button class="auth-tab" data-tab="register" onclick="switchTab('register')">REGISTER</button>
+      <button class="auth-tab guest-tab" data-tab="guest" onclick="switchTab('guest')">GUEST</button>
     </div>
 
     <!-- Sign In -->
@@ -547,6 +547,9 @@
           onkeydown="if(event.key==='Enter') handleSignIn()" />
       </div>
       <button class="auth-btn" onclick="handleSignIn()"><span>AUTHENTICATE →</span></button>
+      <div style="text-align:center;margin-top:12px;">
+        <button onclick="switchTab('guest')" style="background:none;border:none;color:var(--dim);font-family:'DM Mono',monospace;font-size:9px;letter-spacing:2px;cursor:pointer;text-decoration:underline;text-underline-offset:3px;">CONTINUE AS GUEST →</button>
+      </div>
     </div>
 
     <!-- Register -->
@@ -565,6 +568,9 @@
           onkeydown="if(event.key==='Enter') handleRegister()" />
       </div>
       <button class="auth-btn" onclick="handleRegister()"><span>CREATE ACCOUNT →</span></button>
+      <div style="text-align:center;margin-top:12px;">
+        <button onclick="switchTab('guest')" style="background:none;border:none;color:var(--dim);font-family:'DM Mono',monospace;font-size:9px;letter-spacing:2px;cursor:pointer;text-decoration:underline;text-underline-offset:3px;">CONTINUE AS GUEST →</button>
+      </div>
     </div>
 
     <!-- Guest -->
@@ -615,153 +621,172 @@
 <!-- Three.js globe -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
-// ── Supabase config — replace with your values ──────────────────────────────
-var SUPABASE_URL    = 'https://wbvzlxtroewxrmonxodx.supabase.co';
-var SUPABASE_ANON   = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndidnpseHRyb2V3eHJtb254b2R4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM3OTQzNzMsImV4cCI6MjA4OTM3MDM3M30.0zp-wQ3wKpYc0f7LqFCOEea_d9HJuWnUSWgF4BAW82w';
+var SUPABASE_URL  = 'https://wbvzlxtroewxrmonxodx.supabase.co';
+var SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndidnpseHRyb2V3eHJtb254b2R4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM3OTQzNzMsImV4cCI6MjA4OTM3MDM3M30.0zp-wQ3wKpYc0f7LqFCOEea_d9HJuWnUSWgF4BAW82w';
 
-// ── Handle email confirmation redirect ──────────────────────────────────────
-(function handleAuthCallback() {
-  var hash = window.location.hash;
-  if (!hash) return;
-  var params = {};
-  hash.replace('#', '').split('&').forEach(function(p) {
-    var kv = p.split('=');
-    params[decodeURIComponent(kv[0])] = decodeURIComponent(kv[1] || '');
-  });
-  if (params.error) {
-    showMessage('EMAIL LINK EXPIRED. PLEASE SIGN IN BELOW.', true);
-    return;
-  }
-  if (params.access_token) {
-    // Valid email confirmation — build session object and redirect
-    var session = {
-      access_token:  params.access_token,
-      refresh_token: params.refresh_token,
-      user: { id: '', email: '' }
-    };
-    // Fetch user info with the token
-    fetch(SUPABASE_URL + '/auth/v1/user', {
-      headers: { 'apikey': SUPABASE_ANON, 'Authorization': 'Bearer ' + params.access_token }
-    })
-    .then(function(r) { return r.json(); })
-    .then(function(u) {
-      session.user = u;
-      localStorage.setItem('argus_session', JSON.stringify(session));
-      showMessage('EMAIL CONFIRMED — LAUNCHING ARGUS...', false);
-      setTimeout(function() { window.location.href = 'index.html'; }, 1200);
-    })
-    .catch(function() {
-      localStorage.setItem('argus_session', JSON.stringify(session));
-      window.location.href = 'index.html';
-    });
-  }
-})();
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function showMessage(text, isError) {
+  var el = document.getElementById('auth-message');
+  el.textContent = text;
+  el.style.display = 'block';
+  el.style.borderLeftColor = isError ? '#ff4466' : '#00ff9d';
+  el.style.background      = isError ? 'rgba(255,68,102,0.05)' : 'rgba(0,255,157,0.05)';
+  el.style.color            = isError ? '#ff4466' : '#00ff9d';
+}
 
-// ── Tab switching ────────────────────────────────────────────────────────────
+function hideMessage() {
+  document.getElementById('auth-message').style.display = 'none';
+}
+
+function setBtn(selector, text, disabled) {
+  var btn = document.querySelector(selector + ' .auth-btn');
+  if (!btn) return;
+  btn.querySelector('span').textContent = text;
+  btn.classList.toggle('loading', disabled);
+}
+
+function goToArgus(sessionObj) {
+  localStorage.setItem('argus_session', JSON.stringify(sessionObj));
+  showMessage('ACCESS GRANTED — LAUNCHING ARGUS...', false);
+  setTimeout(function() { window.location.href = 'index.html'; }, 1000);
+}
+
+// ── Tab switching ─────────────────────────────────────────────────────────────
 function switchTab(tab) {
-  var tabs = ['signin', 'register', 'guest'];
-  document.querySelectorAll('.auth-tab').forEach(function(t, i) {
-    t.classList.toggle('active', tabs[i] === tab);
-  });
-  tabs.forEach(function(t) {
-    var f = document.getElementById('form-' + t);
-    if (f) f.classList.toggle('active', t === tab);
+  ['signin','register','guest'].forEach(function(t) {
+    var btn = document.querySelector('[data-tab="' + t + '"]');
+    var frm = document.getElementById('form-' + t);
+    if (btn) btn.classList.toggle('active', t === tab);
+    if (frm) frm.classList.toggle('active', t === tab);
   });
   hideMessage();
 }
 
-// ── Message helpers ──────────────────────────────────────────────────────────
-function showMessage(text, isError) {
-  var el = document.getElementById('auth-message');
-  el.textContent = text;
-  el.className = 'auth-message visible' + (isError ? ' error' : '');
-  el.style.display = 'block';
-}
-
-function hideMessage() {
-  var el = document.getElementById('auth-message');
-  el.style.display = 'none';
-  el.className = 'auth-message';
-}
-
-// ── Auth calls ───────────────────────────────────────────────────────────────
-async function supabaseAuth(endpoint, payload) {
-  var res = await fetch(SUPABASE_URL + '/auth/v1/' + endpoint, {
+// ── Supabase REST helper ──────────────────────────────────────────────────────
+async function supabasePost(path, body) {
+  var res = await fetch(SUPABASE_URL + path, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'apikey': SUPABASE_ANON,
-    },
-    body: JSON.stringify(payload)
+    headers: { 'Content-Type': 'application/json', 'apikey': SUPABASE_ANON },
+    body: JSON.stringify(body)
   });
   return res.json();
 }
 
+// ── Sign In ───────────────────────────────────────────────────────────────────
 async function handleSignIn() {
   var email    = document.getElementById('signin-email').value.trim();
   var password = document.getElementById('signin-password').value;
   if (!email || !password) { showMessage('EMAIL AND PASSWORD REQUIRED', true); return; }
-
-  var btn = document.querySelector('#form-signin .auth-btn');
-  btn.classList.add('loading');
-  btn.querySelector('span').textContent = 'AUTHENTICATING...';
+  setBtn('#form-signin', 'AUTHENTICATING...', true);
   hideMessage();
-
   try {
-    var data = await supabaseAuth('token?grant_type=password', { email: email, password: password });
+    var data = await supabasePost('/auth/v1/token?grant_type=password', { email: email, password: password });
     if (data.error) throw new Error(data.error_description || data.error);
-    showMessage('ACCESS GRANTED — REDIRECTING TO ARGUS...', false);
-    // Store session
-    localStorage.setItem('argus_session', JSON.stringify(data));
-    setTimeout(function() { window.location.href = 'index.html'; }, 1200);
-  } catch(err) {
-    showMessage('ACCESS DENIED: ' + err.message.toUpperCase(), true);
-    btn.classList.remove('loading');
-    btn.querySelector('span').textContent = 'AUTHENTICATE →';
+    goToArgus(data);
+  } catch(e) {
+    showMessage('SIGN IN FAILED: ' + e.message.toUpperCase(), true);
+    setBtn('#form-signin', 'AUTHENTICATE →', false);
   }
 }
 
+// ── Register ──────────────────────────────────────────────────────────────────
 async function handleRegister() {
-  var email    = document.getElementById('reg-email').value.trim();
-  var password = document.getElementById('reg-password').value;
-  var confirm  = document.getElementById('reg-confirm').value;
-  if (!email || !password) { showMessage('ALL FIELDS REQUIRED', true); return; }
-  if (password !== confirm) { showMessage('PASSWORDS DO NOT MATCH', true); return; }
-  if (password.length < 8)  { showMessage('PASSWORD MIN 8 CHARACTERS', true); return; }
-
-  var btn = document.querySelector('#form-register .auth-btn');
-  btn.classList.add('loading');
-  btn.querySelector('span').textContent = 'CREATING ACCOUNT...';
+  var email   = document.getElementById('reg-email').value.trim();
+  var pass    = document.getElementById('reg-password').value;
+  var confirm = document.getElementById('reg-confirm').value;
+  if (!email || !pass)    { showMessage('ALL FIELDS REQUIRED', true); return; }
+  if (pass !== confirm)   { showMessage('PASSWORDS DO NOT MATCH', true); return; }
+  if (pass.length < 8)    { showMessage('PASSWORD MIN 8 CHARACTERS', true); return; }
+  setBtn('#form-register', 'CREATING ACCOUNT...', true);
   hideMessage();
-
   try {
-    var data = await supabaseAuth('signup', { email: email, password: password, options: { emailRedirectTo: 'https://ahurley12.github.io/Argus/login.html' } });
+    var data = await supabasePost('/auth/v1/signup', {
+      email: email, password: pass,
+      options: { emailRedirectTo: 'https://ahurley12.github.io/Argus/login.html' }
+    });
     if (data.error) throw new Error(data.error_description || data.error);
-    showMessage('ACCOUNT CREATED. CHECK YOUR EMAIL TO CONFIRM ACCESS.', false);
-    btn.classList.remove('loading');
-    btn.querySelector('span').textContent = 'CREATE ACCOUNT →';
-  } catch(err) {
-    showMessage('REGISTRATION FAILED: ' + err.message.toUpperCase(), true);
-    btn.classList.remove('loading');
-    btn.querySelector('span').textContent = 'CREATE ACCOUNT →';
+    showMessage('CHECK YOUR EMAIL — CLICK THE CONFIRMATION LINK TO ACTIVATE YOUR ACCOUNT.', false);
+    setBtn('#form-register', 'CREATE ACCOUNT →', false);
+  } catch(e) {
+    showMessage('REGISTRATION FAILED: ' + e.message.toUpperCase(), true);
+    setBtn('#form-register', 'CREATE ACCOUNT →', false);
   }
 }
 
-// ── Guest access ─────────────────────────────────────────────────────────────
+// ── Guest ─────────────────────────────────────────────────────────────────────
 function handleGuest() {
   var email = (document.getElementById('guest-email').value || '').trim();
-  // Store minimal guest session — tier = 'viewer', no token
-  var session = {
-    access_token: null,
-    user: { id: 'guest', email: email || null },
-    tier: 'viewer',
-    is_guest: true
-  };
-  localStorage.setItem('argus_session', JSON.stringify(session));
-  showMessage('ENTERING ARGUS AS GUEST...', false);
-  setTimeout(function() { window.location.href = 'index.html'; }, 900);
+  goToArgus({ access_token: null, user: { id: 'guest', email: email || null }, tier: 'viewer', is_guest: true });
 }
 
+// ── Email confirmation callback ───────────────────────────────────────────────
+// Runs after DOM ready — handles both hash fragment (#access_token=) and
+// query param (?code=) flows that Supabase uses depending on project settings.
+window.addEventListener('DOMContentLoaded', function() {
+
+  // Parse hash params (implicit flow — most common for GitHub Pages)
+  var hashParams = {};
+  if (window.location.hash) {
+    window.location.hash.replace('#','').split('&').forEach(function(p) {
+      var kv = p.split('='); hashParams[decodeURIComponent(kv[0])] = decodeURIComponent(kv[1] || '');
+    });
+  }
+
+  // Parse query params (PKCE flow)
+  var queryParams = {};
+  if (window.location.search) {
+    window.location.search.replace('?','').split('&').forEach(function(p) {
+      var kv = p.split('='); queryParams[decodeURIComponent(kv[0])] = decodeURIComponent(kv[1] || '');
+    });
+  }
+
+  // Error in either flow
+  if (hashParams.error || queryParams.error) {
+    var msg = hashParams.error_description || queryParams.error_description || 'LINK EXPIRED';
+    showMessage(msg.toUpperCase() + ' — PLEASE SIGN IN OR REGISTER AGAIN.', true);
+    // Clean URL
+    history.replaceState(null, '', window.location.pathname);
+    return;
+  }
+
+  // Implicit flow — access_token in hash
+  if (hashParams.access_token) {
+    showMessage('VERIFYING EMAIL...', false);
+    fetch(SUPABASE_URL + '/auth/v1/user', {
+      headers: { 'apikey': SUPABASE_ANON, 'Authorization': 'Bearer ' + hashParams.access_token }
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(user) {
+      goToArgus({ access_token: hashParams.access_token, refresh_token: hashParams.refresh_token, user: user });
+    })
+    .catch(function() {
+      goToArgus({ access_token: hashParams.access_token, refresh_token: hashParams.refresh_token, user: {} });
+    });
+    history.replaceState(null, '', window.location.pathname);
+    return;
+  }
+
+  // PKCE flow — exchange code for session
+  if (queryParams.code) {
+    showMessage('VERIFYING EMAIL...', false);
+    fetch(SUPABASE_URL + '/auth/v1/token?grant_type=pkce', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'apikey': SUPABASE_ANON },
+      body: JSON.stringify({ auth_code: queryParams.code })
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data.error) throw new Error(data.error);
+      goToArgus(data);
+    })
+    .catch(function(e) {
+      showMessage('VERIFICATION FAILED: ' + e.message.toUpperCase() + ' — PLEASE SIGN IN.', true);
+    });
+    history.replaceState(null, '', window.location.pathname);
+  }
+});
+</script>
+<script>
 // ── Clock ─────────────────────────────────────────────────────────────────────
 (function() {
   var tz   = Intl.DateTimeFormat().resolvedOptions().timeZone;

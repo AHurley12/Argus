@@ -3758,7 +3758,7 @@ window.ArgusAI = (function() {
       if (content && !m.querySelector('.argus-thinking')) history.push({ role: role, content: content });
     });
     try {
-      var res = await fetch('https://YOUR-PROJECT-REF.supabase.co/functions/v1/ai-proxy', {
+      var res = await fetch('https://wbvzlxtroewxrmonxodx.supabase.co/functions/v1/ai-proxy', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ model: 'claude-sonnet-4-20250514', max_tokens: 1000, system: sys, messages: history.concat([{ role: 'user', content: q }]) })

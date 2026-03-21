@@ -17,6 +17,7 @@ serve(async (req) => {
     finnhub:  Deno.env.get('FH_KEY'),
     newsdata: Deno.env.get('NEWSDATA_KEY'),
     av:       Deno.env.get('AV_KEY'),
+    polygon:  Deno.env.get('PG_KEY'),
   }
   const key = keys[source]
   if (!key) return new Response('Unknown source', { status: 400 })

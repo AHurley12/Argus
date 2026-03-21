@@ -3477,6 +3477,11 @@ window.ArgusUI = (function() {
     panel.classList.remove('is-visible');
     panel.setAttribute('aria-hidden', 'true');
     document.getElementById('hint').style.display = 'block';
+    // Restore legends
+    var kbdLegend   = document.getElementById('kbd-legend');
+    var panelLegend = document.getElementById('panel-legend');
+    if (kbdLegend)   kbdLegend.style.visibility   = '';
+    if (panelLegend) panelLegend.style.visibility  = '';
   }
 
   function openDetail(col) {
@@ -3485,6 +3490,11 @@ window.ArgusUI = (function() {
     panel.classList.add('is-visible');
     panel.setAttribute('aria-hidden', 'false');
     document.getElementById('hint').style.display = 'none';
+    // Suppress legends so detail panel is never obscured
+    var kbdLegend   = document.getElementById('kbd-legend');
+    var panelLegend = document.getElementById('panel-legend');
+    if (kbdLegend)   kbdLegend.style.visibility   = 'hidden';
+    if (panelLegend) panelLegend.style.visibility  = 'hidden';
   }
 
   function showEventDetail(d) {
@@ -3748,7 +3758,7 @@ window.ArgusAI = (function() {
       if (content && !m.querySelector('.argus-thinking')) history.push({ role: role, content: content });
     });
     try {
-      var res = await fetch(PP('https://api.anthropic.com/v1/messages'), {
+      var res = await fetch('https://wbvzlxtroewxrmonxodx.supabase.co/functions/v1/ai-proxy', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ model: 'claude-sonnet-4-20250514', max_tokens: 1000, system: sys, messages: history.concat([{ role: 'user', content: q }]) })
@@ -4134,14 +4144,14 @@ var data      = { events: [], tones: {}, chokeScores: {}, context: '' };
 // Key constraint: file:// sends Origin: null — many proxies block this.
 // Proxies below are ordered by reliability from null origin in 2025-2026.
 var GDELT_PROXIES = [
-  // 1. allorigins — confirmed working from GitHub Pages; wraps as {contents:...}
-  function(url) { return 'https://api.allorigins.win/get?url=' + encodeURIComponent(url); },
-  // 2. codetabs — rate-limited 1 req/5s, works from most origins
+  // 1. codetabs — rate-limited 1 req/5s but null-origin safe; we add delay before calling
   function(url) { return 'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(url); },
-  // 3. corsstuff — lightweight proxy, no origin restriction
+  // 2. proxy.cors.sh — explicitly allows null/file:// origin
+  function(url) { return 'https://proxy.cors.sh/' + url; },
+  // 3. corsproxy.io — sometimes allows null origin depending on server node
   function(url) { return 'https://corsproxy.io/?url=' + encodeURIComponent(url); },
-  // 4. thingproxy — last resort fallback
-  function(url) { return 'https://thingproxy.freeboard.io/fetch/' + url; },
+  // 4. allorigins /get — wraps in {"contents":...}; safeFetch unwraps it
+  function(url) { return 'https://api.allorigins.win/get?url=' + encodeURIComponent(url); },
 ];
 
 // ── Inject tab toggle into events panel ──────────────────────────────────────

@@ -3553,13 +3553,15 @@ var FALLBACK_EVENTS = [
 
 // ── Humanitarian tone classifier — runs on existing text, zero extra API calls ──
 var HC_CATEGORIES = {
-  CONFLICT:       { w: 40, kw: ['airstrike','bombing','missile','armed clash','insurgency','terrorist','civilian casualties','killed','troops','offensive','shelling','massacre','war','combat','gunfire','explosion','artillery','drone strike','ambush'] },
-  HUMANITARIAN:   { w: 35, kw: ['famine','starvation','displacement','refugees','aid blocked','mass casualties','cholera','malnutrition','food insecurity','civilians trapped','mass exodus','displaced','aid workers killed','humanitarian'] },
+  CONFLICT:       { w: 40, kw: ['airstrike','bombing','missile','armed clash','insurgency','terrorist','civilian casualties','killed','troops','offensive','shelling','massacre','war','combat','gunfire','explosion','artillery','drone strike','ambush','siege','naval blockade','occupation'] },
+  HUMANITARIAN:   { w: 35, kw: ['famine','starvation','displacement','refugees','aid blocked','mass casualties','cholera','malnutrition','food insecurity','civilians trapped','mass exodus','displaced','aid workers killed','humanitarian','epidemic','outbreak','flooding','earthquake','tsunami','wildfire'] },
   HUMAN_RIGHTS:   { w: 30, kw: ['ethnic cleansing','war crimes','mass detention','crackdown','political prisoners','torture','disappearances','execution','persecution','arbitrary arrest','censorship','suppression','extrajudicial','protesters killed','journalists detained','atrocities'] },
-  INSTABILITY:    { w: 20, kw: ['coup','military takeover','government collapse','emergency rule','violent protests','martial law','state of emergency','uprising','civil unrest','riot','mutiny','political crisis','parliament dissolved','power vacuum'] },
-  TENSION:        { w: 10, kw: ['tensions rising','border dispute','diplomatic row','military exercises','mobilization','ultimatum','sanctions','protests','demonstration','standoff'] },
+  SUPPLY_CHAIN:   { w: 28, kw: ['port closure','shipping disruption','trade route','chokepoint','canal blocked','strait','supply chain','logistics breakdown','cargo','container','freight','export ban','import restriction','supply shortage','critical minerals','semiconductor','chip shortage'] },
+  ECONOMIC:       { w: 25, kw: ['sanctions','tariff','embargo','currency collapse','debt default','inflation surge','recession','bank failure','financial crisis','oil price','energy crisis','food prices','commodity','market crash','capital flight','trade war','gdp contraction'] },
+  INSTABILITY:    { w: 20, kw: ['coup','military takeover','government collapse','emergency rule','violent protests','martial law','state of emergency','uprising','civil unrest','riot','mutiny','political crisis','parliament dissolved','power vacuum','election fraud','mass protests'] },
+  TENSION:        { w: 10, kw: ['tensions rising','border dispute','diplomatic row','military exercises','mobilization','ultimatum','protests','demonstration','standoff','expulsion','recalled ambassador','navy patrol','military buildup'] },
 };
-var HC_TRIGGERS = ['mass displacement','famine declared','ethnic cleansing','hundreds killed','thousands killed','aid blocked','refugee crisis','genocide','chemical attack','mass graves','hospital bombed','children killed','starvation'];
+var HC_TRIGGERS = ['mass displacement','famine declared','ethnic cleansing','hundreds killed','thousands killed','aid blocked','refugee crisis','genocide','chemical attack','mass graves','hospital bombed','children killed','starvation','port closed','supply chain collapse','debt default','bank run'];
 
 function hcClassify(title, description) {
   var text   = ((title || '') + ' ' + (description || '')).toLowerCase();
@@ -3693,7 +3695,7 @@ var IMPACT_MAP = {
 // CONFLICT > HUMANITARIAN > HUMAN_RIGHTS > INSTABILITY > TENSION).
 // Economic component from ECONOMIC_RE keyword match.
 // Returns 0–120 score; higher = should plot on globe first.
-var ECONOMIC_RE = /sanction|tariff|trade|oil|gas|energy|inflation|recession|market|supply.chain|shipping|logistics|embargo|default|debt/i;
+var ECONOMIC_RE = /sanction|tariff|trade|oil|gas|energy|inflation|recession|market|supply.chain|shipping|logistics|embargo|default|debt|gdp|currency|devaluation|export|import|port|corridor|pipeline|commodity|wheat|food.price|drought|harvest|grain|fertilizer|semiconductor|chip|rare.earth|lithium/i;
 var SEV_WEIGHT  = { CRITICAL: 100, WARNING: 65, WATCH: 35, LOW: 10 };
 
 function scorePlotPriority(ev) {
@@ -3701,9 +3703,9 @@ function scorePlotPriority(ev) {
   var hc       = hcClassify(ev.title, ev.impact);   // 0–100 humanitarian score
   var ecoHit   = ECONOMIC_RE.test(full) ? 1 : 0;
   var sevScore = SEV_WEIGHT[ev.severity] || 10;
-  // Weights: humanitarian 70 %, economic 30 %
-  var humScore = hc.score * 0.70;
-  var ecoScore = ecoHit * sevScore * 0.30;
+  // Weights: humanitarian 50%, economic 50% — balanced scoring
+  var humScore = hc.score * 0.50;
+  var ecoScore = ecoHit * sevScore * 0.50;
   // CONFLICT / DISASTER types carry an inherent humanitarian uplift (+20)
   var typeBonus = (ev.type === 'CONFLICT' || ev.type === 'DISASTER') ? 20 : 0;
   return Math.round(humScore + ecoScore + typeBonus);
@@ -3830,6 +3832,128 @@ async function loadLiveEvents() {
 
 loadLiveEvents();
 setInterval(loadLiveEvents, FEED_TTL);
+
+// ════════════════════════════════════════════════════════════════════════════
+// USGS Earthquake Feed — free, no key, real-time GeoJSON
+// Fetches M4.5+ earthquakes from past 7 days
+// ════════════════════════════════════════════════════════════════════════════
+(function loadUSGS() {
+  var USGS_URL   = 'https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/4.5_week.geojson';
+  var CACHE_KEY  = 'argus_usgs_v1';
+  var CACHE_TS   = 'argus_usgs_ts_v1';
+  var TTL        = 30 * 60 * 1000; // 30 min
+
+  try {
+    var cached = localStorage.getItem(CACHE_KEY);
+    var ts     = parseInt(localStorage.getItem(CACHE_TS) || '0');
+    if (cached && Date.now() - ts < TTL) {
+      injectUSGS(JSON.parse(cached)); return;
+    }
+  } catch(e) {}
+
+  fetch(USGS_URL)
+  .then(function(r) { return r.json(); })
+  .then(function(data) {
+    var features = (data.features || []).slice(0, 20);
+    localStorage.setItem(CACHE_KEY, JSON.stringify(features));
+    localStorage.setItem(CACHE_TS, String(Date.now()));
+    injectUSGS(features);
+  })
+  .catch(function(e) { console.warn('USGS: failed', e.message); });
+
+  function injectUSGS(features) {
+    var events = features.map(function(f, i) {
+      var p   = f.properties;
+      var mag = parseFloat(p.mag || 0);
+      var sev = mag >= 7.0 ? 'CRITICAL' : mag >= 6.0 ? 'WARNING' : mag >= 5.0 ? 'WATCH' : 'LOW';
+      var coords = f.geometry && f.geometry.coordinates;
+      return {
+        id: 9000 + i,
+        type: 'DISASTER',
+        severity: sev,
+        title: 'M' + mag.toFixed(1) + ' Earthquake — ' + (p.place || 'Unknown region'),
+        impact: 'Magnitude ' + mag.toFixed(1) + ' seismic event detected. Depth: ' + (coords ? coords[2] : '?') + ' km.',
+        region: p.place || '',
+        pubDate: p.time ? new Date(p.time).toUTCString().slice(0,22) : '',
+        source: 'USGS',
+        link: p.url || '',
+        lat: coords ? coords[1] : null,
+        lon: coords ? coords[0] : null,
+        plotPriority: mag >= 7 ? 90 : mag >= 6 ? 60 : 30,
+      };
+    }).filter(function(e) { return e.plotPriority >= 30; });
+
+    window._usgsEvents = events;
+    console.log('USGS: ' + events.length + ' earthquakes loaded');
+    mergeAuxEvents();
+  }
+})();
+
+// ════════════════════════════════════════════════════════════════════════════
+// ReliefWeb Active Crises — free, no key, UN OCHA
+// ════════════════════════════════════════════════════════════════════════════
+(function loadReliefWeb() {
+  var RW_URL    = 'https://api.reliefweb.int/v1/disasters?appname=argus-intel&filter[field]=status&filter[value]=current&limit=20&fields[include][]=name&fields[include][]=country&fields[include][]=type&fields[include][]=date&fields[include][]=status';
+  var CACHE_KEY = 'argus_rw_v1';
+  var CACHE_TS  = 'argus_rw_ts_v1';
+  var TTL       = 60 * 60 * 1000; // 1 hr
+
+  try {
+    var cached = localStorage.getItem(CACHE_KEY);
+    var ts     = parseInt(localStorage.getItem(CACHE_TS) || '0');
+    if (cached && Date.now() - ts < TTL) {
+      injectRW(JSON.parse(cached)); return;
+    }
+  } catch(e) {}
+
+  fetch(RW_URL)
+  .then(function(r) { return r.json(); })
+  .then(function(data) {
+    var items = (data.data || []);
+    localStorage.setItem(CACHE_KEY, JSON.stringify(items));
+    localStorage.setItem(CACHE_TS, String(Date.now()));
+    injectRW(items);
+  })
+  .catch(function(e) { console.warn('ReliefWeb: failed', e.message); });
+
+  function injectRW(items) {
+    var events = items.map(function(d, i) {
+      var f       = d.fields || {};
+      var country = f.country && f.country[0] ? f.country[0].name : '';
+      var type    = f.type    && f.type[0]    ? f.type[0].name    : 'Disaster';
+      return {
+        id: 9500 + i,
+        type: 'DISASTER',
+        severity: 'WARNING',
+        title: type + ' — ' + (f.name || country || 'Active Crisis'),
+        impact: 'Active UN-designated crisis. Country: ' + (country || 'Unknown') + '. Status: ' + (f.status || 'current') + '.',
+        region: country,
+        pubDate: f.date && f.date.created ? new Date(f.date.created).toLocaleDateString() : '',
+        source: 'UN RELIEFWEB',
+        link: 'https://reliefweb.int',
+        plotPriority: 55,
+      };
+    });
+    window._rwCrisisEvents = events;
+    console.log('ReliefWeb: ' + events.length + ' active crises loaded');
+    mergeAuxEvents();
+  }
+})();
+
+// ── Merge auxiliary sources into main feed ────────────────────────────────────
+function mergeAuxEvents() {
+  var base    = window._currentEvents || [];
+  var usgs    = window._usgsEvents    || [];
+  var rw      = window._rwCrisisEvents || [];
+  var aux     = usgs.concat(rw);
+  if (!aux.length) return;
+  // Remove previous aux injections then prepend new ones
+  var filtered = base.filter(function(e) { return e.id < 9000; });
+  var merged   = aux.concat(filtered);
+  merged.sort(function(a,b) { return b.plotPriority - a.plotPriority; });
+  window._currentEvents = merged;
+  if (window.renderEvents) window.renderEvents(merged, true);
+}
 
 // ════════════════════════════════════════════════════════════════════════════
 // ArgusUI — panel display and detail views
@@ -4611,8 +4735,8 @@ var GDELT_PROXIES = [
 })();
 
 // ── Plot priority scoring — humanitarian first (70%), economics second (30%) ──
-var GDELT_HUM_RE  = /war|conflict|attack|airstrike|bombing|casualties|killed|wounded|massacre|coup|terror|genocide|displacement|refugee|famine|civilian|siege|offensive|shelling/i;
-var GDELT_ECO_RE  = /sanction|tariff|trade|oil|gas|energy|inflation|recession|market|supply.chain|shipping|logistics|embargo/i;
+var GDELT_HUM_RE  = /war|conflict|attack|airstrike|bombing|casualties|killed|wounded|massacre|coup|terror|genocide|displacement|refugee|famine|civilian|siege|offensive|shelling|protest|crackdown|arrest|detained|execution|disappear|torture|human.rights|persecution|uprising|mutiny|rebellion/i;
+var GDELT_ECO_RE  = /sanction|tariff|trade|oil|gas|energy|inflation|recession|market|supply.chain|shipping|logistics|embargo|default|debt|gdp|currency|devaluation|export|import|port|pipeline|commodity|wheat|grain|food.price|fertilizer|semiconductor|rare.earth|lithium|investment|bank|financial|bond|yield|deficit/i;
 var GDELT_SEV_W   = { CRITICAL: 100, WARNING: 65, WATCH: 35, LOW: 10 };
 function scorePlotPriority(ev) {
   var full     = (ev.title || '') + ' ' + (ev.impact || ev.domain || '');
@@ -4620,7 +4744,7 @@ function scorePlotPriority(ev) {
   var ecoHit   = GDELT_ECO_RE.test(full) ? 1 : 0;
   var sevScore = GDELT_SEV_W[ev.severity] || 10;
   var typeBonus = (ev.type === 'CONFLICT' || ev.type === 'DISASTER') ? 20 : 0;
-  return Math.round((humHit * 0.70 + ecoHit * 0.30) * sevScore + typeBonus);
+  return Math.round((humHit * 0.50 + ecoHit * 0.50) * sevScore + typeBonus);
 }
 
 // ── Article classifier ────────────────────────────────────────────────────────

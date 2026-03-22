@@ -3462,9 +3462,9 @@ window.ArgusUI = (function() {
   var aiOpen = false;
 
   function toggleAI() {
-    // Tier gate — viewers see upgrade prompt instead of AI panel
     var tier = window.ArgusSession ? window.ArgusSession.tier : 'viewer';
-    if (tier !== 'pro') {
+    var hasAccess = (tier === 'owner' || tier === 'admin' || tier === 'pro');
+    if (!hasAccess) {
       showUpgradePrompt();
       return;
     }
@@ -5033,23 +5033,72 @@ return { getCountryData: getCountryData, getDisasters: getDisasters, init: init 
     var tier  = window.ArgusSession.tier;
     var email = window.ArgusSession.email;
 
-    // PRO badge next to AI QUERY button
+    // ── Badge config per tier ────────────────────────────────────────────────
+    var BADGES = {
+      owner: {
+        label: 'OWNER',
+        bg:    'linear-gradient(135deg, #ff9900 0%, #ffcc00 100%)',
+        color: '#040d18',
+        dot:   '#ffcc00',
+        glow:  'rgba(255,204,0,0.5)',
+      },
+      admin: {
+        label: 'ADMIN',
+        bg:    'linear-gradient(135deg, #cc2200 0%, #ff4422 100%)',
+        color: '#ffffff',
+        dot:   '#ff4422',
+        glow:  'rgba(255,68,34,0.5)',
+      },
+      pro: {
+        label: 'PRO',
+        bg:    'linear-gradient(135deg, #0077cc 0%, #00aaff 100%)',
+        color: '#ffffff',
+        dot:   '#00aaff',
+        glow:  'rgba(0,170,255,0.5)',
+      },
+      viewer: null,
+    };
+
+    var badge = BADGES[tier] || null;
+
+    // ── AI QUERY button badge ────────────────────────────────────────────────
     var btn = document.getElementById('btn-ai-query');
-    if (btn && tier === 'pro') {
-      btn.innerHTML = '◈ AI QUERY <span style="font-size:9px;letter-spacing:2px;background:#0af;color:#040d18;padding:2px 6px;margin-left:6px;font-weight:700;">PRO</span>';
+    if (btn && badge) {
+      btn.innerHTML =
+        '◈ AI QUERY ' +
+        '<span style="' +
+          'font-size:8px;letter-spacing:2px;font-weight:700;' +
+          'background:' + badge.bg + ';' +
+          'color:' + badge.color + ';' +
+          'padding:2px 7px;margin-left:7px;' +
+          'box-shadow:0 0 8px ' + badge.glow + ';' +
+          'vertical-align:middle;' +
+        '">' + badge.label + '</span>';
     }
 
-    // User indicator in header
+    // ── Header user indicator ────────────────────────────────────────────────
     if (email) {
       var header = document.querySelector('#header > div:last-child');
       if (header) {
         var userEl = document.createElement('div');
         userEl.style.cssText = 'font-family:\'DM Mono\',monospace;font-size:9px;letter-spacing:2px;color:#3a6a8a;display:flex;align-items:center;gap:8px;';
-        userEl.innerHTML = [
-          '<span style="width:6px;height:6px;border-radius:50%;background:' + (tier === 'pro' ? '#0af' : '#00ff9d') + ';display:inline-block;"></span>',
-          '<span>' + email.split('@')[0].toUpperCase() + '</span>',
-          '<button onclick="ArgusAuth.signOut()" style="background:none;border:1px solid #0f2d48;color:#3a6a8a;font-family:inherit;font-size:8px;letter-spacing:2px;padding:2px 7px;cursor:pointer;">OUT</button>'
-        ].join('');
+
+        var badgeHtml = badge
+          ? '<span style="' +
+              'background:' + badge.bg + ';' +
+              'color:' + badge.color + ';' +
+              'font-size:8px;letter-spacing:2px;font-weight:700;' +
+              'padding:2px 6px;' +
+              'box-shadow:0 0 6px ' + badge.glow + ';' +
+            '">' + badge.label + '</span>'
+          : '';
+
+        userEl.innerHTML =
+          '<span style="width:6px;height:6px;border-radius:50%;background:' + (badge ? badge.dot : '#3a6a8a') + ';display:inline-block;box-shadow:0 0 4px ' + (badge ? badge.glow : 'none') + '"></span>' +
+          '<span style="color:#7aafcc;">' + email.split('@')[0].toUpperCase() + '</span>' +
+          badgeHtml +
+          '<button onclick="ArgusAuth.signOut()" style="background:none;border:1px solid #0f2d48;color:#3a6a8a;font-family:inherit;font-size:8px;letter-spacing:2px;padding:2px 7px;cursor:pointer;transition:border-color 0.2s,color 0.2s;" onmouseover="this.style.borderColor=\'#1a4a70\';this.style.color=\'#7aafcc\'" onmouseout="this.style.borderColor=\'#0f2d48\';this.style.color=\'#3a6a8a\'">OUT</button>';
+
         header.insertBefore(userEl, header.firstChild);
       }
     }

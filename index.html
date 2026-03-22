@@ -217,6 +217,19 @@
       width: var(--panel-left-width);
       max-height: calc(100vh - 252px);
       padding: 12px;
+      transition: max-height 0.25s cubic-bezier(0.22,1,0.36,1), padding 0.25s;
+    }
+
+    #panel-events.is-minimized {
+      max-height: 32px;
+      overflow: hidden;
+      padding: 0;
+    }
+
+    #panel-events.is-minimized .events-header {
+      margin-bottom: 0;
+      padding: 8px 12px;
+      cursor: pointer;
     }
 
     .events-header {
@@ -428,7 +441,31 @@
       right: 14px;
       width: var(--panel-right-width);
       max-height: calc(100vh - 180px);
+      transition: max-height 0.25s cubic-bezier(0.22,1,0.36,1);
     }
+
+    #panel-market.is-minimized {
+      max-height: 36px;
+      overflow: hidden;
+    }
+
+    #panel-market.is-minimized .dp-header {
+      cursor: pointer;
+    }
+
+    .panel-min-btn {
+      background: none;
+      border: none;
+      color: var(--color-text-faint);
+      cursor: pointer;
+      font-size: 12px;
+      line-height: 1;
+      padding: 0 0 0 8px;
+      opacity: 0.5;
+      transition: opacity 0.15s, color 0.15s;
+      flex-shrink: 0;
+    }
+    .panel-min-btn:hover { opacity: 1; color: var(--color-accent); }
 
     .dp-header {
       display: flex;
@@ -1409,9 +1446,10 @@
 
   <!-- ── Events Feed Panel ───────────────────────────────────────────────────── -->
   <aside id="panel-events" class="panel panel--scrollable" aria-label="Live events feed">
-    <div class="events-header">
+    <div class="events-header" onclick="ArgusUI.togglePanel('events')">
       <span class="events-header__pulse" aria-hidden="true"></span>
       LIVE EVENTS — <span id="ev-feed-count"></span> ACTIVE
+      <button class="panel-min-btn" id="min-btn-events" aria-label="Minimize events panel">—</button>
     </div>
     <div id="ev-list" role="list"></div>
   </aside>
@@ -1457,9 +1495,10 @@
 
   <!-- ── Market Intelligence Panel ──────────────────────────────────────────── -->
   <aside id="panel-market" class="panel panel--scrollable" aria-label="Market intelligence data">
-    <div class="dp-header">
+    <div class="dp-header" onclick="ArgusUI.togglePanel('market')">
       <span class="dp-title">MARKET INTELLIGENCE</span>
       <span class="dp-source">AV · EIA · FRED</span>
+      <button class="panel-min-btn" id="min-btn-market" aria-label="Minimize market panel">—</button>
     </div>
     <div class="dp-body">
 
@@ -4069,7 +4108,29 @@ window.ArgusUI = (function() {
     ArgusAnim.staggerRows(bodyEl);
   }
 
-  return { toggleAI: toggleAI, setSuggestion: setSuggestion, closeDetail: closeDetail, showEventDetail: showEventDetail, showStaticDetail: showStaticDetail };
+  // ── Panel minimize ────────────────────────────────────────────────────────
+  var PANEL_IDS = ['events', 'market'];
+
+  function togglePanel(id) {
+    var panel = document.getElementById('panel-' + id);
+    var btn   = document.getElementById('min-btn-' + id);
+    if (!panel) return;
+    var minimized = panel.classList.toggle('is-minimized');
+    if (btn) btn.textContent = minimized ? '+' : '—';
+    localStorage.setItem('argus_panel_' + id, minimized ? '1' : '0');
+  }
+
+  // Restore panel state on load
+  PANEL_IDS.forEach(function(id) {
+    if (localStorage.getItem('argus_panel_' + id) === '1') {
+      var panel = document.getElementById('panel-' + id);
+      var btn   = document.getElementById('min-btn-' + id);
+      if (panel) panel.classList.add('is-minimized');
+      if (btn)   btn.textContent = '+';
+    }
+  });
+
+  return { toggleAI: toggleAI, togglePanel: togglePanel, setSuggestion: setSuggestion, closeDetail: closeDetail, showEventDetail: showEventDetail, showStaticDetail: showStaticDetail };
 
 })(); // end ArgusUI
 

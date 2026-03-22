@@ -2345,7 +2345,7 @@ window.ArgusData = (function() {
         }
         // Only skip the live fetch if all three FX pairs are present
         if (d['fx-eurusd'] && d['fx-gbpusd'] && d['fx-usdjpy']) {
-          console.log('AV: from cache');
+          // cache hit
           return;
         }
         console.log('AV cache incomplete — re-fetching FX');
@@ -2428,7 +2428,7 @@ window.ArgusData = (function() {
       if (cached && Date.now() - ts < TTL) {
         window._eiaData = JSON.parse(cached);
         renderEIATicker();
-        console.log('EIA: from cache — Brent $' + window._eiaData.brent + ' WTI $' + window._eiaData.wti);
+        // 'EIA: from cache — Brent $' + window._eiaData.brent + ' WTI $' + window._eiaData.wti);
         return;
       }
     } catch(e) {}
@@ -2503,7 +2503,7 @@ window.ArgusData = (function() {
       if (cached && Date.now() - ts < TTL) {
         window._fredData = JSON.parse(cached);
         renderFREDTicker();
-        console.log('FRED: from cache');
+        // cache
         return;
       }
     } catch(e) {}
@@ -2715,7 +2715,7 @@ window.ArgusData = (function() {
             chartCache[item.sym] = d.exchanges[item.sym];
           }
         });
-        console.log('TD: from cache');
+        // cache
         return;
       }
     } catch(e) {}
@@ -2986,7 +2986,7 @@ window.ArgusData = (function() {
       var ts = parseInt(localStorage.getItem(CACHE_T) || '0');
       if (cached && Date.now() - ts < TTL) {
         renderFHCommodities(JSON.parse(cached));
-        console.log('FH commodities: from cache');
+        // cache
         return;
       }
     } catch(e) {}
@@ -3049,7 +3049,7 @@ window.ArgusData = (function() {
       var ts = parseInt(localStorage.getItem(CACHE_T) || '0');
       if (cached && Date.now() - ts < TTL) {
         renderBondYields(JSON.parse(cached));
-        console.log('Bonds: from cache');
+        // cache
         return;
       }
     } catch(e) {}
@@ -3103,7 +3103,7 @@ window.ArgusData = (function() {
       var ts     = parseInt(localStorage.getItem(CACHE_T) || '0');
       if (cached && Date.now() - ts < TTL) {
         renderPolygonExchanges(JSON.parse(cached));
-        console.log('Polygon exchanges: from cache');
+        // cache
         return;
       }
     } catch(e) {}
@@ -3385,12 +3385,19 @@ function classifyArticle(article, idx) {
 
 async function fetchAndClassify() {
   var newsUrl = 'https://newsdata.io/api/1/latest' +
-    '?apikey=' + NEWSDATA_API_KEY +
+    '?apikey=__KEY__' +
     '&q=' + encodeURIComponent('war OR conflict OR casualties OR sanctions OR trade OR oil OR disaster') +
     '&language=en' +
     '&size=10';
 
-  var res = await fetch(newsUrl);
+  var res = await fetch('https://wbvzlxtroewxrmonxodx.supabase.co/functions/v1/data-proxy', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndidnpseHRyb2V3eHJtb254b2R4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM3OTQzNzMsImV4cCI6MjA4OTM3MDM3M30.0zp-wQ3wKpYc0f7LqFCOEea_d9HJuWnUSWgF4BAW82w'
+    },
+    body: JSON.stringify({ source: 'newsdata', url: newsUrl })
+  });
   if (!res.ok) {
     var body = await res.text().catch(function() { return ''; });
     throw new Error('NewsData ' + res.status + ': ' + body.slice(0, 120));
@@ -3431,7 +3438,7 @@ async function loadLiveEvents() {
     var ts     = parseInt(localStorage.getItem(FEED_CACHE_TS) || '0');
     if (cached && Date.now() - ts < FEED_TTL) {
       renderEvents(JSON.parse(cached), true);
-      console.log('ARGUS: events from cache');
+      // cache
       return;
     }
   } catch(e) {}
@@ -4330,7 +4337,7 @@ async function fetchAll() {
       data = JSON.parse(c);
       applyToGlobe();
       if (activeTab === 'gdelt') renderGdeltTab();
-      console.log('GDELT: from cache —', data.events.length, 'events');
+      // 'GDELT: from cache —', data.events.length, 'events');
       return;
     }
   } catch(e) {}
@@ -4892,7 +4899,7 @@ function init() {
     var ts     = parseInt(localStorage.getItem(CACHE_TS) || '0');
     if (cached && Date.now() - ts < TTL) {
       window._rwData = JSON.parse(cached);
-      console.log('GDACS/UNHCR: from cache —', Object.keys(window._rwData).length, 'countries');
+      // 'GDACS/UNHCR: from cache —', Object.keys(window._rwData).length, 'countries');
       setTimeout(plotDisasters, 2000);
       return;
     }

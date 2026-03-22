@@ -1252,6 +1252,78 @@
     gap: 6px; margin-top: 6px;
   }
 
+  /* ── Analyst Request button ── */
+  #btn-analyst-request {
+    font-family: 'DM Mono', monospace;
+    font-size: 10px; letter-spacing: 2px;
+    background: transparent;
+    border: 1px solid #ff9900;
+    color: #ff9900;
+    padding: 6px 14px;
+    cursor: pointer;
+    transition: background 0.2s, color 0.2s;
+  }
+  #btn-analyst-request:hover { background: rgba(255,153,0,0.12); }
+
+  /* ── Analyst Request Modal ── */
+  #analyst-modal-overlay {
+    position: fixed; inset: 0; z-index: 999;
+    background: rgba(4,13,24,0.88);
+    backdrop-filter: blur(8px);
+    display: none; align-items: center; justify-content: center;
+  }
+  #analyst-modal-overlay.is-open { display: flex; }
+  #analyst-modal {
+    width: 460px; max-width: 95vw;
+    background: #071525;
+    border: 1px solid #0f2d48;
+    padding: 28px;
+    position: relative;
+  }
+  #analyst-modal::before {
+    content: ''; position: absolute; top:0; left:0;
+    width:28px; height:28px;
+    border-top: 2px solid #ff9900; border-left: 2px solid #ff9900;
+  }
+  .ar-modal-label { font-size:9px; letter-spacing:4px; color:#ff9900; margin-bottom:6px; }
+  .ar-modal-title { font-size:17px; font-weight:700; color:#f0f8ff; letter-spacing:1px; margin-bottom:20px; }
+  .ar-field { display:flex; flex-direction:column; gap:5px; margin-bottom:14px; }
+  .ar-field label { font-size:9px; letter-spacing:3px; color:#3a6a8a; font-family:'DM Mono',monospace; }
+  .ar-field input, .ar-field textarea, .ar-field select {
+    background: rgba(4,13,24,0.7); border: 1px solid #0f2d48;
+    color: #c8dff0; font-family: 'DM Mono', monospace; font-size:12px;
+    padding: 8px 10px; outline: none; resize: vertical;
+    transition: border-color 0.2s;
+  }
+  .ar-field input:focus, .ar-field textarea:focus, .ar-field select:focus { border-color: #ff9900; }
+  .ar-field select option { background: #071525; }
+  .ar-modal-btns { display:flex; gap:10px; margin-top:6px; }
+  .ar-submit-btn {
+    flex:1; background: transparent; border:1px solid #ff9900; color:#ff9900;
+    font-family:'DM Mono',monospace; font-size:10px; letter-spacing:2px;
+    padding:10px; cursor:pointer; transition: background 0.2s;
+  }
+  .ar-submit-btn:hover { background: rgba(255,153,0,0.12); }
+  .ar-cancel-btn {
+    background: transparent; border:1px solid #0f2d48; color:#3a6a8a;
+    font-family:'DM Mono',monospace; font-size:10px; letter-spacing:2px;
+    padding:10px 18px; cursor:pointer;
+  }
+
+  /* ── Analyst request cards in admin ── */
+  .ar-card {
+    border: 1px solid #1a3a20; border-left: 3px solid #ff9900;
+    background: rgba(7,21,37,0.6); margin-bottom:8px; padding:10px 12px;
+  }
+  .ar-card-head { display:flex; gap:8px; align-items:center; margin-bottom:6px; }
+  .ar-analyst-tag {
+    font-size:8px; letter-spacing:2px; padding:1px 5px;
+    background: rgba(255,153,0,0.12); color:#ff9900; border:1px solid rgba(255,153,0,0.3);
+  }
+  .ar-card-title { font-size:11px; color:#c8dff0; margin-bottom:6px; line-height:1.4; }
+  .ar-card-meta { font-size:9px; color:#3a6a8a; margin-bottom:8px; line-height:1.6; }
+  .ar-card-actions { display:flex; gap:6px; }
+
   .um-select {
     background: #040d18; border: 1px solid #0f2d48; color: #7aafcc;
     font-family: 'DM Mono', monospace; font-size: 9px; padding: 3px 6px;
@@ -1299,6 +1371,7 @@
         <div id="utc-display"></div>
       </div>
       <button id="btn-ai-query" onclick="ArgusUI.toggleAI()" aria-label="Open AI query panel">◈ AI QUERY</button>
+      <button id="btn-analyst-request" onclick="ArgusAnalyst.openModal()" aria-label="Submit event request" style="display:none;">⊕ SUBMIT EVENT</button>
     </div>
   </header>
 
@@ -1312,6 +1385,7 @@
     <div id="admin-tabs-row">
       <button class="admin-tab active" data-pane="eq"  onclick="ArgusAdmin.switchTab('eq')">EVENT QUEUE</button>
       <button class="admin-tab"        data-pane="um"  onclick="ArgusAdmin.switchTab('um')">USERS</button>
+      <button class="admin-tab"        data-pane="ar"  onclick="ArgusAdmin.switchTab('ar')">REQUESTS <span id="ar-badge" style="display:none;background:#ff9900;color:#040d18;font-size:7px;padding:1px 4px;margin-left:4px;font-weight:700;"></span></button>
     </div>
     <div id="admin-body">
       <div id="admin-pane-eq" class="admin-pane active">
@@ -1322,6 +1396,10 @@
         <button class="admin-refresh-btn" onclick="ArgusAdmin.loadUsers()">↺ REFRESH USERS</button>
         <div class="admin-status" id="um-status"></div>
         <div id="um-table-wrap"></div>
+      </div>
+      <div id="admin-pane-ar" class="admin-pane">
+        <div class="admin-status" id="ar-status">Loading requests...</div>
+        <div id="ar-list"></div>
       </div>
     </div>
   </div>
@@ -5369,7 +5447,149 @@ return { getCountryData: getCountryData, getDisasters: getDisasters, init: init 
 })();
 </script>
 
-<!-- ── ArgusAdmin — User Management + Event Queue ───────────────────────── -->
+<!-- ── Analyst Request Modal ─────────────────────────────────────────────── -->
+<div id="analyst-modal-overlay" aria-modal="true" role="dialog">
+  <div id="analyst-modal">
+    <div class="ar-modal-label">ANALYST SUBMISSION</div>
+    <div class="ar-modal-title">SUBMIT EVENT REQUEST</div>
+    <div class="ar-field">
+      <label>EVENT TITLE / HEADLINE</label>
+      <input type="text" id="ar-title" placeholder="Brief description of the event" />
+    </div>
+    <div class="ar-field">
+      <label>CATEGORY</label>
+      <select id="ar-category">
+        <option value="conflict">CONFLICT</option>
+        <option value="energy">ENERGY</option>
+        <option value="policy">POLICY</option>
+        <option value="economic">ECONOMIC</option>
+        <option value="maritime">MARITIME</option>
+        <option value="general">GENERAL</option>
+      </select>
+    </div>
+    <div class="ar-field">
+      <label>LOCATION (COUNTRY / REGION)</label>
+      <input type="text" id="ar-location" placeholder="e.g. Red Sea, Iran, Southeast Asia" />
+    </div>
+    <div class="ar-field">
+      <label>SOURCE URL OR REFERENCE</label>
+      <input type="text" id="ar-source" placeholder="https://..." />
+    </div>
+    <div class="ar-field">
+      <label>ADDITIONAL NOTES</label>
+      <textarea id="ar-notes" rows="3" placeholder="Context, keywords, urgency level..."></textarea>
+    </div>
+    <div id="ar-modal-msg" style="font-size:9px;letter-spacing:1px;margin-bottom:10px;display:none;"></div>
+    <div class="ar-modal-btns">
+      <button class="ar-submit-btn" onclick="ArgusAnalyst.submit()">⊕ SUBMIT REQUEST</button>
+      <button class="ar-cancel-btn" onclick="ArgusAnalyst.closeModal()">CANCEL</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── ArgusAnalyst module ────────────────────────────────────────────────── -->
+<script>
+window.ArgusAnalyst = (function() {
+  var SUPA_URL  = 'https://wbvzlxtroewxrmonxodx.supabase.co';
+  var SUPA_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndidnpseHRyb2V3eHJtb254b2R4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM3OTQzNzMsImV4cCI6MjA4OTM3MDM3M30.0zp-wQ3wKpYc0f7LqFCOEea_d9HJuWnUSWgF4BAW82w';
+
+  var SUBMIT_TIERS = ['pro','admin','owner'];
+
+  function sbFetch(path, opts) {
+    var token = window.ArgusSession && window.ArgusSession.token;
+    return fetch(SUPA_URL + path, Object.assign({
+      headers: Object.assign({
+        'apikey': SUPA_ANON,
+        'Authorization': 'Bearer ' + (token || SUPA_ANON),
+        'Content-Type': 'application/json',
+      }, (opts && opts.headers) || {})
+    }, opts || {}));
+  }
+
+  // ── Show/hide modal ────────────────────────────────────────────────────────
+  function openModal() {
+    var tier = window.ArgusSession ? window.ArgusSession.tier : 'viewer';
+    if (!SUBMIT_TIERS.includes(tier)) return;
+    document.getElementById('analyst-modal-overlay').classList.add('is-open');
+    document.getElementById('ar-modal-msg').style.display = 'none';
+  }
+
+  function closeModal() {
+    document.getElementById('analyst-modal-overlay').classList.remove('is-open');
+    ['ar-title','ar-location','ar-source','ar-notes'].forEach(function(id) {
+      document.getElementById(id).value = '';
+    });
+  }
+
+  function showModalMsg(text, isError) {
+    var el = document.getElementById('ar-modal-msg');
+    el.textContent = text;
+    el.style.color   = isError ? '#ff4466' : '#00ff9d';
+    el.style.display = 'block';
+  }
+
+  // ── Submit request ─────────────────────────────────────────────────────────
+  async function submit() {
+    var title    = document.getElementById('ar-title').value.trim();
+    var category = document.getElementById('ar-category').value;
+    var location = document.getElementById('ar-location').value.trim();
+    var source   = document.getElementById('ar-source').value.trim();
+    var notes    = document.getElementById('ar-notes').value.trim();
+
+    if (!title) { showModalMsg('TITLE IS REQUIRED', true); return; }
+
+    var email = window.ArgusSession && window.ArgusSession.email;
+    var payload = {
+      title:       title,
+      category:    category,
+      location:    location || null,
+      source_url:  source   || null,
+      notes:       notes    || null,
+      submitted_by: email   || 'analyst',
+      status:      'pending',
+    };
+
+    try {
+      var res = await sbFetch('/rest/v1/argus_analyst_requests', {
+        method: 'POST',
+        headers: { 'Prefer': 'return=minimal' },
+        body: JSON.stringify(payload)
+      });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      showModalMsg('REQUEST SUBMITTED — PENDING ADMIN REVIEW', false);
+      setTimeout(closeModal, 1800);
+    } catch(e) {
+      showModalMsg('SUBMISSION FAILED: ' + e.message.toUpperCase(), true);
+    }
+  }
+
+  // ── Boot: show submit button for eligible tiers ────────────────────────────
+  function boot() {
+    var tier = window.ArgusSession ? window.ArgusSession.tier : 'viewer';
+    if (SUBMIT_TIERS.includes(tier)) {
+      var btn = document.getElementById('btn-analyst-request');
+      if (btn) btn.style.display = 'block';
+    }
+  }
+
+  // Close on overlay click
+  document.getElementById('analyst-modal-overlay').addEventListener('click', function(e) {
+    if (e.target === this) closeModal();
+  });
+
+  // Boot after session ready
+  var attempts = 0;
+  var interval = setInterval(function() {
+    attempts++;
+    if ((window.ArgusSession && window.ArgusSession.email) || attempts > 20) {
+      clearInterval(interval);
+      boot();
+    }
+  }, 300);
+
+  return { openModal: openModal, closeModal: closeModal, submit: submit };
+})();
+</script>
 <script>
 window.ArgusAdmin = (function() {
   var SUPA_URL  = 'https://wbvzlxtroewxrmonxodx.supabase.co';
@@ -5609,8 +5829,95 @@ window.ArgusAdmin = (function() {
     .catch(function(e) { alert('Tier update failed: ' + e.message); loadUsers(); });
   }
 
+  // ── Analyst Requests ──────────────────────────────────────────────────────
+  function loadRequests() {
+    var list   = document.getElementById('ar-list');
+    var status = document.getElementById('ar-status');
+    var badge  = document.getElementById('ar-badge');
+    if (!list) return;
+    status.textContent = 'Loading...';
+
+    sbFetch('/rest/v1/argus_analyst_requests?select=*&status=eq.pending&order=created_at.desc&limit=30')
+    .then(function(r) { return r.json(); })
+    .then(function(rows) {
+      status.textContent = rows.length + ' pending request' + (rows.length !== 1 ? 's' : '');
+      if (badge) {
+        badge.textContent  = rows.length;
+        badge.style.display = rows.length ? 'inline' : 'none';
+      }
+      if (!rows.length) {
+        list.innerHTML = '<div style="font-size:10px;color:#1a4a70;padding:12px 0;text-align:center;letter-spacing:2px;">NO PENDING REQUESTS</div>';
+        return;
+      }
+      list.innerHTML = rows.map(function(r) {
+        var ts = r.created_at ? new Date(r.created_at).toUTCString().slice(0,22) : '—';
+        return '<div class="ar-card" id="ar-' + r.id + '">' +
+          '<div class="ar-card-head">' +
+            '<span class="ar-analyst-tag">ANALYST</span>' +
+            '<span style="font-size:8px;letter-spacing:2px;color:#3a6a8a;text-transform:uppercase;">' + (r.category || '—') + '</span>' +
+            '<span style="font-size:8px;color:#1a4a70;margin-left:auto;">' + ts + '</span>' +
+          '</div>' +
+          '<div class="ar-card-title">' + (r.title || 'No title') + '</div>' +
+          '<div class="ar-card-meta">' +
+            '📍 ' + (r.location || '—') + '&nbsp;&nbsp;' +
+            '👤 ' + (r.submitted_by || '—') + '<br>' +
+            (r.source_url ? '🔗 <a href="' + r.source_url + '" target="_blank" style="color:#3a6a8a;">' + r.source_url.slice(0,50) + '...</a><br>' : '') +
+            (r.notes ? '📝 ' + r.notes : '') +
+          '</div>' +
+          '<div class="ar-card-actions">' +
+            '<button class="eq-btn approve" onclick="ArgusAdmin.requestAction(\'' + r.id + '\',\'approved\')">✓ APPROVE → QUEUE</button>' +
+            '<button class="eq-btn hold"    onclick="ArgusAdmin.requestAction(\'' + r.id + '\',\'held\')">⏸ HOLD</button>' +
+            '<button class="eq-btn deny"    onclick="ArgusAdmin.requestAction(\'' + r.id + '\',\'denied\')">✕ DENY</button>' +
+          '</div>' +
+        '</div>';
+      }).join('');
+    })
+    .catch(function(e) { status.textContent = 'Error: ' + e.message; });
+  }
+
+  function requestAction(id, action) {
+    var card = document.getElementById('ar-' + id);
+    if (card) card.style.opacity = '0.4';
+
+    sbFetch('/rest/v1/argus_analyst_requests?id=eq.' + id, {
+      method: 'PATCH',
+      headers: { 'Prefer': 'return=minimal' },
+      body: JSON.stringify({ status: action, reviewed_at: new Date().toISOString() })
+    })
+    .then(function(r) {
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      // If approved — push into event queue
+      if (action === 'approved') {
+        sbFetch('/rest/v1/argus_analyst_requests?id=eq.' + id + '&select=*')
+        .then(function(r2) { return r2.json(); })
+        .then(function(rows) {
+          if (!rows[0]) return;
+          var req = rows[0];
+          return sbFetch('/rest/v1/argus_event_queue', {
+            method: 'POST',
+            headers: { 'Prefer': 'return=minimal' },
+            body: JSON.stringify({
+              source:       'ANALYST',
+              category:     req.category || 'general',
+              timestamp:    new Date().toISOString(),
+              location:     req.location ? { country: req.location } : null,
+              data:         { title: req.title, url: req.source_url, notes: req.notes, keywords: [] },
+              submitted_by: req.submitted_by,
+              status:       'pending',
+            })
+          });
+        });
+      }
+      if (card) card.remove();
+      var remaining = document.querySelectorAll('.ar-card').length;
+      document.getElementById('ar-status').textContent = remaining + ' pending request' + (remaining !== 1 ? 's' : '');
+      var badge = document.getElementById('ar-badge');
+      if (badge) { badge.textContent = remaining; badge.style.display = remaining ? 'inline' : 'none'; }
+    })
+    .catch(function(e) { if (card) card.style.opacity = '1'; alert('Action failed: ' + e.message); });
+  }
+
   // ── Boot on session ready ─────────────────────────────────────────────────
-  // Poll until ArgusSession is populated (session bootstrap is async)
   var bootAttempts = 0;
   var bootInterval = setInterval(function() {
     bootAttempts++;
@@ -5620,7 +5927,21 @@ window.ArgusAdmin = (function() {
     }
   }, 300);
 
-  return { toggle: toggle, switchTab: switchTab, loadUsers: loadUsers, loadQueue: loadQueue, queueAction: queueAction, setTier: setTier };
+  function boot() {
+    var tier = window.ArgusSession ? window.ArgusSession.tier : 'viewer';
+    if (!ALLOWED.includes(tier)) return;
+    var bar = document.getElementById('admin-bar');
+    bar.style.display = 'block';
+    if (expanded) {
+      bar.classList.replace('collapsed','expanded');
+      document.getElementById('admin-toggle-icon').textContent = '▲';
+    }
+    loadQueue();
+    loadUsers();
+    loadRequests();
+  }
+
+  return { toggle: toggle, switchTab: switchTab, loadUsers: loadUsers, loadQueue: loadQueue, queueAction: queueAction, setTier: setTier, loadRequests: loadRequests, requestAction: requestAction };
 })();
 </script>
 </body>

@@ -3598,6 +3598,12 @@ function renderEvents(events, isLive) {
   document.getElementById('ev-feed-count').textContent = window.eventMarkers.length;
 }
 window.renderEvents = renderEvents;
+// Cache last rendered events for permanent event merging
+var _origRenderEvents = renderEvents;
+window.renderEvents = function(events, isLive) {
+  window._currentEvents = events;
+  _origRenderEvents(events, isLive);
+};
 window.hcBadge = hcBadge;
 
 function showLoadingState() {
@@ -5443,7 +5449,40 @@ return { getCountryData: getCountryData, getDisasters: getDisasters, init: init 
     }
   };
 
-  initSession();
+  initSession().then(function() {
+    // Load permanent events for all users after session ready
+    var token = window.ArgusSession && window.ArgusSession.token;
+    fetch(SUPABASE_URL + '/rest/v1/argus_permanent_events?select=*&order=created_at.desc', {
+      headers: {
+        'apikey': SUPABASE_ANON,
+        'Authorization': 'Bearer ' + (token || SUPABASE_ANON),
+      }
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(rows) {
+      if (!rows || !rows.length) return;
+      var classified = rows.map(function(ev) {
+        var d = ev.data || {};
+        return {
+          title:       d.title    || 'Admin Event',
+          type:        ev.category ? ev.category.toUpperCase() : 'EVENT',
+          severity:    d.severity || 'WARNING',
+          impact:      d.impact   || d.description || '',
+          region:      (ev.location && (ev.location.country || ev.location.region)) || '',
+          pubDate:     ev.timestamp ? new Date(ev.timestamp).toLocaleDateString() : '',
+          source:      '★ ' + (ev.source || 'ADMIN'),
+          link:        d.url || d.link || '',
+          plotPriority: 999,
+          isPermanent:  true,
+        };
+      });
+      var existing = window._currentEvents || [];
+      var merged = classified.concat(existing.filter(function(e) { return !e.isPermanent; }));
+      window._currentEvents = merged;
+      if (window.renderEvents) window.renderEvents(merged, true);
+    })
+    .catch(function() {});
+  });
 })();
 </script>
 
@@ -5724,6 +5763,7 @@ window.ArgusAdmin = (function() {
             '<button class="eq-btn approve" onclick="ArgusAdmin.queueAction(\'' + ev.id + '\',\'approved\')">✓ APPROVE</button>' +
             '<button class="eq-btn hold"    onclick="ArgusAdmin.queueAction(\'' + ev.id + '\',\'held\')">⏸ HOLD</button>' +
             '<button class="eq-btn deny"    onclick="ArgusAdmin.queueAction(\'' + ev.id + '\',\'denied\')">✕ DENY</button>' +
+            '<button class="eq-btn permanent" onclick="ArgusAdmin.permanentAction(\\'' + ev.id + '\\')" style="border-color:#ff9900;color:#ff9900;background:rgba(255,153,0,0.06);display:flex;align-items:center;gap:5px;"><span style="width:6px;height:6px;border-radius:50%;background:#ff9900;display:inline-block;"></span>UPDATE SITE</button>' +
           '</div>' +
         '</div>';
       }).join('');
@@ -5941,8 +5981,87 @@ window.ArgusAdmin = (function() {
     loadRequests();
   }
 
-  return { toggle: toggle, switchTab: switchTab, loadUsers: loadUsers, loadQueue: loadQueue, queueAction: queueAction, setTier: setTier, loadRequests: loadRequests, requestAction: requestAction };
-})();
+  // ── Permanent Events ───────────────────────────────────────────────────────
+  function permanentAction(id) {
+    var card = document.getElementById('eq-' + id);
+    if (!confirm('Publish this event permanently to the site?\n\nIt will appear in the live feed for all users until manually removed.')) return;
+    if (card) card.style.opacity = '0.4';
+
+    // Fetch the full event record
+    sbFetch('/rest/v1/argus_event_queue?id=eq.' + id + '&select=*')
+    .then(function(r) { return r.json(); })
+    .then(function(rows) {
+      var ev = rows[0];
+      if (!ev) throw new Error('Event not found');
+
+      // Write to permanent events table
+      return sbFetch('/rest/v1/argus_permanent_events', {
+        method: 'POST',
+        headers: { 'Prefer': 'return=minimal' },
+        body: JSON.stringify({
+          source:     ev.source,
+          category:   ev.category,
+          timestamp:  ev.timestamp || new Date().toISOString(),
+          location:   ev.location,
+          data:       ev.data,
+          created_by: window.ArgusSession ? window.ArgusSession.email : 'admin',
+        })
+      });
+    })
+    .then(function(r) {
+      if (!r.ok) return r.text().then(function(t) { throw new Error(t); });
+      // Also mark queue item as approved
+      return sbFetch('/rest/v1/argus_event_queue?id=eq.' + id, {
+        method: 'PATCH',
+        headers: { 'Prefer': 'return=minimal' },
+        body: JSON.stringify({ status: 'approved', reviewed_at: new Date().toISOString() })
+      });
+    })
+    .then(function() {
+      if (card) card.remove();
+      var remaining = document.querySelectorAll('.eq-card').length;
+      document.getElementById('eq-status').textContent = remaining + ' pending event' + (remaining !== 1 ? 's' : '');
+      document.getElementById('admin-queue-count').textContent = remaining ? '· ' + remaining + ' PENDING' : '';
+      // Inject into live feed immediately
+      window.ArgusAdmin._reloadPermanent();
+    })
+    .catch(function(e) {
+      if (card) card.style.opacity = '1';
+      alert('Failed to publish: ' + e.message);
+    });
+  }
+
+  // Reload permanent events and merge into live feed
+  function _reloadPermanent() {
+    sbFetch('/rest/v1/argus_permanent_events?select=*&order=created_at.desc')
+    .then(function(r) { return r.json(); })
+    .then(function(rows) {
+      if (!rows.length) return;
+      var classified = rows.map(function(ev) {
+        var d = ev.data || {};
+        return {
+          title:       d.title    || 'Admin Event',
+          type:        ev.category ? ev.category.toUpperCase() : 'EVENT',
+          severity:    d.severity || 'WARNING',
+          impact:      d.impact   || d.description || '',
+          region:      (ev.location && (ev.location.country || ev.location.region)) || '',
+          pubDate:     ev.timestamp ? new Date(ev.timestamp).toLocaleDateString() : '',
+          source:      '★ ' + (ev.source || 'ADMIN'),
+          link:        d.url || d.link || '',
+          plotPriority: 999,
+          isPermanent:  true,
+        };
+      });
+      // Prepend to current live feed
+      var existing = window._currentEvents || [];
+      var merged = classified.concat(existing.filter(function(e) { return !e.isPermanent; }));
+      window._currentEvents = merged;
+      if (window.renderEvents) window.renderEvents(merged, true);
+    })
+    .catch(function(e) { console.warn('Permanent events load error:', e.message); });
+  }
+
+  return { toggle: toggle, switchTab: switchTab, loadUsers: loadUsers, loadQueue: loadQueue, queueAction: queueAction, setTier: setTier, loadRequests: loadRequests, requestAction: requestAction, permanentAction: permanentAction, _reloadPermanent: _reloadPermanent };
 </script>
 </body>
 </html>

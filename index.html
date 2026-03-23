@@ -5632,7 +5632,10 @@ return { getCountryData: getCountryData, getDisasters: getDisasters, init: init 
     // Check for stored session
     var stored = null;
     try { stored = JSON.parse(localStorage.getItem('argus_session')); } catch(e) {}
-    if (!stored || !stored.access_token) return;
+    if (!stored || !stored.access_token) {
+      window.ArgusSession._resolved = true;
+      return;
+    }
 
     window.ArgusSession.token = stored.access_token;
     window.ArgusSession.email = stored.user && stored.user.email;
@@ -5666,6 +5669,7 @@ return { getCountryData: getCountryData, getDisasters: getDisasters, init: init 
     } catch(e) {}
 
     renderSessionUI();
+    window.ArgusSession._resolved = true;
   }
 
   function renderSessionUI() {
@@ -5917,11 +5921,16 @@ window.ArgusAnalyst = (function() {
     if (e.target === this) closeModal();
   });
 
-  // Boot after session ready
+  // Boot after session ready — poll until tier is resolved (async fetch from Supabase)
   var attempts = 0;
   var interval = setInterval(function() {
     attempts++;
-    if ((window.ArgusSession && window.ArgusSession.email) || attempts > 20) {
+    var tier = window.ArgusSession ? window.ArgusSession.tier : 'viewer';
+    // Wait until tier is something other than default viewer, OR session confirms no token (guest/viewer)
+    var sessionReady = tier !== 'viewer' ||
+      (window.ArgusSession && window.ArgusSession._resolved) ||
+      attempts > 40; // 12 second max wait
+    if (sessionReady) {
       clearInterval(interval);
       boot();
     }

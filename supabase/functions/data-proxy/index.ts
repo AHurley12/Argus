@@ -10,6 +10,18 @@ serve(async (req) => {
     return new Response('ok', { headers: corsHeaders })
   }
   const { source, url } = await req.json()
+
+  // Keyless passthrough sources — fetch directly, no key injection
+  const keyless = ['gdelt', 'reliefweb', 'usgs']
+  if (keyless.includes(source)) {
+    const response = await fetch(url)
+    const data = await response.json()
+    return new Response(JSON.stringify(data), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    })
+  }
+
+  // Key-injected sources
   const keys: Record<string, string | undefined> = {
     eia:      Deno.env.get('EIA_KEY'),
     fred:     Deno.env.get('FRED_KEY'),

@@ -275,6 +275,7 @@
     .event-card__row { display: flex; justify-content: space-between; margin-bottom: 2px; }
     .event-card__type { font-size: 8px; letter-spacing: 1.5px; font-weight: 600; }
     .event-card__title { font-size: 11px; color: #ddeeff; margin-top: 4px; line-height: 1.5; font-weight: 400; }
+    .dwell-time { font-size: 7px; letter-spacing: 1.5px; font-family: 'DM Mono', monospace; font-weight: 300; }
     .event-card__detail {
       font-size: 10px;
       color: #8899bb;
@@ -3599,6 +3600,27 @@ function hcBadge(title, description) {
     '◈ ' + r.risk + ' · ' + r.score + '</span>';
 }
 
+// ── Dwell time utility — pure function, no mutations, no timers ───────────────
+function dwellTime(ev) {
+  // Try raw timestamp first, then parse pubDate string
+  var ms = null;
+  if (ev.time && !isNaN(Number(ev.time)))          ms = Number(ev.time);
+  else if (ev.pubDate && ev.pubDate.length > 5) {
+    // pubDate formats: "14 MAR 2025 · 08:32 UTC" or "3/14/2025" or ISO
+    var cleaned = ev.pubDate.replace(' · ', ' ').replace(' UTC', '');
+    var parsed  = Date.parse(cleaned);
+    if (!isNaN(parsed)) ms = parsed;
+  }
+  if (!ms) return '<span class="dwell-time">—</span>';
+  var diff  = Date.now() - ms;
+  if (diff < 0) return '<span class="dwell-time">—</span>';
+  var hours = Math.floor(diff / 3600000);
+  var days  = Math.floor(diff / 86400000);
+  var label = days >= 1 ? days + 'd active' : hours + 'h active';
+  var col   = days >= 7 ? '#ff9933' : days >= 3 ? '#ffcc00' : '#3a6a8a';
+  return '<span class="dwell-time" style="color:' + col + '">' + label + '</span>';
+}
+
 function renderEvents(events, isLive) {
   var evList = document.getElementById('ev-list');
   if (!evList) return;
@@ -3625,10 +3647,13 @@ function renderEvents(events, isLive) {
       '<div class="event-card__meta" style="display:flex;flex-wrap:wrap;gap:4px;align-items:center;margin-top:4px;margin-bottom:2px">' +
         (ev.region  ? '<span style="font-size:8px;letter-spacing:1px;color:#00ccff">◈ ' + ev.region + '</span>' : '') +
         (ev.pubDate ? '<span style="font-size:8px;letter-spacing:1px;color:#4a7da8;margin-left:auto">' + ev.pubDate + '</span>' : '') +
+        dwellTime(ev) +
       '</div>' +
       '<div class="event-card__detail">' + ev.impact +
         hcBadge(ev.title, ev.impact) +
-        (ev.source ? '<span style="display:block;margin-top:4px;font-size:8px;letter-spacing:1px;color:#4a6080;text-transform:uppercase">' + ev.source + '</span>' : '') +
+        (ev.source ? '<span style="display:block;margin-top:4px;font-size:8px;letter-spacing:1px;color:#4a6080;text-transform:uppercase">' + ev.source +
+          (function() { var t = getSourceTierLabel(ev.source); return t ? ' <span style="font-size:7px;letter-spacing:1px;padding:1px 4px;border:1px solid ' + t.color + '44;color:' + t.color + ';margin-left:4px;">' + t.label + '</span>' : ''; })() +
+        '</span>' : '') +
         (ev.link   ? '<a href="' + ev.link + '" target="_blank" rel="noopener" onclick="event.stopPropagation()" ' +
           'style="display:block;margin-top:5px;color:#0099ff;font-size:8px;letter-spacing:1px;text-decoration:underline;word-break:break-all">↗ SOURCE</a>' : '') +
       '</div>';
@@ -3694,6 +3719,33 @@ var IMPACT_MAP = {
 // Humanitarian component derived from hcClassify (which already weights
 // CONFLICT > HUMANITARIAN > HUMAN_RIGHTS > INSTABILITY > TENSION).
 // Economic component from ECONOMIC_RE keyword match.
+// ── Source credibility whitelist ──────────────────────────────────────────────
+var TIER_1_SOURCES = ['associated press','ap news','reuters','agence france-presse','afp','bbc news','bbc','pbs newshour','deutsche welle','dw','cbc news','nhk world','nhk'];
+var TIER_2_SOURCES = ['financial times','the globe and mail','nos news','abc news australia','channel newsasia','the hindu','south china morning post','al jazeera english','al jazeera'];
+var TIER_3_SOURCES = ['daily maverick','the east african','premium times','el país','el pais','folha de s.paulo','la nación','la nacion','insight crime'];
+
+function getSourceBoost(source) {
+  if (!source) return 0;
+  var s = source.toLowerCase().trim();
+  // Partial match — handles "Reuters UK", "AFP English", "BBC News World" etc.
+  if (TIER_1_SOURCES.some(function(t) { return s.indexOf(t) !== -1 || t.indexOf(s) !== -1; })) return 15;
+  if (TIER_2_SOURCES.some(function(t) { return s.indexOf(t) !== -1 || t.indexOf(s) !== -1; })) return 8;
+  if (TIER_3_SOURCES.some(function(t) { return s.indexOf(t) !== -1 || t.indexOf(s) !== -1; })) return 3;
+  return 0;
+}
+
+function getSourceTierLabel(source) {
+  if (!source) return null;
+  var s = source.toLowerCase().trim();
+  if (TIER_1_SOURCES.some(function(t) { return s.indexOf(t) !== -1 || t.indexOf(s) !== -1; }))
+    return { label: 'TRUSTED', color: '#00cc66' };
+  if (TIER_2_SOURCES.some(function(t) { return s.indexOf(t) !== -1 || t.indexOf(s) !== -1; }))
+    return { label: 'RELIABLE', color: '#0099ff' };
+  if (TIER_3_SOURCES.some(function(t) { return s.indexOf(t) !== -1 || t.indexOf(s) !== -1; }))
+    return { label: 'REGIONAL', color: '#ffcc00' };
+  return null;
+}
+
 // Returns 0–120 score; higher = should plot on globe first.
 var ECONOMIC_RE = /sanction|tariff|trade|oil|gas|energy|inflation|recession|market|supply.chain|shipping|logistics|embargo|default|debt|gdp|currency|devaluation|export|import|port|corridor|pipeline|commodity|wheat|food.price|drought|harvest|grain|fertilizer|semiconductor|chip|rare.earth|lithium/i;
 var SEV_WEIGHT  = { CRITICAL: 100, WARNING: 65, WATCH: 35, LOW: 10 };
@@ -3707,8 +3759,9 @@ function scorePlotPriority(ev) {
   var humScore = hc.score * 0.50;
   var ecoScore = ecoHit * sevScore * 0.50;
   // CONFLICT / DISASTER types carry an inherent humanitarian uplift (+20)
-  var typeBonus = (ev.type === 'CONFLICT' || ev.type === 'DISASTER') ? 20 : 0;
-  return Math.round(humScore + ecoScore + typeBonus);
+  var typeBonus   = (ev.type === 'CONFLICT' || ev.type === 'DISASTER') ? 20 : 0;
+  var sourceBoost = getSourceBoost(ev.source);
+  return Math.round(humScore + ecoScore + typeBonus + sourceBoost);
 }
 
 function classifyArticle(article, idx) {
@@ -4739,12 +4792,13 @@ var GDELT_HUM_RE  = /war|conflict|attack|airstrike|bombing|casualties|killed|wou
 var GDELT_ECO_RE  = /sanction|tariff|trade|oil|gas|energy|inflation|recession|market|supply.chain|shipping|logistics|embargo|default|debt|gdp|currency|devaluation|export|import|port|pipeline|commodity|wheat|grain|food.price|fertilizer|semiconductor|rare.earth|lithium|investment|bank|financial|bond|yield|deficit/i;
 var GDELT_SEV_W   = { CRITICAL: 100, WARNING: 65, WATCH: 35, LOW: 10 };
 function scorePlotPriority(ev) {
-  var full     = (ev.title || '') + ' ' + (ev.impact || ev.domain || '');
-  var humHit   = GDELT_HUM_RE.test(full) ? 1 : 0;
-  var ecoHit   = GDELT_ECO_RE.test(full) ? 1 : 0;
-  var sevScore = GDELT_SEV_W[ev.severity] || 10;
-  var typeBonus = (ev.type === 'CONFLICT' || ev.type === 'DISASTER') ? 20 : 0;
-  return Math.round((humHit * 0.50 + ecoHit * 0.50) * sevScore + typeBonus);
+  var full        = (ev.title || '') + ' ' + (ev.impact || ev.domain || '');
+  var humHit      = GDELT_HUM_RE.test(full) ? 1 : 0;
+  var ecoHit      = GDELT_ECO_RE.test(full) ? 1 : 0;
+  var sevScore    = GDELT_SEV_W[ev.severity] || 10;
+  var typeBonus   = (ev.type === 'CONFLICT' || ev.type === 'DISASTER') ? 20 : 0;
+  var sourceBoost = getSourceBoost(ev.source || ev.domain || '');
+  return Math.round((humHit * 0.50 + ecoHit * 0.50) * sevScore + typeBonus + sourceBoost);
 }
 
 // ── Article classifier ────────────────────────────────────────────────────────

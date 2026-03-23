@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>ARGUS — Read the World</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='14' fill='%23040d18' stroke='%230099ff' stroke-width='2'/><ellipse cx='16' cy='16' rx='6' ry='14' fill='none' stroke='%230099ff' stroke-width='1.2'/><line x1='2' y1='16' x2='30' y2='16' stroke='%230099ff' stroke-width='1.2'/><line x1='16' y1='2' x2='16' y2='30' stroke='%230099ff' stroke-width='1.2'/></svg>" />
 
   <!-- Fonts -->
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -3645,7 +3646,17 @@ function renderEvents(events, isLive) {
       '</div>' +
       '<div class="event-card__title">' + ev.title + '</div>' +
       '<div class="event-card__meta" style="display:flex;flex-wrap:wrap;gap:4px;align-items:center;margin-top:4px;margin-bottom:2px">' +
-        (ev.region  ? '<span style="font-size:8px;letter-spacing:1px;color:#00ccff">◈ ' + ev.region + '</span>' : '') +
+        (ev.region ? '<span id="ev-loc-' + ev.id + '" style="font-size:8px;letter-spacing:1px;color:#00ccff">◈ ' + ev.region +
+          (function() {
+            // Try in-memory lat/lon first, then localStorage cache
+            var lat = ev.lat, lon = ev.lon;
+            if ((!lat || !lon) && ev.regionRaw) {
+              var gk = 'argus_geo_' + ev.regionRaw.toLowerCase().replace(/\s+/g,'_').slice(0,30);
+              try { var gc = JSON.parse(localStorage.getItem(gk) || 'null'); if (gc) { lat = gc.lat; lon = gc.lon; } } catch(e) {}
+            }
+            return lat ? ' <span style="color:#2a5a7a">' + lat.toFixed(2) + '\u00b0, ' + lon.toFixed(2) + '\u00b0</span>' : '';
+          })() +
+        '</span>' : '') +
         (ev.pubDate ? '<span style="font-size:8px;letter-spacing:1px;color:#4a7da8;margin-left:auto">' + ev.pubDate + '</span>' : '') +
         dwellTime(ev) +
       '</div>' +
@@ -3792,19 +3803,58 @@ function classifyArticle(article, idx) {
     } catch(e) { pubDate = article.pubDate; }
   }
 
-  // ai_region: may be array or comma string — take first entry, title-case it
+  // ai_region / country: take first entry, title-case, then async geocode
   var region = '';
+  var regionRaw = '';
   if (article.ai_region) {
     var raw = Array.isArray(article.ai_region) ? article.ai_region[0] : String(article.ai_region).split(',')[0];
-    region = raw.trim().replace(/\w/g, function(c) { return c.toUpperCase(); });
+    regionRaw = raw.trim();
+    region = regionRaw.replace(/\b\w/g, function(c) { return c.toUpperCase(); });
+  } else if (article.country) {
+    var cArr = Array.isArray(article.country) ? article.country : [article.country];
+    regionRaw = cArr[0] || '';
+    region = regionRaw.toUpperCase();
   }
 
   var ev = {
     id: idx + 1, type: type, severity: sev, title: title, impact: impact,
-    pubDate: pubDate, region: region, link: article.link || '',
-    source: article.source_name || article.source_id || ''
+    pubDate: pubDate, region: region, regionRaw: regionRaw,
+    link: article.link || '',
+    source: article.source_name || article.source_id || '',
+    lat: null, lon: null,
   };
   ev.plotPriority = scorePlotPriority(ev);
+
+  // Async geocode — staggered to respect Nominatim 1 req/sec; cached in localStorage
+  if (regionRaw) {
+    var geoKey = 'argus_geo_' + regionRaw.toLowerCase().replace(/\s+/g,'_').slice(0,30);
+    var geoCache = localStorage.getItem(geoKey);
+    if (geoCache) {
+      try { var g = JSON.parse(geoCache); ev.lat = g.lat; ev.lon = g.lon; } catch(e) {}
+    } else {
+      (function(evRef, rawLoc, key, i) {
+        setTimeout(function() {
+          fetch('https://nominatim.openstreetmap.org/search?q=' +
+            encodeURIComponent(rawLoc) + '&format=json&limit=1',
+            { headers: { 'Accept-Language': 'en', 'User-Agent': 'ArgusIntel/1.0' } }
+          )
+          .then(function(r) { return r.json(); })
+          .then(function(res) {
+            if (res && res[0]) {
+              var geo = { lat: parseFloat(res[0].lat), lon: parseFloat(res[0].lon) };
+              localStorage.setItem(key, JSON.stringify(geo));
+              evRef.lat = geo.lat; evRef.lon = geo.lon;
+              var locEl = document.getElementById('ev-loc-' + evRef.id);
+              if (locEl) locEl.innerHTML = '&#128205; ' + evRef.region +
+                ' <span style="color:#2a5a7a">' + geo.lat.toFixed(2) + '&deg;, ' + geo.lon.toFixed(2) + '&deg;</span>';
+            }
+          })
+          .catch(function() {});
+        }, i * 1300);
+      })(ev, regionRaw, geoKey, idx);
+    }
+  }
+
   return ev;
 }
 
@@ -3959,7 +4009,7 @@ setInterval(loadLiveEvents, FEED_TTL);
     }
   } catch(e) {}
 
-  fetch(RW_URL)
+  fetch('https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(RW_URL))
   .then(function(r) { return r.json(); })
   .then(function(data) {
     var items = (data.data || []);
@@ -4764,15 +4814,14 @@ var data      = { events: [], tones: {}, chokeScores: {}, context: '' };
 // ── GDELT proxies — null (file://) origin safe, tried in order ───────────────
 // Key constraint: file:// sends Origin: null — many proxies block this.
 // Proxies below are ordered by reliability from null origin in 2025-2026.
+var SUPA_ANON_GDELT = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndidnpseHRyb2V3eHJtb254b2R4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM3OTQzNzMsImV4cCI6MjA4OTM3MDM3M30.0zp-wQ3wKpYc0f7LqFCOEea_d9HJuWnUSWgF4BAW82w';
 var GDELT_PROXIES = [
-  // 1. codetabs — rate-limited 1 req/5s but null-origin safe; we add delay before calling
+  // 1. Supabase data-proxy — most reliable from GitHub Pages, no rate limit issues
+  function(url) { return '__SUPA__' + url; },
+  // 2. codetabs — rate-limited fallback
   function(url) { return 'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(url); },
-  // 2. proxy.cors.sh — explicitly allows null/file:// origin
-  function(url) { return 'https://proxy.cors.sh/' + url; },
-  // 3. corsproxy.io — sometimes allows null origin depending on server node
+  // 3. corsproxy.io — final fallback
   function(url) { return 'https://corsproxy.io/?url=' + encodeURIComponent(url); },
-  // 4. allorigins /get — wraps in {"contents":...}; safeFetch unwraps it
-  function(url) { return 'https://api.allorigins.win/get?url=' + encodeURIComponent(url); },
 ];
 
 // ── Inject tab toggle into events panel ──────────────────────────────────────
@@ -4850,11 +4899,24 @@ function makeUrl(query, maxrecs, timespan) {
 
 async function safeFetch(gdeltUrl) {
   for (var p = 0; p < GDELT_PROXIES.length; p++) {
-    // Wait between proxy attempts — codetabs enforces 1 req/5s; 7s gap is safe
     if (p > 0) await new Promise(function(r) { setTimeout(r, 7000); });
     var proxyUrl = GDELT_PROXIES[p](gdeltUrl);
     try {
-      var r = await fetch(proxyUrl);
+      var r;
+      // Supabase passthrough — POST to data-proxy with source='gdelt' (keyless passthrough)
+      if (proxyUrl.indexOf('__SUPA__') === 0) {
+        var targetUrl = proxyUrl.slice(8);
+        r = await fetch('https://wbvzlxtroewxrmonxodx.supabase.co/functions/v1/data-proxy', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer ' + SUPA_ANON_GDELT
+          },
+          body: JSON.stringify({ source: 'gdelt', url: targetUrl })
+        });
+      } else {
+        r = await fetch(proxyUrl);
+      }
       if (!r.ok) { console.warn('GDELT proxy[' + p + ']: HTTP ' + r.status); continue; }
       var trimmed = (await r.text()).trim();
       if (!trimmed) { console.warn('GDELT proxy[' + p + ']: empty response'); continue; }

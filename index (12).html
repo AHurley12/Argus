@@ -3622,6 +3622,47 @@ function dwellTime(ev) {
   return '<span class="dwell-time" style="color:' + col + '">' + label + '</span>';
 }
 
+// ── Severity trend arrow — compares current severity against cached previous ──
+// Pure function, no mutations, no timers. Cache key based on event title slug.
+function severityTrend(ev) {
+  if (!ev.title) return '';
+  var slug    = 'argus_sev_' + ev.title.toLowerCase().replace(/\W+/g,'_').slice(0,40);
+  var SEV_NUM = { LOW: 1, WATCH: 2, WARNING: 3, CRITICAL: 4 };
+  var cur     = SEV_NUM[ev.severity] || 0;
+  var prev    = 0;
+  try { prev = parseInt(localStorage.getItem(slug) || '0'); } catch(e) {}
+  // Store current for next render
+  try { localStorage.setItem(slug, String(cur)); } catch(e) {}
+  if (!prev || prev === cur) return '';
+  if (cur > prev) return '<span title="Escalating" style="font-size:9px;color:#ff4422;margin-left:4px;">↑</span>';
+  return '<span title="De-escalating" style="font-size:9px;color:#00cc66;margin-left:4px;">↓</span>';
+}
+
+// ── Commodity exposure tags — derived from title/impact keywords, no new API ──
+var COMMODITY_MAP = [
+  { tag: 'OIL',           re: /oil|crude|brent|wti|opec|petroleum|barrel|refin/i },
+  { tag: 'GAS',           re: /\bgas\b|lng|natural gas|pipeline|gazprom/i },
+  { tag: 'WHEAT',         re: /wheat|grain|cereal|bread|flour|harvest|crop/i },
+  { tag: 'SEMICONDUCTORS',re: /semiconductor|chip|microchip|tsmc|nvidia|wafer|fab/i },
+  { tag: 'RARE EARTH',    re: /rare earth|lithium|cobalt|nickel|copper|mineral/i },
+  { tag: 'SHIPPING',      re: /shipping|freight|vessel|container|port|tanker|cargo/i },
+  { tag: 'FOOD',          re: /food|famine|hunger|starvation|fertilizer|agriculture/i },
+  { tag: 'SANCTIONS',     re: /sanction|embargo|export ban|restriction|blacklist/i },
+];
+
+function commodityTags(ev) {
+  var text = ((ev.title || '') + ' ' + (ev.impact || '')).toLowerCase();
+  var hits = COMMODITY_MAP.filter(function(c) { return c.re.test(text); });
+  if (!hits.length) return '';
+  return '<div style="display:flex;flex-wrap:wrap;gap:3px;margin-top:5px;">' +
+    hits.map(function(c) {
+      return '<span style="font-size:7px;letter-spacing:1px;padding:1px 5px;' +
+        'background:rgba(0,170,255,0.08);border:1px solid #0f2d48;color:#3a6a8a;">' +
+        c.tag + '</span>';
+    }).join('') +
+  '</div>';
+}
+
 function renderEvents(events, isLive) {
   var evList = document.getElementById('ev-list');
   if (!evList) return;
@@ -3642,7 +3683,7 @@ function renderEvents(events, isLive) {
     div.innerHTML =
       '<div class="event-card__row">' +
         '<span class="event-card__type" style="color:' + col + '">' + ev.type + '</span>' +
-        '<span class="event-card__type" style="color:' + col + '">' + ev.severity + '</span>' +
+        '<span class="event-card__type" style="color:' + col + '">' + ev.severity + severityTrend(ev) + '</span>' +
       '</div>' +
       '<div class="event-card__title">' + ev.title + '</div>' +
       '<div class="event-card__meta" style="display:flex;flex-wrap:wrap;gap:4px;align-items:center;margin-top:4px;margin-bottom:2px">' +
@@ -3662,6 +3703,7 @@ function renderEvents(events, isLive) {
       '</div>' +
       '<div class="event-card__detail">' + ev.impact +
         hcBadge(ev.title, ev.impact) +
+        commodityTags(ev) +
         (ev.source ? '<span style="display:block;margin-top:4px;font-size:8px;letter-spacing:1px;color:#4a6080;text-transform:uppercase">' + ev.source +
           (function() { var t = getSourceTierLabel(ev.source); return t ? ' <span style="font-size:7px;letter-spacing:1px;padding:1px 4px;border:1px solid ' + t.color + '44;color:' + t.color + ';margin-left:4px;">' + t.label + '</span>' : ''; })() +
         '</span>' : '') +
@@ -4977,7 +5019,7 @@ async function fetchAll() {
   await new Promise(function(r) { setTimeout(r, 10000); }); // let boot requests clear first
 
   var feedJson = await safeFetch(makeUrl(
-    '(supply chain OR shipping OR sanctions OR conflict OR war OR Houthi OR Suez OR Hormuz OR Russia OR China OR Iran)',
+    '(supply chain OR shipping OR sanctions OR conflict OR war OR Houthi OR Suez OR Hormuz OR Russia OR China OR Iran OR "Red Sea" OR "South China Sea" OR semiconductor OR "rare earth" OR "grain export" OR "port closure" OR tariff OR embargo OR "trade route" OR pipeline OR "oil price" OR famine OR coup)',
     15, '48h'
   ));
   var articles = (feedJson && feedJson.articles) || [];
@@ -5238,7 +5280,7 @@ function renderGdeltTab() {
       ';--card-i:' + idx;
     div.innerHTML =
       '<div class="event-card__row"><span class="event-card__type" style="color:' + col + '">' + ev.type + '</span>' +
-        '<span class="event-card__type" style="color:' + col + '">' + ev.severity + '</span></div>' +
+        '<span class="event-card__type" style="color:' + col + '">' + ev.severity + severityTrend(ev) + '</span></div>' +
       '<div class="event-card__title">' + ev.title + '</div>' +
       '<div style="display:flex;align-items:center;gap:6px;margin-top:4px">' +
         (ev.country  ? '<span style="font-size:8px;letter-spacing:1px;color:#00ccff">◈ ' + ev.country + '</span>' : '') +

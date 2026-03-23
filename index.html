@@ -5841,13 +5841,14 @@ window.ArgusAnalyst = (function() {
 
   function sbFetch(path, opts) {
     var token = window.ArgusSession && window.ArgusSession.token;
-    return fetch(SUPA_URL + path, Object.assign({
-      headers: Object.assign({
-        'apikey': SUPA_ANON,
-        'Authorization': 'Bearer ' + (token || SUPA_ANON),
-        'Content-Type': 'application/json',
-      }, (opts && opts.headers) || {})
-    }, opts || {}));
+    var baseHeaders = {
+      'apikey': SUPA_ANON,
+      'Authorization': 'Bearer ' + (token || SUPA_ANON),
+      'Content-Type': 'application/json',
+    };
+    var fetchOpts = Object.assign({}, opts || {});
+    fetchOpts.headers = Object.assign({}, baseHeaders, (opts && opts.headers) || {});
+    return fetch(SUPA_URL + path, fetchOpts);
   }
 
   // ── Show/hide modal ────────────────────────────────────────────────────────
@@ -5950,13 +5951,14 @@ window.ArgusAdmin = (function() {
   // ── REST helper ────────────────────────────────────────────────────────────
   function sbFetch(path, opts) {
     var token = window.ArgusSession && window.ArgusSession.token;
-    return fetch(SUPA_URL + path, Object.assign({
-      headers: Object.assign({
-        'apikey': SUPA_ANON,
-        'Authorization': 'Bearer ' + (token || SUPA_ANON),
-        'Content-Type': 'application/json',
-      }, (opts && opts.headers) || {})
-    }, opts || {}));
+    var baseHeaders = {
+      'apikey': SUPA_ANON,
+      'Authorization': 'Bearer ' + (token || SUPA_ANON),
+      'Content-Type': 'application/json',
+    };
+    var fetchOpts = Object.assign({}, opts || {});
+    fetchOpts.headers = Object.assign({}, baseHeaders, (opts && opts.headers) || {});
+    return fetch(SUPA_URL + path, fetchOpts);
   }
 
   // ── Boot — only show bar for owner/admin ──────────────────────────────────

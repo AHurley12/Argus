@@ -3553,7 +3553,7 @@ window.ArgusData = (function() {
       if (cached && Date.now() - ts < TTL) return;
     } catch(e) {}
 
-    fetch('https://stooq.com/q/d/l/?s=bdi&i=d')
+    fetch('https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent('https://stooq.com/q/d/l/?s=bdi&i=d'))
     .then(function(r) { return r.ok ? r.text() : null; })
     .then(function(csv) {
       if (!csv) throw new Error('No data');
@@ -3852,6 +3852,8 @@ function getSourceTierLabel(source) {
     return { label: 'REGIONAL', color: '#ffcc00' };
   return null;
 }
+window.getSourceBoost     = getSourceBoost;
+window.getSourceTierLabel = getSourceTierLabel;
 
 // Returns 0–120 score; higher = should plot on globe first.
 var ECONOMIC_RE = /sanction|tariff|trade|oil|gas|energy|inflation|recession|market|supply.chain|shipping|logistics|embargo|default|debt|gdp|currency|devaluation|export|import|port|corridor|pipeline|commodity|wheat|food.price|drought|harvest|grain|fertilizer|semiconductor|chip|rare.earth|lithium/i;
@@ -4943,7 +4945,7 @@ function scorePlotPriority(ev) {
   var ecoHit      = GDELT_ECO_RE.test(full) ? 1 : 0;
   var sevScore    = GDELT_SEV_W[ev.severity] || 10;
   var typeBonus   = (ev.type === 'CONFLICT' || ev.type === 'DISASTER') ? 20 : 0;
-  var sourceBoost = getSourceBoost(ev.source || ev.domain || '');
+  var sourceBoost = (window.getSourceBoost || function(){return 0;})(ev.source || ev.domain || '');
   return Math.round((humHit * 0.50 + ecoHit * 0.50) * sevScore + typeBonus + sourceBoost);
 }
 
@@ -5390,7 +5392,7 @@ setInterval(fetchAll, TTL);
 
 // ── DISASTER tab — NOAA severe weather fetch ──────────────────────────────────
 (function loadNOAA() {
-  var URL      = 'https://api.weather.gov/alerts/active?status=actual&message_type=alert&urgency=Immediate,Expected&severity=Extreme,Severe&limit=20';
+  var URL      = 'https://api.weather.gov/alerts/active?status=actual&message_type=alert&severity=Extreme,Severe&limit=20';
   var CACHE_K  = 'argus_noaa_v1';
   var CACHE_T  = 'argus_noaa_ts_v1';
   var TTL_MS   = 15 * 60 * 1000;

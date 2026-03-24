@@ -307,8 +307,9 @@
     }
     .feed-tab:first-child { border-radius: 1px 0 0 1px; }
     .feed-tab:last-child  { border-radius: 0 1px 1px 0; border-left: none; }
-    .feed-tab.is-news-active  { background: rgba(0, 255, 136, 0.10); border-color: #00ff8844; color: var(--color-green); }
-    .feed-tab.is-gdelt-active { background: rgba(0, 204, 255, 0.12); border-color: #00ccff44; color: #00ccff; }
+    .feed-tab.is-news-active     { background: rgba(0, 255, 136, 0.10); border-color: #00ff8844; color: var(--color-green); }
+    .feed-tab.is-gdelt-active    { background: rgba(0, 204, 255, 0.12); border-color: #00ccff44; color: #00ccff; }
+    .feed-tab.is-disaster-active { background: rgba(255, 153, 0, 0.12); border-color: #ff990044; color: #ff9900; }
 
     .tone-bar-wrap { height: 3px; background: rgba(15, 39, 68, 0.4); border-radius: 2px; margin-top: 5px; overflow: hidden; }
     .tone-bar { height: 100%; border-radius: 2px; transition: width 0.6s ease; }
@@ -1558,7 +1559,7 @@
         </div>
       </div>
       <div class="dp-row">
-        <div class="dp-label">BALTIC DRY INDEX<span>Dry bulk shipping demand</span></div>
+        <div class="dp-label">BALTIC DRY INDEX<span>Dry bulk shipping demand · Stooq</span></div>
         <div class="dp-value" id="bdi-val" style="color:#4a7da8">N/A</div>
       </div>
 
@@ -3528,9 +3529,60 @@ window.ArgusData = (function() {
     fetchPolygonExchanges();
     fetchAlphaVantage();
     fetchFRED();
-    fetchTDData();              // exchanges + commodity fallback in one call
-    fetchFinnhubCommodities();  // commodity/crypto primary (real prices, not ETF proxies)
+    fetchTDData();
+    fetchFinnhubCommodities();
     fetchBondYields();
+    fetchBDI();
+  }
+
+  // ── Baltic Dry Index — Stooq CSV, no key, CORS-open ──────────────────────
+  function fetchBDI() {
+    var CACHE_K = 'argus_bdi_v1';
+    var CACHE_T = 'argus_bdi_ts_v1';
+    var TTL     = 4 * 60 * 60 * 1000; // 4 hours — BDI updates once daily
+    var el      = document.getElementById('bdi-val');
+
+    // Show cached value immediately
+    try {
+      var cached = localStorage.getItem(CACHE_K);
+      var ts     = parseInt(localStorage.getItem(CACHE_T) || '0');
+      if (cached && el) {
+        el.textContent = cached;
+        el.style.color = '#c5d7e8';
+      }
+      if (cached && Date.now() - ts < TTL) return;
+    } catch(e) {}
+
+    fetch('https://stooq.com/q/d/l/?s=bdi&i=d')
+    .then(function(r) { return r.ok ? r.text() : null; })
+    .then(function(csv) {
+      if (!csv) throw new Error('No data');
+      // CSV: Date,Open,High,Low,Close,Volume — take last non-empty row
+      var rows = csv.trim().split('\n').filter(function(r) { return r && !r.startsWith('Date'); });
+      if (!rows.length) throw new Error('Empty');
+      var last   = rows[rows.length - 1].split(',');
+      var close  = parseFloat(last[4]);
+      var prev   = rows.length > 1 ? parseFloat(rows[rows.length - 2].split(',')[4]) : null;
+      if (isNaN(close)) throw new Error('NaN');
+
+      var display = close.toLocaleString('en-US', { maximumFractionDigits: 0 });
+      var color   = '#c5d7e8';
+      if (prev && !isNaN(prev)) {
+        color = close > prev ? '#00cc66' : close < prev ? '#ff4422' : '#c5d7e8';
+        var pct = ((close - prev) / prev * 100).toFixed(1);
+        display += ' (' + (close > prev ? '+' : '') + pct + '%)';
+      }
+
+      if (el) { el.textContent = display; el.style.color = color; }
+      try {
+        localStorage.setItem(CACHE_K, display);
+        localStorage.setItem(CACHE_T, String(Date.now()));
+      } catch(e) {}
+    })
+    .catch(function(e) {
+      console.warn('BDI fetch failed:', e.message);
+      if (el && el.textContent === 'N/A') el.textContent = '—';
+    });
   }
 
   return { init: init, buildSnapshot: buildSnapshot, downloadSnapshot: downloadSnapshot, toggleExchanges: toggleExchanges, selectExchange: selectExchange };
@@ -3637,6 +3689,8 @@ function severityTrend(ev) {
   if (cur > prev) return '<span title="Escalating" style="font-size:9px;color:#ff4422;margin-left:4px;">↑</span>';
   return '<span title="De-escalating" style="font-size:9px;color:#00cc66;margin-left:4px;">↓</span>';
 }
+window.severityTrend = severityTrend;
+window.commodityTags = commodityTags;
 
 // ── Commodity exposure tags — derived from title/impact keywords, no new API ──
 var COMMODITY_MAP = [
@@ -4874,7 +4928,8 @@ var GDELT_PROXIES = [
   toggle.id = 'feed-toggle';
   toggle.innerHTML =
     '<div class="feed-tab is-news-active" id="tab-news" onclick="gdelt.switchTab(\'news\')">NEWS</div>' +
-    '<div class="feed-tab" id="tab-gdelt" onclick="gdelt.switchTab(\'gdelt\')">GDELT</div>';
+    '<div class="feed-tab" id="tab-gdelt" onclick="gdelt.switchTab(\'gdelt\')">GDELT</div>' +
+    '<div class="feed-tab" id="tab-disaster" onclick="gdelt.switchTab(\'disaster\')">⚠ DISASTER</div>';
   header.insertAdjacentElement('afterend', toggle);
 })();
 
@@ -5019,7 +5074,7 @@ async function fetchAll() {
   await new Promise(function(r) { setTimeout(r, 10000); }); // let boot requests clear first
 
   var feedJson = await safeFetch(makeUrl(
-    '(supply chain OR shipping OR sanctions OR conflict OR war OR Houthi OR Suez OR Hormuz OR Russia OR China OR Iran OR "Red Sea" OR "South China Sea" OR semiconductor OR "rare earth" OR "grain export" OR "port closure" OR tariff OR embargo OR "trade route" OR pipeline OR "oil price" OR famine OR coup)',
+    '(supply chain OR shipping OR sanctions OR conflict OR war OR Houthi OR Suez OR Hormuz OR Russia OR China OR Iran OR semiconductor OR tariff OR embargo OR famine OR coup OR pipeline)',
     15, '48h'
   ));
   var articles = (feedJson && feedJson.articles) || [];
@@ -5280,7 +5335,7 @@ function renderGdeltTab() {
       ';--card-i:' + idx;
     div.innerHTML =
       '<div class="event-card__row"><span class="event-card__type" style="color:' + col + '">' + ev.type + '</span>' +
-        '<span class="event-card__type" style="color:' + col + '">' + ev.severity + severityTrend(ev) + '</span></div>' +
+        '<span class="event-card__type" style="color:' + col + '">' + ev.severity + (window.severityTrend ? window.severityTrend(ev) : "") + '</span></div>' +
       '<div class="event-card__title">' + ev.title + '</div>' +
       '<div style="display:flex;align-items:center;gap:6px;margin-top:4px">' +
         (ev.country  ? '<span style="font-size:8px;letter-spacing:1px;color:#00ccff">◈ ' + ev.country + '</span>' : '') +
@@ -5308,13 +5363,17 @@ function renderGdeltTab() {
 // ── Tab switch ────────────────────────────────────────────────────────────────
 function switchTab(tab) {
   activeTab = tab;
-  var newsTab  = document.getElementById('tab-news');
-  var gdeltTab = document.getElementById('tab-gdelt');
-  if (newsTab)  { newsTab.classList.toggle('is-news-active',  tab === 'news');  newsTab.classList.remove('is-gdelt-active'); }
-  if (gdeltTab) { gdeltTab.classList.toggle('is-gdelt-active', tab === 'gdelt'); gdeltTab.classList.remove('is-news-active'); }
+  var newsTab     = document.getElementById('tab-news');
+  var gdeltTab    = document.getElementById('tab-gdelt');
+  var disasterTab = document.getElementById('tab-disaster');
+  if (newsTab)     { newsTab.className     = 'feed-tab' + (tab === 'news'     ? ' is-news-active'     : ''); }
+  if (gdeltTab)    { gdeltTab.className    = 'feed-tab' + (tab === 'gdelt'    ? ' is-gdelt-active'    : ''); }
+  if (disasterTab) { disasterTab.className = 'feed-tab' + (tab === 'disaster' ? ' is-disaster-active' : ''); }
 
   if (tab === 'gdelt') {
     renderGdeltTab();
+  } else if (tab === 'disaster') {
+    renderDisasterTab();
   } else {
     try {
       var c = localStorage.getItem('argus_live_events_v2');
@@ -5328,6 +5387,101 @@ function switchTab(tab) {
 // Boot: 4s delay then refresh every 15 min
 setTimeout(fetchAll, 4000);
 setInterval(fetchAll, TTL);
+
+// ── DISASTER tab — NOAA severe weather fetch ──────────────────────────────────
+(function loadNOAA() {
+  var URL      = 'https://api.weather.gov/alerts/active?status=actual&message_type=alert&urgency=Immediate,Expected&severity=Extreme,Severe&limit=20';
+  var CACHE_K  = 'argus_noaa_v1';
+  var CACHE_T  = 'argus_noaa_ts_v1';
+  var TTL_MS   = 15 * 60 * 1000;
+  try {
+    var cached = localStorage.getItem(CACHE_K);
+    var ts     = parseInt(localStorage.getItem(CACHE_T) || '0');
+    if (cached && Date.now() - ts < TTL_MS) { window._noaaEvents = JSON.parse(cached); return; }
+  } catch(e) {}
+  fetch(URL, { headers: { 'User-Agent': 'ArgusIntel/1.0 argus@intel.com' } })
+  .then(function(r) { return r.ok ? r.json() : null; })
+  .then(function(data) {
+    if (!data || !data.features) return;
+    var events = data.features.slice(0, 15).map(function(f, i) {
+      var p   = f.properties || {};
+      var sev = p.severity === 'Extreme' ? 'CRITICAL' : p.severity === 'Severe' ? 'WARNING' : 'WATCH';
+      return {
+        id: 9800 + i,
+        type: 'DISASTER',
+        severity: sev,
+        title: (p.event || 'Weather Alert') + (p.areaDesc ? ' — ' + p.areaDesc.split(';')[0] : ''),
+        impact: p.description ? p.description.slice(0, 180) + '…' : (p.headline || ''),
+        region: p.areaDesc ? p.areaDesc.split(';')[0].trim() : 'USA',
+        pubDate: p.effective ? new Date(p.effective).toUTCString().slice(0,22) : '',
+        source: 'NOAA',
+        link: p['@id'] || '',
+        lat: null, lon: null,
+        plotPriority: sev === 'CRITICAL' ? 85 : sev === 'WARNING' ? 55 : 30,
+      };
+    });
+    window._noaaEvents = events;
+    try { localStorage.setItem(CACHE_K, JSON.stringify(events)); localStorage.setItem(CACHE_T, String(Date.now())); } catch(e) {}
+    if (activeTab === 'disaster') renderDisasterTab();
+  })
+  .catch(function() {});
+})();
+
+// ── renderDisasterTab — aggregates all disaster sources ───────────────────────
+function renderDisasterTab() {
+  var evList = document.getElementById('ev-list');
+  if (!evList) return;
+
+  var usgs  = window._usgsEvents     || [];
+  var rw    = window._rwCrisisEvents || [];
+  var noaa  = window._noaaEvents     || [];
+
+  // Map GDACS from _rwData into ev format
+  var gdacs = [];
+  if (window._rwData) {
+    Object.keys(window._rwData).forEach(function(iso, i) {
+      var entry = window._rwData[iso];
+      if (!entry.disasters || !entry.disasters.length) return;
+      entry.disasters.forEach(function(d, j) {
+        gdacs.push({
+          id: 9700 + i * 10 + j,
+          type: 'DISASTER',
+          severity: d.sev || 'WATCH',
+          title: (d.name || 'Disaster') + ' — ' + iso,
+          impact: 'Active GDACS disaster. Types: ' + (d.types ? d.types.join(', ') : 'Unknown'),
+          region: iso,
+          pubDate: '',
+          source: 'GDACS',
+          link: '',
+          lat: null, lon: null,
+          plotPriority: d.sev === 'CRITICAL' ? 80 : d.sev === 'WARNING' ? 50 : 25,
+        });
+      });
+    });
+  }
+
+  var all = usgs.concat(rw).concat(gdacs).concat(noaa);
+  all.sort(function(a, b) { return b.plotPriority - a.plotPriority; });
+
+  evList.innerHTML = '';
+  // Header badge
+  var hdr = document.createElement('div');
+  hdr.style.cssText = 'font-size:8px;letter-spacing:2px;color:#ff9900;margin-bottom:8px;display:flex;align-items:center;gap:6px';
+  hdr.innerHTML = '<span style="width:6px;height:6px;border-radius:50%;background:#ff9900;display:inline-block;box-shadow:0 0 6px #ff9900"></span>DISASTERS & WEATHER — ' + all.length + ' ACTIVE';
+  evList.appendChild(hdr);
+
+  if (!all.length) {
+    evList.innerHTML += '<div style="font-size:10px;color:#4a7da8;padding:20px 0;text-align:center;letter-spacing:1px;">NO ACTIVE ALERTS</div>';
+    return;
+  }
+
+  if (window.renderEvents) {
+    window.renderEvents(all, false);
+    // Re-stamp header since renderEvents clears the list
+    evList.insertBefore(hdr, evList.firstChild);
+  }
+}
+window.renderDisasterTab = renderDisasterTab;
 
 return { switchTab: switchTab, getData: function() { return data; } };
 

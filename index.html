@@ -5837,6 +5837,40 @@ return { getCountryData: getCountryData, getDisasters: getDisasters, init: init 
       return;
     }
 
+    // Silent token refresh if expired or expiring within 5 minutes
+    var expiresAt = (stored.expires_at || 0) * 1000;
+    if (Date.now() > expiresAt - 5 * 60 * 1000) {
+      try {
+        var refreshRes = await fetch(SUPABASE_URL + '/auth/v1/token?grant_type=refresh_token', {
+          method: 'POST',
+          headers: {
+            'apikey': SUPABASE_ANON,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ refresh_token: stored.refresh_token })
+        });
+        if (refreshRes.ok) {
+          var refreshed = await refreshRes.json();
+          if (refreshed.access_token) {
+            stored = Object.assign({}, stored, {
+              access_token:  refreshed.access_token,
+              refresh_token: refreshed.refresh_token || stored.refresh_token,
+              expires_at:    refreshed.expires_at,
+              expires_in:    refreshed.expires_in,
+            });
+            localStorage.setItem('argus_session', JSON.stringify(stored));
+            console.log('ARGUS: token refreshed silently');
+          }
+        } else {
+          // Refresh failed — session is dead, clear it
+          console.warn('ARGUS: refresh failed, clearing session');
+          localStorage.removeItem('argus_session');
+          window.ArgusSession._resolved = true;
+          return;
+        }
+      } catch(e) { console.warn('ARGUS: refresh error', e); }
+    }
+
     window.ArgusSession.token = stored.access_token;
     window.ArgusSession.email = stored.user && stored.user.email;
 
@@ -5953,6 +5987,32 @@ return { getCountryData: getCountryData, getDisasters: getDisasters, init: init 
       window.location.href = 'login.html';
     }
   };
+
+  // Refresh token every 50 minutes to prevent mid-session expiry
+  setInterval(function() {
+    var stored = null;
+    try { stored = JSON.parse(localStorage.getItem('argus_session')); } catch(e) {}
+    if (!stored || !stored.refresh_token) return;
+    fetch(SUPABASE_URL + '/auth/v1/token?grant_type=refresh_token', {
+      method: 'POST',
+      headers: { 'apikey': SUPABASE_ANON, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refresh_token: stored.refresh_token })
+    })
+    .then(function(r) { return r.ok ? r.json() : null; })
+    .then(function(refreshed) {
+      if (!refreshed || !refreshed.access_token) return;
+      var updated = Object.assign({}, stored, {
+        access_token:  refreshed.access_token,
+        refresh_token: refreshed.refresh_token || stored.refresh_token,
+        expires_at:    refreshed.expires_at,
+        expires_in:    refreshed.expires_in,
+      });
+      localStorage.setItem('argus_session', JSON.stringify(updated));
+      window.ArgusSession.token = refreshed.access_token;
+      console.log('ARGUS: background token refresh ok');
+    })
+    .catch(function() {});
+  }, 50 * 60 * 1000);
 
   initSession().then(function() {
     // Load permanent events for all users after session ready

@@ -1429,6 +1429,7 @@
     </div>
     <div id="admin-body">
       <div id="admin-pane-eq" class="admin-pane active">
+        <button class="admin-refresh-btn" onclick="ArgusAdmin.loadQueue()">↺ REFRESH QUEUE</button>
         <div class="admin-status" id="eq-status">Loading queue...</div>
         <div id="eq-list"></div>
       </div>
@@ -1438,6 +1439,7 @@
         <div id="um-table-wrap"></div>
       </div>
       <div id="admin-pane-ar" class="admin-pane">
+        <button class="admin-refresh-btn" onclick="ArgusAdmin.loadRequests()">↺ REFRESH REQUESTS</button>
         <div class="admin-status" id="ar-status">Loading requests...</div>
         <div id="ar-list"></div>
       </div>
@@ -6419,6 +6421,7 @@ window.ArgusAdmin = (function() {
             '<button class="eq-btn approve" onclick="ArgusAdmin.requestAction(\'' + r.id + '\',\'approved\')">✓ APPROVE → QUEUE</button>' +
             '<button class="eq-btn hold"    onclick="ArgusAdmin.requestAction(\'' + r.id + '\',\'held\')">⏸ HOLD</button>' +
             '<button class="eq-btn deny"    onclick="ArgusAdmin.requestAction(\'' + r.id + '\',\'denied\')">✕ DENY</button>' +
+            (window.ArgusSession && (window.ArgusSession.tier === 'admin' || window.ArgusSession.tier === 'owner') ? '<button class="eq-btn" onclick="ArgusAdmin.removeAnalystPin(\'' + r.id + '\')" style="border-color:#cc2200;color:#cc2200;">✕ REMOVE PIN</button>' : '') +
           '</div>' +
         '</div>';
       }).join('');
@@ -6437,14 +6440,15 @@ window.ArgusAdmin = (function() {
     })
     .then(function(r) {
       if (!r.ok) throw new Error('HTTP ' + r.status);
-      // If approved — push into event queue
+      // If approved — push into event queue AND geocode/plot on globe
       if (action === 'approved') {
         sbFetch('/rest/v1/argus_analyst_requests?id=eq.' + id + '&select=*')
         .then(function(r2) { return r2.json(); })
         .then(function(rows) {
           if (!rows[0]) return;
           var req = rows[0];
-          return sbFetch('/rest/v1/argus_event_queue', {
+          // Push to event queue
+          sbFetch('/rest/v1/argus_event_queue', {
             method: 'POST',
             headers: { 'Prefer': 'return=minimal' },
             body: JSON.stringify({
@@ -6457,6 +6461,20 @@ window.ArgusAdmin = (function() {
               status:       'pending',
             })
           });
+          // Geocode and plot on globe if location provided
+          if (req.location) {
+            fetch('https://nominatim.openstreetmap.org/search?q=' +
+              encodeURIComponent(req.location) + '&format=json&limit=1',
+              { headers: { 'Accept-Language': 'en', 'User-Agent': 'ArgusIntel/1.0' } }
+            )
+            .then(function(r3) { return r3.json(); })
+            .then(function(res) {
+              if (!res || !res[0]) return;
+              var geo = { lat: parseFloat(res[0].lat), lon: parseFloat(res[0].lon) };
+              _plotAnalystPin(req, id, geo);
+            })
+            .catch(function() {});
+          }
         });
       }
       if (card) card.remove();
@@ -6572,7 +6590,75 @@ window.ArgusAdmin = (function() {
     .catch(function(e) { console.warn('Permanent events load error:', e.message); });
   }
 
-  return { toggle: toggle, switchTab: switchTab, loadUsers: loadUsers, loadQueue: loadQueue, queueAction: queueAction, setTier: setTier, loadRequests: loadRequests, requestAction: requestAction, permanentAction: permanentAction, _reloadPermanent: _reloadPermanent };
+  // ── Plot approved analyst request on globe ────────────────────────────────
+  function _plotAnalystPin(req, reqId, geo) {
+    var AG = window.ArgusGlobe;
+    if (!AG || !AG.eventMarkerGroup || !AG.latLonToVector) return;
+    var SEV_COLORS = { CRITICAL: 0xff0044, WARNING: 0xff9933, WATCH: 0xffcc00, LOW: 0x00ff88 };
+    var t = ((req.title || '') + ' ' + (req.notes || '')).toLowerCase();
+    var type = 'POLICY', sev = 'WATCH';
+    if (/attack|war|military|conflict|coup|terror/i.test(t))   { type = 'CONFLICT'; sev = 'WARNING'; }
+    else if (/flood|quake|disaster|hurricane|famine/i.test(t)) { type = 'DISASTER'; sev = 'WARNING'; }
+    else if (/sanction|tariff|embargo|trade/i.test(t))         { type = 'POLICY';   sev = 'WATCH';   }
+    else if (/hack|cyber|breach/i.test(t))                     { type = 'CYBER';    sev = 'WATCH';   }
+    if (/critical|emergency|crisis/i.test(t)) sev = 'CRITICAL';
+
+    var correctedLon = geo.lon + 90;
+    while (correctedLon >  180) correctedLon -= 360;
+    while (correctedLon < -180) correctedLon += 360;
+
+    var col = SEV_COLORS[sev] || 0xff9900;
+    var pos = AG.latLonToVector(geo.lat, correctedLon, 102);
+
+    var mesh = new THREE.Mesh(
+      new THREE.SphereGeometry(2.2, 16, 16),
+      new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.7 })
+    );
+    mesh.position.copy(pos);
+    mesh.userData = {
+      _analystPin: true, _reqId: reqId,
+      type: type, severity: sev,
+      title: req.title || req.location,
+      impact: (req.notes || '') + (req.source_url ? ' · ' + req.source_url : ''),
+      source: '★ ANALYST · ' + (req.submitted_by || ''),
+    };
+    AG.eventMarkerGroup.add(mesh);
+    window.eventMarkers.push(mesh);
+
+    var ring = new THREE.Mesh(
+      new THREE.RingGeometry(3.2, 4.8, 32),
+      new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.45, side: THREE.DoubleSide })
+    );
+    ring.position.copy(pos);
+    ring.lookAt(pos.clone().normalize().multiplyScalar(200));
+    ring.userData = { isPulseRing: true, phase: Math.random() * Math.PI * 2, _analystPin: true };
+    AG.eventMarkerGroup.add(ring);
+
+    if (!window._analystPins) window._analystPins = [];
+    window._analystPins.push({ mesh: mesh, ring: ring, reqId: reqId, title: req.title });
+    if (typeof window.updateNodeCounts === 'function') window.updateNodeCounts();
+    console.log('ArgusAdmin: plotted analyst pin', req.title, geo.lat.toFixed(2), geo.lon.toFixed(2));
+  }
+
+  // ── Remove analyst pin — admin/owner only ─────────────────────────────────
+  function removeAnalystPin(reqId) {
+    var tier = window.ArgusSession ? window.ArgusSession.tier : 'viewer';
+    if (tier !== 'admin' && tier !== 'owner') return;
+    var AG = window.ArgusGlobe;
+    if (!window._analystPins) return;
+    window._analystPins = window._analystPins.filter(function(p) {
+      if (p.reqId !== reqId) return true;
+      if (AG && AG.eventMarkerGroup) {
+        AG.eventMarkerGroup.remove(p.mesh);
+        AG.eventMarkerGroup.remove(p.ring);
+      }
+      window.eventMarkers = window.eventMarkers.filter(function(m) { return m !== p.mesh; });
+      return false;
+    });
+    if (typeof window.updateNodeCounts === 'function') window.updateNodeCounts();
+  }
+
+  return { toggle: toggle, switchTab: switchTab, loadUsers: loadUsers, loadQueue: loadQueue, queueAction: queueAction, setTier: setTier, loadRequests: loadRequests, requestAction: requestAction, permanentAction: permanentAction, _reloadPermanent: _reloadPermanent, _plotAnalystPin: _plotAnalystPin, removeAnalystPin: removeAnalystPin };
 })();
 </script>
 </body>

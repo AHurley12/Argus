@@ -3696,14 +3696,14 @@ window.commodityTags = commodityTags;
 
 // ── Commodity exposure tags — derived from title/impact keywords, no new API ──
 var COMMODITY_MAP = [
-  { tag: 'OIL',           re: /oil|crude|brent|wti|opec|petroleum|barrel|refin/i },
+  { tag: 'OIL',           re: /oil|crude|brent|wti|opec|petroleum|barrel|refinery/i },
   { tag: 'GAS',           re: /\bgas\b|lng|natural gas|pipeline|gazprom/i },
   { tag: 'WHEAT',         re: /wheat|grain|cereal|bread|flour|harvest|crop/i },
   { tag: 'SEMICONDUCTORS',re: /semiconductor|chip|microchip|tsmc|nvidia|wafer|fab/i },
-  { tag: 'RARE EARTH',    re: /rare earth|lithium|cobalt|nickel|copper|mineral/i },
+  { tag: 'RARE EARTH',    re: /rare earth|lithium|cobalt|nickel|copper|mineral|metals/i },
   { tag: 'SHIPPING',      re: /shipping|freight|vessel|container|port|tanker|cargo/i },
-  { tag: 'FOOD',          re: /food|famine|hunger|starvation|fertilizer|agriculture/i },
-  { tag: 'SANCTIONS',     re: /sanction|embargo|export ban|restriction|blacklist/i },
+  { tag: 'FOOD',          re: /food|famine|hunger|starvation|fertilizer|farm|farmers|agriculture/i },
+  { tag: 'SANCTIONS',     re: /sanction|import ban|embargo|export ban|restriction|blacklist/i },
 ];
 
 function commodityTags(ev) {
@@ -3802,7 +3802,7 @@ var RELEVANT_TAGS = /conflict|war|military|attack|casualties|killed|wounded|disp
 
 // ── Type classifier — humanitarian events mapped before economic ones ─────────
 var TYPE_RULES = [
-  { re: /attack|militia|houthi|strike|bomb|missile|shoot|troops|war|military|weapon|armed|kill|coup|terror|casualties|airstrike|shelling|massacre|offensive|siege|conflict|civilian/i, type: 'CONFLICT'  },
+  { re: /attack|militia|terror|strike|bomb|missile|shoot|troops|war|military|weapon|armed|kill|coup|terror|casualties|airstrike|shelling|massacre|offensive|siege|conflict|civilian/i, type: 'CONFLICT'  },
   { re: /hack|cyber|ransomware|breach|malware|phishing|ddos/i,                                                                                                                          type: 'CYBER'     },
   { re: /flood|earthquake|quake|hurricane|typhoon|drought|wildfire|tsunami|disaster|eruption|famine|epidemic|outbreak/i,                                                                type: 'DISASTER'  },
   { re: /inflation|recession|gdp|interest rate|debt|default|unemployment|market crash/i,                                                                                                type: 'ECONOMIC'  },
@@ -3811,14 +3811,14 @@ var TYPE_RULES = [
 
 // ── Severity classifier — humanitarian signals weighted before economics ──────
 var SEVERITY_RULES = [
-  { re: /critical|catastrophic|collapse|crisis|emergency|imminent|blockade|seized|nuclear|massacre|genocide|famine|mass.casualt|civilian.death|airstrike.kill|chemical.weapon|epidemic|outbreak/i, sev: 'CRITICAL' },
-  { re: /escalat|surge|severe|major|significant|threat|attack|conflict|explosion|offensive|casualties|wounded|killed|displacement|bombing|humanitarian.crisis|refugee.crisis/i,                  sev: 'WARNING'  },
+  { re: /critical|catastrophic|collapse|crisis|emergency|imminent|blockade|seized|starvation|nuclear|massacre|genocide|famine|mass.casualt|civilian.death|airstrike.kill|chemical.weapon|epidemic|outbreak/i, sev: 'CRITICAL' },
+  { re: /escalate|surge|severe|major|significant|threat|attack|conflict|explosion|famine|offensive|casualties|wounded|killed|displacement|bombing|humanitarian.crisis|refugee.crisis/i,                  sev: 'WARNING'  },
   { re: /tension|concern|risk|disruption|pressure|sanction|tariff|unrest|warning|protest|strike|disputed|clashes/i,                                                                               sev: 'WATCH'    },
 ];
 
 var IMPACT_MAP = {
   CONFLICT: 'Active conflict affecting regional trade flows and shipping insurance premiums.',
-  CYBER:    'Cyber incident posing risk to logistics, port systems, or financial infrastructure.',
+  CYBER:    'Cyber incident posing risk to logistics, port systems, information infrastructure, or financial infrastructure.',
   DISASTER: 'Natural disaster disrupting supply chain operations and commodity flows.',
   ECONOMIC: 'Macroeconomic development affecting global trade volumes and market stability.',
   POLICY:   'Policy change with downstream impact on trade routes, tariffs, or market access.',
@@ -4594,10 +4594,10 @@ window.ArgusEvents = (function() {
   function classify(text) {
     var t = text.toLowerCase();
     var type = 'POLICY';
-    if (/attack|war|military|strike|bomb|conflict|coup|terror|militia|houthi/i.test(t)) type = 'CONFLICT';
-    else if (/flood|quake|earthquake|hurricane|typhoon|drought|disaster|wildfire/i.test(t)) type = 'DISASTER';
-    else if (/hack|cyber|ransomware|breach/i.test(t)) type = 'CYBER';
-    else if (/recession|inflation|crash|default|debt/i.test(t)) type = 'ECONOMIC';
+    if (/attack|war|strike|defense|coalition|armistice|espionage|intelligence|casualties|allies|sanctions|treaty|civilian|military|ordinance|munitions|deploy|deployment|missiles|fighter jets|warships|aircraft carrier|military|strike|bomb|conflict|coup|terror|militia|houthi/i.test(t)) type = 'CONFLICT';
+    else if (/flood|quake|earthquake|storm|hurricane|typhoon|disease|pandemic|drought|disaster|wildfire/i.test(t)) type = 'DISASTER';
+    else if (/hack|cyber|malware|ddos|phishing|internet|web service|dark web|ransomware|breach/i.test(t)) type = 'CYBER';
+    else if (/recession|inflation|market|fiscal|stagflation|monetary|bank|IMF|funding|loan|bond|stocks|crash|default|debt/i.test(t)) type = 'ECONOMIC';
     var sev = 'WATCH';
     if (/critical|emergency|crisis|catastrophic|imminent|escalat/i.test(t)) sev = 'CRITICAL';
     else if (/major|severe|warning|significant|offensive/i.test(t)) sev = 'WARNING';
@@ -4958,10 +4958,10 @@ function classifyArticle(article, idx) {
   var low   = title.toLowerCase();
   var sev   = tone < -8 ? 'CRITICAL' : tone < -4 ? 'WARNING' : tone < -1 ? 'WATCH' : 'LOW';
   var type  = 'POLICY';
-  if (/attack|conflict|war|military|missile|strike|bomb|casualties|killed|coup|terror|siege|airstrike|shelling|civilian/.test(low)) type = 'CONFLICT';
-  else if (/flood|quake|drought|hurricane|typhoon|disaster|famine|epidemic|outbreak/.test(low)) type = 'DISASTER';
-  else if (/hack|cyber|ransom|breach/.test(low)) type = 'CYBER';
-  else if (/inflation|recession|gdp|debt/.test(low)) type = 'ECONOMIC';
+  if (/attack|conflict|war|allies|munitions|casualties|fatality|drone strike|military|strike|deploy|destroy|missile|strike|bomb|casualties|killed|coup|terror|siege|airstrike|shelling|civilian/.test(low)) type = 'CONFLICT';
+  else if (/flood|quake|storm|blizzard|drought|hurricane|typhoon|disaster|famine|epidemic|outbreak/.test(low)) type = 'DISASTER';
+  else if (/hack|cyber|malware|ddos|phishing|randsomeware|ransom|web|internet|breach/.test(low)) type = 'CYBER';
+  else if (/inflation|market|fiscal|budget|tax|tariff|trade|recession|gdp|debt/.test(low)) type = 'ECONOMIC';
   // seendate format from GDELT: "20250314T083200Z"
   var seendate = '';
   if (article.seendate) {
@@ -6268,7 +6268,7 @@ window.ArgusAdmin = (function() {
     if (ev.data && ev.data.keywords && ev.data.keywords.length) conf += 15;
 
     var bias = 0;
-    var extremeWords = /breaking|urgent|exclusive|crisis|catastrophic|unprecedented|shocking|explosive/i;
+    var extremeWords = /breaking|urgent|exclusive|emergency|disaster|crisis|catastrophic|unprecedented|shocking|explosive/i;
     var title = (ev.data && ev.data.title) || '';
     if (extremeWords.test(title)) bias += 40;
     if (!ev.location || (!ev.location.lat && !ev.location.lon)) bias += 20;
@@ -6657,11 +6657,11 @@ window.ArgusAdmin = (function() {
     var SEV_COLORS = { CRITICAL: 0xff0044, WARNING: 0xff9933, WATCH: 0xffcc00, LOW: 0x00ff88 };
     var t = ((req.title || '') + ' ' + (req.notes || '')).toLowerCase();
     var type = 'POLICY', sev = 'WATCH';
-    if (/attack|war|military|conflict|coup|terror/i.test(t))   { type = 'CONFLICT'; sev = 'WARNING'; }
-    else if (/flood|quake|disaster|hurricane|famine/i.test(t)) { type = 'DISASTER'; sev = 'WARNING'; }
-    else if (/sanction|tariff|embargo|trade/i.test(t))         { type = 'POLICY';   sev = 'WATCH';   }
-    else if (/hack|cyber|breach/i.test(t))                     { type = 'CYBER';    sev = 'WATCH';   }
-    if (/critical|emergency|crisis/i.test(t)) sev = 'CRITICAL';
+    if (/attack|war|strike|deploy|military|artillery|offensive|munitions|conflict|coup|terror/i.test(t))   { type = 'CONFLICT'; sev = 'WARNING'; }
+    else if (/flood|quake|storm|disaster|drought|precipitation|blizzard|outage|hurricane|famine/i.test(t)) { type = 'DISASTER'; sev = 'WARNING'; }
+    else if (/sanction|tariff|embargo|treaty|legislation|amendment|provision|clause|mandate|socioeconomic|fiscal|sustainability|social|surplus|framework|compliance|trade/i.test(t))         { type = 'POLICY';   sev = 'WATCH';   }
+    else if (/hack|cyber|breach|web|DDos|Phishing|randsomeware|malware|exploit|digital forensics/i.test(t))                     { type = 'CYBER';    sev = 'WATCH';   }
+    if (/critical|dire|emergency|crisis/i.test(t)) sev = 'CRITICAL';
 
     var correctedLon = geo.lon + 90;
     while (correctedLon >  180) correctedLon -= 360;

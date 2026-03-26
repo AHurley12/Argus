@@ -4938,7 +4938,7 @@ var GDELT_PROXIES = [
 })();
 
 // ── Plot priority scoring — humanitarian first (70%), economics second (30%) ──
-var GDELT_HUM_RE  = /war|conflict|attack|airstrike|bombing|casualties|killed|wounded|massacre|coup|terror|genocide|displacement|refugee|famine|civilian|siege|offensive|shelling|protest|crackdown|arrest|detained|execution|disappear|torture|human.rights|persecution|uprising|mutiny|rebellion/i;
+var GDELT_HUM_RE  = /war|conflict|attack|airstrike|bombing|casualties|killed|assassinate|wounded|massacre|coup|terror|genocide|displacement|refugee|famine|civilian|siege|offensive|shelling|protest|crackdown|arrest|detained|disappear|torture|human.rights|persecution|uprising|mutiny|rebellion/i;
 var GDELT_ECO_RE  = /sanction|tariff|trade|oil|gas|energy|inflation|recession|market|supply.chain|shipping|logistics|embargo|default|debt|gdp|currency|devaluation|export|import|port|pipeline|commodity|wheat|grain|food.price|fertilizer|semiconductor|rare.earth|lithium|investment|bank|financial|bond|yield|deficit/i;
 var GDELT_SEV_W   = { CRITICAL: 100, WARNING: 65, WATCH: 35, LOW: 10 };
 function scorePlotPriority(ev) {

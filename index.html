@@ -1426,6 +1426,7 @@
       <button class="admin-tab active" data-pane="eq"  onclick="ArgusAdmin.switchTab('eq')">EVENT QUEUE</button>
       <button class="admin-tab"        data-pane="um"  onclick="ArgusAdmin.switchTab('um')">USERS</button>
       <button class="admin-tab"        data-pane="ar"  onclick="ArgusAdmin.switchTab('ar')">REQUESTS <span id="ar-badge" style="display:none;background:#ff9900;color:#040d18;font-size:7px;padding:1px 4px;margin-left:4px;font-weight:700;"></span></button>
+      <button class="admin-tab"        data-pane="hs"  onclick="ArgusAdmin.switchTab('hs')">HISTORY</button>
     </div>
     <div id="admin-body">
       <div id="admin-pane-eq" class="admin-pane active">
@@ -1442,6 +1443,11 @@
         <button class="admin-refresh-btn" onclick="ArgusAdmin.loadRequests()">↺ REFRESH REQUESTS</button>
         <div class="admin-status" id="ar-status">Loading requests...</div>
         <div id="ar-list"></div>
+      </div>
+      <div id="admin-pane-hs" class="admin-pane">
+        <button class="admin-refresh-btn" onclick="ArgusAdmin.loadHistory()">↺ REFRESH HISTORY</button>
+        <div class="admin-status" id="hs-status"></div>
+        <div id="hs-list"></div>
       </div>
     </div>
   </div>
@@ -6256,6 +6262,7 @@ window.ArgusAdmin = (function() {
     document.querySelectorAll('.admin-pane').forEach(function(p) {
       p.classList.toggle('active', p.id === 'admin-pane-' + pane);
     });
+    if (pane === 'hs') loadHistory();
   }
 
   // ── Confidence + Bias scoring ──────────────────────────────────────────────
@@ -6355,19 +6362,32 @@ window.ArgusAdmin = (function() {
     })
     .then(function(r) {
       if (!r.ok) throw new Error('HTTP ' + r.status);
-      if (card) card.remove();
-      var remaining = document.querySelectorAll('.eq-card').length;
-      document.getElementById('eq-status').textContent = remaining + ' pending event' + (remaining !== 1 ? 's' : '');
-      document.getElementById('admin-queue-count').textContent = remaining ? '· ' + remaining + ' PENDING' : '';
-      if (action === 'approved') {
-        sbFetch('/rest/v1/argus_event_queue?id=eq.' + id + '&select=*')
-        .then(function(r2) { return r2.json(); })
-        .then(function(rows) {
-          if (rows[0] && window.ArgusUI && window.ArgusUI.injectApprovedEvent) {
-            window.ArgusUI.injectApprovedEvent(rows[0]);
+      if (action === 'denied') {
+        // Denied — remove from queue view
+        if (card) card.remove();
+      } else {
+        // Approved / held — keep card, update status badge
+        if (card) {
+          card.style.opacity = '1';
+          var statusColors = { approved: '#00cc66', held: '#ff9900' };
+          var existing = card.querySelector('.eq-status-badge');
+          if (!existing) {
+            var badge = document.createElement('div');
+            badge.className = 'eq-status-badge';
+            badge.style.cssText = 'font-size:8px;letter-spacing:2px;padding:2px 6px;border:1px solid ' + statusColors[action] + ';color:' + statusColors[action] + ';margin-top:6px;display:inline-block;';
+            badge.textContent = action.toUpperCase();
+            card.appendChild(badge);
+          } else {
+            existing.textContent = action.toUpperCase();
           }
-        });
+          // Disable action buttons
+          card.querySelectorAll('.eq-btn').forEach(function(b) { b.disabled = true; b.style.opacity = '0.4'; });
+        }
       }
+      var pending = document.querySelectorAll('.eq-card:not([data-approved]):not([data-held])').length;
+      var remaining = document.querySelectorAll('.eq-card').length;
+      document.getElementById('eq-status').textContent = remaining + ' event' + (remaining !== 1 ? 's' : '') + ' in queue';
+      document.getElementById('admin-queue-count').textContent = remaining ? '· ' + remaining + ' IN QUEUE' : '';
     })
     .catch(function(e) { if (card) card.style.opacity = '1'; alert('Action failed: ' + e.message); });
   }
@@ -6521,27 +6541,75 @@ window.ArgusAdmin = (function() {
               status:       'pending',
             })
           });
-          // Geocode and plot on globe if location provided
-          if (req.location) {
-            fetch('https://nominatim.openstreetmap.org/search?q=' +
-              encodeURIComponent(req.location) + '&format=json&limit=1',
-              { headers: { 'Accept-Language': 'en', 'User-Agent': 'ArgusIntel/1.0' } }
-            )
-            .then(function(r3) { return r3.json(); })
-            .then(function(res) {
-              if (!res || !res[0]) return;
-              var geo = { lat: parseFloat(res[0].lat), lon: parseFloat(res[0].lon) };
-              _plotAnalystPin(req, id, geo);
+          // Geocode location then: (1) write to permanent_events for cross-device globe, (2) plot locally
+          var locQuery = req.location || req.title;
+          fetch('https://nominatim.openstreetmap.org/search?q=' +
+            encodeURIComponent(locQuery) + '&format=json&limit=1',
+            { headers: { 'Accept-Language': 'en', 'User-Agent': 'ArgusIntel/1.0' } }
+          )
+          .then(function(r3) { return r3.json(); })
+          .then(function(res) {
+            var lat = null, lon = null;
+            if (res && res[0]) {
+              lat = parseFloat(res[0].lat);
+              lon = parseFloat(res[0].lon);
+            }
+            // Write to argus_permanent_events — visible to ALL users on load
+            return sbFetch('/rest/v1/argus_permanent_events', {
+              method: 'POST',
+              headers: { 'Prefer': 'return=representation' },
+              body: JSON.stringify({
+                source:     'ANALYST',
+                category:   req.category || 'general',
+                timestamp:  new Date().toISOString(),
+                location:   lat ? { lat: lat, lon: lon, country: req.location } : { country: req.location },
+                data: {
+                  title:      req.title,
+                  severity:   'WARNING',
+                  type:       'POLICY',
+                  impact:     req.notes || '',
+                  url:        req.source_url || '',
+                  keywords:   [],
+                },
+                created_by: window.ArgusSession ? window.ArgusSession.email : 'admin',
+              })
             })
-            .catch(function() {});
-          }
+            .then(function(r4) { return r4.json(); })
+            .then(function(saved) {
+              // Also plot locally for immediate feedback
+              if (lat && lon) _plotAnalystPin(req, id, { lat: lat, lon: lon });
+              // Reload permanent events so current session sees it too
+              if (window.ArgusAdmin && window.ArgusAdmin._reloadPermanent) {
+                window.ArgusAdmin._reloadPermanent();
+              }
+            });
+          })
+          .catch(function(e) { console.warn('Analyst geocode failed:', e.message); });
         });
       }
-      if (card) card.remove();
+      if (action === 'denied') {
+        // Denied — move to history (remove from requests view)
+        if (card) card.remove();
+      } else {
+        // Approved / held — keep card, stamp status
+        if (card) {
+          card.style.opacity = '1';
+          var statusColors = { approved: '#00cc66', held: '#ff9900' };
+          var existing = card.querySelector('.ar-status-badge');
+          if (!existing) {
+            var badge2 = document.createElement('div');
+            badge2.className = 'ar-status-badge';
+            badge2.style.cssText = 'font-size:8px;letter-spacing:2px;padding:2px 6px;border:1px solid ' + statusColors[action] + ';color:' + statusColors[action] + ';margin-top:6px;display:inline-block;';
+            badge2.textContent = action.toUpperCase();
+            card.appendChild(badge2);
+          }
+          card.querySelectorAll('.eq-btn').forEach(function(b) { b.disabled = true; b.style.opacity = '0.4'; });
+        }
+      }
       var remaining = document.querySelectorAll('.ar-card').length;
-      document.getElementById('ar-status').textContent = remaining + ' pending request' + (remaining !== 1 ? 's' : '');
-      var badge = document.getElementById('ar-badge');
-      if (badge) { badge.textContent = remaining; badge.style.display = remaining ? 'inline' : 'none'; }
+      document.getElementById('ar-status').textContent = remaining + ' request' + (remaining !== 1 ? 's' : '') + ' in queue';
+      var arBadge = document.getElementById('ar-badge');
+      if (arBadge) { arBadge.textContent = remaining; arBadge.style.display = remaining ? 'inline' : 'none'; }
     })
     .catch(function(e) { if (card) card.style.opacity = '1'; alert('Action failed: ' + e.message); });
   }
@@ -6650,6 +6718,47 @@ window.ArgusAdmin = (function() {
     .catch(function(e) { console.warn('Permanent events load error:', e.message); });
   }
 
+  // ── History tab — denied events from both tables ─────────────────────────
+  function loadHistory() {
+    var list   = document.getElementById('hs-list');
+    var status = document.getElementById('hs-status');
+    if (!list) return;
+    status.textContent = 'Loading...';
+
+    Promise.all([
+      sbFetch('/rest/v1/argus_event_queue?select=*&status=eq.denied&order=reviewed_at.desc&limit=20').then(function(r) { return r.json(); }),
+      sbFetch('/rest/v1/argus_analyst_requests?select=*&status=eq.denied&order=reviewed_at.desc&limit=20').then(function(r) { return r.json(); })
+    ])
+    .then(function(results) {
+      var queueDenied   = (results[0] || []).map(function(r) { return Object.assign(r, { _src: 'QUEUE' }); });
+      var requestDenied = (results[1] || []).map(function(r) { return Object.assign(r, { _src: 'REQUEST' }); });
+      var all = queueDenied.concat(requestDenied);
+      all.sort(function(a, b) { return new Date(b.reviewed_at || 0) - new Date(a.reviewed_at || 0); });
+      status.textContent = all.length + ' denied item' + (all.length !== 1 ? 's' : '');
+
+      if (!all.length) {
+        list.innerHTML = '<div style="font-size:10px;color:#1a4a70;padding:12px 0;text-align:center;letter-spacing:2px;">NO DENIED ITEMS</div>';
+        return;
+      }
+      list.innerHTML = all.map(function(item) {
+        var title    = (item.data && item.data.title) || item.title || '—';
+        var reviewed = item.reviewed_at ? new Date(item.reviewed_at).toLocaleDateString() : '—';
+        var srcBadge = item._src === 'QUEUE'
+          ? '<span style="font-size:7px;letter-spacing:1px;padding:1px 4px;background:rgba(255,0,68,0.1);border:1px solid #ff004444;color:#ff0044;">QUEUE</span>'
+          : '<span style="font-size:7px;letter-spacing:1px;padding:1px 4px;background:rgba(255,153,0,0.1);border:1px solid #ff990044;color:#ff9900;">REQUEST</span>';
+        return '<div style="border:1px solid #0f2d48;border-left:3px solid #cc2200;background:rgba(7,21,37,0.5);margin-bottom:6px;padding:8px 10px;">' +
+          '<div style="display:flex;gap:6px;align-items:center;margin-bottom:4px;">' + srcBadge +
+            '<span style="font-size:8px;letter-spacing:1px;color:#cc2200;">DENIED</span>' +
+            '<span style="font-size:8px;color:#1a4a70;margin-left:auto;">' + reviewed + '</span>' +
+          '</div>' +
+          '<div style="font-size:11px;color:#7aafcc;">' + title + '</div>' +
+          (item.submitted_by ? '<div style="font-size:8px;color:#2a4a6a;margin-top:3px;">Submitted by: ' + item.submitted_by + '</div>' : '') +
+        '</div>';
+      }).join('');
+    })
+    .catch(function(e) { status.textContent = 'Error: ' + e.message; });
+  }
+
   // ── Plot approved analyst request on globe ────────────────────────────────
   function _plotAnalystPin(req, reqId, geo) {
     var AG = window.ArgusGlobe;
@@ -6718,7 +6827,7 @@ window.ArgusAdmin = (function() {
     if (typeof window.updateNodeCounts === 'function') window.updateNodeCounts();
   }
 
-  return { toggle: toggle, switchTab: switchTab, loadUsers: loadUsers, loadQueue: loadQueue, queueAction: queueAction, setTier: setTier, loadRequests: loadRequests, requestAction: requestAction, permanentAction: permanentAction, _reloadPermanent: _reloadPermanent, _plotAnalystPin: _plotAnalystPin, removeAnalystPin: removeAnalystPin };
+  return { toggle: toggle, switchTab: switchTab, loadUsers: loadUsers, loadQueue: loadQueue, queueAction: queueAction, setTier: setTier, loadRequests: loadRequests, requestAction: requestAction, permanentAction: permanentAction, _reloadPermanent: _reloadPermanent, _plotAnalystPin: _plotAnalystPin, removeAnalystPin: removeAnalystPin, loadHistory: loadHistory };
 })();
 </script>
 </body>

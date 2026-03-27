@@ -6045,22 +6045,34 @@ return { getCountryData: getCountryData, getDisasters: getDisasters, init: init 
       var classified = rows.map(function(ev) {
         var d = ev.data || {};
         return {
+          id:          ev.id,
           title:       d.title    || 'Admin Event',
-          type:        ev.category ? ev.category.toUpperCase() : 'EVENT',
+          type:        (d.type || ev.category || 'EVENT').toUpperCase(),
           severity:    d.severity || 'WARNING',
           impact:      d.impact   || d.description || '',
           region:      (ev.location && (ev.location.country || ev.location.region)) || '',
           pubDate:     ev.timestamp ? new Date(ev.timestamp).toLocaleDateString() : '',
-          source:      '★ ' + (ev.source || 'ADMIN'),
+          source:      '\u2605 ' + (ev.source || 'ADMIN'),
           link:        d.url || d.link || '',
           plotPriority: 999,
           isPermanent:  true,
+          lat:         ev.location && ev.location.lat ? parseFloat(ev.location.lat) : null,
+          lon:         ev.location && ev.location.lon ? parseFloat(ev.location.lon) : null,
         };
       });
       var existing = window._currentEvents || [];
       var merged = classified.concat(existing.filter(function(e) { return !e.isPermanent; }));
       window._currentEvents = merged;
       if (window.renderEvents) window.renderEvents(merged, true);
+      // Plot globe markers for permanent events with coordinates
+      var plotAttempts = 0;
+      var plotInterval = setInterval(function() {
+        plotAttempts++;
+        if (plotAttempts > 30) { clearInterval(plotInterval); return; }
+        if (!window.ArgusGlobe || !window.ArgusGlobe.eventMarkerGroup) return;
+        clearInterval(plotInterval);
+        if (window._plotPermanentMarkers) window._plotPermanentMarkers(classified);
+      }, 500);
     })
     .catch(function() {});
   });
@@ -6356,6 +6368,7 @@ window.ArgusAdmin = (function() {
             '<button class="eq-btn hold"    onclick="ArgusAdmin.queueAction(\'' + ev.id + '\',\'held\')">⏸ HOLD</button>' +
             '<button class="eq-btn deny"    onclick="ArgusAdmin.queueAction(\'' + ev.id + '\',\'denied\')">✕ DENY</button>' +
                       '<button class="eq-btn permanent" onclick="ArgusAdmin.permanentAction(\'' + ev.id + '\')"><span style="width:6px;height:6px;border-radius:50%;background:#ff9900;display:inline-block;margin-right:5px;"></span>UPDATE SITE</button>' +
+            (ev.source === 'ANALYST' ? '<button class="eq-btn" onclick="ArgusAdmin.deletePermanentByTitle(\'' + ev.id + '\')" style="border-color:#cc2200;color:#cc2200;">✕ REMOVE FROM MAP</button>' : '') +
           '</div>' +
         '</div>';
       }).join('');
@@ -6709,23 +6722,30 @@ window.ArgusAdmin = (function() {
       var classified = rows.map(function(ev) {
         var d = ev.data || {};
         return {
+          id:          ev.id,
           title:       d.title    || 'Admin Event',
-          type:        ev.category ? ev.category.toUpperCase() : 'EVENT',
+          type:        (d.type || ev.category || 'EVENT').toUpperCase(),
           severity:    d.severity || 'WARNING',
           impact:      d.impact   || d.description || '',
           region:      (ev.location && (ev.location.country || ev.location.region)) || '',
           pubDate:     ev.timestamp ? new Date(ev.timestamp).toLocaleDateString() : '',
-          source:      '★ ' + (ev.source || 'ADMIN'),
+          source:      '\u2605 ' + (ev.source || 'ADMIN'),
           link:        d.url || d.link || '',
           plotPriority: 999,
           isPermanent:  true,
+          lat:         ev.location && ev.location.lat ? parseFloat(ev.location.lat) : null,
+          lon:         ev.location && ev.location.lon ? parseFloat(ev.location.lon) : null,
+        };
+      });
         };
       });
       // Prepend to current live feed
+      // Refresh feed and globe markers
       var existing = window._currentEvents || [];
       var merged = classified.concat(existing.filter(function(e) { return !e.isPermanent; }));
       window._currentEvents = merged;
       if (window.renderEvents) window.renderEvents(merged, true);
+      if (window._plotPermanentMarkers) window._plotPermanentMarkers(classified);
     })
     .catch(function(e) { console.warn('Permanent events load error:', e.message); });
   }
@@ -6839,8 +6859,125 @@ window.ArgusAdmin = (function() {
     if (typeof window.updateNodeCounts === 'function') window.updateNodeCounts();
   }
 
-  return { toggle: toggle, switchTab: switchTab, loadUsers: loadUsers, loadQueue: loadQueue, queueAction: queueAction, setTier: setTier, loadRequests: loadRequests, requestAction: requestAction, permanentAction: permanentAction, _reloadPermanent: _reloadPermanent, _plotAnalystPin: _plotAnalystPin, removeAnalystPin: removeAnalystPin, loadHistory: loadHistory };
+  // ── Delete permanent event by queue event id ─────────────────────────────
+  function deletePermanentByTitle(queueId) {
+    var tier = window.ArgusSession ? window.ArgusSession.tier : 'viewer';
+    if (tier !== 'admin' && tier !== 'owner') { alert('Insufficient permissions.'); return; }
+    if (!confirm('Remove this event marker from the globe for all users?')) return;
+
+    // Find the permanent event that matches — look for ANALYST source entries
+    sbFetch('/rest/v1/argus_permanent_events?select=id,data,source&source=eq.ANALYST&order=created_at.desc&limit=50')
+    .then(function(r) { return r.json(); })
+    .then(function(rows) {
+      if (!rows || !rows.length) { alert('No matching permanent event found.'); return; }
+      // Get the queue event title to match against
+      return sbFetch('/rest/v1/argus_event_queue?id=eq.' + queueId + '&select=data')
+      .then(function(r2) { return r2.json(); })
+      .then(function(qRows) {
+        var qTitle = qRows[0] && qRows[0].data && qRows[0].data.title;
+        var match = rows.find(function(r) { return r.data && r.data.title === qTitle; });
+        if (!match) { alert('No globe marker found for this event.'); return; }
+        deletePermanentEvent(match.id);
+      });
+    })
+    .catch(function(e) { alert('Error: ' + e.message); });
+  }
+
+  // ── Delete permanent event — admin/owner only ─────────────────────────────
+  function deletePermanentEvent(permId) {
+    var tier = window.ArgusSession ? window.ArgusSession.tier : 'viewer';
+    if (tier !== 'admin' && tier !== 'owner') { alert('Insufficient permissions.'); return; }
+    if (!confirm('Remove this event from the globe permanently?')) return;
+
+    sbFetch('/rest/v1/argus_permanent_events?id=eq.' + permId, {
+      method: 'DELETE',
+      headers: { 'Prefer': 'return=minimal' }
+    })
+    .then(function(r) {
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      // Remove globe marker
+      if (window._permanentPins) {
+        window._permanentPins = window._permanentPins.filter(function(p) {
+          if (p.permId !== permId) return true;
+          var AG = window.ArgusGlobe;
+          if (AG && AG.eventMarkerGroup) {
+            AG.eventMarkerGroup.remove(p.mesh);
+            AG.eventMarkerGroup.remove(p.ring);
+          }
+          window.eventMarkers = (window.eventMarkers || []).filter(function(m) { return m !== p.mesh; });
+          return false;
+        });
+      }
+      // Reload feed and queue
+      _reloadPermanent();
+      loadQueue();
+      if (typeof window.updateNodeCounts === 'function') window.updateNodeCounts();
+    })
+    .catch(function(e) { alert('Delete failed: ' + e.message); });
+  }
+
+  return { toggle: toggle, switchTab: switchTab, loadUsers: loadUsers, loadQueue: loadQueue, queueAction: queueAction, setTier: setTier, loadRequests: loadRequests, requestAction: requestAction, permanentAction: permanentAction, _reloadPermanent: _reloadPermanent, _plotAnalystPin: _plotAnalystPin, removeAnalystPin: removeAnalystPin, loadHistory: loadHistory, deletePermanentEvent: deletePermanentEvent, deletePermanentByTitle: deletePermanentByTitle };
 })();
+</script>
+
+<script>
+// ── _plotPermanentMarkers — global, plots permanent events on the globe ───────
+// Called on boot and after any permanent event change.
+// Tracks plotted IDs in window._permanentPins to prevent duplicate markers.
+window._plotPermanentMarkers = function(classified) {
+  var AG = window.ArgusGlobe;
+  if (!AG || !AG.eventMarkerGroup || !AG.latLonToVector) return;
+  if (!window._permanentPins) window._permanentPins = [];
+
+  var SEV_COLORS = { CRITICAL: 0xff0044, WARNING: 0xff9933, WATCH: 0xffcc00, LOW: 0x00ff88 };
+  var alreadyPlotted = {};
+  window._permanentPins.forEach(function(p) { alreadyPlotted[p.permId] = true; });
+
+  classified.forEach(function(ev) {
+    if (!ev.lat || !ev.lon) return;
+    if (!ev.id) return;
+    if (alreadyPlotted[ev.id]) return; // skip already-plotted
+
+    var correctedLon = ev.lon + 90;
+    while (correctedLon >  180) correctedLon -= 360;
+    while (correctedLon < -180) correctedLon += 360;
+
+    var col = SEV_COLORS[ev.severity] || 0xff9900;
+    var pos = AG.latLonToVector(ev.lat, correctedLon, 102);
+
+    var mesh = new THREE.Mesh(
+      new THREE.SphereGeometry(2.0, 16, 16),
+      new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.75 })
+    );
+    mesh.position.copy(pos);
+    mesh.userData = {
+      _permanentPin: true,
+      _permId:       ev.id,
+      type:          ev.type     || 'EVENT',
+      severity:      ev.severity || 'WARNING',
+      title:         ev.title,
+      impact:        ev.impact   || '',
+      source:        ev.source   || '★ ADMIN',
+    };
+    AG.eventMarkerGroup.add(mesh);
+    window.eventMarkers = window.eventMarkers || [];
+    window.eventMarkers.push(mesh);
+
+    var ring = new THREE.Mesh(
+      new THREE.RingGeometry(3.0, 4.5, 32),
+      new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.4, side: THREE.DoubleSide })
+    );
+    ring.position.copy(pos);
+    ring.lookAt(pos.clone().normalize().multiplyScalar(200));
+    ring.userData = { isPulseRing: true, phase: Math.random() * Math.PI * 2, _permanentPin: true };
+    AG.eventMarkerGroup.add(ring);
+
+    window._permanentPins.push({ permId: ev.id, mesh: mesh, ring: ring, title: ev.title });
+    alreadyPlotted[ev.id] = true;
+  });
+
+  if (typeof window.updateNodeCounts === 'function') window.updateNodeCounts();
+};
 </script>
 </body>
 </html>

@@ -6371,9 +6371,9 @@ window.ArgusAdmin = (function() {
             '<div><div style="font-size:8px;letter-spacing:1px;color:#3a6a8a;margin-bottom:3px;">BIAS RISK</div>' + scoreBar(scores.bias, true) + '</div>' +
           '</div>' +
           '<div class="eq-actions">' +
-            '<button class="eq-btn approve" onclick="ArgusAdmin.queueAction('' + ev.id + '','approved')">✓ ' + (ev.status === 'approved' ? '+7 DAYS' : 'APPROVE') + '</button>' +
-            '<button class="eq-btn deny"    onclick="ArgusAdmin.queueAction('' + ev.id + '','denied')">✕ DENY + REMOVE</button>' +
-            '<button class="eq-btn permanent" onclick="ArgusAdmin.permanentAction('' + ev.id + '')"><span style="width:6px;height:6px;border-radius:50%;background:#ff9900;display:inline-block;margin-right:5px;"></span>UPDATE SITE</button>' +
+            '<button class="eq-btn approve" onclick="ArgusAdmin.queueAction(\'' + ev.id + '\',\'approved\')">✓ ' + (ev.status === 'approved' ? '+7 DAYS' : 'APPROVE') + '</button>' +
+            '<button class="eq-btn deny"    onclick="ArgusAdmin.queueAction(\'' + ev.id + '\',\'denied\')">✕ DENY + REMOVE</button>' +
+            '<button class="eq-btn permanent" onclick="ArgusAdmin.permanentAction(\'' + ev.id + '\')"><span style="width:6px;height:6px;border-radius:50%;background:#ff9900;display:inline-block;margin-right:5px;"></span>UPDATE SITE</button>' +
           '</div>' +
         '</div>';
       }).join('');

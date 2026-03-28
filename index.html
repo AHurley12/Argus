@@ -6129,15 +6129,49 @@ window.ArgusAnalyst = (function() {
   var SUBMIT_TIERS = ['pro','admin','owner'];
 
   function sbFetch(path, opts) {
-    var token = window.ArgusSession && window.ArgusSession.token;
-    var baseHeaders = {
-      'apikey': SUPA_ANON,
-      'Authorization': 'Bearer ' + (token || SUPA_ANON),
-      'Content-Type': 'application/json',
+    // Refresh token if expired before making any Supabase call
+    var stored = null;
+    try { stored = JSON.parse(localStorage.getItem('argus_session')); } catch(e) {}
+    var needsRefresh = stored && stored.refresh_token &&
+      (Date.now() > ((stored.expires_at || 0) * 1000) - 60000);
+
+    var doFetch = function(token) {
+      var baseHeaders = {
+        'apikey': SUPA_ANON,
+        'Authorization': 'Bearer ' + (token || SUPA_ANON),
+        'Content-Type': 'application/json',
+      };
+      var fetchOpts = Object.assign({}, opts || {});
+      fetchOpts.headers = Object.assign({}, baseHeaders, (opts && opts.headers) || {});
+      return fetch(SUPA_URL + path, fetchOpts);
     };
-    var fetchOpts = Object.assign({}, opts || {});
-    fetchOpts.headers = Object.assign({}, baseHeaders, (opts && opts.headers) || {});
-    return fetch(SUPA_URL + path, fetchOpts);
+
+    if (needsRefresh) {
+      return fetch(SUPA_URL + '/auth/v1/token?grant_type=refresh_token', {
+        method: 'POST',
+        headers: { 'apikey': SUPA_ANON, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refresh_token: stored.refresh_token })
+      })
+      .then(function(r) { return r.ok ? r.json() : null; })
+      .then(function(refreshed) {
+        if (refreshed && refreshed.access_token) {
+          var updated = Object.assign({}, stored, {
+            access_token:  refreshed.access_token,
+            refresh_token: refreshed.refresh_token || stored.refresh_token,
+            expires_at:    refreshed.expires_at,
+          });
+          localStorage.setItem('argus_session', JSON.stringify(updated));
+          window.ArgusSession.token = refreshed.access_token;
+          return doFetch(refreshed.access_token);
+        }
+        return doFetch(window.ArgusSession && window.ArgusSession.token);
+      })
+      .catch(function() {
+        return doFetch(window.ArgusSession && window.ArgusSession.token);
+      });
+    }
+
+    return doFetch(window.ArgusSession && window.ArgusSession.token);
   }
 
   // ── Show/hide modal ────────────────────────────────────────────────────────
@@ -6241,15 +6275,49 @@ window.ArgusAdmin = (function() {
 
   // ── REST helper ────────────────────────────────────────────────────────────
   function sbFetch(path, opts) {
-    var token = window.ArgusSession && window.ArgusSession.token;
-    var baseHeaders = {
-      'apikey': SUPA_ANON,
-      'Authorization': 'Bearer ' + (token || SUPA_ANON),
-      'Content-Type': 'application/json',
+    // Refresh token if expired before making any Supabase call
+    var stored = null;
+    try { stored = JSON.parse(localStorage.getItem('argus_session')); } catch(e) {}
+    var needsRefresh = stored && stored.refresh_token &&
+      (Date.now() > ((stored.expires_at || 0) * 1000) - 60000);
+
+    var doFetch = function(token) {
+      var baseHeaders = {
+        'apikey': SUPA_ANON,
+        'Authorization': 'Bearer ' + (token || SUPA_ANON),
+        'Content-Type': 'application/json',
+      };
+      var fetchOpts = Object.assign({}, opts || {});
+      fetchOpts.headers = Object.assign({}, baseHeaders, (opts && opts.headers) || {});
+      return fetch(SUPA_URL + path, fetchOpts);
     };
-    var fetchOpts = Object.assign({}, opts || {});
-    fetchOpts.headers = Object.assign({}, baseHeaders, (opts && opts.headers) || {});
-    return fetch(SUPA_URL + path, fetchOpts);
+
+    if (needsRefresh) {
+      return fetch(SUPA_URL + '/auth/v1/token?grant_type=refresh_token', {
+        method: 'POST',
+        headers: { 'apikey': SUPA_ANON, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refresh_token: stored.refresh_token })
+      })
+      .then(function(r) { return r.ok ? r.json() : null; })
+      .then(function(refreshed) {
+        if (refreshed && refreshed.access_token) {
+          var updated = Object.assign({}, stored, {
+            access_token:  refreshed.access_token,
+            refresh_token: refreshed.refresh_token || stored.refresh_token,
+            expires_at:    refreshed.expires_at,
+          });
+          localStorage.setItem('argus_session', JSON.stringify(updated));
+          window.ArgusSession.token = refreshed.access_token;
+          return doFetch(refreshed.access_token);
+        }
+        return doFetch(window.ArgusSession && window.ArgusSession.token);
+      })
+      .catch(function() {
+        return doFetch(window.ArgusSession && window.ArgusSession.token);
+      });
+    }
+
+    return doFetch(window.ArgusSession && window.ArgusSession.token);
   }
 
   // ── Boot — only show bar for owner/admin ──────────────────────────────────

@@ -3642,8 +3642,7 @@ window.ArgusData = (function() {
         .then(function(r) { return r.ok ? r.text() : null; })
         .then(function(csv) {
           if (!csv) return;
-          var rows = csv.trim().split('
-').filter(function(r) { return r && !r.startsWith('Date'); });
+          var rows = csv.trim().split('\n').filter(function(r) { return r && !r.startsWith('Date'); });
           if (rows.length < 2) return;
           var last  = rows[rows.length - 1].split(',');
           var prev  = rows[rows.length - 2].split(',');
@@ -3653,8 +3652,7 @@ window.ArgusData = (function() {
           var pct = prevC ? (((close - prevC) / prevC) * 100) : 0;
           results[item.sym] = { close: close, pct: pct };
         })
-        .catch(function() {})
-        .finally(function() {
+        .then(function() {
           pending--;
           if (pending === 0) {
             try {
@@ -3663,6 +3661,10 @@ window.ArgusData = (function() {
             } catch(e) {}
             renderStooq(results);
           }
+        })
+        .catch(function() {
+          pending--;
+          if (pending === 0) renderStooq(results);
         });
       }, i * 1500);
     });

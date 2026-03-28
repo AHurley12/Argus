@@ -1446,6 +1446,7 @@
       </div>
       <div id="admin-pane-hs" class="admin-pane">
         <button class="admin-refresh-btn" onclick="ArgusAdmin.loadHistory()">↺ REFRESH HISTORY</button>
+        <button class="admin-refresh-btn" onclick="ArgusAdmin.clearHistory()" style="border-color:#cc2200;color:#cc2200;margin-left:6px;">✕ CLEAR HISTORY</button>
         <div class="admin-status" id="hs-status"></div>
         <div id="hs-list"></div>
       </div>
@@ -4632,7 +4633,7 @@ window.ArgusEvents = (function() {
     var col = SEV_COLORS[data.severity] || 0x00ccff;
 
     var mesh = new THREE.Mesh(
-      new THREE.SphereGeometry(1.92, 16, 16),
+      new THREE.SphereGeometry(1.68, 16, 16),
       new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.54 })
     );
     mesh.position.copy(pos);
@@ -5725,7 +5726,7 @@ function plotDisasters() {
     AG.eventMarkerGroup.add(outline);
 
     var ring = new THREE.Mesh(
-      new THREE.RingGeometry(3.0, 4.4, 32),
+      new THREE.RingGeometry(2.4, 3.6, 32),
       new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.32, side: THREE.DoubleSide })
     );
     ring.position.copy(pos);
@@ -6329,11 +6330,18 @@ window.ArgusAdmin = (function() {
     if (!list) return;
     status.textContent = 'Loading...';
 
-    sbFetch('/rest/v1/argus_event_queue?select=*&status=eq.pending&order=created_at.desc&limit=30')
+    // Load ALL active events: pending + approved (weekly review) — not denied
+    sbFetch('/rest/v1/argus_event_queue?select=*&status=in.(pending,approved,held)&order=created_at.desc&limit=50')
     .then(function(r) { return r.json(); })
     .then(function(rows) {
-      status.textContent = rows.length + ' pending event' + (rows.length !== 1 ? 's' : '');
-      document.getElementById('admin-queue-count').textContent = rows.length ? '· ' + rows.length + ' PENDING' : '';
+      var now = new Date();
+      var pending  = rows.filter(function(r) { return r.status === 'pending'; }).length;
+      var approved = rows.filter(function(r) { return r.status === 'approved'; }).length;
+      var dueReview = rows.filter(function(r) { return r.status === 'approved' && r.next_review && new Date(r.next_review) <= now; }).length;
+      status.textContent = rows.length + ' active event' + (rows.length !== 1 ? 's' : '') +
+        (pending  ? ' · ' + pending  + ' PENDING'     : '') +
+        (dueReview ? ' · ' + dueReview + ' DUE REVIEW' : '');
+      document.getElementById('admin-queue-count').textContent = rows.length ? '· ' + rows.length + ' ACTIVE' : '';
 
       if (!rows.length) {
         list.innerHTML = '<div style="font-size:10px;color:#1a4a70;padding:12px 0;text-align:center;letter-spacing:2px;">QUEUE EMPTY</div>';
@@ -6341,34 +6349,31 @@ window.ArgusAdmin = (function() {
       }
 
       list.innerHTML = rows.map(function(ev) {
-        var scores = scoreEvent(ev);
-        var loc = ev.location
-          ? ((ev.location.country || '') + (ev.location.lat ? ' (' + parseFloat(ev.location.lat).toFixed(1) + ', ' + parseFloat(ev.location.lon).toFixed(1) + ')' : ''))
-          : '—';
-        var kw = (ev.data && ev.data.keywords) ? ev.data.keywords.slice(0,4).join(', ') : '—';
-        var ts = ev.timestamp ? new Date(ev.timestamp).toUTCString().slice(0,22) : '—';
+        var scores   = scoreEvent(ev);
+        var loc      = ev.location ? ((ev.location.country || '') + (ev.location.lat ? ' (' + parseFloat(ev.location.lat).toFixed(1) + ', ' + parseFloat(ev.location.lon).toFixed(1) + ')' : '')) : '—';
+        var kw       = (ev.data && ev.data.keywords) ? ev.data.keywords.slice(0,4).join(', ') : '—';
+        var ts       = ev.timestamp ? new Date(ev.timestamp).toUTCString().slice(0,22) : '—';
+        var isDue    = ev.status === 'approved' && ev.next_review && new Date(ev.next_review) <= now;
+        var nextRev  = ev.next_review ? ' · Review: ' + new Date(ev.next_review).toLocaleDateString() : '';
+        var statusCol = ev.status === 'approved' ? (isDue ? '#ff9900' : '#00cc66') : ev.status === 'held' ? '#ff9900' : '#3a6a8a';
+        var statusLbl = ev.status === 'approved' ? (isDue ? '⚠ REVIEW DUE' : '✓ ACTIVE') : ev.status === 'held' ? '⏸ HELD' : '● PENDING';
 
         return '<div class="eq-card" id="eq-' + ev.id + '">' +
           '<div class="eq-card-head">' +
             '<span class="eq-src">' + (ev.source || '?') + '</span>' +
             '<span class="eq-cat">' + (ev.category || '—') + '</span>' +
-            '<span class="eq-ts">' + ts + '</span>' +
+            '<span class="eq-ts" style="color:' + statusCol + '">' + statusLbl + nextRev + '</span>' +
           '</div>' +
           '<div class="eq-title">' + ((ev.data && ev.data.title) || 'No title') + '</div>' +
-          '<div class="eq-meta">' +
-            '<span>📍 ' + loc + '</span>' +
-            '<span>🔑 ' + kw + '</span>' +
-          '</div>' +
+          '<div class="eq-meta"><span>📍 ' + loc + '</span><span>🔑 ' + kw + '</span></div>' +
           '<div class="eq-scores">' +
             '<div><div style="font-size:8px;letter-spacing:1px;color:#3a6a8a;margin-bottom:3px;">CONFIDENCE</div>' + scoreBar(scores.conf, false) + '</div>' +
-            '<div><div style="font-size:8px;letter-spacing:1px;color:#3a6a8a;margin-bottom:3px;">BIAS RISK</div>'   + scoreBar(scores.bias, true)  + '</div>' +
+            '<div><div style="font-size:8px;letter-spacing:1px;color:#3a6a8a;margin-bottom:3px;">BIAS RISK</div>' + scoreBar(scores.bias, true) + '</div>' +
           '</div>' +
           '<div class="eq-actions">' +
-            '<button class="eq-btn approve" onclick="ArgusAdmin.queueAction(\'' + ev.id + '\',\'approved\')">✓ APPROVE</button>' +
-            '<button class="eq-btn hold"    onclick="ArgusAdmin.queueAction(\'' + ev.id + '\',\'held\')">⏸ HOLD</button>' +
-            '<button class="eq-btn deny"    onclick="ArgusAdmin.queueAction(\'' + ev.id + '\',\'denied\')">✕ DENY</button>' +
-                      '<button class="eq-btn permanent" onclick="ArgusAdmin.permanentAction(\'' + ev.id + '\')"><span style="width:6px;height:6px;border-radius:50%;background:#ff9900;display:inline-block;margin-right:5px;"></span>UPDATE SITE</button>' +
-            (ev.source === 'ANALYST' ? '<button class="eq-btn" onclick="ArgusAdmin.deletePermanentByTitle(\'' + ev.id + '\')" style="border-color:#cc2200;color:#cc2200;">✕ REMOVE FROM MAP</button>' : '') +
+            '<button class="eq-btn approve" onclick="ArgusAdmin.queueAction('' + ev.id + '','approved')">✓ ' + (ev.status === 'approved' ? '+7 DAYS' : 'APPROVE') + '</button>' +
+            '<button class="eq-btn deny"    onclick="ArgusAdmin.queueAction('' + ev.id + '','denied')">✕ DENY + REMOVE</button>' +
+            '<button class="eq-btn permanent" onclick="ArgusAdmin.permanentAction('' + ev.id + '')"><span style="width:6px;height:6px;border-radius:50%;background:#ff9900;display:inline-block;margin-right:5px;"></span>UPDATE SITE</button>' +
           '</div>' +
         '</div>';
       }).join('');
@@ -6380,39 +6385,28 @@ window.ArgusAdmin = (function() {
     var card = document.getElementById('eq-' + id);
     if (card) card.style.opacity = '0.4';
 
+    var nextReview = action === 'approved'
+      ? new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
+      : null;
+
+    var patchBody = { status: action, reviewed_at: new Date().toISOString() };
+    if (action === 'approved') patchBody.next_review = nextReview;
+
     sbFetch('/rest/v1/argus_event_queue?id=eq.' + id, {
       method: 'PATCH',
       headers: { 'Prefer': 'return=minimal' },
-      body: JSON.stringify({ status: action, reviewed_at: new Date().toISOString() })
+      body: JSON.stringify(patchBody)
     })
     .then(function(r) {
       if (!r.ok) throw new Error('HTTP ' + r.status);
       if (action === 'denied') {
-        // Denied — remove from queue view
+        // Denied — remove from queue AND remove from globe
         if (card) card.remove();
+        deletePermanentByTitle(id);
       } else {
-        // Approved / held — keep card, update status badge
-        if (card) {
-          card.style.opacity = '1';
-          var statusColors = { approved: '#00cc66', held: '#ff9900' };
-          var existing = card.querySelector('.eq-status-badge');
-          if (!existing) {
-            var badge = document.createElement('div');
-            badge.className = 'eq-status-badge';
-            badge.style.cssText = 'font-size:8px;letter-spacing:2px;padding:2px 6px;border:1px solid ' + statusColors[action] + ';color:' + statusColors[action] + ';margin-top:6px;display:inline-block;';
-            badge.textContent = action.toUpperCase();
-            card.appendChild(badge);
-          } else {
-            existing.textContent = action.toUpperCase();
-          }
-          // Disable action buttons
-          card.querySelectorAll('.eq-btn').forEach(function(b) { b.disabled = true; b.style.opacity = '0.4'; });
-        }
+        // Approved — reload to show updated next_review date
+        loadQueue();
       }
-      var pending = document.querySelectorAll('.eq-card:not([data-approved]):not([data-held])').length;
-      var remaining = document.querySelectorAll('.eq-card').length;
-      document.getElementById('eq-status').textContent = remaining + ' event' + (remaining !== 1 ? 's' : '') + ' in queue';
-      document.getElementById('admin-queue-count').textContent = remaining ? '· ' + remaining + ' IN QUEUE' : '';
     })
     .catch(function(e) { if (card) card.style.opacity = '1'; alert('Action failed: ' + e.message); });
   }
@@ -6809,7 +6803,7 @@ window.ArgusAdmin = (function() {
     var pos = AG.latLonToVector(geo.lat, correctedLon, 102);
 
     var mesh = new THREE.Mesh(
-      new THREE.SphereGeometry(2.2, 16, 16),
+      new THREE.SphereGeometry(1.68, 16, 16),
       new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.7 })
     );
     mesh.position.copy(pos);
@@ -6824,7 +6818,7 @@ window.ArgusAdmin = (function() {
     window.eventMarkers.push(mesh);
 
     var ring = new THREE.Mesh(
-      new THREE.RingGeometry(3.2, 4.8, 32),
+      new THREE.RingGeometry(2.4, 3.6, 32),
       new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.45, side: THREE.DoubleSide })
     );
     ring.position.copy(pos);
@@ -6854,6 +6848,23 @@ window.ArgusAdmin = (function() {
       return false;
     });
     if (typeof window.updateNodeCounts === 'function') window.updateNodeCounts();
+  }
+
+  // ── Clear history — deletes all denied records from both tables ──────────
+  function clearHistory() {
+    var tier = window.ArgusSession ? window.ArgusSession.tier : 'viewer';
+    if (tier !== 'admin' && tier !== 'owner') { alert('Insufficient permissions.'); return; }
+    if (!confirm('Permanently delete all denied events from history?\n\nThis cannot be undone.')) return;
+
+    Promise.all([
+      sbFetch('/rest/v1/argus_event_queue?status=eq.denied', { method: 'DELETE', headers: { 'Prefer': 'return=minimal' } }),
+      sbFetch('/rest/v1/argus_analyst_requests?status=eq.denied', { method: 'DELETE', headers: { 'Prefer': 'return=minimal' } })
+    ])
+    .then(function() {
+      document.getElementById('hs-status').textContent = 'History cleared.';
+      document.getElementById('hs-list').innerHTML = '<div style="font-size:10px;color:#1a4a70;padding:12px 0;text-align:center;letter-spacing:2px;">NO REVIEWED ITEMS</div>';
+    })
+    .catch(function(e) { alert('Clear failed: ' + e.message); });
   }
 
   // ── Delete permanent event by queue event id ─────────────────────────────
@@ -6913,7 +6924,7 @@ window.ArgusAdmin = (function() {
     .catch(function(e) { alert('Delete failed: ' + e.message); });
   }
 
-  return { toggle: toggle, switchTab: switchTab, loadUsers: loadUsers, loadQueue: loadQueue, queueAction: queueAction, setTier: setTier, loadRequests: loadRequests, requestAction: requestAction, permanentAction: permanentAction, _reloadPermanent: _reloadPermanent, _plotAnalystPin: _plotAnalystPin, removeAnalystPin: removeAnalystPin, loadHistory: loadHistory, deletePermanentEvent: deletePermanentEvent, deletePermanentByTitle: deletePermanentByTitle };
+  return { toggle: toggle, switchTab: switchTab, loadUsers: loadUsers, loadQueue: loadQueue, queueAction: queueAction, setTier: setTier, loadRequests: loadRequests, requestAction: requestAction, permanentAction: permanentAction, _reloadPermanent: _reloadPermanent, _plotAnalystPin: _plotAnalystPin, removeAnalystPin: removeAnalystPin, loadHistory: loadHistory, clearHistory: clearHistory, deletePermanentEvent: deletePermanentEvent, deletePermanentByTitle: deletePermanentByTitle };
 })();
 </script>
 
@@ -6943,7 +6954,7 @@ window._plotPermanentMarkers = function(classified) {
     var pos = AG.latLonToVector(ev.lat, correctedLon, 102);
 
     var mesh = new THREE.Mesh(
-      new THREE.SphereGeometry(2.0, 16, 16),
+      new THREE.SphereGeometry(1.68, 16, 16),
       new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.75 })
     );
     mesh.position.copy(pos);
@@ -6961,7 +6972,7 @@ window._plotPermanentMarkers = function(classified) {
     window.eventMarkers.push(mesh);
 
     var ring = new THREE.Mesh(
-      new THREE.RingGeometry(3.0, 4.5, 32),
+      new THREE.RingGeometry(2.4, 3.6, 32),
       new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.4, side: THREE.DoubleSide })
     );
     ring.position.copy(pos);

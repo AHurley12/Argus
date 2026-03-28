@@ -3550,6 +3550,7 @@ window.ArgusData = (function() {
     fetchFinnhubCommodities();
     fetchBondYields();
     fetchBDI();
+    fetchStooqIndexes();
   }
 
   // ── Baltic Dry Index — Stooq CSV, no key, CORS-open ──────────────────────
@@ -3600,6 +3601,89 @@ window.ArgusData = (function() {
       console.warn('BDI fetch failed:', e.message);
       if (el && el.textContent === 'N/A') el.textContent = '—';
     });
+  }
+
+
+  // ── Stooq indexes + crude — free, no key, via codetabs proxy ─────────────
+  // Indexes: FTSE, DAX, Nikkei, Hang Seng, VIX
+  // Crude:   Brent (co.f), WTI (cl.f) — overrides EIA if EIA fails
+  function fetchStooqIndexes() {
+    var CACHE_K = 'argus_stooq_idx_v1', CACHE_T = 'argus_stooq_idx_ts_v1';
+    var TTL     = 15 * 60 * 1000; // 15 min
+
+    // Map: stooq ticker → { elId, chgId, label, prefix, dec }
+    var STOOQ_ITEMS = [
+      { sym: '^ftse', elId: 'idx-ftse',   chgId: 'idx-ftse-chg',   label: 'FTSE 100', prefix: '',  dec: 0 },
+      { sym: '^dax',  elId: 'idx-dax',    chgId: 'idx-dax-chg',    label: 'DAX',      prefix: '',  dec: 0 },
+      { sym: '^n225', elId: 'idx-nikkei', chgId: 'idx-nikkei-chg', label: 'NIKKEI',   prefix: '',  dec: 0 },
+      { sym: '^hsi',  elId: 'idx-hsi',    chgId: 'idx-hsi-chg',    label: 'HSI',      prefix: '',  dec: 0 },
+      { sym: '^vix',  elId: 'idx-vix',    chgId: null,             label: 'VIX',      prefix: '',  dec: 2 },
+      { sym: 'co.f',  elId: 'brent-val',  chgId: null,             label: 'BRENT',    prefix: '$', dec: 2 },
+      { sym: 'cl.f',  elId: 'wti-val',    chgId: null,             label: 'WTI',      prefix: '$', dec: 2 },
+    ];
+
+    // Try cache first
+    try {
+      var cached = localStorage.getItem(CACHE_K);
+      var ts     = parseInt(localStorage.getItem(CACHE_T) || '0');
+      if (cached && Date.now() - ts < TTL) {
+        renderStooq(JSON.parse(cached));
+        return;
+      }
+    } catch(e) {}
+
+    // Fetch each symbol — stagger 1.5s apart to respect codetabs rate limit
+    var results = {};
+    var pending = STOOQ_ITEMS.length;
+    STOOQ_ITEMS.forEach(function(item, i) {
+      setTimeout(function() {
+        var url = 'https://stooq.com/q/d/l/?s=' + item.sym + '&i=d';
+        fetch('https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(url))
+        .then(function(r) { return r.ok ? r.text() : null; })
+        .then(function(csv) {
+          if (!csv) return;
+          var rows = csv.trim().split('
+').filter(function(r) { return r && !r.startsWith('Date'); });
+          if (rows.length < 2) return;
+          var last  = rows[rows.length - 1].split(',');
+          var prev  = rows[rows.length - 2].split(',');
+          var close = parseFloat(last[4]);
+          var prevC = parseFloat(prev[4]);
+          if (isNaN(close)) return;
+          var pct = prevC ? (((close - prevC) / prevC) * 100) : 0;
+          results[item.sym] = { close: close, pct: pct };
+        })
+        .catch(function() {})
+        .finally(function() {
+          pending--;
+          if (pending === 0) {
+            try {
+              localStorage.setItem(CACHE_K, JSON.stringify(results));
+              localStorage.setItem(CACHE_T, String(Date.now()));
+            } catch(e) {}
+            renderStooq(results);
+          }
+        });
+      }, i * 1500);
+    });
+
+    function renderStooq(data) {
+      STOOQ_ITEMS.forEach(function(item) {
+        var d = data[item.sym];
+        if (!d) return;
+        var el  = document.getElementById(item.elId);
+        var chg = item.chgId ? document.getElementById(item.chgId) : null;
+        if (!el) return;
+        var val = item.prefix + d.close.toLocaleString('en-US', { maximumFractionDigits: item.dec });
+        el.textContent  = val;
+        el.style.color  = d.pct > 0 ? '#00cc66' : d.pct < 0 ? '#ff4422' : '#c5d7e8';
+        if (chg) {
+          chg.textContent = (d.pct > 0 ? '+' : '') + d.pct.toFixed(2) + '%';
+          chg.style.color = d.pct > 0 ? '#00cc66' : d.pct < 0 ? '#ff4422' : '#4a7da8';
+        }
+        console.log('Stooq ' + item.label + ': ' + val);
+      });
+    }
   }
 
   return { init: init, buildSnapshot: buildSnapshot, downloadSnapshot: downloadSnapshot, toggleExchanges: toggleExchanges, selectExchange: selectExchange };

@@ -6737,9 +6737,6 @@ window.ArgusAdmin = (function() {
           lon:         ev.location && ev.location.lon ? parseFloat(ev.location.lon) : null,
         };
       });
-        };
-      });
-      // Prepend to current live feed
       // Refresh feed and globe markers
       var existing = window._currentEvents || [];
       var merged = classified.concat(existing.filter(function(e) { return !e.isPermanent; }));

@@ -2804,38 +2804,628 @@ window.ArgusData = (function() {
   }
 
   function fetchEIA() {
-    // Served via Netlify function — EIA key secured server-side
-    // Falls back to stale localStorage cache if function unavailable
     var CACHE_K = 'argus_eia_v8', CACHE_T = 'argus_eia_ts_v8';
-    var TTL     = 60 * 60 * 1000; // 1h — matches Netlify backend TTL
+    var TTL     = 24 * 3600 * 1000; // 24h — stale crude prices are acceptable
     try {
       var cached = localStorage.getItem(CACHE_K);
       var ts = parseInt(localStorage.getItem(CACHE_T) || '0');
       if (cached && Date.now() - ts < TTL) {
         window._eiaData = JSON.parse(cached);
         renderEIATicker();
+        // 'EIA: from cache — Brent $' + window._eiaData.brent + ' WTI $' + window._eiaData.wti);
         return;
       }
     } catch(e) {}
-    // Will be populated by fetchMarketData() Netlify call
+
+    var eiaBase = 'https://api.eia.gov/v2/petroleum/pri/spt/data/?api_key=' + EIA_API_KEY +
+      '&frequency=daily&data[0]=value&sort[0][column]=period&sort[0][direction]=desc&length=1';
+
+    // Fetch Brent, WTI, and inventories in parallel
+    var brentUrl = eiaBase + '&facets[series][]=RBRTE';
+    var wtiUrl   = eiaBase + '&facets[series][]=RWTC';
+    var invUrl   = 'https://api.eia.gov/v2/petroleum/stoc/wstk/data/?api_key=' + EIA_API_KEY +
+      '&frequency=weekly&data[0]=value&facets[series][]=WCESTUS1' +
+      '&sort[0][column]=period&sort[0][direction]=desc&length=1';
+
+    function eiaVal(json) {
+      var row = json && json.response && json.response.data && json.response.data[0];
+      return row ? { value: parseFloat(row.value), period: row.period } : null;
+    }
+
+    Promise.all([
+      fetch(brentUrl).then(function(r) { return r.ok ? r.json() : null; }).catch(function() { return null; }),
+      fetch(wtiUrl).then(function(r)   { return r.ok ? r.json() : null; }).catch(function() { return null; }),
+      fetch(invUrl).then(function(r)   { return r.ok ? r.json() : null; }).catch(function() { return null; }),
+    ]).then(function(results) {
+      var brent = eiaVal(results[0]);
+      var wti   = eiaVal(results[1]);
+      var inv   = eiaVal(results[2]);
+
+      window._eiaData = Object.assign(window._eiaData || {}, {
+        brent:       brent ? brent.value : null,
+        brentDate:   brent ? brent.period : null,
+        wti:         wti   ? wti.value   : null,
+        wtiDate:     wti   ? wti.period  : null,
+        crudeInv:    inv   ? inv.value   : null,
+        crudeInvDate: inv  ? inv.period  : null,
+      });
+
+      renderEIATicker();
+      console.log('EIA: Brent $' + (brent ? brent.value.toFixed(2) : '—') +
+                  '  WTI $'   + (wti   ? wti.value.toFixed(2)   : '—') +
+                  '  Inv '    + (inv   ? inv.value + ' Mb'       : '—'));
+      try {
+        localStorage.setItem(CACHE_K, JSON.stringify(window._eiaData));
+        localStorage.setItem(CACHE_T, String(Date.now()));
+      } catch(e) {}
+    }).catch(function(err) { console.warn('EIA fetch error:', err.message); });
+  }
+
+  // ── FRED — USD Index, GEPU, Yield Curve ──────────────────────────────────
+  function renderFREDTicker() {
+    var d = window._fredData;
+    if (!d) return;
+    var usdEl = document.getElementById('usd-val');
+    if (usdEl && d.usd != null) usdEl.textContent = parseFloat(d.usd).toFixed(2);
+    var gepuEl = document.getElementById('gepu-val');
+    if (gepuEl && d.gepu != null) {
+      gepuEl.textContent = Math.round(d.gepu);
+      gepuEl.style.color = d.gepu > 200 ? '#ff0044' : d.gepu > 130 ? '#ff9933' : d.gepu > 80 ? '#ffcc00' : '#00ff88';
+    }
+    var yEl = document.getElementById('yield-val');
+    if (yEl && d.yield10y2y != null) {
+      yEl.textContent = parseFloat(d.yield10y2y).toFixed(2) + '%';
+      yEl.style.color = d.yield10y2y < 0 ? '#ff0044' : d.yield10y2y < 0.5 ? '#ffcc00' : '#00ff88';
+    }
   }
 
   function fetchFRED() {
-    // Served via fetchMarketData() Netlify function — FRED key secured server-side
-    var CACHE_K = "argus_fred_v4", CACHE_T = "argus_fred_ts_v4";
-    var TTL = 60 * 60 * 1000;
+    var CACHE_K = 'argus_fred_v4', CACHE_T = 'argus_fred_ts_v4', TTL = 12 * 3600 * 1000;
     try {
       var cached = localStorage.getItem(CACHE_K);
-      var ts = parseInt(localStorage.getItem(CACHE_T) || "0");
+      var ts = parseInt(localStorage.getItem(CACHE_T) || '0');
       if (cached && Date.now() - ts < TTL) {
         window._fredData = JSON.parse(cached);
         renderFREDTicker();
+        // cache
         return;
       }
     } catch(e) {}
-    // Will be populated by fetchMarketData() Netlify call
+
+    function fredUrl(series) {
+      return PG(FRED_BASE + '?series_id=' + series + '&api_key=' + FRED_API_KEY + '&file_type=json&sort_order=desc&limit=1');
+    }
+    function parseVal(json) {
+      var v = json && json.observations && json.observations[0] && json.observations[0].value;
+      return (!v || v === '.') ? null : parseFloat(v);
+    }
+
+    Promise.all([fetch(fredUrl('DTWEXBGS')), fetch(fredUrl('GEPUCURRENT')), fetch(fredUrl('T10Y2Y'))])
+      .then(function(rs) { return Promise.all(rs.map(function(r) { return r.json(); })); })
+      .then(function(jsons) {
+        window._fredData = {
+          usd: parseVal(jsons[0]), usdDate: jsons[0] && jsons[0].observations && jsons[0].observations[0] && jsons[0].observations[0].date,
+          gepu: parseVal(jsons[1]), gepuDate: jsons[1] && jsons[1].observations && jsons[1].observations[0] && jsons[1].observations[0].date,
+          yield10y2y: parseVal(jsons[2]), yieldDate: jsons[2] && jsons[2].observations && jsons[2].observations[0] && jsons[2].observations[0].date,
+        };
+        try {
+          localStorage.setItem(CACHE_K, JSON.stringify(window._fredData));
+          localStorage.setItem(CACHE_T, String(Date.now()));
+        } catch(e) {}
+        renderFREDTicker();
+        console.log('FRED complete:', window._fredData);
+      })
+      .catch(function(err) { console.warn('FRED fetch failed:', err.message); });
   }
 
+  // ── Intelligence Snapshot ─────────────────────────────────────────────────
+  function buildSnapshot() {
+    try {
+      var ts = new Date().toUTCString(), L = [];
+      var eia = window._eiaData || {}, av = window._avData || {}, fr = window._fredData || {};
+      var countries = window.COUNTRIES_DATA || [], chokepoints = window.CHOKEPOINTS_DATA || [];
+      var routes = window.ROUTES_DATA || [], capitals = window.capitalCitiesData || [];
+
+      L.push('=== ARGUS INTELLIGENCE SNAPSHOT ===');
+      L.push('Generated: ' + ts); L.push('');
+
+      L.push('--- ENERGY PRICES (EIA) ---');
+      L.push('Brent Crude:       ' + (eia.brent    ? '$' + parseFloat(eia.brent).toFixed(2)    + ' /bbl'   : 'pending') + ' (' + (eia.brentDate    || '—') + ')');
+      L.push('WTI Crude:         ' + (eia.wti      ? '$' + parseFloat(eia.wti).toFixed(2)      + ' /bbl'   : 'pending') + ' (' + (eia.wtiDate      || '—') + ')');
+      L.push('Henry Hub Gas:     ' + (eia.henryHub ? '$' + parseFloat(eia.henryHub).toFixed(2) + ' /MMBtu' : 'pending') + ' (' + (eia.henryHubDate || '—') + ')');
+      L.push('US Electricity:    ' + (eia.elecGen  ? (parseFloat(eia.elecGen)/1000).toFixed(0) + ' TWh/mo' : 'pending') + ' (' + (eia.elecGenDate  || '—') + ')');
+      L.push('');
+
+      L.push('--- FOREX & MARKETS (Alpha Vantage) ---');
+      L.push('EUR/USD: ' + (av['fx-eurusd'] ? parseFloat(av['fx-eurusd']).toFixed(4) : 'pending'));
+      L.push('GBP/USD: ' + (av['fx-gbpusd'] ? parseFloat(av['fx-gbpusd']).toFixed(4) : 'pending'));
+      L.push('USD/JPY: ' + (av['fx-usdjpy'] ? parseFloat(av['fx-usdjpy']).toFixed(2) : 'pending'));
+      L.push('S&P 500 (SPY): ' + (av.spy != null ? '$' + parseFloat(av.spy).toFixed(2) + (av.spyChange ? ' (' + av.spyChange + ')' : '') : 'pending'));
+      L.push('');
+
+      L.push('--- MACRO INDICATORS (FRED) ---');
+      L.push('USD Trade Index:    ' + (fr.usd        != null ? parseFloat(fr.usd).toFixed(2)              : 'pending') + ' (' + (fr.usdDate   || '—') + ')');
+      L.push('Policy Uncertainty: ' + (fr.gepu       != null ? Math.round(fr.gepu) + ' GEPU'              : 'pending') + ' (' + (fr.gepuDate  || '—') + ')');
+      L.push('Yield Curve 10Y-2Y: ' + (fr.yield10y2y != null ? parseFloat(fr.yield10y2y).toFixed(2) + '%' : 'pending') + ' (' + (fr.yieldDate || '—') + ')');
+      L.push('');
+
+      L.push('--- COUNTRY PROFILES ---');
+      countries.forEach(function(c) {
+        L.push(c.code + ' | ' + c.label);
+        L.push('  GDP: ' + c.gdp + '  Exports: ' + c.exports + '  Imports: ' + c.imports);
+        L.push('  Risk: ' + c.risk + ' (score ' + c.score + '/100)');
+        L.push('  Top Exports: ' + c.topE.join(', '));
+        L.push('  Top Imports: ' + c.topI.join(', '));
+        var prod = window._eiaProduction && window._eiaProduction[c.code];
+        if (prod) L.push('  Crude Production: ' + prod.value + ' TBPD (' + prod.period + ')');
+        L.push('');
+      });
+
+      L.push('--- STRATEGIC CHOKEPOINTS ---');
+      chokepoints.forEach(function(cp) {
+        L.push(cp.id.toUpperCase() + ' | ' + cp.label);
+        L.push('  Risk: ' + cp.risk + '  Traffic: ' + cp.traffic + '  Volume: ' + cp.volume);
+        L.push('  Status: ' + cp.status);
+        var pw = window._portData && window._portData[cp.id];
+        if (pw) {
+          L.push('  Port Calls: total=' + pw.portcalls + ' container=' + pw.portcalls_container + ' tanker=' + pw.portcalls_tanker + ' bulk=' + pw.portcalls_dry_bulk);
+          L.push('  Flow: imports=' + pw.import + ' exports=' + pw.export);
+        }
+        L.push('');
+      });
+
+      L.push('--- ACTIVE TRADE ROUTES ---');
+      routes.forEach(function(r) {
+        var f = countries.find(function(c) { return c.code === r.from; });
+        var t = countries.find(function(c) { return c.code === r.to; });
+        if (!f || !t) return;
+        L.push(r.from + '→' + r.to + ' | ' + f.label + ' → ' + t.label);
+        L.push('  Risk: ' + r.risk + '  Volume index: ' + r.vol);
+      });
+      L.push('');
+
+      L.push('--- LIVE INTELLIGENCE EVENTS ---');
+      if (window._liveEventContext) {
+        L.push(window._liveEventContext);
+      } else {
+        document.querySelectorAll('.event-card').forEach(function(el) {
+          var type   = el.querySelector('.event-card__type') && el.querySelector('.event-card__type').textContent;
+          var title  = el.querySelector('.event-card__title') && el.querySelector('.event-card__title').textContent;
+          var detail = el.querySelector('.event-card__detail') && el.querySelector('.event-card__detail').textContent;
+          if (title) { L.push('[' + (type || 'EVENT') + '] ' + title); if (detail) L.push('  ' + detail.trim()); }
+        });
+      }
+      L.push('');
+
+      // ── UN ReliefWeb active crises ─────────────────────────────────────────
+      if (window._rwData && Object.keys(window._rwData).length) {
+        L.push('--- UN RELIEFWEB: ACTIVE HUMANITARIAN CRISES ---');
+        var critCountries = [];
+        var warnCountries = [];
+        Object.keys(window._rwData).forEach(function(iso) {
+          var entry = window._rwData[iso];
+          if (!entry.disasters || !entry.disasters.length) return;
+          var hasCrit = entry.disasters.some(function(x) { return x.sev === 'CRITICAL'; });
+          var hasWarn = entry.disasters.some(function(x) { return x.sev === 'WARNING'; });
+          if (hasCrit) critCountries.push(iso);
+          else if (hasWarn) warnCountries.push(iso);
+          var worst = entry.disasters[0];
+          L.push(iso + ' | ' + worst.name + ' [' + worst.sev + '] Types: ' + worst.types.join(', ') + ' | Crises: ' + entry.disasters.length);
+          if (entry.displaced) L.push('  IDPs: ' + Number(entry.displaced).toLocaleString());
+          if (entry.refugees)  L.push('  Refugees hosted: ' + Number(entry.refugees).toLocaleString());
+          if (entry.sitreps && entry.sitreps[0]) L.push('  Latest sitrep: ' + entry.sitreps[0].title.slice(0, 100));
+        });
+        L.push('CRITICAL countries: ' + critCountries.join(', ') || 'none');
+        L.push('WARNING countries: '  + warnCountries.join(', ')  || 'none');
+        L.push('Source: UN OCHA ReliefWeb · UNHCR');
+        L.push('');
+      }
+
+      L.push('--- CAPITAL CITY COORDINATES ---');
+      capitals.forEach(function(c) { L.push(c.capital + ': ' + c.lat + '°N (' + c.country + ')'); });
+      L.push('');
+      L.push('=== END SNAPSHOT ===');
+
+      var snapshot = L.join('\n');
+      window._argusSnapshot = snapshot;
+      try {
+        localStorage.setItem('argus_snapshot', snapshot);
+        localStorage.setItem('argus_snapshot_ts', String(Date.now()));
+      } catch(e) {}
+      console.log('Snapshot built: ' + L.length + ' lines');
+      return snapshot;
+    } catch(e) {
+      console.warn('buildSnapshot error:', e.message);
+      return window._argusSnapshot || 'SNAPSHOT PENDING';
+    }
+  }
+
+  function downloadSnapshot() {
+    var snap = buildSnapshot();
+    var blob = new Blob([snap], { type: 'text/plain' });
+    var url  = URL.createObjectURL(blob);
+    var a    = document.createElement('a');
+    a.href = url; a.download = 'argus-snapshot-' + Date.now() + '.txt'; a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  // ── Global Exchanges — Twelve Data (15-min delayed, CORS supported, 800 req/day free)
+  // Quote + 30d history fetched separately but both cached together.
+  // Fallback: Alpha Vantage ETF proxies if TD fails.
+  var TD_KEY  = '9a7f9d7fbc2847d0bd9da518ab84dd57';
+  var TD_BASE = 'https://api.twelvedata.com';
+  var FH_KEY  = 'd6reh5hr01qr194md15gd6reh5hr01qr194md160';
+  var FH_BASE = 'https://finnhub.io/api/v1';
+
+  // ── Unified TD symbol registry ────────────────────────────────────────────────
+  // All TD data in ONE batch /quote call on load. Reduces to 1 API request vs 2.
+
+  var EXCHANGE_SYMBOLS = [
+    { sym: 'VIX',  tdSym: 'VIX',  avSym: 'VIXY', pgSym: null,  elId: 'idx-vix',    chgId: null,             label: 'VIX'        },
+    { sym: 'FTSE', tdSym: 'FTSE', avSym: 'EWU',  pgSym: null,  elId: 'idx-ftse',   chgId: 'idx-ftse-chg',   label: 'FTSE 100'   },
+    { sym: 'DAX',  tdSym: 'DAX',  avSym: 'EWG',  pgSym: null,  elId: 'idx-dax',    chgId: 'idx-dax-chg',    label: 'DAX'        },
+    { sym: 'N225', tdSym: 'N225', avSym: 'EWJ',  pgSym: null,  elId: 'idx-nikkei', chgId: 'idx-nikkei-chg', label: 'NIKKEI 225' },
+    { sym: 'HSI',  tdSym: 'HSI',  avSym: 'EWH',  pgSym: null,  elId: 'idx-hsi',    chgId: 'idx-hsi-chg',    label: 'HANG SENG'  },
+    { sym: 'KSA',  tdSym: 'KSA',  avSym: 'KSA',  pgSym: 'KSA', elId: 'idx-ksa',    chgId: 'idx-ksa-chg',    label: 'SAUDI/GULF' },
+    { sym: 'NYA',  tdSym: 'SPY',  avSym: 'NYA',  pgSym: 'IYY', elId: 'idx-nyse',   chgId: 'idx-nyse-chg',   label: 'NYSE (SPY)' },
+  ];
+
+  // Commodity/crypto/BDI symbols — rendered separately but fetched in same batch
+  // fhSym = Finnhub (primary for crypto/ETFs), tdSym = Twelve Data (primary for metals/crude)
+  // OANDA pairs require Finnhub paid plan — metals/crude handled by TD batch only
+  var COMMODITY_SYMBOLS = [
+    { fhSym: null,                tdSym: 'XBR/USD', valId: 'brent-val',  chgId: null,         prefix: '$', dec: 2 },
+    { fhSym: null,                tdSym: 'XTI/USD', valId: 'wti-val',    chgId: null,         prefix: '$', dec: 2 },
+    { fhSym: null,                tdSym: 'XAU/USD', valId: 'gold-val',   chgId: 'gold-chg',   prefix: '$', dec: 2 },
+    { fhSym: null,                tdSym: 'XAG/USD', valId: 'silver-val', chgId: 'silver-chg', prefix: '$', dec: 2 },
+    { fhSym: 'CPER',              tdSym: 'CPER',    valId: 'copper-val', chgId: 'copper-chg', prefix: '$', dec: 2 },
+    { fhSym: 'WEAT',              tdSym: 'WEAT',    valId: 'wheat-val',  chgId: 'wheat-chg',  prefix: '$', dec: 2 },
+    { fhSym: 'BINANCE:BTCUSDT',   tdSym: 'BTC/USD', valId: 'btc-val',    chgId: 'btc-chg',    prefix: '$', dec: 0 },
+    { fhSym: 'BINANCE:ETHUSDT',   tdSym: 'ETH/USD', valId: 'eth-val',    chgId: 'eth-chg',    prefix: '$', dec: 0 },
+  ];
+
+  // ── Single unified TD fetch — all 14 symbols in one /quote call ───────────────
+  function fetchTDData() {
+    var CACHE_K = 'argus_td_v2', CACHE_T = 'argus_td_ts_v2', TTL = 15 * 60 * 1000;
+    try {
+      var cached = localStorage.getItem(CACHE_K);
+      var ts = parseInt(localStorage.getItem(CACHE_T) || '0');
+      if (cached && Date.now() - ts < TTL) {
+        var d = JSON.parse(cached);
+        renderExchanges(d.exchanges || {});
+        renderCommodities(d.raw || {});
+        EXCHANGE_SYMBOLS.forEach(function(item) {
+          if (d.exchanges && d.exchanges[item.sym] && d.exchanges[item.sym].prices && d.exchanges[item.sym].prices.length) {
+            chartCache[item.sym] = d.exchanges[item.sym];
+          }
+        });
+        // cache
+        return;
+      }
+    } catch(e) {}
+
+    // Build one combined symbol list
+    var exSyms   = EXCHANGE_SYMBOLS.map(function(i) { return i.tdSym; });
+    var commSyms = COMMODITY_SYMBOLS.map(function(i) { return i.tdSym; });
+    var allSyms  = exSyms.concat(commSyms).join(',');
+
+    fetch(TD_BASE + '/quote?symbol=' + encodeURIComponent(allSyms) + '&apikey=' + TD_KEY)
+      .then(function(r) { if (!r.ok) throw new Error('TD HTTP ' + r.status); return r.json(); })
+      .then(function(raw) {
+        if (!raw) throw new Error('TD: empty response');
+
+        // Parse exchanges
+        var exData = {};
+        EXCHANGE_SYMBOLS.forEach(function(item) {
+          var q = raw[item.tdSym];
+          if (!q || q.status === 'error' || !q.close) return;
+          var price = parseFloat(q.close);
+          var prev  = parseFloat(q.previous_close || q.open || price);
+          var pct   = prev ? (((price - prev) / prev) * 100).toFixed(2) + '%' : '';
+          exData[item.sym] = { price: price, chg: pct, prices: [], dates: [], src: 'TD' };
+        });
+
+        renderExchanges(exData);
+        renderCommodities(raw);
+
+        try {
+          localStorage.setItem(CACHE_K, JSON.stringify({ exchanges: exData, raw: raw }));
+          localStorage.setItem(CACHE_T, String(Date.now()));
+        } catch(e) {}
+        console.log('TD: loaded', Object.keys(exData).length, 'exchanges +', COMMODITY_SYMBOLS.length, 'commodities in 1 call');
+      })
+      .catch(function(err) {
+        console.warn('TD batch failed (' + err.message + ') — AV fallback for exchanges');
+        fetchExchangesAVFallback();
+      });
+  }
+
+  // Kept for fallback only — fires if TD batch fails entirely
+  function fetchExchangesAVFallback() {
+    var delay = function(ms) { return new Promise(function(r) { setTimeout(r, ms); }); };
+    var exData = {};
+    function fetchOne(item, idx) {
+      return delay(idx * 13000).then(function() {
+        return fetch(avQuoteUrl(item.avSym))
+          .then(function(r) { return r.json(); })
+          .then(function(d) {
+            if (d && (d.Information || d.Note)) { console.warn('AV rate limit: exchanges'); return; }
+            var gq = d && d['Global Quote'];
+            var price = gq && gq['05. price'];
+            var chg   = gq && gq['10. change percent'];
+            if (!price) return;
+            exData[item.sym] = { price: parseFloat(price), chg: chg || '', prices: [], src: 'AV' };
+            renderExchanges(exData);
+          })
+          .catch(function(e) { console.warn('AV fallback failed:', item.label, e.message); });
+      });
+    }
+    Promise.all(EXCHANGE_SYMBOLS.map(fetchOne)).then(function() {
+      console.log('Exchanges AV fallback: loaded', Object.keys(exData).length, 'symbols');
+    });
+  }
+
+  // fetchExchanges now just delegates to unified fetch
+  function fetchExchanges() { fetchTDData(); }
+  // fetchCommodities also delegates — no separate call needed
+  function fetchCommodities() { /* handled by fetchTDData */ }
+
+  function renderExchanges(exData) {
+    EXCHANGE_SYMBOLS.forEach(function(item) {
+      var d = exData[item.sym];
+      if (!d) return;
+      var el = document.getElementById(item.elId);
+      if (el) el.textContent = '$' + parseFloat(d.price).toFixed(2);
+      if (item.chgId && d.chg) {
+        var chgEl = document.getElementById(item.chgId);
+        if (chgEl) {
+          var pct = parseFloat(d.chg.replace('%', ''));
+          chgEl.textContent = (pct >= 0 ? '+' : '') + pct.toFixed(2) + '%';
+          chgEl.style.color = pct >= 0 ? '#00ff88' : '#ff0044';
+        }
+      }
+      if (item.sym === 'VIX' && el) {
+        var v = parseFloat(d.price);
+        el.style.color = v > 30 ? '#ff0044' : v > 20 ? '#ff9933' : v > 15 ? '#ffcc00' : '#00ff88';
+      }
+    });
+  }
+
+  function renderCommodities(raw) {
+    COMMODITY_SYMBOLS.forEach(function(item) {
+      var q = raw[item.tdSym];
+      if (!q || q.status === 'error' || !q.close) return;
+      var price = parseFloat(q.close);
+      var prev  = parseFloat(q.previous_close || q.open || price);
+      var pct   = prev ? (((price - prev) / prev) * 100) : 0;
+      var el = document.getElementById(item.valId);
+      if (el) el.textContent = item.prefix + price.toFixed(item.dec);
+      if (item.chgId) {
+        var chgEl = document.getElementById(item.chgId);
+        if (chgEl) {
+          chgEl.textContent = (pct >= 0 ? '+' : '') + pct.toFixed(2) + '%';
+          chgEl.style.color = pct >= 0 ? '#00ff88' : '#ff0044';
+        }
+      }
+      // Backfill _eiaData so chokepoint panels can read live Brent/WTI
+      if (item.tdSym === 'XBR/USD') {
+        window._eiaData = window._eiaData || {};
+        window._eiaData.brent     = price;
+        window._eiaData.brentDate = new Date().toISOString().slice(0, 10);
+      }
+      if (item.tdSym === 'XTI/USD') {
+        window._eiaData = window._eiaData || {};
+        window._eiaData.wti     = price;
+        window._eiaData.wtiDate = new Date().toISOString().slice(0, 10);
+      }
+    });
+  }
+
+  function toggleExchanges() {
+    var popup   = document.getElementById('exchanges-popup');
+    var overlay = document.getElementById('exchanges-overlay');
+    if (!popup) return;
+    var open = popup.classList.toggle('is-open');
+    if (overlay) overlay.classList.toggle('is-open', open);
+  }
+
+  // Twelve Data — time series for chart (on-demand, debounced)
+  function fetchTDHistory(tdSym) {
+    return fetch(TD_BASE + '/time_series?symbol=' + encodeURIComponent(tdSym) +
+        '&interval=1day&outputsize=30&apikey=' + TD_KEY)
+      .then(function(r) { if (!r.ok) throw new Error('TD history HTTP ' + r.status); return r.json(); })
+      .then(function(d) {
+        if (!d || d.status === 'error') throw new Error(d && d.message || 'TD history error');
+        var values = d.values || [];
+        if (!values.length) throw new Error('TD: no history values');
+        var prices = values.slice().reverse().map(function(v) { return parseFloat(v.close); });
+        var dates  = values.slice().reverse().map(function(v) { return v.datetime.slice(5); });
+        return { prices: prices, dates: dates };
+      });
+  }
+
+  var chartCache = {};
+  var chartDebounceTimer = null;
+
+  // ── Inline SVG sparkline chart ────────────────────────────────────────────
+  function drawChart(prices, sym) {
+    var svg = document.getElementById('exchanges-chart');
+    if (!svg || !prices || !prices.length) return;
+
+    // Clear previous paths but keep the empty-state text node structure
+    while (svg.firstChild) svg.removeChild(svg.firstChild);
+
+    var W = 292, H = 70, PAD = 4;
+    var min = Math.min.apply(null, prices);
+    var max = Math.max.apply(null, prices);
+    if (min === max) { min -= 1; max += 1; }
+
+    var xStep = (W - PAD * 2) / (prices.length - 1);
+    var yRange = max - min;
+
+    // Build polyline points
+    var pts = prices.map(function(p, i) {
+      var x = PAD + i * xStep;
+      var y = PAD + (1 - (p - min) / yRange) * (H - PAD * 2);
+      return x.toFixed(1) + ',' + y.toFixed(1);
+    }).join(' ');
+
+    // Gradient fill area
+    var areaClose = 'M' + (PAD) + ',' + (H - PAD) + ' ';
+    areaClose += prices.map(function(p, i) {
+      var x = PAD + i * xStep;
+      var y = PAD + (1 - (p - min) / yRange) * (H - PAD * 2);
+      return (i === 0 ? 'L' : '') + x.toFixed(1) + ',' + y.toFixed(1) + ' ';
+    }).join('');
+    areaClose += 'L' + (PAD + (prices.length - 1) * xStep).toFixed(1) + ',' + (H - PAD) + ' Z';
+
+    var isUp = prices[prices.length - 1] >= prices[0];
+    var lineCol = isUp ? '#00ff88' : '#ff0044';
+    var fillCol = isUp ? 'rgba(0,255,136,0.08)' : 'rgba(255,0,68,0.08)';
+
+    var defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
+    defs.innerHTML = '<linearGradient id="cg-' + sym + '" x1="0" y1="0" x2="0" y2="1">' +
+      '<stop offset="0%" stop-color="' + lineCol + '" stop-opacity="0.18"/>' +
+      '<stop offset="100%" stop-color="' + lineCol + '" stop-opacity="0"/>' +
+      '</linearGradient>';
+    svg.appendChild(defs);
+
+    // Fill area
+    var area = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    area.setAttribute('d', areaClose);
+    area.setAttribute('fill', 'url(#cg-' + sym + ')');
+    svg.appendChild(area);
+
+    // Baseline
+    var base = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    base.setAttribute('x1', PAD); base.setAttribute('y1', H - PAD);
+    base.setAttribute('x2', W - PAD); base.setAttribute('y2', H - PAD);
+    base.setAttribute('stroke', '#0f2744'); base.setAttribute('stroke-width', '0.5');
+    svg.appendChild(base);
+
+    // Line
+    var poly = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
+    poly.setAttribute('points', pts);
+    poly.setAttribute('fill', 'none');
+    poly.setAttribute('stroke', lineCol);
+    poly.setAttribute('stroke-width', '1.5');
+    poly.setAttribute('stroke-linejoin', 'round');
+    svg.appendChild(poly);
+
+    // Last price dot
+    var lastX = PAD + (prices.length - 1) * xStep;
+    var lastY = PAD + (1 - (prices[prices.length - 1] - min) / yRange) * (H - PAD * 2);
+    var dot = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+    dot.setAttribute('cx', lastX.toFixed(1)); dot.setAttribute('cy', lastY.toFixed(1));
+    dot.setAttribute('r', '2.5'); dot.setAttribute('fill', lineCol);
+    svg.appendChild(dot);
+  }
+
+  function selectExchange(sym, label) {
+    document.querySelectorAll('.exchanges-popup__row').forEach(function(r) { r.classList.remove('is-selected'); });
+    var row = document.getElementById('ex-row-' + sym);
+    if (row) row.classList.add('is-selected');
+    document.getElementById('chart-label').textContent = label;
+
+    // Instant render if already cached
+    if (chartCache[sym] && chartCache[sym].prices && chartCache[sym].prices.length) {
+      var d = chartCache[sym];
+      if (d.dates && d.dates.length) {
+        document.getElementById('chart-range').textContent = d.dates[0] + ' → ' + d.dates[d.dates.length - 1];
+      }
+      drawChart(d.prices, sym);
+      return;
+    }
+
+    // Debounce — wait 2s before firing network request (prevents rapid-click rate limits)
+    if (chartDebounceTimer) clearTimeout(chartDebounceTimer);
+    document.getElementById('chart-label').textContent = label + ' — LOADING…';
+    var item = EXCHANGE_SYMBOLS.find(function(i) { return i.sym === sym; });
+    if (!item) return;
+
+    chartDebounceTimer = setTimeout(function() {
+      fetchTDHistory(item.tdSym)
+        .then(function(d) {
+          chartCache[sym] = d;
+          document.getElementById('chart-label').textContent = label;
+          if (d.dates && d.dates.length) {
+            document.getElementById('chart-range').textContent = d.dates[0] + ' → ' + d.dates[d.dates.length - 1];
+          }
+          drawChart(d.prices, sym);
+        })
+        .catch(function(err) {
+          document.getElementById('chart-label').textContent = label + ' — ERROR';
+          console.warn('Chart fetch failed:', sym, err.message);
+        });
+    }, 2000);
+  }
+
+  // ── Finnhub commodities + crypto — primary source ────────────────────────────
+  // /quote returns: c=current, pc=prev close, d=change, dp=change%, h=high, l=low
+  // 60 req/min free tier, direct CORS, real prices (not ETF proxies for metals/crypto)
+  function fetchFinnhubCommodities() {
+    var CACHE_K = 'argus_fh_comm_v1', CACHE_T = 'argus_fh_comm_ts_v1', TTL = 15 * 60 * 1000;
+    try {
+      var cached = localStorage.getItem(CACHE_K);
+      var ts = parseInt(localStorage.getItem(CACHE_T) || '0');
+      if (cached && Date.now() - ts < TTL) {
+        renderFHCommodities(JSON.parse(cached));
+        // cache
+        return;
+      }
+    } catch(e) {}
+
+    var results = {};
+    var delay = function(ms) { return new Promise(function(r) { setTimeout(r, ms); }); };
+
+    // Stagger 300ms apart — well within 60/min limit, avoids burst
+    function fetchOne(item, idx) {
+      return delay(idx * 300).then(function() {
+        if (!item.fhSym) return Promise.resolve(); // TD handles this symbol
+        return fetch(FH_BASE + '/quote?symbol=' + encodeURIComponent(item.fhSym) + '&token=' + FH_KEY)
+          .then(function(r) { if (!r.ok) throw new Error('FH HTTP ' + r.status); return r.json(); })
+          .then(function(d) {
+            if (!d || !d.c || d.c === 0) throw new Error('FH: no price for ' + item.fhSym);
+            var pct = d.pc ? (((d.c - d.pc) / d.pc) * 100).toFixed(2) + '%' : '';
+            results[item.fhSym] = { price: d.c, chg: pct, src: 'FH' };
+            renderFHCommodities(results);
+          })
+          .catch(function(err) {
+            console.warn('FH failed for', item.fhSym, '—', err.message, '— TD fallback will cover');
+          });
+      });
+    }
+
+    Promise.all(COMMODITY_SYMBOLS.map(fetchOne))
+      .then(function() {
+        if (Object.keys(results).length) {
+          try {
+            localStorage.setItem(CACHE_K, JSON.stringify(results));
+            localStorage.setItem(CACHE_T, String(Date.now()));
+          } catch(e) {}
+          console.log('FH commodities: loaded', Object.keys(results).length, '/', COMMODITY_SYMBOLS.length);
+        }
+      });
+  }
+
+  function renderFHCommodities(results) {
+    COMMODITY_SYMBOLS.forEach(function(item) {
+      var d = results[item.fhSym];
+      if (!d || !d.price) return;
+      var el = document.getElementById(item.valId);
+      if (el) el.textContent = item.prefix + parseFloat(d.price).toFixed(item.dec);
+      if (item.chgId && d.chg) {
+        var chgEl = document.getElementById(item.chgId);
+        if (chgEl) {
+          var pct = parseFloat(d.chg.replace('%', ''));
+          chgEl.textContent = (pct >= 0 ? '+' : '') + pct.toFixed(2) + '%';
+          chgEl.style.color = pct >= 0 ? '#00ff88' : '#ff0044';
+        }
+      }
+    });
+  }
+
+  // ── Bond yields — FRED ────────────────────────────────────────────────────────
   function fetchBondYields() {
     var CACHE_K = 'argus_bonds_v1', CACHE_T = 'argus_bonds_ts_v1', TTL = 12 * 3600 * 1000;
     try {
@@ -2953,7 +3543,7 @@ window.ArgusData = (function() {
       });
     } catch(e) {}
     fetchEIA();
-    fetchMarketData(); // Netlify: EIA + FRED + Stooq indexes
+    fetchMarketData(); // Netlify: EIA + FRED + Stooq — supplements existing fetchers
     fetchPolygonExchanges();
     fetchAlphaVantage();
     fetchFRED();
@@ -3014,48 +3604,30 @@ window.ArgusData = (function() {
   }
 
 
-  // ── fetchMarketData — central Netlify function caller ──────────────────────
-  // Replaces direct EIA + FRED + Stooq calls — all secured server-side
+  // ── Netlify market data — EIA + FRED + Stooq indexes server-side ───────────
   function fetchMarketData() {
-    var CACHE_K = 'argus_netlify_market_v1', CACHE_T = 'argus_netlify_market_ts_v1';
+    var CACHE_K = 'argus_netlify_mkt_v1', CACHE_T = 'argus_netlify_mkt_ts_v1';
     var TTL = 60 * 60 * 1000;
     try {
       var cached = localStorage.getItem(CACHE_K);
       var ts = parseInt(localStorage.getItem(CACHE_T) || "0");
-      if (cached && Date.now() - ts < TTL) {
-        applyMarketPayload(JSON.parse(cached));
-        return;
-      }
+      if (cached && Date.now() - ts < TTL) { applyMarketPayload(JSON.parse(cached)); return; }
     } catch(e) {}
     fetch('/.netlify/functions/fetch-market-data')
     .then(function(r) { return r.ok ? r.json() : null; })
     .then(function(res) {
       if (!res || !res.data) return;
-      try {
-        localStorage.setItem(CACHE_K, JSON.stringify(res.data));
-        localStorage.setItem(CACHE_T, String(Date.now()));
-      } catch(e) {}
+      try { localStorage.setItem(CACHE_K, JSON.stringify(res.data)); localStorage.setItem(CACHE_T, String(Date.now())); } catch(e) {}
       applyMarketPayload(res.data);
-      console.log("Netlify market data: source=" + res.source);
+      console.log("Netlify market: source=" + res.source);
     })
-    .catch(function(e) { console.warn('fetchMarketData failed:', e.message); });
+    .catch(function(e) { console.warn('fetchMarketData Netlify failed:', e.message); });
   }
 
-  function applyMarketPayload(data) {
-    // Apply EIA data
-    if (data.eia) {
-      window._eiaData = Object.assign(window._eiaData || {}, data.eia);
-      renderEIATicker();
-      console.log('EIA via Netlify: Brent $' + (data.eia.brent || '—') + ' WTI $' + (data.eia.wti || '—'));
-    }
-    // Apply FRED data
-    if (data.fred) {
-      window._fredData = Object.assign(window._fredData || {}, data.fred);
-      renderFREDTicker();
-      console.log('FRED via Netlify:', data.fred);
-    }
-    // Apply Stooq index data
-    if (data.stooq) {
+  function applyMarketPayload(d) {
+    if (d.eia) { window._eiaData = Object.assign(window._eiaData || {}, d.eia); renderEIATicker(); }
+    if (d.fred) { window._fredData = Object.assign(window._fredData || {}, d.fred); renderFREDTicker(); }
+    if (d.stooq) {
       var MAP = {
         '^ftse': { elId: 'idx-ftse',   chgId: 'idx-ftse-chg',   prefix: '',  dec: 0 },
         '^dax':  { elId: 'idx-dax',    chgId: 'idx-dax-chg',    prefix: '',  dec: 0 },
@@ -3065,19 +3637,14 @@ window.ArgusData = (function() {
         'bdi':   { elId: 'bdi-val',    chgId: null,             prefix: '',  dec: 0 },
       };
       Object.keys(MAP).forEach(function(sym) {
-        var d = data.stooq[sym];
-        if (!d) return;
+        var s = d.stooq[sym]; if (!s) return;
         var cfg = MAP[sym];
-        var el = document.getElementById(cfg.elId);
-        if (!el) return;
-        el.textContent = cfg.prefix + d.close.toLocaleString('en-US', { maximumFractionDigits: cfg.dec });
-        el.style.color = d.pct > 0 ? "#00cc66" : d.pct < 0 ? "#ff4422" : "#c5d7e8";
-        if (cfg.chgId) {
-          var chgEl = document.getElementById(cfg.chgId);
-          if (chgEl) { chgEl.textContent = (d.pct > 0 ? "+" : "") + d.pct.toFixed(2) + "%"; chgEl.style.color = el.style.color; }
-        }
+        var el = document.getElementById(cfg.elId); if (!el) return;
+        el.textContent = cfg.prefix + s.close.toLocaleString('en-US', { maximumFractionDigits: cfg.dec });
+        el.style.color = s.pct > 0 ? "#00cc66" : s.pct < 0 ? "#ff4422" : "#c5d7e8";
+        if (cfg.chgId) { var ce = document.getElementById(cfg.chgId); if (ce) { ce.textContent = (s.pct > 0 ? "+" : "") + s.pct.toFixed(2) + "%"; ce.style.color = el.style.color; } }
       });
-      console.log('Stooq via Netlify: ' + Object.keys(data.stooq).length + ' symbols');
+      console.log("Stooq via Netlify: " + Object.keys(d.stooq).length + " symbols");
     }
   }
 
@@ -4571,15 +5138,16 @@ async function fetchAll() {
     }
   } catch(e) {}
 
-  // Fetch via Netlify function — no proxy needed, no CORS, GDELT key-free
+
+  // Try Netlify function first (no proxy, no CORS, server-side)
   var feedJson = null;
   try {
-    var netlifyRes = await fetch('/.netlify/functions/fetch-gdelt');
-    if (netlifyRes.ok) feedJson = await netlifyRes.json();
+    var nRes = await fetch('/.netlify/functions/fetch-gdelt');
+    if (nRes.ok) feedJson = await nRes.json();
   } catch(e) {}
 
-  // Fallback to direct safeFetch if Netlify unavailable (local dev)
-  if (!feedJson || !feedJson.articles) {
+  // Fallback to proxy chain if Netlify unavailable
+  if (!feedJson || !feedJson.articles || !feedJson.articles.length) {
     await new Promise(function(r) { setTimeout(r, 5000); });
     feedJson = await safeFetch(makeUrl(
       '(supply chain OR shipping OR sanctions OR conflict OR war OR Houthi OR Suez OR Hormuz OR Russia OR China OR Iran OR semiconductor OR tariff OR embargo OR famine OR coup OR pipeline)',

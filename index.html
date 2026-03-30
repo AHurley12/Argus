@@ -4224,19 +4224,12 @@ function mergeAuxEvents() {
   }
 }
 
-  // Only push to visible feed if news tab is active (not disaster/gdelt)
-  var activeTab = window.gdelt && window.gdelt.getActiveTab ? window.gdelt.getActiveTab() : 'news';
-  if (activeTab === 'news' && window.renderEvents) {
-    window.renderEvents(merged, true);
-  }
-}
-
 // ════════════════════════════════════════════════════════════════════════════
 // Maritime Intelligence — free sources, no API key required
 // Sources: IMF PortWatch (port calls), UN FAO fishing zones,
 //          UNOSAT vessel detection reports (ReliefWeb), MyShipTracking RSS
 // ════════════════════════════════════════════════════════════════════════════
-(function loadMaritimeData() {
+function loadMaritimeData() {
   var CACHE_K = 'argus_maritime_v1', CACHE_T = 'argus_maritime_ts_v1';
   var TTL = 60 * 60 * 1000; // 1 hour
 
@@ -4326,7 +4319,9 @@ function mergeAuxEvents() {
   function injectMaritimeEvents(events) {
     window._maritimeEvents = events;
   }
-})();
+}
+loadMaritimeData();
+
 
 // ════════════════════════════════════════════════════════════════════════════
 // ArgusUI — panel display and detail views

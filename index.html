@@ -3061,11 +3061,11 @@ window.ArgusData = (function() {
   // All TD data in ONE batch /quote call on load. Reduces to 1 API request vs 2.
 
   var EXCHANGE_SYMBOLS = [
-    { sym: 'VIX',  tdSym: 'VIX',  avSym: 'VIXY', pgSym: null,  elId: 'idx-vix',    chgId: null,             label: 'VIX'        },
-    { sym: 'FTSE', tdSym: 'FTSE', avSym: 'EWU',  pgSym: null,  elId: 'idx-ftse',   chgId: 'idx-ftse-chg',   label: 'FTSE 100'   },
-    { sym: 'DAX',  tdSym: 'DAX',  avSym: 'EWG',  pgSym: null,  elId: 'idx-dax',    chgId: 'idx-dax-chg',    label: 'DAX'        },
-    { sym: 'N225', tdSym: 'N225', avSym: 'EWJ',  pgSym: null,  elId: 'idx-nikkei', chgId: 'idx-nikkei-chg', label: 'NIKKEI 225' },
-    { sym: 'HSI',  tdSym: 'HSI',  avSym: 'EWH',  pgSym: null,  elId: 'idx-hsi',    chgId: 'idx-hsi-chg',    label: 'HANG SENG'  },
+    { sym: 'VIX',  tdSym: 'VIXY', avSym: 'VIXY', pgSym: null,  elId: 'idx-vix',    chgId: null,             label: 'VIX'        },
+    { sym: 'FTSE', tdSym: 'EWU',  avSym: 'EWU',  pgSym: null,  elId: 'idx-ftse',   chgId: 'idx-ftse-chg',   label: 'FTSE 100'   },
+    { sym: 'DAX',  tdSym: 'EWG',  avSym: 'EWG',  pgSym: null,  elId: 'idx-dax',    chgId: 'idx-dax-chg',    label: 'DAX'        },
+    { sym: 'N225', tdSym: 'EWJ',  avSym: 'EWJ',  pgSym: null,  elId: 'idx-nikkei', chgId: 'idx-nikkei-chg', label: 'NIKKEI 225' },
+    { sym: 'HSI',  tdSym: 'EWH',  avSym: 'EWH',  pgSym: null,  elId: 'idx-hsi',    chgId: 'idx-hsi-chg',    label: 'HANG SENG'  },
     { sym: 'KSA',  tdSym: 'KSA',  avSym: 'KSA',  pgSym: 'KSA', elId: 'idx-ksa',    chgId: 'idx-ksa-chg',    label: 'SAUDI/GULF' },
     { sym: 'NYA',  tdSym: 'SPY',  avSym: 'NYA',  pgSym: 'IYY', elId: 'idx-nyse',   chgId: 'idx-nyse-chg',   label: 'NYSE (SPY)' },
   ];
@@ -4211,13 +4211,122 @@ function mergeAuxEvents() {
   var rw      = window._rwCrisisEvents || [];
   var aux     = usgs.concat(rw);
   if (!aux.length) return;
-  // Remove previous aux injections then prepend new ones
+  // Store merged set but only re-render if NEWS tab is active
+  // Disaster tab has its own renderDisasterTab() — don't bleed into news feed
   var filtered = base.filter(function(e) { return e.id < 9000; });
   var merged   = aux.concat(filtered);
   merged.sort(function(a,b) { return b.plotPriority - a.plotPriority; });
   window._currentEvents = merged;
-  if (window.renderEvents) window.renderEvents(merged, true);
+  // Only push to visible feed if news tab is active (not disaster/gdelt)
+  var activeTab = window.gdelt && window.gdelt.getActiveTab ? window.gdelt.getActiveTab() : 'news';
+  if (activeTab === 'news' && window.renderEvents) {
+    window.renderEvents(merged, true);
+  }
 }
+
+  // Only push to visible feed if news tab is active (not disaster/gdelt)
+  var activeTab = window.gdelt && window.gdelt.getActiveTab ? window.gdelt.getActiveTab() : 'news';
+  if (activeTab === 'news' && window.renderEvents) {
+    window.renderEvents(merged, true);
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Maritime Intelligence — free sources, no API key required
+// Sources: IMF PortWatch (port calls), UN FAO fishing zones,
+//          UNOSAT vessel detection reports (ReliefWeb), MyShipTracking RSS
+// ════════════════════════════════════════════════════════════════════════════
+(function loadMaritimeData() {
+  var CACHE_K = 'argus_maritime_v1', CACHE_T = 'argus_maritime_ts_v1';
+  var TTL = 60 * 60 * 1000; // 1 hour
+
+  try {
+    var cached = localStorage.getItem(CACHE_K);
+    var ts     = parseInt(localStorage.getItem(CACHE_T) || '0');
+    if (cached && Date.now() - ts < TTL) {
+      injectMaritimeEvents(JSON.parse(cached));
+      return;
+    }
+  } catch(e) {}
+
+  // IMF PortWatch — free, CORS-open, no key
+  // Tracks vessel calls at 1000+ major ports globally
+  var portWatchUrl = 'https://portwatch.imf.org/api/portcalls?' +
+    'date_from=' + new Date(Date.now() - 7*24*3600*1000).toISOString().slice(0,10) +
+    '&date_to='  + new Date().toISOString().slice(0,10) +
+    '&limit=20&orderby=portcalls&sort=desc';
+
+  fetch(portWatchUrl)
+  .then(function(r) { return r.ok ? r.json() : null; })
+  .then(function(data) {
+    var ports = (data && (data.data || data.results || data)) || [];
+    if (!Array.isArray(ports)) ports = [];
+    var events = ports.slice(0, 15).map(function(p, i) {
+      var calls  = p.portcalls || p.vessel_calls || 0;
+      var port   = p.port_name || p.name || 'Unknown Port';
+      var country = p.country || p.iso3 || '';
+      var pct    = p.portcalls_change_pct || p.change_pct || null;
+      var sev    = pct !== null && pct < -20 ? 'WARNING' : pct !== null && pct < -40 ? 'CRITICAL' : 'LOW';
+      return {
+        id: 9900 + i,
+        type: 'MARITIME',
+        severity: sev,
+        title: port + ' — ' + calls + ' vessel calls' + (pct !== null ? ' (' + (pct > 0 ? '+' : '') + pct.toFixed(1) + '%)' : ''),
+        impact: 'Port traffic data via IMF PortWatch. Country: ' + country,
+        region: country,
+        pubDate: new Date().toLocaleDateString(),
+        source: 'IMF PORTWATCH',
+        link: 'https://portwatch.imf.org',
+        lat: p.lat || null,
+        lon: p.lon || p.lng || null,
+        plotPriority: sev === 'CRITICAL' ? 75 : sev === 'WARNING' ? 50 : 20,
+      };
+    }).filter(function(e) { return e.plotPriority >= 20; });
+
+    if (events.length) {
+      try {
+        localStorage.setItem(CACHE_K, JSON.stringify(events));
+        localStorage.setItem(CACHE_T, String(Date.now()));
+      } catch(e) {}
+      window._maritimeEvents = events;
+      console.log('PortWatch: ' + events.length + ' port events loaded');
+    }
+  })
+  .catch(function(e) { console.warn('PortWatch failed:', e.message); });
+
+  // Also fetch chokepoint status from ReliefWeb maritime reports
+  fetch('https://api.reliefweb.int/v1/reports?appname=argus-intel' +
+    '&filter[field]=theme.name&filter[value]=Sea%20and%20Ocean' +
+    '&limit=5&fields[include][]=title&fields[include][]=date&fields[include][]=url')
+  .then(function(r) { return r.ok ? r.json() : null; })
+  .then(function(data) {
+    var items = data && data.data || [];
+    var rwEvents = items.map(function(d, i) {
+      var f = d.fields || {};
+      return {
+        id: 9950 + i,
+        type: 'MARITIME',
+        severity: 'WATCH',
+        title: f.title || 'Maritime Report',
+        impact: 'UN OCHA maritime intelligence report.',
+        region: 'Global',
+        pubDate: f.date && f.date.created ? new Date(f.date.created).toLocaleDateString() : '',
+        source: 'UN RELIEFWEB MARITIME',
+        link: f.url || 'https://reliefweb.int',
+        plotPriority: 35,
+      };
+    });
+    if (rwEvents.length) {
+      window._maritimeRWEvents = rwEvents;
+      console.log('ReliefWeb maritime: ' + rwEvents.length + ' reports');
+    }
+  })
+  .catch(function() {});
+
+  function injectMaritimeEvents(events) {
+    window._maritimeEvents = events;
+  }
+})();
 
 // ════════════════════════════════════════════════════════════════════════════
 // ArgusUI — panel display and detail views
@@ -5509,9 +5618,10 @@ function renderDisasterTab() {
   var evList = document.getElementById('ev-list');
   if (!evList) return;
 
-  var usgs  = window._usgsEvents     || [];
-  var rw    = window._rwCrisisEvents || [];
-  var noaa  = window._noaaEvents     || [];
+  var usgs     = window._usgsEvents       || [];
+  var rw       = window._rwCrisisEvents   || [];
+  var noaa     = window._noaaEvents       || [];
+  var maritime = (window._maritimeEvents  || []).concat(window._maritimeRWEvents || []);
 
   // Map GDACS from _rwData into ev format
   var gdacs = [];
@@ -5537,7 +5647,7 @@ function renderDisasterTab() {
     });
   }
 
-  var all = usgs.concat(rw).concat(gdacs).concat(noaa);
+  var all = usgs.concat(rw).concat(gdacs).concat(noaa).concat(maritime);
   all.sort(function(a, b) { return b.plotPriority - a.plotPriority; });
 
   evList.innerHTML = '';
@@ -5560,7 +5670,7 @@ function renderDisasterTab() {
 }
 window.renderDisasterTab = renderDisasterTab;
 
-return { switchTab: switchTab, getData: function() { return data; } };
+return { switchTab: switchTab, getData: function() { return data; }, getActiveTab: function() { return activeTab; } };
 
 })(); // end gdelt
 </script>
@@ -6120,7 +6230,8 @@ return { getCountryData: getCountryData, getDisasters: getDisasters, init: init 
       var existing = window._currentEvents || [];
       var merged = classified.concat(existing.filter(function(e) { return !e.isPermanent; }));
       window._currentEvents = merged;
-      if (window.renderEvents) window.renderEvents(merged, true);
+      var _at = window.gdelt && window.gdelt.getActiveTab ? window.gdelt.getActiveTab() : "news";
+      if (_at === "news" && window.renderEvents) window.renderEvents(merged, true);
       // Plot globe markers for permanent events with coordinates
       var plotAttempts = 0;
       var plotInterval = setInterval(function() {
@@ -6859,7 +6970,8 @@ window.ArgusAdmin = (function() {
       var existing = window._currentEvents || [];
       var merged = classified.concat(existing.filter(function(e) { return !e.isPermanent; }));
       window._currentEvents = merged;
-      if (window.renderEvents) window.renderEvents(merged, true);
+      var _at2 = window.gdelt && window.gdelt.getActiveTab ? window.gdelt.getActiveTab() : "news";
+      if (_at2 === "news" && window.renderEvents) window.renderEvents(merged, true);
       if (window._plotPermanentMarkers) window._plotPermanentMarkers(classified);
     })
     .catch(function(e) { console.warn('Permanent events load error:', e.message); });

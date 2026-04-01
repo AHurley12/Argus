@@ -6561,8 +6561,9 @@ window.ArgusAdmin = (function() {
           var seen     = u.last_seen  ? new Date(u.last_seen).toLocaleDateString()  : 'Never';
           var canEdit  = (myTier === 'owner') || (myTier === 'admin' && u.tier !== 'owner' && u.tier !== 'admin');
           var tierOpts = TIER_ORDER.filter(function(t) {
-            if (myTier === 'admin') return t !== 'owner' && t !== 'admin';
-            return true;
+            if (myTier === 'owner') return t !== 'owner'; // owners can assign up to admin, not owner
+            if (myTier === 'admin') return t !== 'owner' && t !== 'admin'; // admins can only assign viewer/pro
+            return false;
           });
           var select = canEdit
             ? '<select class="um-tier-select" onchange="ArgusAdmin.setTier(\'' + u.id + '\',this.value)">' +
@@ -6591,6 +6592,11 @@ window.ArgusAdmin = (function() {
       alert('Only owners can assign owner or admin roles.');
       loadUsers();
       return;
+    }
+    // Confirm before promoting to admin or owner
+    if (newTier === 'admin' || newTier === 'owner') {
+      var confirmed = confirm('Promote this user to ' + newTier.toUpperCase() + '?\n\nThis grants full ' + newTier + ' privileges on ARGUS.');
+      if (!confirmed) { loadUsers(); return; }
     }
     sbFetch('/rest/v1/profiles?id=eq.' + userId, {
       method: 'PATCH',

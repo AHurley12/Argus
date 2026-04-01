@@ -5544,9 +5544,9 @@ setInterval(fetchAll, TTL);
 
 // ── DISASTER tab — NOAA severe weather fetch ──────────────────────────────────
 (function loadNOAA() {
-  var URL      = 'https://api.weather.gov/alerts/active?status=actual&message_type=alert&severity=Extreme,Severe&limit=20';
-  var CACHE_K  = 'argus_noaa_v1';
-  var CACHE_T  = 'argus_noaa_ts_v1';
+  var URL      = 'https://api.weather.gov/alerts/active?status=actual&message_type=alert&urgency=Immediate,Expected&limit=20';
+  var CACHE_K  = 'argus_noaa_v2';
+  var CACHE_T  = 'argus_noaa_ts_v2';
   var TTL_MS   = 15 * 60 * 1000;
   try {
     var cached = localStorage.getItem(CACHE_K);
@@ -5581,14 +5581,153 @@ setInterval(fetchAll, TTL);
   .catch(function() {});
 })();
 
+
+// ── NASA FIRMS — Active Wildfire Data — free, no key ─────────────────────────
+// MODIS/VIIRS active fire detections updated every 24h, global coverage
+(function loadWildfires() {
+  var CACHE_K = 'argus_firms_v1', CACHE_T = 'argus_firms_ts_v1';
+  var TTL = 60 * 60 * 1000; // 1 hour
+  try {
+    var cached = localStorage.getItem(CACHE_K);
+    var ts = parseInt(localStorage.getItem(CACHE_T) || '0');
+    if (cached && Date.now() - ts < TTL) {
+      window._fireEvents = JSON.parse(cached);
+      if (typeof activeTab !== 'undefined' && activeTab === 'disaster') renderDisasterTab();
+      return;
+    }
+  } catch(e) {}
+
+  // NASA FIRMS CSV — VIIRS SNPP last 24h, world
+  var url = 'https://firms.modaps.eosdis.nasa.gov/data/active_fire/suomi-npp-viirs-c2/csv/SUOMI_VIIRS_C2_Global_24h.csv';
+  fetch(url)
+  .then(function(r) { return r.ok ? r.text() : null; })
+  .then(function(csv) {
+    if (!csv) return;
+    var rows = csv.trim().split('\n');
+    var headers = rows[0].split(',');
+    var latIdx  = headers.indexOf('latitude');
+    var lonIdx  = headers.indexOf('longitude');
+    var brightIdx = headers.indexOf('bright_ti4');
+    var confIdx = headers.indexOf('confidence');
+    var dateIdx = headers.indexOf('acq_date');
+
+    // Group detections by 2-degree grid cells to cluster nearby fires
+    var grid = {};
+    rows.slice(1).forEach(function(row) {
+      var cols = row.split(',');
+      var lat  = parseFloat(cols[latIdx]);
+      var lon  = parseFloat(cols[lonIdx]);
+      var conf = cols[confIdx] || '';
+      if (isNaN(lat) || isNaN(lon)) return;
+      if (conf === 'l') return; // skip low confidence
+      var key = Math.round(lat / 2) + ',' + Math.round(lon / 2);
+      if (!grid[key]) grid[key] = { lat: lat, lon: lon, count: 0, date: cols[dateIdx] || '' };
+      grid[key].count++;
+    });
+
+    var events = Object.keys(grid).slice(0, 20).map(function(k, i) {
+      var g   = grid[k];
+      var sev = g.count > 50 ? 'CRITICAL' : g.count > 15 ? 'WARNING' : 'WATCH';
+      return {
+        id: 9850 + i,
+        type: 'WILDFIRE',
+        severity: sev,
+        title: 'Active Fire Cluster — ' + g.count + ' detections (' + g.lat.toFixed(1) + '°, ' + g.lon.toFixed(1) + '°)',
+        impact: 'NASA VIIRS satellite fire detections in past 24h. ' + g.count + ' hotspots in cluster.',
+        region: '',
+        pubDate: g.date,
+        source: 'NASA FIRMS',
+        link: 'https://firms.modaps.eosdis.nasa.gov/map/',
+        lat: g.lat, lon: g.lon,
+        plotPriority: sev === 'CRITICAL' ? 82 : sev === 'WARNING' ? 52 : 28,
+      };
+    }).sort(function(a, b) { return b.plotPriority - a.plotPriority; });
+
+    window._fireEvents = events;
+    try { localStorage.setItem(CACHE_K, JSON.stringify(events)); localStorage.setItem(CACHE_T, String(Date.now())); } catch(e) {}
+    console.log('NASA FIRMS: ' + events.length + ' fire clusters loaded');
+    if (typeof activeTab !== 'undefined' && activeTab === 'disaster') renderDisasterTab();
+  })
+  .catch(function(e) { console.warn('FIRMS wildfire fetch failed:', e.message); });
+})();
+
+// ── NHC Active Storms — NOAA National Hurricane Center RSS — free, no key ────
+(function loadStorms() {
+  var CACHE_K = 'argus_nhc_v1', CACHE_T = 'argus_nhc_ts_v1';
+  var TTL = 30 * 60 * 1000; // 30 min
+  try {
+    var cached = localStorage.getItem(CACHE_K);
+    var ts = parseInt(localStorage.getItem(CACHE_T) || '0');
+    if (cached && Date.now() - ts < TTL) {
+      window._stormEvents = JSON.parse(cached);
+      if (typeof activeTab !== 'undefined' && activeTab === 'disaster') renderDisasterTab();
+      return;
+    }
+  } catch(e) {}
+
+  // NHC Atlantic + Pacific active storm advisories RSS
+  var feeds = [
+    'https://www.nhc.noaa.gov/index-at.xml',   // Atlantic
+    'https://www.nhc.noaa.gov/index-ep.xml',   // East Pacific
+  ];
+
+  var allStorms = [];
+  var done = 0;
+
+  feeds.forEach(function(feedUrl, fi) {
+    fetch('https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(feedUrl))
+    .then(function(r) { return r.ok ? r.text() : null; })
+    .then(function(xml) {
+      if (xml) {
+        // Parse storm titles and descriptions from RSS
+        var items = xml.match(/<item>([\s\S]*?)<\/item>/g) || [];
+        items.forEach(function(item, i) {
+          var title   = (item.match(/<title>([\s\S]*?)<\/title>/)   || [])[1] || '';
+          var desc    = (item.match(/<description>([\s\S]*?)<\/description>/) || [])[1] || '';
+          var link    = (item.match(/<link>([\s\S]*?)<\/link>/)     || [])[1] || '';
+          title = title.replace(/<!\[CDATA\[|\]\]>/g, '').trim();
+          desc  = desc.replace(/<!\[CDATA\[|\]\]>/g, '').replace(/<[^>]+>/g, '').trim();
+          if (!title || title.toLowerCase().includes('national hurricane')) return;
+          var isHurricane = /hurricane/i.test(title);
+          var isTropical  = /tropical storm/i.test(title);
+          var sev = isHurricane ? 'CRITICAL' : isTropical ? 'WARNING' : 'WATCH';
+          allStorms.push({
+            id: 9870 + fi * 10 + i,
+            type: 'TROPICAL STORM',
+            severity: sev,
+            title: title.slice(0, 100),
+            impact: desc.slice(0, 200),
+            region: fi === 0 ? 'Atlantic' : 'East Pacific',
+            pubDate: '',
+            source: 'NOAA NHC',
+            link: link,
+            lat: null, lon: null,
+            plotPriority: sev === 'CRITICAL' ? 88 : sev === 'WARNING' ? 58 : 32,
+          });
+        });
+      }
+      done++;
+      if (done === feeds.length) {
+        window._stormEvents = allStorms;
+        try { localStorage.setItem(CACHE_K, JSON.stringify(allStorms)); localStorage.setItem(CACHE_T, String(Date.now())); } catch(e) {}
+        console.log('NHC storms: ' + allStorms.length + ' advisories loaded');
+        if (typeof activeTab !== 'undefined' && activeTab === 'disaster') renderDisasterTab();
+      }
+    })
+    .catch(function() { done++; });
+  });
+})();
+
 // ── renderDisasterTab — aggregates all disaster sources ───────────────────────
 function renderDisasterTab() {
   var evList = document.getElementById('ev-list');
   if (!evList) return;
 
-  var usgs  = window._usgsEvents     || [];
-  var rw    = window._rwCrisisEvents || [];
-  var noaa  = window._noaaEvents     || [];
+  var usgs   = window._usgsEvents    || [];
+  var rw     = window._rwCrisisEvents || [];
+  var noaa   = window._noaaEvents    || [];
+  var fires  = window._fireEvents    || [];
+  var storms = window._stormEvents   || [];
 
   // Map GDACS from _rwData into ev format
   var gdacs = [];
@@ -5614,7 +5753,7 @@ function renderDisasterTab() {
     });
   }
 
-  var all = usgs.concat(rw).concat(gdacs).concat(noaa);
+  var all = usgs.concat(rw).concat(gdacs).concat(noaa).concat(fires).concat(storms);
   all.sort(function(a, b) { return b.plotPriority - a.plotPriority; });
 
   evList.innerHTML = '';

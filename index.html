@@ -3343,11 +3343,62 @@ window.ArgusData = (function() {
     var item = EXCHANGE_SYMBOLS.find(function(i) { return i.sym === sym; });
     if (!item) return;
 
-    // TD free tier only supports US-listed stocks — skip index ETF proxies to avoid burning credits
+    // TD free tier only supports KSA and SPY — use Stooq daily CSV for true index charts
     var tdCapable = ['KSA', 'NYA'].indexOf(sym) !== -1;
+
+    // Stooq ticker map for chart history
+    var stooqChartTicker = { 'VIX': '^vix', 'FTSE': '^ftse', 'DAX': '^dax', 'N225': '^n225', 'HSI': '^hsi' }[sym];
+
+    if (!tdCapable && stooqChartTicker) {
+      if (chartCache[sym]) {
+        document.getElementById('chart-label').textContent = label;
+        if (chartCache[sym].dates && chartCache[sym].dates.length) {
+          document.getElementById('chart-range').textContent = chartCache[sym].dates[0] + ' → ' + chartCache[sym].dates[chartCache[sym].dates.length - 1];
+        }
+        drawChart(chartCache[sym].prices, sym);
+        return;
+      }
+      document.getElementById('chart-label').textContent = label + ' — LOADING…';
+      if (chartDebounceTimer) clearTimeout(chartDebounceTimer);
+      chartDebounceTimer = setTimeout(function() {
+        var histUrl = 'https://stooq.com/q/d/l/?s=' + stooqChartTicker + '&i=d';
+        var proxies = [
+          'https://api.allorigins.win/raw?url=' + encodeURIComponent(histUrl),
+          'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(histUrl),
+        ];
+        function tryHist(idx) {
+          if (idx >= proxies.length) {
+            document.getElementById('chart-label').textContent = label + ' — CHART UNAVAILABLE';
+            return;
+          }
+          fetch(proxies[idx])
+          .then(function(r) { return r.ok ? r.text() : Promise.reject('HTTP ' + r.status); })
+          .then(function(csv) {
+            if (!csv || csv.indexOf(',') === -1) return tryHist(idx + 1);
+            var rows = csv.trim().split('\n').filter(function(r) { return r && r.indexOf('Date') === -1; });
+            if (rows.length < 2) return tryHist(idx + 1);
+            var prices = [], dates = [];
+            rows.slice(-30).forEach(function(row) {
+              var cols = row.split(',');
+              var close = parseFloat(cols[4]);
+              if (!isNaN(close)) { prices.push(close); dates.push((cols[0] || '').slice(5)); }
+            });
+            if (!prices.length) return tryHist(idx + 1);
+            chartCache[sym] = { prices: prices, dates: dates };
+            document.getElementById('chart-label').textContent = label;
+            document.getElementById('chart-range').textContent = dates[0] + ' → ' + dates[dates.length - 1];
+            drawChart(prices, sym);
+          })
+          .catch(function() { tryHist(idx + 1); });
+        }
+        tryHist(0);
+      }, 2000);
+      return;
+    }
+
     if (!tdCapable) {
       document.getElementById('chart-label').textContent = label + ' — LIVE PRICE ONLY';
-      document.getElementById('chart-range').textContent = 'Chart data not available on free tier';
+      document.getElementById('chart-range').textContent = 'Chart unavailable';
       return;
     }
 
@@ -3618,7 +3669,7 @@ window.ArgusData = (function() {
   // ── Stooq indexes — single batch via allorigins proxy ──────────────────
   // Uses true Stooq index tickers (^FTSE, ^DAX, ^N225, ^HSI, ^VIX) not ETFs.
   function fetchStooqIndexes() {
-    var CACHE_K = 'argus_stooq_idx_v3', CACHE_T = 'argus_stooq_idx_ts_v3';
+    var CACHE_K = 'argus_stooq_idx_v4', CACHE_T = 'argus_stooq_idx_ts_v4';
     var TTL = 20 * 60 * 1000;
     var MAP = {
       '^VIX':  { elId: 'idx-vix',    chgId: null,             dec: 2 },
@@ -3654,8 +3705,8 @@ window.ArgusData = (function() {
           if (!row || row.indexOf('Symbol') !== -1) return;
           var cols  = row.split(',');
           var sym   = (cols[0] || '').trim().toUpperCase();
-          var close = parseFloat(cols[5]);
-          var open  = parseFloat(cols[3]);
+          var close = parseFloat(cols[6]); // q/l format: Symbol,Date,Time,Open,High,Low,Close,Volume,Name
+          var open  = parseFloat(cols[3]); // Open is col 3
           if (!sym || isNaN(close)) return;
           var key = sym.startsWith('^') ? sym : '^' + sym;
           data[key] = { close: close, pct: (open && !isNaN(open)) ? ((close - open) / open * 100) : 0 };

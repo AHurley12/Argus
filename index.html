@@ -4575,9 +4575,67 @@ window.ArgusAI = (function() {
     addMessage('user', q);
     var thinking = addThinking();
     var snapshot = ArgusData.buildSnapshot();
-    var sys = 'You are ARGUS, a supply chain intelligence AI for government policy analysts.\n' +
-      'You have access to the following live intelligence database. Use it to answer questions with specific numbers and data points.\n\n' +
-      snapshot + '\n\nInstructions: Be concise, authoritative, data-driven. Cite specific figures from the snapshot. Max 250 words.';
+
+    // ── Part A: inject all live ARGUS context beyond the market snapshot ──
+    var liveContext = '';
+
+    // GDELT events currently loaded
+    var gdeltData = window.gdelt && window.gdelt.getData ? window.gdelt.getData() : null;
+    if (gdeltData && gdeltData.events && gdeltData.events.length) {
+      liveContext += '\n--- GDELT LIVE EVENTS (past 48h) ---\n';
+      gdeltData.events.slice(0, 15).forEach(function(e) {
+        liveContext += '• [' + (e.category || 'EVENT').toUpperCase() + '] ' + e.title;
+        if (e.tone != null) liveContext += ' (tone: ' + parseFloat(e.tone).toFixed(1) + ')';
+        if (e.domain) liveContext += ' [' + e.domain + ']';
+        liveContext += '\n';
+      });
+      if (gdeltData.tones) {
+        var topTones = Object.keys(gdeltData.tones).sort(function(a,b) {
+          return gdeltData.tones[a] - gdeltData.tones[b];
+        }).slice(0, 5);
+        liveContext += 'Most negative tone countries: ' + topTones.join(', ') + '\n';
+      }
+    }
+
+    // USGS seismic events
+    var usgsEvents = window._usgsEvents || [];
+    if (usgsEvents.length) {
+      liveContext += '\n--- USGS SEISMIC ACTIVITY ---\n';
+      usgsEvents.slice(0, 8).forEach(function(e) {
+        liveContext += '• [' + e.severity + '] ' + e.title + ' (' + e.pubDate + ')\n';
+      });
+    }
+
+    // Live news events from NewsData
+    var newsEvents = (window._currentEvents || []).filter(function(e) { return e.id < 9000; });
+    if (newsEvents.length) {
+      liveContext += '\n--- LIVE NEWS INTELLIGENCE ---\n';
+      newsEvents.slice(0, 10).forEach(function(e) {
+        liveContext += '• [' + e.severity + '] ' + e.title;
+        if (e.region) liveContext += ' | ' + e.region;
+        liveContext += '\n';
+      });
+    }
+
+    // Chokepoint scores from GDELT analysis
+    if (gdeltData && gdeltData.chokeScores && Object.keys(gdeltData.chokeScores).length) {
+      liveContext += '\n--- CHOKEPOINT RISK SCORES (GDELT-derived) ---\n';
+      Object.keys(gdeltData.chokeScores).forEach(function(k) {
+        liveContext += k.toUpperCase() + ': score ' + gdeltData.chokeScores[k] + '\n';
+      });
+    }
+
+    var sys = 'You are ARGUS, an advanced supply chain intelligence AI serving government policy analysts and strategic planners.\n' +
+      'You have access to live intelligence data from multiple sources loaded in the ARGUS platform.\n' +
+      'You also have web search capability — use it when the snapshot lacks sufficient context, when asked about recent events, or when the user asks something beyond the current data.\n\n' +
+      'LIVE INTELLIGENCE SNAPSHOT:\n' + snapshot +
+      (liveContext ? '\nLIVE FEED DATA:\n' + liveContext : '') +
+      '\n\nINSTRUCTIONS:\n' +
+      '- Cite specific figures from the snapshot when relevant\n' +
+      '- Use web search for current events, recent developments, or anything not in the snapshot\n' +
+      '- Be concise, authoritative, and intelligence-focused\n' +
+      '- Connect data points across sources to form assessments\n' +
+      '- Max 300 words unless a detailed briefing is requested';
     var history = [];
     messagesEl.querySelectorAll('.ai__message').forEach(function(m) {
       var role    = m.classList.contains('ai__message--user') ? 'user' : 'assistant';
@@ -4592,12 +4650,25 @@ window.ArgusAI = (function() {
           'Content-Type': 'application/json',
           'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndidnpseHRyb2V3eHJtb254b2R4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM3OTQzNzMsImV4cCI6MjA4OTM3MDM3M30.0zp-wQ3wKpYc0f7LqFCOEea_d9HJuWnUSWgF4BAW82w'
         },
-        body: JSON.stringify({ model: 'claude-sonnet-4-20250514', max_tokens: 1000, system: sys, messages: history.concat([{ role: 'user', content: q }]) })
+        body: JSON.stringify({
+          model:    'claude-sonnet-4-20250514',
+          max_tokens: 1500,
+          system:   sys,
+          tools: [{ type: 'web_search_20250305', name: 'web_search' }],
+          messages: history.concat([{ role: 'user', content: q }])
+        })
       });
       if (!res.ok) throw new Error('API ' + res.status);
       var data  = await res.json();
-      if (data.error) throw new Error(data.error.message);
-      var reply = (data.content && data.content[0] && data.content[0].text) || 'No response received.';
+      if (data.error) throw new Error(data.error.message || JSON.stringify(data.error));
+      // Extract all text blocks — Claude may return tool_use + text blocks when searching
+      var reply = '';
+      if (data.content && Array.isArray(data.content)) {
+        data.content.forEach(function(block) {
+          if (block.type === 'text' && block.text) reply += block.text;
+        });
+      }
+      if (!reply) reply = 'No response received.';
       thinking.remove();
       addMessage('bot', reply);
     } catch(err) {

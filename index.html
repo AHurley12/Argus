@@ -4644,11 +4644,15 @@ window.ArgusAI = (function() {
       if (content && !m.querySelector('.argus-thinking')) history.push({ role: role, content: content });
     });
     try {
+      // Use live session token — falls back to anon key if not logged in
+      var aiToken = (window.ArgusSession && window.ArgusSession.token)
+        ? window.ArgusSession.token
+        : 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndidnpseHRyb2V3eHJtb254b2R4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM3OTQzNzMsImV4cCI6MjA4OTM3MDM3M30.0zp-wQ3wKpYc0f7LqFCOEea_d9HJuWnUSWgF4BAW82w';
       var res = await fetch('https://wbvzlxtroewxrmonxodx.supabase.co/functions/v1/ai-proxy', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndidnpseHRyb2V3eHJtb254b2R4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM3OTQzNzMsImV4cCI6MjA4OTM3MDM3M30.0zp-wQ3wKpYc0f7LqFCOEea_d9HJuWnUSWgF4BAW82w'
+          'Authorization': 'Bearer ' + aiToken
         },
         body: JSON.stringify({
           model:    'claude-sonnet-4-20250514',

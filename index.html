@@ -2637,11 +2637,23 @@ window.ArgusAnim = (function() {
     var iv = setInterval(function() {
       if (i >= plain.length) {
         clearInterval(iv);
-        el.innerHTML = finalHtml; // restore full HTML with any spans/links
+        el.innerHTML = finalHtml;
+        el.onclick = null;
         return;
       }
+      // Write 3 chars per tick for smoother fast animation
       el.textContent += plain[i++];
+      if (i < plain.length) el.textContent += plain[i++];
+      if (i < plain.length) el.textContent += plain[i++];
     }, 1000 / cps);
+    // Click anywhere on response to skip animation
+    el.style.cursor = 'pointer';
+    el.onclick = function() {
+      clearInterval(iv);
+      el.innerHTML = finalHtml;
+      el.style.cursor = '';
+      el.onclick = null;
+    };
     return iv;
   }
 
@@ -2949,39 +2961,39 @@ window.ArgusData = (function() {
       L.push('Yield Curve 10Y-2Y: ' + (fr.yield10y2y != null ? parseFloat(fr.yield10y2y).toFixed(2) + '%' : 'pending') + ' (' + (fr.yieldDate || '—') + ')');
       L.push('');
 
-      L.push('--- COUNTRY PROFILES ---');
-      countries.forEach(function(c) {
-        L.push(c.code + ' | ' + c.label);
-        L.push('  GDP: ' + c.gdp + '  Exports: ' + c.exports + '  Imports: ' + c.imports);
-        L.push('  Risk: ' + c.risk + ' (score ' + c.score + '/100)');
-        L.push('  Top Exports: ' + c.topE.join(', '));
-        L.push('  Top Imports: ' + c.topI.join(', '));
-        var prod = window._eiaProduction && window._eiaProduction[c.code];
-        if (prod) L.push('  Crude Production: ' + prod.value + ' TBPD (' + prod.period + ')');
-        L.push('');
-      });
-
-      L.push('--- STRATEGIC CHOKEPOINTS ---');
-      chokepoints.forEach(function(cp) {
-        L.push(cp.id.toUpperCase() + ' | ' + cp.label);
-        L.push('  Risk: ' + cp.risk + '  Traffic: ' + cp.traffic + '  Volume: ' + cp.volume);
-        L.push('  Status: ' + cp.status);
-        var pw = window._portData && window._portData[cp.id];
-        if (pw) {
-          L.push('  Port Calls: total=' + pw.portcalls + ' container=' + pw.portcalls_container + ' tanker=' + pw.portcalls_tanker + ' bulk=' + pw.portcalls_dry_bulk);
-          L.push('  Flow: imports=' + pw.import + ' exports=' + pw.export);
+      // ── Static KB: country/chokepoint/route data — cached, rebuilt only when data changes
+      var KB_KEY = 'argus_static_kb_v1', KB_TS = 'argus_static_kb_ts_v1';
+      var KB_TTL = 24 * 3600 * 1000; // rebuild once per day
+      var kbText = null;
+      try {
+        var kbCached = localStorage.getItem(KB_KEY);
+        var kbAge = parseInt(localStorage.getItem(KB_TS) || '0');
+        if (kbCached && Date.now() - kbAge < KB_TTL) {
+          kbText = kbCached;
         }
-        L.push('');
-      });
+      } catch(e) {}
 
-      L.push('--- ACTIVE TRADE ROUTES ---');
-      routes.forEach(function(r) {
-        var f = countries.find(function(c) { return c.code === r.from; });
-        var t = countries.find(function(c) { return c.code === r.to; });
-        if (!f || !t) return;
-        L.push(r.from + '→' + r.to + ' | ' + f.label + ' → ' + t.label);
-        L.push('  Risk: ' + r.risk + '  Volume index: ' + r.vol);
-      });
+      if (!kbText) {
+        var KB = [];
+        KB.push('--- COUNTRY PROFILES ---');
+        countries.forEach(function(c) {
+          // Compressed format — one line per country
+          KB.push(c.code + '|' + c.label + '|GDP:' + c.gdp + '|Risk:' + c.risk + '(' + c.score + ')|X:' + c.topE.slice(0,3).join(',') + '|M:' + c.topI.slice(0,3).join(','));
+        });
+        KB.push('--- CHOKEPOINTS ---');
+        chokepoints.forEach(function(cp) {
+          var pw = window._portData && window._portData[cp.id];
+          var portStr = pw ? '|Calls:' + pw.portcalls + '|Tankers:' + pw.portcalls_tanker : '';
+          KB.push(cp.id.toUpperCase() + '|' + cp.label + '|Risk:' + cp.risk + '|' + cp.status + portStr);
+        });
+        KB.push('--- TRADE ROUTES ---');
+        routes.forEach(function(r) {
+          KB.push(r.from + '>' + r.to + '|Risk:' + r.risk + '|Vol:' + r.vol);
+        });
+        kbText = KB.join('\n');
+        try { localStorage.setItem(KB_KEY, kbText); localStorage.setItem(KB_TS, String(Date.now())); } catch(e) {}
+      }
+      L.push(kbText);
       L.push('');
 
       L.push('--- LIVE INTELLIGENCE EVENTS ---');
@@ -4678,7 +4690,7 @@ window.ArgusAI = (function() {
       bodyDiv.innerHTML = text;
     } else {
       // Typewriter for bot messages
-      ArgusAnim.typewriter(bodyDiv, text, 42);
+      ArgusAnim.typewriter(bodyDiv, reply, 120);
     }
     return div;
   }
@@ -4706,6 +4718,18 @@ window.ArgusAI = (function() {
     addMessage('user', q);
     var thinking = addThinking();
     var snapshot = ArgusData.buildSnapshot();
+
+    // Load prior session memory
+    var priorMemory = '';
+    try {
+      var mem = JSON.parse(localStorage.getItem('argus_ai_memory') || '[]');
+      if (mem.length) {
+        priorMemory = '\n--- PRIOR SESSION CONTEXT (last exchanges) ---\n';
+        mem.slice(-10).forEach(function(m) {
+          priorMemory += (m.role === 'user' ? 'ANALYST: ' : 'ARGUS: ') + m.content + '\n';
+        });
+      }
+    } catch(e) {}
 
     // ── Part A: inject all live ARGUS context beyond the market snapshot ──
     var liveContext = '';
@@ -4760,6 +4784,7 @@ window.ArgusAI = (function() {
       'You have access to live intelligence data from multiple sources loaded in the ARGUS platform.\n' +
       'You also have web search capability — use it when the snapshot lacks sufficient context, when asked about recent events, or when the user asks something beyond the current data.\n\n' +
       'LIVE INTELLIGENCE SNAPSHOT:\n' + snapshot +
+      (priorMemory ? priorMemory : '') +
       (liveContext ? '\nLIVE FEED DATA:\n' + liveContext : '') +
       '\n\nINSTRUCTIONS:\n' +
       '- Cite specific figures from the snapshot when relevant\n' +
@@ -4808,6 +4833,15 @@ window.ArgusAI = (function() {
       if (!reply) reply = 'No response received.';
       thinking.remove();
       addMessage('bot', reply);
+
+      // Persist conversation memory to localStorage (last 10 exchanges)
+      try {
+        var mem = JSON.parse(localStorage.getItem('argus_ai_memory') || '[]');
+        mem.push({ role: 'user', content: q, ts: Date.now() });
+        mem.push({ role: 'assistant', content: reply.slice(0, 300), ts: Date.now() });
+        if (mem.length > 20) mem = mem.slice(-20); // keep last 10 exchanges
+        localStorage.setItem('argus_ai_memory', JSON.stringify(mem));
+      } catch(e) {}
     } catch(err) {
       thinking.remove();
       addMessage('bot', '⚠ Network error. Static fallback: Bab-el-Mandeb and Suez remain CRITICAL with active Houthi operations. Panama transit times +30% due to drought conditions.');

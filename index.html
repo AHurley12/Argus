@@ -80,7 +80,7 @@
       background: var(--color-bg);
     }
 
-    #globe-canvas-container canvas { display: block; width: 100%; height: 100%; touch-action: none; }
+    #globe-canvas-container canvas { display: block; width: 100%; height: 100%; }
 
     /* ── Scanline Overlay ────────────────────────────────────────────────────── */
     #scanlines {
@@ -2364,48 +2364,6 @@ document.addEventListener('DOMContentLoaded', function() {
     { capital:'Sydney',       country:'Australia',    lat:-33.87, lon:correctLongitude(151.21)  },
     { capital:'Melbourne',    country:'Australia',    lat:-37.81, lon:correctLongitude(144.96)  },
     { capital:'Auckland',     country:'New Zealand',  lat:-36.86, lon:correctLongitude(174.76)  },
-
-    // ── Africa (10+) ──────────────────────────────────────────────────────────
-    { capital:'Accra',        country:'Ghana',        lat:5.56,   lon:correctLongitude(-0.20)   },
-    { capital:'Dakar',        country:'Senegal',      lat:14.72,  lon:correctLongitude(-17.47)  },
-    { capital:'Abidjan',      country:'Ivory Coast',  lat:5.36,   lon:correctLongitude(-4.01)   },
-    { capital:'Khartoum',     country:'Sudan',        lat:15.55,  lon:correctLongitude(32.53)   },
-    { capital:'Luanda',       country:'Angola',       lat:-8.84,  lon:correctLongitude(13.23)   },
-    { capital:'Dar es Salaam',country:'Tanzania',     lat:-6.79,  lon:correctLongitude(39.21)   },
-    { capital:'Maputo',       country:'Mozambique',   lat:-25.97, lon:correctLongitude(32.57)   },
-    { capital:'Kampala',      country:'Uganda',       lat:0.32,   lon:correctLongitude(32.58)   },
-    { capital:'Tunis',        country:'Tunisia',      lat:36.82,  lon:correctLongitude(10.17)   },
-    { capital:'Algiers',      country:'Algeria',      lat:36.74,  lon:correctLongitude(3.06)    },
-    { capital:'Tripoli',      country:'Libya',        lat:32.90,  lon:correctLongitude(13.18)   },
-    { capital:'Harare',       country:'Zimbabwe',     lat:-17.83, lon:correctLongitude(31.05)   },
-    { capital:'Antananarivo', country:'Madagascar',   lat:-18.91, lon:correctLongitude(47.54)   },
-
-    // ── South & Central America (10+) ─────────────────────────────────────────
-    { capital:'Caracas',      country:'Venezuela',    lat:10.48,  lon:correctLongitude(-66.88)  },
-    { capital:'Quito',        country:'Ecuador',      lat:-0.23,  lon:correctLongitude(-78.52)  },
-    { capital:'La Paz',       country:'Bolivia',      lat:-16.50, lon:correctLongitude(-68.15)  },
-    { capital:'Asuncion',     country:'Paraguay',     lat:-25.29, lon:correctLongitude(-57.65)  },
-    { capital:'Montevideo',   country:'Uruguay',      lat:-34.90, lon:correctLongitude(-56.19)  },
-    { capital:'Georgetown',   country:'Guyana',       lat:6.80,   lon:correctLongitude(-58.16)  },
-    { capital:'Panama City',  country:'Panama',       lat:8.99,   lon:correctLongitude(-79.52)  },
-    { capital:'San José',     country:'Costa Rica',   lat:9.93,   lon:correctLongitude(-84.08)  },
-    { capital:'Guatemala City',country:'Guatemala',   lat:14.64,  lon:correctLongitude(-90.51)  },
-    { capital:'Havana',       country:'Cuba',         lat:23.14,  lon:correctLongitude(-82.36)  },
-    { capital:'Port-au-Prince',country:'Haiti',       lat:18.54,  lon:correctLongitude(-72.34)  },
-    { capital:'Santo Domingo', country:'Dominican Republic', lat:18.48, lon:correctLongitude(-69.90) },
-
-    // ── APAC North (5) ────────────────────────────────────────────────────────
-    { capital:'Ulaanbaatar',  country:'Mongolia',     lat:47.91,  lon:correctLongitude(106.92)  },
-    { capital:'Yangon',       country:'Myanmar',      lat:16.87,  lon:correctLongitude(96.19)   },
-    { capital:'Phnom Penh',   country:'Cambodia',     lat:11.57,  lon:correctLongitude(104.92)  },
-    { capital:'Vientiane',    country:'Laos',         lat:17.97,  lon:correctLongitude(102.63)  },
-    { capital:'Kathmandu',    country:'Nepal',        lat:27.72,  lon:correctLongitude(85.32)   },
-
-    // ── South APAC / Pacific (4) ──────────────────────────────────────────────
-    { capital:'Colombo',      country:'Sri Lanka',    lat:6.93,   lon:correctLongitude(79.85)   },
-    { capital:'Kuala Lumpur', country:'Malaysia',     lat:3.14,   lon:correctLongitude(101.69)  },
-    { capital:'Manila',       country:'Philippines',  lat:14.60,  lon:correctLongitude(120.98)  },
-    { capital:'Suva',         country:'Fiji',         lat:-18.14, lon:correctLongitude(178.44)  },
   ];
   window.capitalCitiesData = capitalCitiesData; // expose for snapshot
 
@@ -2465,73 +2423,6 @@ document.addEventListener('DOMContentLoaded', function() {
   renderer.domElement.addEventListener('wheel', function(e) {
     e.preventDefault();
     camera.position.z = Math.max(150, Math.min(400, camera.position.z + e.deltaY * 0.1));
-  }, { passive: false });
-
-  // ── Touch Controls — mobile drag + pinch zoom ─────────────────────────────
-  // Additive to mouse handlers — desktop unaffected
-  var touchStartDist = null; // for pinch zoom
-  var touchMoved     = false; // distinguish tap from drag
-
-  renderer.domElement.addEventListener('touchstart', function(e) {
-    e.preventDefault();
-    touchMoved = false;
-    if (e.touches.length === 1) {
-      isDragging = true;
-      prevMouse  = { x: e.touches[0].clientX, y: e.touches[0].clientY };
-      document.body.classList.add('is-dragging');
-    } else if (e.touches.length === 2) {
-      // Pinch start — record initial distance
-      var dx = e.touches[0].clientX - e.touches[1].clientX;
-      var dy = e.touches[0].clientY - e.touches[1].clientY;
-      touchStartDist = Math.sqrt(dx * dx + dy * dy);
-      isDragging = false;
-    }
-  }, { passive: false });
-
-  renderer.domElement.addEventListener('touchmove', function(e) {
-    e.preventDefault();
-    touchMoved = true;
-    if (e.touches.length === 1 && isDragging) {
-      var dx = e.touches[0].clientX - prevMouse.x;
-      var dy = e.touches[0].clientY - prevMouse.y;
-      globeGroup.rotation.y += dx * 0.005;
-      globeGroup.rotation.x += dy * 0.005;
-      globeGroup.rotation.x = Math.max(-Math.PI / 2.2, Math.min(Math.PI / 2.2, globeGroup.rotation.x));
-      prevMouse = { x: e.touches[0].clientX, y: e.touches[0].clientY };
-    } else if (e.touches.length === 2 && touchStartDist) {
-      // Pinch zoom
-      var dx = e.touches[0].clientX - e.touches[1].clientX;
-      var dy = e.touches[0].clientY - e.touches[1].clientY;
-      var dist = Math.sqrt(dx * dx + dy * dy);
-      var delta = touchStartDist - dist; // positive = pinch in = zoom out
-      camera.position.z = Math.max(150, Math.min(400, camera.position.z + delta * 0.3));
-      touchStartDist = dist;
-    }
-  }, { passive: false });
-
-  renderer.domElement.addEventListener('touchend', function(e) {
-    e.preventDefault();
-    // Tap (no movement) — fire click raycaster for marker selection
-    if (!touchMoved && e.changedTouches.length === 1) {
-      var touch = e.changedTouches[0];
-      var rect  = renderer.domElement.getBoundingClientRect();
-      mouseClick.x =  ((touch.clientX - rect.left) / rect.width)  * 2 - 1;
-      mouseClick.y = -((touch.clientY - rect.top)  / rect.height) * 2 + 1;
-      raycasterClick.setFromCamera(mouseClick, camera);
-      var evHits = raycasterClick.intersectObjects(window.eventMarkers || []).filter(function(h) { return isFacingCamera(h.object); });
-      if (evHits.length) { ArgusUI.showEventDetail(evHits[0].object.userData); }
-      else {
-        var cpHits = raycasterClick.intersectObjects(window.chokepointMarkers || []).filter(function(h) { return isFacingCamera(h.object); });
-        if (cpHits.length) { ArgusUI.showStaticDetail(cpHits[0].object.userData); }
-        else {
-          var cnHits = raycasterClick.intersectObjects(window.countryMarkers || []).filter(function(h) { return isFacingCamera(h.object); });
-          if (cnHits.length) { ArgusUI.showStaticDetail(cnHits[0].object.userData); }
-        }
-      }
-    }
-    isDragging     = false;
-    touchStartDist = null;
-    document.body.classList.remove('is-dragging');
   }, { passive: false });
 
   // ── Hover Tooltip ────────────────────────────────────────────────────────────
@@ -2771,6 +2662,7 @@ var FRED_BASE        = 'https://api.stlouisfed.org/fred/series/observations';
 
 // ── CORS proxies ─────────────────────────────────────────────────────────────
 var PG = function(url) { return 'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(url); };
+var PP = function(url) { return 'https://corsproxy.io/?url=' + encodeURIComponent(url); };
 
 // ── Live data stores ─────────────────────────────────────────────────────────
 window._avData        = {};
@@ -2815,7 +2707,7 @@ window.ArgusData = (function() {
   }
 
   function fetchAlphaVantage() {
-    var CACHE_K = 'argus_av_v7', CACHE_T = 'argus_av_ts_v7', TTL = 6 * 3600 * 1000;
+    var CACHE_K = 'argus_av_v6', CACHE_T = 'argus_av_ts_v6', TTL = 6 * 3600 * 1000;
     try {
       var cached = localStorage.getItem(CACHE_K);
       var ts = parseInt(localStorage.getItem(CACHE_T) || '0');
@@ -2837,7 +2729,8 @@ window.ArgusData = (function() {
         }
         // Only skip the live fetch if all three FX pairs are present
         if (d['fx-eurusd'] && d['fx-gbpusd'] && d['fx-usdjpy']) {
-              return;
+          // cache hit
+          return;
         }
         console.log('AV cache incomplete — re-fetching FX');
       }
@@ -2857,25 +2750,39 @@ window.ArgusData = (function() {
     }
 
     // ── FX: EUR/USD, GBP/USD, USD/JPY — single Frankfurter call ─────────────
-    // Frankfurter publishes ECB reference rates. Free, no key, CORS-open.
-    // One request for all three pairs eliminates AV rate-limit pressure on FX entirely.
-    // Note: Frankfurter returns rates as "units of X per 1 USD", so:
-    //   EUR → we get USD/EUR (e.g. 0.92) → invert to get EUR/USD (e.g. 1.087)
-    //   GBP → same inversion for GBP/USD
-    //   JPY → direct (units of JPY per USD, no inversion needed)
-    fetch('https://api.frankfurter.app/latest?from=USD&to=EUR,GBP,JPY')
-      .then(function(r) { return r.json(); })
+    // ── FX: EUR/USD, GBP/USD, USD/JPY — fallback chain ──────────────────
+    // Primary: ExchangeRate-API open access — no key, CORS-open, high limits
+    // Fallback: Frankfurter ECB — no key, CORS-open
+    function applyFXRates(eur, gbp, jpy) {
+      if (eur) { setEl('fx-eurusd', eur, 4); window._avData['fx-eurusd'] = eur; }
+      if (gbp) { setEl('fx-gbpusd', gbp, 4); window._avData['fx-gbpusd'] = gbp; }
+      if (jpy) { setEl('fx-usdjpy', jpy, 2); window._avData['fx-usdjpy'] = jpy; }
+      console.log('FX loaded — EUR/USD:', eur && eur.toFixed(4), 'GBP/USD:', gbp && gbp.toFixed(4), 'USD/JPY:', jpy && jpy.toFixed(2));
+    }
+    fetch('https://open.er-api.com/v6/latest/USD')
+      .then(function(r) { return r.ok ? r.json() : Promise.reject('er-api ' + r.status); })
       .then(function(d) {
-        if (!d || !d.rates) { console.warn('Frankfurter FX: no rates'); return; }
-        var eur = d.rates.EUR ? (1 / d.rates.EUR) : null;   // EUR/USD
-        var gbp = d.rates.GBP ? (1 / d.rates.GBP) : null;   // GBP/USD
-        var jpy = d.rates.JPY || null;                        // USD/JPY direct
-        if (eur) { setEl('fx-eurusd', eur, 4); window._avData['fx-eurusd'] = eur; }
-        if (gbp) { setEl('fx-gbpusd', gbp, 4); window._avData['fx-gbpusd'] = gbp; }
-        if (jpy) { setEl('fx-usdjpy', jpy, 2); window._avData['fx-usdjpy'] = jpy; }
-        console.log('FX via Frankfurter — EUR/USD:', eur && eur.toFixed(4), 'GBP/USD:', gbp && gbp.toFixed(4), 'USD/JPY:', jpy && jpy.toFixed(2));
+        var rates = d && d.rates;
+        if (!rates || !rates.EUR) return Promise.reject('er-api: no rates');
+        applyFXRates(
+          rates.EUR ? 1 / rates.EUR : null,
+          rates.GBP ? 1 / rates.GBP : null,
+          rates.JPY || null
+        );
       })
-      .catch(function(e) { console.warn('Frankfurter FX failed:', e.message); });
+      .catch(function() {
+        fetch('https://api.frankfurter.app/latest?from=USD&to=EUR,GBP,JPY')
+          .then(function(r) { return r.json(); })
+          .then(function(d) {
+            if (!d || !d.rates) return;
+            applyFXRates(
+              d.rates.EUR ? 1 / d.rates.EUR : null,
+              d.rates.GBP ? 1 / d.rates.GBP : null,
+              d.rates.JPY || null
+            );
+          })
+          .catch(function(e) { console.warn('All FX sources failed:', e.message); });
+      });
 
     // ── SPY — AV only used for equities quote (no FX competition) ────────────
     doCall(avQuoteUrl('SPY'), function(d) { avSetSPY(d); }, 'SPY');
@@ -2919,7 +2826,8 @@ window.ArgusData = (function() {
       if (cached && Date.now() - ts < TTL) {
         window._eiaData = JSON.parse(cached);
         renderEIATicker();
-          return;
+        // 'EIA: from cache — Brent $' + window._eiaData.brent + ' WTI $' + window._eiaData.wti);
+        return;
       }
     } catch(e) {}
 
@@ -2993,7 +2901,8 @@ window.ArgusData = (function() {
       if (cached && Date.now() - ts < TTL) {
         window._fredData = JSON.parse(cached);
         renderFREDTicker();
-          return;
+        // cache
+        return;
       }
     } catch(e) {}
 
@@ -3204,7 +3113,8 @@ window.ArgusData = (function() {
             chartCache[item.sym] = d.exchanges[item.sym];
           }
         });
-          return;
+        // cache
+        return;
       }
     } catch(e) {}
 
@@ -3269,6 +3179,10 @@ window.ArgusData = (function() {
     });
   }
 
+  // fetchExchanges now just delegates to unified fetch
+  function fetchExchanges() { fetchTDData(); }
+  // fetchCommodities also delegates — no separate call needed
+  function fetchCommodities() { /* handled by fetchTDData */ }
 
   function renderExchanges(exData) {
     EXCHANGE_SYMBOLS.forEach(function(item) {
@@ -3470,7 +3384,8 @@ window.ArgusData = (function() {
       var ts = parseInt(localStorage.getItem(CACHE_T) || '0');
       if (cached && Date.now() - ts < TTL) {
         renderFHCommodities(JSON.parse(cached));
-          return;
+        // cache
+        return;
       }
     } catch(e) {}
 
@@ -3532,7 +3447,8 @@ window.ArgusData = (function() {
       var ts = parseInt(localStorage.getItem(CACHE_T) || '0');
       if (cached && Date.now() - ts < TTL) {
         renderBondYields(JSON.parse(cached));
-          return;
+        // cache
+        return;
       }
     } catch(e) {}
 
@@ -3585,7 +3501,8 @@ window.ArgusData = (function() {
       var ts     = parseInt(localStorage.getItem(CACHE_T) || '0');
       if (cached && Date.now() - ts < TTL) {
         renderPolygonExchanges(JSON.parse(cached));
-          return;
+        // cache
+        return;
       }
     } catch(e) {}
     var pgItems = EXCHANGE_SYMBOLS.filter(function(i) { return i.pgSym; });
@@ -3930,10 +3847,12 @@ function renderEvents(events, isLive) {
   window.updateNodeCounts();
   document.getElementById('ev-feed-count').textContent = window.eventMarkers.length;
 }
+window.renderEvents = renderEvents;
 // Cache last rendered events for permanent event merging
+var _origRenderEvents = renderEvents;
 window.renderEvents = function(events, isLive) {
   window._currentEvents = events;
-  renderEvents(events, isLive);
+  _origRenderEvents(events, isLive);
 };
 window.hcBadge = hcBadge;
 
@@ -4169,6 +4088,7 @@ async function loadLiveEvents() {
     var ts     = parseInt(localStorage.getItem(FEED_CACHE_TS) || '0');
     if (cached && Date.now() - ts < FEED_TTL) {
       renderEvents(JSON.parse(cached), true);
+      // cache
       return;
     }
   } catch(e) {}
@@ -5303,6 +5223,7 @@ async function fetchAll() {
       data = JSON.parse(c);
       applyToGlobe();
       if (activeTab === 'gdelt') renderGdeltTab();
+      // 'GDELT: from cache —', data.events.length, 'events');
       return;
     }
   } catch(e) {}
@@ -5609,6 +5530,7 @@ function renderGdeltTab() {
 // ── Tab switch ────────────────────────────────────────────────────────────────
 function switchTab(tab) {
   activeTab = tab;
+  window._argusActiveTab = tab; // expose cross-scope for mergeAuxEvents
   var newsTab     = document.getElementById('tab-news');
   var gdeltTab    = document.getElementById('tab-gdelt');
   var disasterTab = document.getElementById('tab-disaster');

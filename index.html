@@ -2630,30 +2630,18 @@ window.ArgusAnim = (function() {
   // Typewriter: streams text into el character by character
   // Handles existing HTML safely — strips tags for streaming, restores on done
   function typewriter(el, finalHtml, cps) {
-    cps = cps || 38; // characters per second
-    var plain = finalHtml.replace(/<[^>]+>/g, ''); // plain text for streaming
+    cps = cps || 38;
+    var plain = finalHtml.replace(/<[^>]+>/g, '');
     var i     = 0;
     el.textContent = '';
     var iv = setInterval(function() {
       if (i >= plain.length) {
         clearInterval(iv);
         el.innerHTML = finalHtml;
-        el.onclick = null;
         return;
       }
-      // Write 3 chars per tick for smoother fast animation
       el.textContent += plain[i++];
-      if (i < plain.length) el.textContent += plain[i++];
-      if (i < plain.length) el.textContent += plain[i++];
     }, 1000 / cps);
-    // Click anywhere on response to skip animation
-    el.style.cursor = 'pointer';
-    el.onclick = function() {
-      clearInterval(iv);
-      el.innerHTML = finalHtml;
-      el.style.cursor = '';
-      el.onclick = null;
-    };
     return iv;
   }
 

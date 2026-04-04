@@ -2364,6 +2364,48 @@ document.addEventListener('DOMContentLoaded', function() {
     { capital:'Sydney',       country:'Australia',    lat:-33.87, lon:correctLongitude(151.21)  },
     { capital:'Melbourne',    country:'Australia',    lat:-37.81, lon:correctLongitude(144.96)  },
     { capital:'Auckland',     country:'New Zealand',  lat:-36.86, lon:correctLongitude(174.76)  },
+
+    // ── Africa (10+) ──────────────────────────────────────────────────────────
+    { capital:'Accra',        country:'Ghana',        lat:5.56,   lon:correctLongitude(-0.20)   },
+    { capital:'Dakar',        country:'Senegal',      lat:14.72,  lon:correctLongitude(-17.47)  },
+    { capital:'Abidjan',      country:'Ivory Coast',  lat:5.36,   lon:correctLongitude(-4.01)   },
+    { capital:'Khartoum',     country:'Sudan',        lat:15.55,  lon:correctLongitude(32.53)   },
+    { capital:'Luanda',       country:'Angola',       lat:-8.84,  lon:correctLongitude(13.23)   },
+    { capital:'Dar es Salaam',country:'Tanzania',     lat:-6.79,  lon:correctLongitude(39.21)   },
+    { capital:'Maputo',       country:'Mozambique',   lat:-25.97, lon:correctLongitude(32.57)   },
+    { capital:'Kampala',      country:'Uganda',       lat:0.32,   lon:correctLongitude(32.58)   },
+    { capital:'Tunis',        country:'Tunisia',      lat:36.82,  lon:correctLongitude(10.17)   },
+    { capital:'Algiers',      country:'Algeria',      lat:36.74,  lon:correctLongitude(3.06)    },
+    { capital:'Tripoli',      country:'Libya',        lat:32.90,  lon:correctLongitude(13.18)   },
+    { capital:'Harare',       country:'Zimbabwe',     lat:-17.83, lon:correctLongitude(31.05)   },
+    { capital:'Antananarivo', country:'Madagascar',   lat:-18.91, lon:correctLongitude(47.54)   },
+
+    // ── South & Central America (10+) ─────────────────────────────────────────
+    { capital:'Caracas',      country:'Venezuela',    lat:10.48,  lon:correctLongitude(-66.88)  },
+    { capital:'Quito',        country:'Ecuador',      lat:-0.23,  lon:correctLongitude(-78.52)  },
+    { capital:'La Paz',       country:'Bolivia',      lat:-16.50, lon:correctLongitude(-68.15)  },
+    { capital:'Asuncion',     country:'Paraguay',     lat:-25.29, lon:correctLongitude(-57.65)  },
+    { capital:'Montevideo',   country:'Uruguay',      lat:-34.90, lon:correctLongitude(-56.19)  },
+    { capital:'Georgetown',   country:'Guyana',       lat:6.80,   lon:correctLongitude(-58.16)  },
+    { capital:'Panama City',  country:'Panama',       lat:8.99,   lon:correctLongitude(-79.52)  },
+    { capital:'San José',     country:'Costa Rica',   lat:9.93,   lon:correctLongitude(-84.08)  },
+    { capital:'Guatemala City',country:'Guatemala',   lat:14.64,  lon:correctLongitude(-90.51)  },
+    { capital:'Havana',       country:'Cuba',         lat:23.14,  lon:correctLongitude(-82.36)  },
+    { capital:'Port-au-Prince',country:'Haiti',       lat:18.54,  lon:correctLongitude(-72.34)  },
+    { capital:'Santo Domingo', country:'Dominican Republic', lat:18.48, lon:correctLongitude(-69.90) },
+
+    // ── APAC North (5) ────────────────────────────────────────────────────────
+    { capital:'Ulaanbaatar',  country:'Mongolia',     lat:47.91,  lon:correctLongitude(106.92)  },
+    { capital:'Yangon',       country:'Myanmar',      lat:16.87,  lon:correctLongitude(96.19)   },
+    { capital:'Phnom Penh',   country:'Cambodia',     lat:11.57,  lon:correctLongitude(104.92)  },
+    { capital:'Vientiane',    country:'Laos',         lat:17.97,  lon:correctLongitude(102.63)  },
+    { capital:'Kathmandu',    country:'Nepal',        lat:27.72,  lon:correctLongitude(85.32)   },
+
+    // ── South APAC / Pacific (4) ──────────────────────────────────────────────
+    { capital:'Colombo',      country:'Sri Lanka',    lat:6.93,   lon:correctLongitude(79.85)   },
+    { capital:'Kuala Lumpur', country:'Malaysia',     lat:3.14,   lon:correctLongitude(101.69)  },
+    { capital:'Manila',       country:'Philippines',  lat:14.60,  lon:correctLongitude(120.98)  },
+    { capital:'Suva',         country:'Fiji',         lat:-18.14, lon:correctLongitude(178.44)  },
   ];
   window.capitalCitiesData = capitalCitiesData; // expose for snapshot
 
@@ -2630,14 +2672,14 @@ window.ArgusAnim = (function() {
   // Typewriter: streams text into el character by character
   // Handles existing HTML safely — strips tags for streaming, restores on done
   function typewriter(el, finalHtml, cps) {
-    cps = cps || 38;
-    var plain = finalHtml.replace(/<[^>]+>/g, '');
+    cps = cps || 38; // characters per second
+    var plain = finalHtml.replace(/<[^>]+>/g, ''); // plain text for streaming
     var i     = 0;
     el.textContent = '';
     var iv = setInterval(function() {
       if (i >= plain.length) {
         clearInterval(iv);
-        el.innerHTML = finalHtml;
+        el.innerHTML = finalHtml; // restore full HTML with any spans/links
         return;
       }
       el.textContent += plain[i++];
@@ -2949,39 +2991,39 @@ window.ArgusData = (function() {
       L.push('Yield Curve 10Y-2Y: ' + (fr.yield10y2y != null ? parseFloat(fr.yield10y2y).toFixed(2) + '%' : 'pending') + ' (' + (fr.yieldDate || '—') + ')');
       L.push('');
 
-      // ── Static KB: country/chokepoint/route data — cached, rebuilt only when data changes
-      var KB_KEY = 'argus_static_kb_v1', KB_TS = 'argus_static_kb_ts_v1';
-      var KB_TTL = 24 * 3600 * 1000; // rebuild once per day
-      var kbText = null;
-      try {
-        var kbCached = localStorage.getItem(KB_KEY);
-        var kbAge = parseInt(localStorage.getItem(KB_TS) || '0');
-        if (kbCached && Date.now() - kbAge < KB_TTL) {
-          kbText = kbCached;
-        }
-      } catch(e) {}
+      L.push('--- COUNTRY PROFILES ---');
+      countries.forEach(function(c) {
+        L.push(c.code + ' | ' + c.label);
+        L.push('  GDP: ' + c.gdp + '  Exports: ' + c.exports + '  Imports: ' + c.imports);
+        L.push('  Risk: ' + c.risk + ' (score ' + c.score + '/100)');
+        L.push('  Top Exports: ' + c.topE.join(', '));
+        L.push('  Top Imports: ' + c.topI.join(', '));
+        var prod = window._eiaProduction && window._eiaProduction[c.code];
+        if (prod) L.push('  Crude Production: ' + prod.value + ' TBPD (' + prod.period + ')');
+        L.push('');
+      });
 
-      if (!kbText) {
-        var KB = [];
-        KB.push('--- COUNTRY PROFILES ---');
-        countries.forEach(function(c) {
-          // Compressed format — one line per country
-          KB.push(c.code + '|' + c.label + '|GDP:' + c.gdp + '|Risk:' + c.risk + '(' + c.score + ')|X:' + c.topE.slice(0,3).join(',') + '|M:' + c.topI.slice(0,3).join(','));
-        });
-        KB.push('--- CHOKEPOINTS ---');
-        chokepoints.forEach(function(cp) {
-          var pw = window._portData && window._portData[cp.id];
-          var portStr = pw ? '|Calls:' + pw.portcalls + '|Tankers:' + pw.portcalls_tanker : '';
-          KB.push(cp.id.toUpperCase() + '|' + cp.label + '|Risk:' + cp.risk + '|' + cp.status + portStr);
-        });
-        KB.push('--- TRADE ROUTES ---');
-        routes.forEach(function(r) {
-          KB.push(r.from + '>' + r.to + '|Risk:' + r.risk + '|Vol:' + r.vol);
-        });
-        kbText = KB.join('\n');
-        try { localStorage.setItem(KB_KEY, kbText); localStorage.setItem(KB_TS, String(Date.now())); } catch(e) {}
-      }
-      L.push(kbText);
+      L.push('--- STRATEGIC CHOKEPOINTS ---');
+      chokepoints.forEach(function(cp) {
+        L.push(cp.id.toUpperCase() + ' | ' + cp.label);
+        L.push('  Risk: ' + cp.risk + '  Traffic: ' + cp.traffic + '  Volume: ' + cp.volume);
+        L.push('  Status: ' + cp.status);
+        var pw = window._portData && window._portData[cp.id];
+        if (pw) {
+          L.push('  Port Calls: total=' + pw.portcalls + ' container=' + pw.portcalls_container + ' tanker=' + pw.portcalls_tanker + ' bulk=' + pw.portcalls_dry_bulk);
+          L.push('  Flow: imports=' + pw.import + ' exports=' + pw.export);
+        }
+        L.push('');
+      });
+
+      L.push('--- ACTIVE TRADE ROUTES ---');
+      routes.forEach(function(r) {
+        var f = countries.find(function(c) { return c.code === r.from; });
+        var t = countries.find(function(c) { return c.code === r.to; });
+        if (!f || !t) return;
+        L.push(r.from + '→' + r.to + ' | ' + f.label + ' → ' + t.label);
+        L.push('  Risk: ' + r.risk + '  Volume index: ' + r.vol);
+      });
       L.push('');
 
       L.push('--- LIVE INTELLIGENCE EVENTS ---');
@@ -3343,65 +3385,6 @@ window.ArgusData = (function() {
     var item = EXCHANGE_SYMBOLS.find(function(i) { return i.sym === sym; });
     if (!item) return;
 
-    // TD free tier only supports KSA and SPY — use Stooq daily CSV for true index charts
-    var tdCapable = ['KSA', 'NYA'].indexOf(sym) !== -1;
-
-    // Stooq ticker map for chart history
-    var stooqChartTicker = { 'VIX': '^vix', 'FTSE': '^ftse', 'DAX': '^dax', 'N225': '^n225', 'HSI': '^hsi' }[sym];
-
-    if (!tdCapable && stooqChartTicker) {
-      if (chartCache[sym]) {
-        document.getElementById('chart-label').textContent = label;
-        if (chartCache[sym].dates && chartCache[sym].dates.length) {
-          document.getElementById('chart-range').textContent = chartCache[sym].dates[0] + ' → ' + chartCache[sym].dates[chartCache[sym].dates.length - 1];
-        }
-        drawChart(chartCache[sym].prices, sym);
-        return;
-      }
-      document.getElementById('chart-label').textContent = label + ' — LOADING…';
-      if (chartDebounceTimer) clearTimeout(chartDebounceTimer);
-      chartDebounceTimer = setTimeout(function() {
-        var histUrl = 'https://stooq.com/q/d/l/?s=' + stooqChartTicker + '&i=d';
-        var proxies = [
-          'https://api.allorigins.win/raw?url=' + encodeURIComponent(histUrl),
-          'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(histUrl),
-        ];
-        function tryHist(idx) {
-          if (idx >= proxies.length) {
-            document.getElementById('chart-label').textContent = label + ' — CHART UNAVAILABLE';
-            return;
-          }
-          fetch(proxies[idx])
-          .then(function(r) { return r.ok ? r.text() : Promise.reject('HTTP ' + r.status); })
-          .then(function(csv) {
-            if (!csv || csv.indexOf(',') === -1) return tryHist(idx + 1);
-            var rows = csv.trim().split('\n').filter(function(r) { return r && r.indexOf('Date') === -1; });
-            if (rows.length < 2) return tryHist(idx + 1);
-            var prices = [], dates = [];
-            rows.slice(-30).forEach(function(row) {
-              var cols = row.split(',');
-              var close = parseFloat(cols[4]);
-              if (!isNaN(close)) { prices.push(close); dates.push((cols[0] || '').slice(5)); }
-            });
-            if (!prices.length) return tryHist(idx + 1);
-            chartCache[sym] = { prices: prices, dates: dates };
-            document.getElementById('chart-label').textContent = label;
-            document.getElementById('chart-range').textContent = dates[0] + ' → ' + dates[dates.length - 1];
-            drawChart(prices, sym);
-          })
-          .catch(function() { tryHist(idx + 1); });
-        }
-        tryHist(0);
-      }, 2000);
-      return;
-    }
-
-    if (!tdCapable) {
-      document.getElementById('chart-label').textContent = label + ' — LIVE PRICE ONLY';
-      document.getElementById('chart-range').textContent = 'Chart unavailable';
-      return;
-    }
-
     chartDebounceTimer = setTimeout(function() {
       fetchTDHistory(item.tdSym)
         .then(function(d) {
@@ -3610,8 +3593,6 @@ window.ArgusData = (function() {
     fetchFinnhubCommodities();
     fetchBondYields();
     fetchBDI();
-    // Stooq index fallback — fires 4s after TD to only fill still-empty slots
-    setTimeout(function() { fetchStooqIndexes(); }, 4000);
   }
 
   // ── Baltic Dry Index — Stooq CSV, no key, CORS-open ──────────────────────
@@ -3662,76 +3643,6 @@ window.ArgusData = (function() {
       console.warn('BDI fetch failed:', e.message);
       if (el && el.textContent === 'N/A') el.textContent = '—';
     });
-  }
-
-
-  // ── Stooq indexes — single batch via allorigins proxy ──────────────────
-  // ── Stooq indexes — single batch via allorigins proxy ──────────────────
-  // Uses true Stooq index tickers (^FTSE, ^DAX, ^N225, ^HSI, ^VIX) not ETFs.
-  function fetchStooqIndexes() {
-    var CACHE_K = 'argus_stooq_idx_v4', CACHE_T = 'argus_stooq_idx_ts_v4';
-    var TTL = 20 * 60 * 1000;
-    var MAP = {
-      '^VIX':  { elId: 'idx-vix',    chgId: null,             dec: 2 },
-      '^FTSE': { elId: 'idx-ftse',   chgId: 'idx-ftse-chg',   dec: 0 },
-      '^DAX':  { elId: 'idx-dax',    chgId: 'idx-dax-chg',    dec: 0 },
-      '^N225': { elId: 'idx-nikkei', chgId: 'idx-nikkei-chg', dec: 0 },
-      '^HSI':  { elId: 'idx-hsi',    chgId: 'idx-hsi-chg',    dec: 0 },
-    };
-    try {
-      var cached = localStorage.getItem(CACHE_K);
-      var ts = parseInt(localStorage.getItem(CACHE_T) || '0');
-      if (cached && Date.now() - ts < TTL) { applyStooqIdx(JSON.parse(cached)); return; }
-    } catch(e) {}
-    var syms = Object.keys(MAP).join(',');
-    var stooqUrl = 'https://stooq.com/q/l/?s=' + syms + '&f=sd2t2ohlcvn&h&e=csv';
-    var proxies = [
-      'https://api.allorigins.win/raw?url=' + encodeURIComponent(stooqUrl),
-      'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(stooqUrl),
-      'https://thingproxy.freeboard.io/fetch/' + stooqUrl,
-    ];
-
-    function tryProxy(idx) {
-      if (idx >= proxies.length) {
-        console.warn('Stooq indexes: all proxies failed');
-        return;
-      }
-      fetch(proxies[idx])
-      .then(function(r) { return r.ok ? r.text() : Promise.reject('HTTP ' + r.status); })
-      .then(function(csv) {
-        if (!csv || csv.indexOf(',') === -1) return tryProxy(idx + 1);
-        var data = {};
-        csv.trim().split('\n').forEach(function(row) {
-          if (!row || row.indexOf('Symbol') !== -1) return;
-          var cols  = row.split(',');
-          var sym   = (cols[0] || '').trim().toUpperCase();
-          var close = parseFloat(cols[6]); // q/l format: Symbol,Date,Time,Open,High,Low,Close,Volume,Name
-          var open  = parseFloat(cols[3]); // Open is col 3
-          if (!sym || isNaN(close)) return;
-          var key = sym.startsWith('^') ? sym : '^' + sym;
-          data[key] = { close: close, pct: (open && !isNaN(open)) ? ((close - open) / open * 100) : 0 };
-        });
-        if (!Object.keys(data).length) return tryProxy(idx + 1);
-        try { localStorage.setItem(CACHE_K, JSON.stringify(data)); localStorage.setItem(CACHE_T, String(Date.now())); } catch(e) {}
-        applyStooqIdx(data);
-        console.log('Stooq indexes: ' + Object.keys(data).length + ' symbols via proxy[' + idx + ']');
-      })
-      .catch(function() { tryProxy(idx + 1); });
-    }
-    tryProxy(0);
-    function applyStooqIdx(data) {
-      Object.keys(MAP).forEach(function(sym) {
-        var d = data[sym]; if (!d) return;
-        var cfg = MAP[sym];
-        var el = document.getElementById(cfg.elId); if (!el) return;
-        el.textContent = d.close.toLocaleString('en-US', { maximumFractionDigits: cfg.dec });
-        el.style.color = d.pct > 0 ? '#00cc66' : d.pct < 0 ? '#ff4422' : '#c5d7e8';
-        if (cfg.chgId) {
-          var ce = document.getElementById(cfg.chgId);
-          if (ce) { ce.textContent = (d.pct > 0 ? '+' : '') + d.pct.toFixed(2) + '%'; ce.style.color = el.style.color; }
-        }
-      });
-    }
   }
 
 
@@ -4678,7 +4589,7 @@ window.ArgusAI = (function() {
       bodyDiv.innerHTML = text;
     } else {
       // Typewriter for bot messages
-      ArgusAnim.typewriter(bodyDiv, text, 120);
+      ArgusAnim.typewriter(bodyDiv, text, 42);
     }
     return div;
   }
@@ -4706,18 +4617,6 @@ window.ArgusAI = (function() {
     addMessage('user', q);
     var thinking = addThinking();
     var snapshot = ArgusData.buildSnapshot();
-
-    // Load prior session memory
-    var priorMemory = '';
-    try {
-      var mem = JSON.parse(localStorage.getItem('argus_ai_memory') || '[]');
-      if (mem.length) {
-        priorMemory = '\n--- PRIOR SESSION CONTEXT (last exchanges) ---\n';
-        mem.slice(-10).forEach(function(m) {
-          priorMemory += (m.role === 'user' ? 'ANALYST: ' : 'ARGUS: ') + m.content + '\n';
-        });
-      }
-    } catch(e) {}
 
     // ── Part A: inject all live ARGUS context beyond the market snapshot ──
     var liveContext = '';
@@ -4772,7 +4671,6 @@ window.ArgusAI = (function() {
       'You have access to live intelligence data from multiple sources loaded in the ARGUS platform.\n' +
       'You also have web search capability — use it when the snapshot lacks sufficient context, when asked about recent events, or when the user asks something beyond the current data.\n\n' +
       'LIVE INTELLIGENCE SNAPSHOT:\n' + snapshot +
-      (priorMemory ? priorMemory : '') +
       (liveContext ? '\nLIVE FEED DATA:\n' + liveContext : '') +
       '\n\nINSTRUCTIONS:\n' +
       '- Cite specific figures from the snapshot when relevant\n' +
@@ -4821,15 +4719,6 @@ window.ArgusAI = (function() {
       if (!reply) reply = 'No response received.';
       thinking.remove();
       addMessage('bot', reply);
-
-      // Persist conversation memory to localStorage (last 10 exchanges)
-      try {
-        var mem = JSON.parse(localStorage.getItem('argus_ai_memory') || '[]');
-        mem.push({ role: 'user', content: q, ts: Date.now() });
-        mem.push({ role: 'assistant', content: reply.slice(0, 300), ts: Date.now() });
-        if (mem.length > 20) mem = mem.slice(-20); // keep last 10 exchanges
-        localStorage.setItem('argus_ai_memory', JSON.stringify(mem));
-      } catch(e) {}
     } catch(err) {
       thinking.remove();
       addMessage('bot', '⚠ Network error. Static fallback: Bab-el-Mandeb and Suez remain CRITICAL with active Houthi operations. Panama transit times +30% due to drought conditions.');

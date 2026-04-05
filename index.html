@@ -8484,6 +8484,20 @@ window.ArgusCaseBuilder = (function() {
   }
 
   function activate() {
+    // Session resolves asynchronously — if not yet resolved, poll until it is
+    // then re-run activate. This prevents the locked overlay flashing for pro/admin/owner.
+    if (!window.ArgusSession || !window.ArgusSession._resolved) {
+      var attempts = 0;
+      var wait = setInterval(function() {
+        attempts++;
+        if ((window.ArgusSession && window.ArgusSession._resolved) || attempts > 40) {
+          clearInterval(wait);
+          activate();
+        }
+      }, 150);
+      return;
+    }
+
     var locked  = document.getElementById('cb-locked');
     var content = document.getElementById('cb-content');
     if (!hasAccess()) {

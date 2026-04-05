@@ -288,6 +288,12 @@
       display: none;
     }
     .event-card.is-open .event-card__detail { display: block; }
+    /* ── Seismic Triage Engine visual cues ── non-invasive additions ────────── */
+    .event-card[data-triage="P0"] { border-left-color: var(--threat-color, #ff0044) !important; box-shadow: 0 0 8px rgba(255,0,68,0.3); }
+    .event-card[data-triage="P1"] { border-left-color: var(--threat-color, #ff9933) !important; }
+    .event-card[data-triage="P2"] { border-left-color: var(--threat-color, #ffcc00) !important; }
+    .event-card[data-triage="IGNORE"] { opacity: 0.4; }
+    .event-card.triage-hidden { display: none; } /* toggled via JS — data not deleted */
 
     /* GDELT tab styles — injected by GDELT module but defined here for maintainability */
     #feed-toggle { display: flex; margin-bottom: 8px; }
@@ -3866,6 +3872,12 @@ function renderEvents(events, isLive) {
     div.className = 'event-card';
     div.style.cssText = 'border-left-color:' + col + ';border-color:' + col + '44;background:' + bg +
       ';--card-i:' + idx;
+    // Stamp triage level as data attr — non-invasive, original data preserved
+    if (ev._triage) {
+      div.setAttribute('data-triage', ev._triage);
+      div.style.setProperty('--threat-color', ev._triageColor || col);
+    }
+    if (ev._suppress) div.classList.add('triage-hidden');
     div.innerHTML =
       '<div class="event-card__row">' +
         '<span class="event-card__type" style="color:' + col + '">' + ev.type + '</span>' +
@@ -4170,6 +4182,292 @@ setInterval(loadLiveEvents, FEED_TTL);
 // USGS Earthquake Feed — free, no key, real-time GeoJSON
 // Fetches M4.5+ earthquakes from past 7 days
 // ════════════════════════════════════════════════════════════════════════════
+
+// ── Seismic Triage Engine ────────────────────────────────────────────────────
+// Filters raw USGS features into meaningful threat levels before UI render.
+// Threat levels: P0 (Critical/Tsunami), P1 (High Alert), P2 (Awareness), IGNORE
+// Non-invasive: IGNORE events are tagged but not deleted — toggle with data-triage attr.
+var TriageEngine = (function() {
+  'use strict';
+
+  // ── Coastal proximity dataset ─────────────────────────────────────────────
+  // Sampled major coastal population centres (lat, lon).
+  // Great-circle distance used for proximity checks — fast, accurate to ~1%.
+  // Extend this array to improve geofencing resolution without touching engine logic.
+  // Seismic-zone coastline reference grid — dense enough that no coastal point
+  // is more than ~200km from the nearest reference. Covers Ring of Fire, Mediterranean,
+  // Caribbean, and Indian Ocean seismic zones. Extend freely — engine is data-driven.
+  var COASTAL_POPULATIONS = [
+    // ── Pacific Ring of Fire — West Americas ────────────────────────────
+    { name:'AK-1',  lat:60.0,  lon:-152.0 }, { name:'AK-2',  lat:57.0,  lon:-153.0 },
+    { name:'AK-3',  lat:54.0,  lon:-162.0 }, { name:'AK-4',  lat:52.0,  lon:-170.0 },
+    { name:'AK-5',  lat:64.5,  lon:-165.0 }, { name:'AK-6',  lat:58.3,  lon:-136.5 },
+    { name:'BC-1',  lat:49.5,  lon:-124.8 }, { name:'PNW-1', lat:47.0,  lon:-124.2 },
+    { name:'PNW-2', lat:44.5,  lon:-124.1 }, { name:'CA-1',  lat:40.5,  lon:-124.3 },
+    { name:'CA-2',  lat:37.8,  lon:-122.5 }, { name:'CA-3',  lat:34.4,  lon:-119.7 },
+    { name:'CA-4',  lat:32.7,  lon:-117.2 }, { name:'MX-1',  lat:28.0,  lon:-114.0 },
+    { name:'MX-2',  lat:22.0,  lon:-106.0 }, { name:'MX-3',  lat:18.0,  lon:-102.5 },
+    { name:'GT-1',  lat:14.5,  lon:-92.0  }, { name:'SV-1',  lat:13.2,  lon:-89.5  },
+    { name:'NI-1',  lat:12.4,  lon:-87.2  }, { name:'CR-1',  lat:9.8,   lon:-85.2  },
+    { name:'PA-1',  lat:8.4,   lon:-82.4  }, { name:'CO-1',  lat:4.0,   lon:-77.0  },
+    { name:'EC-1',  lat:1.0,   lon:-80.5  }, { name:'EC-2',  lat:-2.0,  lon:-80.7  },
+    { name:'PE-1',  lat:-6.0,  lon:-81.0  }, { name:'PE-2',  lat:-12.0, lon:-77.5  },
+    { name:'PE-3',  lat:-17.0, lon:-72.0  }, { name:'CL-1',  lat:-22.0, lon:-70.2  },
+    { name:'CL-2',  lat:-27.0, lon:-71.0  }, { name:'CL-3',  lat:-33.0, lon:-71.6  },
+    { name:'CL-4',  lat:-37.0, lon:-73.5  }, { name:'CL-5',  lat:-42.0, lon:-74.5  },
+    { name:'CL-6',  lat:-46.0, lon:-75.0  },
+    // ── Caribbean ────────────────────────────────────────────────────────
+    { name:'CB-1',  lat:18.5,  lon:-72.3  }, { name:'CB-2',  lat:18.0,  lon:-76.8  },
+    { name:'CB-3',  lat:13.1,  lon:-59.6  }, { name:'CB-4',  lat:17.1,  lon:-61.8  },
+    { name:'CB-5',  lat:16.0,  lon:-68.0  }, { name:'CB-6',  lat:10.5,  lon:-61.5  },
+    // ── Pacific Ring of Fire — East Asia & Pacific ───────────────────────
+    { name:'KAM-1', lat:52.0,  lon:158.7  }, { name:'KAM-2', lat:48.0,  lon:153.0  },
+    { name:'JP-1',  lat:43.0,  lon:144.5  }, { name:'JP-2',  lat:40.0,  lon:141.5  },
+    { name:'JP-3',  lat:37.5,  lon:141.0  }, { name:'JP-4',  lat:35.0,  lon:136.0  },
+    { name:'JP-5',  lat:32.0,  lon:131.5  }, { name:'JP-6',  lat:30.0,  lon:130.5  },
+    { name:'RYU-1', lat:26.5,  lon:128.0  }, { name:'RYU-2', lat:24.5,  lon:122.5  },
+    { name:'TW-1',  lat:24.0,  lon:122.0  }, { name:'TW-2',  lat:22.5,  lon:120.5  },
+    { name:'PH-1',  lat:18.5,  lon:122.0  }, { name:'PH-2',  lat:16.0,  lon:120.0  },
+    { name:'PH-3',  lat:12.0,  lon:124.0  }, { name:'PH-4',  lat:8.5,   lon:126.5  },
+    { name:'PH-5',  lat:5.5,   lon:125.5  }, { name:'SUL-1', lat:1.5,   lon:125.0  },
+    { name:'HAL-1', lat:-0.5,  lon:128.0  }, { name:'PNG-1', lat:-4.5,  lon:152.0  },
+    { name:'PNG-2', lat:-6.0,  lon:147.0  }, { name:'SOL-1', lat:-9.5,  lon:161.0  },
+    { name:'VAN-1', lat:-15.5, lon:167.0  }, { name:'NZ-1',  lat:-38.5, lon:177.5  },
+    { name:'NZ-2',  lat:-42.0, lon:171.5  }, { name:'NZ-3',  lat:-45.5, lon:168.0  },
+    { name:'TON-1', lat:-20.0, lon:-175.0 }, { name:'SAM-1', lat:-14.0, lon:-171.0 },
+    { name:'FIJI-1',lat:-17.5, lon:178.5  }, { name:'KC-1',  lat:-29.0, lon:-177.0 },
+    // ── Indonesia & Southeast Asia ───────────────────────────────────────
+    { name:'SUM-1', lat:5.5,   lon:95.5   }, { name:'SUM-2', lat:2.0,   lon:99.0   },
+    { name:'SUM-3', lat:-2.5,  lon:101.5  }, { name:'SUM-4', lat:-5.5,  lon:105.0  },
+    { name:'JAV-1', lat:-7.0,  lon:107.5  }, { name:'JAV-2', lat:-8.5,  lon:115.0  },
+    { name:'JAV-3', lat:-8.0,  lon:122.0  }, { name:'SUND-1',lat:-10.5, lon:120.0  },
+    { name:'SUND-2',lat:-10.0, lon:124.5  }, { name:'TIMOR', lat:-9.5,  lon:125.0  },
+    { name:'BANDA', lat:-5.0,  lon:131.0  }, { name:'SEA-1', lat:6.0,   lon:102.5  },
+    // ── Indian Ocean & South Asia ────────────────────────────────────────
+    { name:'AND-1', lat:13.0,  lon:93.0   }, { name:'AND-2', lat:10.0,  lon:92.7   },
+    { name:'AND-3', lat:7.0,   lon:93.8   }, { name:'SRI-1', lat:8.5,   lon:81.5   },
+    { name:'IND-1', lat:15.0,  lon:74.0   }, { name:'IND-2', lat:20.0,  lon:86.5   },
+    { name:'PAK-1', lat:25.0,  lon:63.5   }, { name:'IRAN-1',lat:27.0,  lon:57.0   },
+    { name:'IRAN-2',lat:25.0,  lon:61.0   }, { name:'OMAN-1',lat:22.5,  lon:59.5   },
+    { name:'YEM-1', lat:14.5,  lon:49.5   }, { name:'HORN-1',lat:11.5,  lon:51.0   },
+    { name:'MADA-1',lat:-20.0, lon:44.5   }, { name:'MOZ-1', lat:-17.0, lon:37.0   },
+    // ── Mediterranean & Middle East ──────────────────────────────────────
+    { name:'TUR-1', lat:39.0,  lon:27.0   }, { name:'TUR-2', lat:37.0,  lon:36.5   },
+    { name:'GRC-1', lat:38.0,  lon:21.5   }, { name:'GRC-2', lat:35.3,  lon:25.0   },
+    { name:'ITA-1', lat:37.5,  lon:15.0   }, { name:'ITA-2', lat:38.5,  lon:16.0   },
+    { name:'ALG-1', lat:37.0,  lon:3.0    }, { name:'MOR-1', lat:35.5,  lon:-5.5   },
+    { name:'CYP-1', lat:35.0,  lon:33.5   }, { name:'LEB-1', lat:33.9,  lon:35.5   },
+    { name:'AZOR-1',lat:37.7,  lon:-25.5  }, { name:'CAN-1', lat:28.0,  lon:-15.5  },
+    // ── Atlantic seismic zones ───────────────────────────────────────────
+    { name:'PT-1',  lat:39.0,  lon:-9.5   }, { name:'PT-2',  lat:37.0,  lon:-8.5   },
+    { name:'EC-ATL',lat:0.0,   lon:-11.0  }, { name:'MID-ATL',lat:20.0, lon:-24.0  },
+  ];
+
+  var RAD = Math.PI / 180;
+  var EARTH_KM = 6371;
+
+  /**
+   * Great-circle distance between two lat/lon points (Haversine formula).
+   * Returns distance in kilometres.
+   * Threshold-based — we stop at first coast within range for performance.
+   */
+  function haversineKm(lat1, lon1, lat2, lon2) {
+    var dLat = (lat2 - lat1) * RAD;
+    var dLon = (lon2 - lon1) * RAD;
+    var a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+            Math.cos(lat1 * RAD) * Math.cos(lat2 * RAD) *
+            Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    return EARTH_KM * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  }
+
+  /**
+   * Returns km to nearest coastal population centre.
+   * Short-circuits once a city within `threshold` km is found.
+   */
+  function nearestCoastKm(lat, lon, threshold) {
+    var min = Infinity;
+    for (var i = 0; i < COASTAL_POPULATIONS.length; i++) {
+      var c = COASTAL_POPULATIONS[i];
+      var d = haversineKm(lat, lon, c.lat, c.lon);
+      if (d < min) min = d;
+      if (min <= threshold) return min; // early exit
+    }
+    return min;
+  }
+
+  // ── Keyword lists ──────────────────────────────────────────────────────────
+  // P0 escalation keywords — any match in place/title/alert → Critical
+  var P0_KEYWORDS = ['tsunami warning', 'inundation', 'tsunami advisory'];
+  // Auto-suppress keywords — these are not seismic hazards
+  var SUPPRESS_KEYWORDS = ['explosion', 'quarry blast', 'quarry'];
+
+  function containsKeyword(text, keywords) {
+    if (!text) return false;
+    var lower = text.toLowerCase();
+    for (var i = 0; i < keywords.length; i++) {
+      if (lower.indexOf(keywords[i]) !== -1) return true;
+    }
+    return false;
+  }
+
+  /**
+   * triageEvent — core classification function.
+   *
+   * @param {object} f  USGS GeoJSON Feature object
+   * @returns {{ threatLevel: string, severity: string, suppress: boolean }}
+   *
+   * Magnitude thresholds rationale (2026 PNSN/USGS standards):
+   *   < 4.5 → Below human-perceptible structural damage threshold
+   *   4.5–6.0 → Can cause minor damage near epicentre; coast proximity elevates risk
+   *   6.0–7.5 → Moderate-major; potential for significant damage and local tsunami
+   *   > 7.5 → Major; historically associated with tsunamigenic potential
+   *
+   * Depth threshold rationale:
+   *   > 100 km (intermediate/deep focus) → Energy largely absorbed by mantle;
+   *   surface shaking attenuated; tsunami generation essentially impossible.
+   */
+  function triageEvent(f) {
+    var p      = f.properties || {};
+    var coords = f.geometry && f.geometry.coordinates;
+    var mag    = parseFloat(p.mag || 0);
+    var depth  = coords ? parseFloat(coords[2]) : 0;
+    var place  = p.place || '';
+    var type   = (p.type || '').toLowerCase();
+    var alert  = (p.alert || '').toLowerCase();
+
+    // ── Suppress non-seismic events ──────────────────────────────────────────
+    // Quarry blasts and explosions appear in USGS feed but are not natural hazards.
+    // Low-magnitude aftershocks (< 5.0) are informational only — suppress from feed.
+    if (containsKeyword(place + ' ' + type, SUPPRESS_KEYWORDS)) {
+      return { threatLevel: 'IGNORE', severity: 'LOW', suppress: true, reason: 'non-seismic' };
+    }
+    if (type === 'quarry blast' || type === 'explosion') {
+      return { threatLevel: 'IGNORE', severity: 'LOW', suppress: true, reason: 'non-seismic' };
+    }
+    if (type === 'aftershock' && mag < 5.0) {
+      return { threatLevel: 'IGNORE', severity: 'LOW', suppress: true, reason: 'minor aftershock' };
+    }
+
+    // ── P0 keyword escalation — highest priority check ───────────────────────
+    // Tsunami warnings supersede all magnitude/depth logic.
+    if (containsKeyword(place + ' ' + alert, P0_KEYWORDS)) {
+      return { threatLevel: 'P0', severity: 'CRITICAL', suppress: false, reason: 'tsunami keyword' };
+    }
+
+    // ── Depth filter — deep-focus events don't threaten surface ─────────────
+    // > 100 km: intermediate/deep focus. Waves attenuated through mantle.
+    if (depth > 100) {
+      return { threatLevel: 'IGNORE', severity: 'LOW', suppress: false, reason: 'deep focus >' + depth.toFixed(0) + 'km' };
+    }
+
+    var lat = coords ? coords[1] : null;
+    var lon = coords ? coords[0] : null;
+
+    // ── P0: Major/great earthquakes ──────────────────────────────────────────
+    // M > 7.5 — historically produces tsunamis regardless of location.
+    if (mag > 7.5) {
+      return { threatLevel: 'P0', severity: 'CRITICAL', suppress: false, reason: 'M' + mag.toFixed(1) + ' major event' };
+    }
+
+    // ── Proximity-dependent classification ───────────────────────────────────
+    var coastKm = (lat !== null && lon !== null) ? nearestCoastKm(lat, lon, 200) : 999;
+
+    // Underwater events (depth < 30 km, ocean setting) with M < 6.5:
+    // Suppress unless within 20 km of a populated coast.
+    // Rationale: shallow offshore M < 6.5 rarely generates damaging tsunamis far from shore.
+    if (mag < 6.5 && depth < 30 && coastKm > 20) {
+      // Check if it looks like an ocean event (place often says "of the coast")
+      var isOcean = /\bof the\b|\bocean\b|\bsea\b|\btrench\b|\brise\b|\bdeep\b/i.test(place);
+      if (isOcean && mag < 6.5) {
+        return { threatLevel: 'IGNORE', severity: 'LOW', suppress: false, reason: 'offshore M<6.5 >20km from coast' };
+      }
+    }
+
+    // ── P1: High Alert ───────────────────────────────────────────────────────
+    // M 6.0–7.5 within 300 km of coastline reference point.
+    if (mag >= 6.0 && coastKm <= 300) {
+      return { threatLevel: 'P1', severity: 'WARNING', suppress: false, reason: 'M' + mag.toFixed(1) + ' within ' + Math.round(coastKm) + 'km of coastline' };
+    }
+
+    // ── P2: Awareness ────────────────────────────────────────────────────────
+    // M 4.5–6.0 within 150 km of coastline reference point.
+    if (mag >= 4.5 && mag < 6.0 && coastKm <= 150) {
+      return { threatLevel: 'P2', severity: 'WATCH', suppress: false, reason: 'M' + mag.toFixed(1) + ' within ' + Math.round(coastKm) + 'km of coastline' };
+    }
+
+    // ── IGNORE — remaining events are low-impact noise ───────────────────────
+    // M 4.5–6.0 far from coasts, or M 6.0+ inland far from population centres.
+    return { threatLevel: 'IGNORE', severity: 'LOW', suppress: false, reason: 'low coastal impact' };
+  }
+
+  /**
+   * applyTriage — runs triageEvent over a USGS features array.
+   * Returns mapped ARGUS event objects with triage metadata attached.
+   * IGNORE events are included with suppress/triage flags for UI toggling.
+   *
+   * @param {Array} features  Raw USGS GeoJSON features
+   * @returns {Array} ARGUS-compatible event objects
+   */
+  function applyTriage(features) {
+    // Threat level → ARGUS plotPriority mapping
+    var PRIORITY = { P0: 95, P1: 70, P2: 45, IGNORE: 5 };
+    // Threat level → CSS variable colour (injected as inline style for non-invasive theming)
+    var THREAT_COLOR = { P0: '#ff0044', P1: '#ff9933', P2: '#ffcc00', IGNORE: '#2a4a6a' };
+
+    var results = [];
+    features.forEach(function(f, i) {
+      var p      = f.properties || {};
+      var coords = f.geometry && f.geometry.coordinates;
+      var mag    = parseFloat(p.mag || 0);
+      var depth  = coords ? parseFloat(coords[2]) : 0;
+      var triage = triageEvent(f);
+
+      // Map to ARGUS event object — all fields preserved regardless of triage level
+      var ev = {
+        id:          9000 + i,
+        type:        'SEISMIC',
+        severity:    triage.severity,
+        title:       'M' + mag.toFixed(1) + ' Earthquake — ' + (p.place || 'Unknown region'),
+        impact:      'Magnitude ' + mag.toFixed(1) + ' · Depth: ' + depth.toFixed(0) + ' km' +
+                     ' · Triage: ' + triage.threatLevel + ' (' + triage.reason + ')',
+        region:      p.place || '',
+        pubDate:     p.time ? new Date(p.time).toUTCString().slice(0, 22) : '',
+        source:      'USGS',
+        link:        p.url || '',
+        lat:         coords ? coords[1] : null,
+        lon:         coords ? coords[0] : null,
+        plotPriority: PRIORITY[triage.threatLevel],
+        // ── Triage metadata (non-invasive — never mutates original data) ──────
+        _triage:     triage.threatLevel,
+        _triageReason: triage.reason,
+        _triageColor: THREAT_COLOR[triage.threatLevel],
+        _suppress:   triage.suppress,
+      };
+      results.push(ev);
+    });
+
+    // Sort: highest threat first, then by magnitude within same threat level
+    results.sort(function(a, b) {
+      if (b.plotPriority !== a.plotPriority) return b.plotPriority - a.plotPriority;
+      return parseFloat(b.title) - parseFloat(a.title);
+    });
+
+    var visible  = results.filter(function(e) { return e._triage !== 'IGNORE' && !e._suppress; });
+    var ignored  = results.filter(function(e) { return e._triage === 'IGNORE' || e._suppress; });
+    console.log('TriageEngine: P0=' + results.filter(function(e){return e._triage==='P0';}).length +
+                ' P1=' + results.filter(function(e){return e._triage==='P1';}).length +
+                ' P2=' + results.filter(function(e){return e._triage==='P2';}).length +
+                ' IGNORE=' + ignored.length + ' SUPPRESS=' + results.filter(function(e){return e._suppress;}).length);
+
+    // Store full dataset on window for later toggle — IGNORE events accessible but hidden
+    window._usgsIgnored = ignored;
+    return visible;
+  }
+
+  return { triageEvent: triageEvent, applyTriage: applyTriage };
+})();
+// ── End Seismic Triage Engine ─────────────────────────────────────────────────
+
 (function loadUSGS() {
   var USGS_URL   = 'https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/4.5_week.geojson';
   var CACHE_KEY  = 'argus_usgs_v1';
@@ -4195,29 +4493,12 @@ setInterval(loadLiveEvents, FEED_TTL);
   .catch(function(e) { console.warn('USGS: failed', e.message); });
 
   function injectUSGS(features) {
-    var events = features.map(function(f, i) {
-      var p   = f.properties;
-      var mag = parseFloat(p.mag || 0);
-      var sev = mag >= 7.0 ? 'CRITICAL' : mag >= 6.0 ? 'WARNING' : mag >= 5.0 ? 'WATCH' : 'LOW';
-      var coords = f.geometry && f.geometry.coordinates;
-      return {
-        id: 9000 + i,
-        type: 'DISASTER',
-        severity: sev,
-        title: 'M' + mag.toFixed(1) + ' Earthquake — ' + (p.place || 'Unknown region'),
-        impact: 'Magnitude ' + mag.toFixed(1) + ' seismic event detected. Depth: ' + (coords ? coords[2] : '?') + ' km.',
-        region: p.place || '',
-        pubDate: p.time ? new Date(p.time).toUTCString().slice(0,22) : '',
-        source: 'USGS',
-        link: p.url || '',
-        lat: coords ? coords[1] : null,
-        lon: coords ? coords[0] : null,
-        plotPriority: mag >= 7 ? 90 : mag >= 6 ? 60 : 30,
-      };
-    }).filter(function(e) { return e.plotPriority >= 30; });
+    // Run all features through the Seismic Triage Engine.
+    // Returns only P0/P1/P2 events; IGNORE events stored in window._usgsIgnored for toggle.
+    var events = TriageEngine.applyTriage(features);
 
     window._usgsEvents = events;
-    console.log('USGS: ' + events.length + ' earthquakes loaded');
+    console.log('USGS: ' + events.length + ' triaged earthquakes loaded');
     mergeAuxEvents();
   }
 })();

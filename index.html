@@ -2759,11 +2759,11 @@ window.ArgusData = (function() {
       if (jpy) { setEl('fx-usdjpy', jpy, 2); window._avData['fx-usdjpy'] = jpy; }
       console.log('FX loaded — EUR/USD:', eur && eur.toFixed(4), 'GBP/USD:', gbp && gbp.toFixed(4), 'USD/JPY:', jpy && jpy.toFixed(2));
     }
-    fetch('https://open.er-api.com/v6/latest/USD')
-      .then(function(r) { return r.ok ? r.json() : Promise.reject('er-api ' + r.status); })
+    fetch('https://v6.exchangerate-api.com/v6/61302f7a6faa1d1912c1edd1/latest/USD')
+      .then(function(r) { return r.ok ? r.json() : Promise.reject('exchangerate-api ' + r.status); })
       .then(function(d) {
-        var rates = d && d.rates;
-        if (!rates || !rates.EUR) return Promise.reject('er-api: no rates');
+        var rates = d && d.conversion_rates;
+        if (!rates || !rates.EUR) return Promise.reject('exchangerate-api: no rates');
         applyFXRates(
           rates.EUR ? 1 / rates.EUR : null,
           rates.GBP ? 1 / rates.GBP : null,
@@ -3562,6 +3562,7 @@ window.ArgusData = (function() {
     fetchAlphaVantage();
     fetchFRED();
     fetchTDData();
+    fetchFMPIndexes();
     fetchFinnhubCommodities();
     fetchBondYields();
     fetchBDI();
@@ -3660,6 +3661,58 @@ window.ArgusData = (function() {
       });
       console.log("Stooq via Netlify: " + Object.keys(d.stooq).length + " symbols");
     }
+  }
+
+
+  // ── FMP Global Indexes — real index values, free tier, CORS-open ──────────
+  var FMP_KEY = 'Vmzo0OLxAPfvwaDWraXsIhuXUnZczNTI';
+  function fetchFMPIndexes() {
+    var CACHE_K = 'argus_fmp_idx_v1', CACHE_T = 'argus_fmp_idx_ts_v1';
+    var TTL = 15 * 60 * 1000;
+    try {
+      var cached = localStorage.getItem(CACHE_K);
+      var ts = parseInt(localStorage.getItem(CACHE_T) || '0');
+      if (cached && Date.now() - ts < TTL) {
+        renderExchanges(JSON.parse(cached));
+        return;
+      }
+    } catch(e) {}
+    // Single batch call — all 7 symbols, true index values
+    var syms = '^FTSE,^GDAXI,^N225,^HSI,^VIX,KSA,SPY';
+    var url  = 'https://financialmodelingprep.com/api/v3/quote/' + encodeURIComponent(syms) + '?apikey=' + FMP_KEY;
+    fetch(url)
+    .then(function(r) { return r.ok ? r.json() : Promise.reject('FMP HTTP ' + r.status); })
+    .then(function(data) {
+      if (!Array.isArray(data) || !data.length) return;
+      // Map FMP symbols to ARGUS sym keys
+      var symMap = {
+        '^FTSE':  'FTSE',
+        '^GDAXI': 'DAX',
+        '^N225':  'N225',
+        '^HSI':   'HSI',
+        '^VIX':   'VIX',
+        'KSA':    'KSA',
+        'SPY':    'NYA',
+      };
+      var exData = {};
+      data.forEach(function(q) {
+        var key = symMap[q.symbol];
+        if (!key || q.price == null) return;
+        exData[key] = {
+          price: q.price,
+          chg:   q.changesPercentage != null ? q.changesPercentage.toFixed(2) + '%' : '',
+          prices: [], dates: [], src: 'FMP'
+        };
+      });
+      if (!Object.keys(exData).length) return;
+      try {
+        localStorage.setItem(CACHE_K, JSON.stringify(exData));
+        localStorage.setItem(CACHE_T, String(Date.now()));
+      } catch(e) {}
+      renderExchanges(exData);
+      console.log('FMP indexes: ' + Object.keys(exData).length + ' symbols loaded');
+    })
+    .catch(function(e) { console.warn('FMP indexes failed:', e.message); });
   }
 
   return { init: init, buildSnapshot: buildSnapshot, downloadSnapshot: downloadSnapshot, toggleExchanges: toggleExchanges, selectExchange: selectExchange };

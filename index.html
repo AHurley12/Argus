@@ -221,6 +221,78 @@
       transition: max-height 0.25s cubic-bezier(0.22,1,0.36,1), padding 0.25s;
     }
 
+    /* Case Builder panel — bottom-center drawer, slides up on open */
+    #panel-cases {
+      position: fixed;
+      bottom: -480px; /* hidden below viewport by default */
+      left: 50%;
+      transform: translateX(-50%);
+      width: clamp(520px, 55vw, 780px);
+      height: 480px;
+      z-index: var(--z-panels);
+      background: linear-gradient(135deg, var(--color-bg-panel) 0%, var(--color-bg-panel-alt) 100%);
+      backdrop-filter: blur(12px);
+      border: 1px solid #b464ff33;
+      border-bottom: none;
+      border-radius: 2px 2px 0 0;
+      display: flex;
+      flex-direction: column;
+      padding: 12px;
+      transition: bottom 0.35s cubic-bezier(0.22,1,0.36,1);
+    }
+    #panel-cases.is-visible { bottom: 0; }
+
+    /* Triangular trigger tab — sits just above the bottom edge, always visible */
+    #cb-trigger {
+      position: fixed;
+      bottom: 0;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: calc(var(--z-panels) + 1);
+      cursor: pointer;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0;
+      transition: bottom 0.35s cubic-bezier(0.22,1,0.36,1);
+    }
+    #cb-trigger.is-open { bottom: 480px; }
+    /* The triangle shape */
+    #cb-trigger-arrow {
+      width: 0; height: 0;
+      border-left: 35px solid transparent;
+      border-right: 35px solid transparent;
+      border-bottom: 21px solid #b464ff66;
+      transition: border-bottom-color 0.18s, transform 0.35s;
+    }
+    #cb-trigger:hover #cb-trigger-arrow { border-bottom-color: #b464ffcc; }
+
+    /* Backdrop — blocks all globe/marker interaction when drawer is open */
+    #cb-backdrop {
+      display: none;
+      position: fixed;
+      inset: 0;
+      bottom: 480px; /* only covers above the drawer */
+      z-index: calc(var(--z-panels) - 1); /* below panel-cases, above globe */
+      background: rgba(2, 8, 18, 0.45);
+      cursor: not-allowed;
+    }
+    #cb-backdrop.is-visible { display: block; }
+    #cb-trigger.is-open #cb-trigger-arrow { transform: rotate(180deg); }
+    /* Label pill below triangle */
+    #cb-trigger-label {
+      background: rgba(5,15,30,0.85);
+      border: 1px solid #b464ff44;
+      border-top: none;
+      font-size: 7px;
+      letter-spacing: 2px;
+      color: #b464ff88;
+      padding: 2px 10px 3px;
+      font-family: var(--font-mono);
+      transition: color 0.18s, border-color 0.18s;
+    }
+    #cb-trigger:hover #cb-trigger-label { color: #b464ff; border-color: #b464ff88; }
+
     #panel-events.is-minimized {
       max-height: 32px;
       overflow: hidden;
@@ -316,6 +388,92 @@
     .feed-tab.is-news-active     { background: rgba(0, 255, 136, 0.10); border-color: #00ff8844; color: var(--color-green); }
     .feed-tab.is-gdelt-active    { background: rgba(0, 204, 255, 0.12); border-color: #00ccff44; color: #00ccff; }
     .feed-tab.is-disaster-active { background: rgba(255, 153, 0, 0.12); border-color: #ff990044; color: #ff9900; }
+    .feed-tab.is-cases-active    { background: rgba(180,100,255,0.12); border-color: #b464ff44; color: #b464ff; }
+
+    /* ── Neural Case Builder ──────────────────────────────────────────────── */
+
+    /* Mode toggle bar */
+    #cb-mode-bar { display: flex; gap: 4px; margin-bottom: 8px; flex-shrink: 0; }
+    .cb-mode-btn {
+      flex: 1; padding: 4px 0; font-size: 8px; letter-spacing: 1.5px; font-weight: 700;
+      cursor: pointer; text-align: center; border: 1px solid #0f274488;
+      color: #4a7da8; background: rgba(5,15,30,0.5); font-family: var(--font-mono);
+      transition: all 0.18s;
+    }
+    .cb-mode-btn.active { background: rgba(180,100,255,0.14); border-color: #b464ff66; color: #b464ff; }
+
+    /* Case cards — mimics event-card + connection indicator */
+    .case-card {
+      position: relative; margin-bottom: 7px; padding: 9px 11px 9px 13px;
+      background: rgba(20,8,40,0.5); border: 1px solid #2a1a4a88;
+      border-left: 2px solid #b464ff; border-radius: 1px;
+      font-family: var(--font-mono); cursor: pointer;
+      transition: border-color 0.18s, background 0.18s;
+    }
+    .case-card:hover { background: rgba(30,12,55,0.7); border-color: #b464ff66; }
+    .case-card.is-pinned { border-left-color: #ff9933; background: rgba(40,20,5,0.45); }
+    .case-card__tag { font-size: 8px; letter-spacing: 1.5px; color: #b464ff; font-weight: 700; }
+    .case-card__title { font-size: 10px; color: #ddeeff; margin-top: 3px; line-height: 1.45; }
+    .case-card__meta { font-size: 8px; color: #4a7da8; margin-top: 4px; letter-spacing: 0.8px; }
+    .case-card__score { font-size: 8px; color: #ff9933; float: right; }
+    /* Connection line — decorative left-side thread */
+    .case-card::before {
+      content: ''; position: absolute; left: -1px; top: 50%; width: 6px; height: 1px;
+      background: #b464ff55; transform: translateY(-50%);
+    }
+    .case-card.has-link::after {
+      content: '⬡'; position: absolute; left: -8px; top: 50%;
+      transform: translateY(-50%); font-size: 8px; color: #b464ff88;
+    }
+
+    /* Intelligence Brief mode */
+    #cb-brief { overflow-y: auto; flex: 1; }
+    .cb-brief-section { margin-bottom: 10px; }
+    .cb-brief-section__hdr {
+      font-size: 8px; letter-spacing: 2px; color: #4a7da8; margin-bottom: 5px;
+      border-bottom: 1px solid #0f274455; padding-bottom: 3px;
+    }
+
+    /* Neural Web mode */
+    #cb-network-canvas { flex: 1; width: 100%; min-height: 0; }
+
+    /* Timeline Matrix mode */
+    #cb-timeline { overflow-y: auto; flex: 1; }
+    .cb-timeline-row {
+      display: flex; gap: 8px; align-items: flex-start;
+      margin-bottom: 6px; position: relative;
+    }
+    .cb-timeline-row::before {
+      content: ''; position: absolute; left: 28px; top: 20px;
+      width: 1px; height: calc(100% + 6px); background: #0f274488;
+    }
+    .cb-timeline-ts { font-size: 8px; color: #4a7da8; width: 54px; flex-shrink: 0; padding-top: 3px; letter-spacing: 0.5px; }
+    .cb-timeline-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; margin-top: 4px; border: 1px solid #0f2744; }
+    .cb-timeline-body { flex: 1; }
+
+    /* Cluster badge */
+    .cb-cluster-badge {
+      display: inline-block; font-size: 7px; letter-spacing: 1px;
+      padding: 1px 5px; border: 1px solid #b464ff44; color: #b464ff;
+      margin-left: 6px; vertical-align: middle;
+    }
+
+    /* Export / pin row */
+    #cb-action-bar { display: flex; gap: 5px; margin-top: 6px; flex-shrink: 0; }
+    .cb-btn {
+      flex: 1; padding: 5px 0; font-size: 8px; letter-spacing: 1.5px; font-weight: 700;
+      cursor: pointer; text-align: center; border: 1px solid #b464ff44;
+      color: #b464ff; background: rgba(5,15,30,0.5); font-family: var(--font-mono);
+      transition: all 0.18s;
+    }
+    .cb-btn:hover { background: rgba(180,100,255,0.12); }
+    .cb-btn.danger { border-color: #ff004444; color: #ff0044; }
+
+    /* Locked overlay */
+    #cb-locked { display: none; align-items: center; justify-content: center;
+      flex-direction: column; gap: 8px; height: 100%;
+      color: #4a7da8; font-size: 9px; letter-spacing: 2px; text-align: center; }
+    #cb-locked.is-visible { display: flex; }
 
     .tone-bar-wrap { height: 3px; background: rgba(15, 39, 68, 0.4); border-radius: 2px; margin-top: 5px; overflow: hidden; }
     .tone-bar { height: 100%; border-radius: 2px; transition: width 0.6s ease; }
@@ -1470,6 +1628,48 @@
       <button class="panel-min-btn" id="min-btn-events" aria-label="Minimize events panel">—</button>
     </div>
     <div id="ev-list" role="list"></div>
+  </aside>
+
+  <!-- ── Neural Case Builder Backdrop — blocks globe interaction when open ── -->
+  <div id="cb-backdrop"></div>
+
+  <!-- ── Neural Case Builder Trigger Tab ──────────────────────────────────── -->
+  <div id="cb-trigger" onclick="ArgusCaseBuilder.toggleDrawer()" title="Neural Case Builder">
+    <div id="cb-trigger-arrow"></div>
+    <div id="cb-trigger-label">◈ CASES</div>
+  </div>
+
+  <!-- ── Neural Case Builder Panel ─────────────────────────────────────────── -->
+  <aside id="panel-cases" class="panel" aria-label="Neural Case Builder" aria-hidden="true">
+    <div class="events-header" style="cursor:default">
+      <span class="events-header__pulse" style="background:#b464ff;box-shadow:0 0 6px #b464ff" aria-hidden="true"></span>
+      NEURAL CASE BUILDER
+      <button class="panel-min-btn" onclick="ArgusCaseBuilder.toggleDrawer()" style="color:#b464ff" title="Close">—</button>
+    </div>
+    <!-- Locked overlay — shown to viewer/guest -->
+    <div id="cb-locked">
+      <div style="font-size:22px;opacity:0.3">⬡</div>
+      <div>PRO · ADMIN · OWNER</div>
+      <div style="font-size:8px;color:#2a4a6a;margin-top:4px">NEURAL CASE BUILDER — RESTRICTED ACCESS</div>
+    </div>
+    <!-- Authenticated content -->
+    <div id="cb-content" style="display:none;flex-direction:column;flex:1;overflow:hidden;min-height:0">
+      <div id="cb-header" style="font-size:10px;letter-spacing:3px;color:#b464ff;margin-bottom:7px;flex-shrink:0"></div>
+      <div id="cb-mode-bar">
+        <div class="cb-mode-btn active" id="cbm-brief"    onclick="ArgusCaseBuilder.setMode('brief')">⬛ BRIEF</div>
+        <div class="cb-mode-btn"        id="cbm-network"  onclick="ArgusCaseBuilder.setMode('network')">◈ NEURAL WEB</div>
+        <div class="cb-mode-btn"        id="cbm-timeline" onclick="ArgusCaseBuilder.setMode('timeline')">▤ TIMELINE</div>
+      </div>
+      <div id="cb-cluster-bar" style="font-size:8px;color:#4a7da8;letter-spacing:1px;margin-bottom:6px;flex-shrink:0"></div>
+      <div id="cb-brief"    style="display:block;overflow-y:auto;flex:1"></div>
+      <canvas id="cb-network-canvas" style="display:none;flex:1;width:100%;min-height:0"></canvas>
+      <div id="cb-timeline" style="display:none;overflow-y:auto;flex:1"></div>
+      <div id="cb-action-bar">
+        <div class="cb-btn" onclick="ArgusCaseBuilder.scan()">↻ SCAN</div>
+        <div class="cb-btn" onclick="ArgusCaseBuilder.exportReport()">↓ EXPORT</div>
+        <div class="cb-btn danger" onclick="ArgusCaseBuilder.clearPins()">✕ CLEAR</div>
+      </div>
+    </div>
   </aside>
 
   <!-- ── Node Detail Panel ───────────────────────────────────────────────────── -->
@@ -4017,10 +4217,133 @@ function scorePlotPriority(ev) {
   return Math.round(humScore + ecoScore + typeBonus + sourceBoost);
 }
 
+// ── NewsTriage — Entertainment Circuit Breaker + Reality Scoring ─────────────
+// Runs BEFORE classifyArticle. Gate: suppresses entertainment false positives.
+// Non-invasive: failed articles still appear at LOW severity — never deleted.
+var NewsTriage = (function() {
+  'use strict';
+
+  // Step 1 — Entertainment domains: entire output is entertainment, no geopolitics.
+  var ENT_DOMAINS = [
+    'variety','ign','rottentomatoes','imdb','hollywoodreporter','deadline','screenrant',
+    'comicbook','cbr.com','indiewire','empireonline','collider','slashfilm','thewrap',
+    'tvline','fandom','gamesradar','polygon','kotaku','rockpapershotgun','pcgamer',
+    'eurogamer','gamespot','giant bomb','metacritic',
+  ];
+
+  // Fiction keywords — strong entertainment indicators regardless of source.
+  var FICTION_KW = [
+    'trailer','season premiere','series premiere','reboot','spinoff','spin-off',
+    'box office','streaming debut','cast announced','showrunner',
+    'limited series','miniseries','mid-season','season finale',
+    'series finale','cancelled series','renewed for season',
+    'episode recap','episode review','movie review','film review',
+    'game review','game release','dlc','patch notes',
+  ];
+
+  // Step 2 — Reality scoring markers.
+  var COUNTRIES = [
+    'ukraine','russia','china','taiwan','iran','israel','gaza','lebanon',
+    'syria','iraq','afghanistan','pakistan','india','yemen','sudan','somalia',
+    'ethiopia','myanmar','north korea','south korea','japan','germany','france',
+    'united kingdom','united states','turkey','saudi arabia','egypt',
+  ];
+  var GOVT_AGENCIES = [
+    'united nations','un security council','nato','pentagon','department of defense',
+    'state department','cia','fbi','iaea','imf','world bank','g7','g20',
+    'eu commission','european commission','white house','kremlin','icc',
+  ];
+  var STREAMING = [
+    'netflix','hulu','disney+','disney plus','paramount+','paramount plus',
+    'apple tv+','hbo max','peacock','amazon prime video','crunchyroll',
+  ];
+  var THREAT_KW = [
+    'conflict','airstrike','bombing','missile strike','military operation',
+    'invasion','troops deployed','casualties','civilian deaths','martial law',
+    'state of emergency','economic collapse','famine','coup','nuclear',
+    'crisis','blockade','genocide','war crimes',
+  ];
+
+  function contains(text, list) {
+    var lower = text.toLowerCase();
+    for (var i = 0; i < list.length; i++) { if (lower.indexOf(list[i]) !== -1) return true; }
+    return false;
+  }
+
+  /**
+   * processArticle — gate before classifyArticle.
+   * Returns { pass, realityScore, threatLevel, reason }
+   * threatLevel null  = let classifyArticle handle normally
+   * threatLevel None  = suppress to LOW, do not globe-plot
+   * threatLevel P0    = confirm CRITICAL — reality-gated high score + threat keyword
+   */
+  function processArticle(article) {
+    var title  = (article.title       || '').toLowerCase();
+    var desc   = (article.description || article.content || '').toLowerCase();
+    var source = (article.source_name  || article.source_id || article.link || '').toLowerCase();
+    var full   = title + ' ' + desc;
+
+    // Step 1: Circuit breaker — entertainment source or fiction keyword
+    if (contains(source, ENT_DOMAINS)) {
+      return { pass: false, realityScore: -100, threatLevel: 'None', reason: 'entertainment domain' };
+    }
+    if (contains(full, FICTION_KW)) {
+      return { pass: false, realityScore: -50, threatLevel: 'None', reason: 'fiction keyword' };
+    }
+
+    // Step 2: Reality scoring
+    var score = 0, hits = [];
+    if (contains(full, COUNTRIES))     { score += 5;  hits.push('country+5');  }
+    if (contains(full, GOVT_AGENCIES)) { score += 10; hits.push('agency+10');  }
+    if (typeof TIER_1_SOURCES !== 'undefined' &&
+        TIER_1_SOURCES.some(function(t) { return source.indexOf(t) !== -1; })) {
+      score += 10; hits.push('tier1+10');
+    }
+    if (contains(full, STREAMING))       { score -= 20; hits.push('streaming-20'); }
+    if (/\brecap\b|\breview\b/i.test(full)) { score -= 15; hits.push('recap-15');    }
+
+    // Step 3: Threat scaling — P0 only when reality score passes credibility threshold
+    var threatLevel = null;
+    if (score > 15 && contains(full, THREAT_KW)) {
+      threatLevel = 'P0';
+    }
+
+    return {
+      pass:         score > -10,
+      realityScore: score,
+      threatLevel:  threatLevel,
+      reason:       hits.join(' | ') || 'no markers'
+    };
+  }
+
+  return { processArticle: processArticle };
+})();
+// ── End NewsTriage ────────────────────────────────────────────────────────────
+
 function classifyArticle(article, idx) {
   var title  = (article.title || '').slice(0, 80);
   var desc   = (article.description || article.content || '').slice(0, 200);
   var full   = title + ' ' + desc;
+
+
+  // ── NewsTriage gate — runs before type/severity classification ────────────
+  // Suppresses entertainment false positives. threatLevel None → cap at LOW.
+  // P0 confirmation means reality score was high AND threat keyword present.
+  var _triage = NewsTriage.processArticle(article);
+  if (!_triage.pass || _triage.threatLevel === 'None') {
+    // Entertainment or fiction — pass through as LOW, no globe plot
+    var _impact = (desc.length > 40 ? desc.slice(0, 160) : (IMPACT_MAP['POLICY'] || ''));
+    return {
+      id: idx + 1, type: 'POLICY', severity: 'LOW',
+      title: (article.title || '').slice(0, 80),
+      impact: _impact,
+      pubDate: '', region: '', regionRaw: '',
+      link: article.link || '',
+      source: article.source_name || article.source_id || '',
+      lat: null, lon: null, plotPriority: 0,
+      _triageFiltered: true, _triageReason: _triage.reason,
+    };
+  }
 
   var type = 'POLICY';
   for (var i = 0; i < TYPE_RULES.length; i++) {
@@ -4066,6 +4389,14 @@ function classifyArticle(article, idx) {
     lat: null, lon: null,
   };
   ev.plotPriority = scorePlotPriority(ev);
+  // NewsTriage P0 confirmation — upgrade severity if reality-gated threat confirmed
+  if (_triage.threatLevel === 'P0' && ev.severity !== 'CRITICAL') {
+    ev.severity = 'CRITICAL';
+    ev.impact  += ' [TRIAGE P0: reality-confirmed threat]';
+    ev.plotPriority = Math.max(ev.plotPriority, 90);
+  }
+  ev._triageScore  = _triage.realityScore;
+  ev._triageReason = _triage.reason;
 
   // Async geocode — staggered to respect Nominatim 1 req/sec; cached in localStorage
   if (regionRaw) {
@@ -4144,9 +4475,15 @@ async function fetchAndClassify() {
 
   console.log('ARGUS NewsData: ' + articles.length + ' fetched, ' + filtered.length + ' after filter');
   var classified = filtered.map(classifyArticle);
-  // Sort: highest humanitarian-weighted priority first
-  classified.sort(function(a, b) { return b.plotPriority - a.plotPriority; });
-  return classified;
+  // Separate triage-suppressed entertainment articles — not deleted, stored for inspection
+  window._triageFiltered = classified.filter(function(e) { return e._triageFiltered; });
+  if (window._triageFiltered.length) {
+    console.log('NewsTriage: suppressed ' + window._triageFiltered.length + ' entertainment/fiction articles');
+  }
+  // Sort: highest humanitarian-weighted priority first, exclude triage-suppressed from live feed
+  var live = classified.filter(function(e) { return !e._triageFiltered; });
+  live.sort(function(a, b) { return b.plotPriority - a.plotPriority; });
+  return live;
 }
 
 async function loadLiveEvents() {
@@ -5869,7 +6206,7 @@ function renderGdeltTab() {
 // ── Tab switch ────────────────────────────────────────────────────────────────
 function switchTab(tab) {
   activeTab = tab;
-  window._argusActiveTab = tab; // expose cross-scope for mergeAuxEvents
+  window._argusActiveTab = tab;
   var newsTab     = document.getElementById('tab-news');
   var gdeltTab    = document.getElementById('tab-gdelt');
   var disasterTab = document.getElementById('tab-disaster');
@@ -5886,8 +6223,8 @@ function switchTab(tab) {
       var c = localStorage.getItem('argus_live_events_v2');
       if (c) { window.renderEvents(JSON.parse(c), true); return; }
     } catch(e) {}
-    var evList = document.getElementById('ev-list');
-    if (evList) evList.innerHTML = '<div style="font-size:10px;color:#4a7da8;padding:12px 0;letter-spacing:1px">AWAITING NEWS FEED…</div>';
+    var evListEl = document.getElementById('ev-list');
+    if (evListEl) evListEl.innerHTML = '<div style="font-size:10px;color:#4a7da8;padding:12px 0;letter-spacing:1px">AWAITING NEWS FEED…</div>';
   }
 }
 
@@ -7684,6 +8021,508 @@ window._plotPermanentMarkers = function(classified) {
 
   if (typeof window.updateNodeCounts === 'function') window.updateNodeCounts();
 };
+</script>
+
+<script>
+// ════════════════════════════════════════════════════════════════════════════
+// ArgusCaseBuilder — Neural Case Builder
+// Pro/Admin/Owner only. Reads window._usgsEvents, window.gdelt.getData(),
+// window._avData, window._eiaData. Never mutates any global event state.
+// ════════════════════════════════════════════════════════════════════════════
+window.ArgusCaseBuilder = (function() {
+  'use strict';
+
+  // ── Internal state ─────────────────────────────────────────────────────────
+  var _mode      = 'brief';   // 'brief' | 'network' | 'timeline'
+  var _pins      = [];        // pinned event objects
+  var _clusters  = [];        // geographic clusters found by scan()
+  var _cases     = [];        // synthesized case objects
+  var _initialized = false;
+
+  // ── Tier check ─────────────────────────────────────────────────────────────
+  function hasAccess() {
+    var tier = window.ArgusSession ? window.ArgusSession.tier : 'viewer';
+    return tier === 'owner' || tier === 'admin' || tier === 'pro';
+  }
+
+  // ── Haversine — reused from TriageEngine concept, standalone here ──────────
+  function haversineKm(lat1, lon1, lat2, lon2) {
+    var R = 6371, r = Math.PI / 180;
+    var dL = (lat2 - lat1) * r, dO = (lon2 - lon1) * r;
+    var a  = Math.sin(dL/2)*Math.sin(dL/2) +
+             Math.cos(lat1*r)*Math.cos(lat2*r)*Math.sin(dO/2)*Math.sin(dO/2);
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+  }
+
+  // ── Data collectors — read-only, never mutate globals ─────────────────────
+  function getSeismic() {
+    return (window._usgsEvents || []).filter(function(e) {
+      return e.lat != null && e.lon != null;
+    });
+  }
+
+  function getNews() {
+    var gdelt = window.gdelt && window.gdelt.getData ? window.gdelt.getData() : null;
+    var events = (gdelt && gdelt.events) || [];
+    // Also pull from live feed cache
+    try {
+      var c = localStorage.getItem('argus_live_events_v2');
+      if (c) {
+        var live = JSON.parse(c);
+        live.forEach(function(e) {
+          if (!events.find(function(x) { return x.id === e.id; })) events.push(e);
+        });
+      }
+    } catch(ex) {}
+    return events.filter(function(e) { return e.lat != null && e.lon != null; });
+  }
+
+  function getMarket() {
+    var av  = window._avData   || {};
+    var eia = window._eiaData  || {};
+    var fr  = window._fredData || {};
+    return {
+      spy:   av.spy        || null,
+      spyChg: av.spyChange || null,
+      brent: eia.brent     || null,
+      wti:   eia.wti       || null,
+      eur:   av['fx-eurusd'] || null,
+      gbp:   av['fx-gbpusd'] || null,
+      jpy:   av['fx-usdjpy'] || null,
+      t10y:  fr.t10y       || null,
+      t2y:   fr.t2y        || null,
+    };
+  }
+
+  // ── Geographic cluster detection ──────────────────────────────────────────
+  // Finds areas where seismic + news events overlap within RADIUS_KM.
+  // Returns array of cluster objects with correlation score.
+  var CLUSTER_RADIUS_KM = 500;
+
+  function scan() {
+    _clusters = [];
+    _cases    = [];
+    var seismic = getSeismic();
+    var news    = getNews();
+
+    // For each seismic event, find news events within radius
+    seismic.forEach(function(s) {
+      var nearby = news.filter(function(n) {
+        return haversineKm(s.lat, s.lon, n.lat, n.lon) <= CLUSTER_RADIUS_KM;
+      });
+      if (!nearby.length) return;
+
+      // Correlation score: seismic magnitude weight + news severity weight
+      var magVal   = parseFloat((s.title || '').match(/M(\d+\.?\d*)/)?.[1] || 0);
+      var newsScore = nearby.reduce(function(acc, n) {
+        return acc + ({ CRITICAL: 4, WARNING: 3, WATCH: 2, LOW: 1 }[n.severity] || 1);
+      }, 0);
+      var score = Math.round((magVal * 10) + (newsScore * 5));
+
+      // Identify dominant news type in cluster
+      var types = {};
+      nearby.forEach(function(n) { types[n.type] = (types[n.type] || 0) + 1; });
+      var dominantType = Object.keys(types).sort(function(a,b){return types[b]-types[a];})[0];
+
+      _clusters.push({
+        id:          'CLU-' + _clusters.length,
+        lat:         s.lat,
+        lon:         s.lon,
+        anchor:      s,
+        newsEvents:  nearby,
+        score:       score,
+        type:        dominantType || 'MIXED',
+        region:      s.region || nearby[0].region || 'Unknown',
+        seismicMag:  magVal,
+      });
+    });
+
+    // Sort clusters by score descending
+    _clusters.sort(function(a,b) { return b.score - a.score; });
+
+    // Synthesize cases from top clusters
+    _cases = _clusters.slice(0, 8).map(function(cl, i) {
+      var mkt = getMarket();
+      // Narrative — look for market stress correlating with cluster region
+      var marketSignal = '';
+      if (mkt.brent && parseFloat(mkt.brent) > 85) marketSignal = 'Elevated Brent ($' + parseFloat(mkt.brent).toFixed(2) + ') correlates with regional instability.';
+      if (mkt.spyChg) {
+        var pct = parseFloat(mkt.spyChg);
+        if (pct < -1.5) marketSignal += ' SPY drawdown (' + pct.toFixed(2) + '%) concurrent with cluster spike.';
+      }
+      return {
+        id:        'CASE-' + String(i + 1).padStart(3, '0'),
+        title:     cl.type + ' CLUSTER — ' + cl.region.toUpperCase(),
+        region:    cl.region,
+        score:     cl.score,
+        lat:       cl.lat,
+        lon:       cl.lon,
+        seismic:   cl.anchor,
+        news:      cl.newsEvents.slice(0, 4),
+        market:    marketSignal,
+        type:      cl.type,
+        pinned:    false,
+        ts:        Date.now(),
+      };
+    });
+
+    render();
+    updateClusterBar();
+    console.log('ArgusCaseBuilder: ' + _clusters.length + ' clusters, ' + _cases.length + ' cases synthesized');
+  }
+
+  // ── Pin management ────────────────────────────────────────────────────────
+  function togglePin(caseId) {
+    var c = _cases.find(function(x) { return x.id === caseId; });
+    if (!c) return;
+    c.pinned = !c.pinned;
+    if (c.pinned) {
+      if (!_pins.find(function(p) { return p.id === caseId; })) _pins.push(c);
+    } else {
+      _pins = _pins.filter(function(p) { return p.id !== caseId; });
+    }
+    render();
+  }
+
+  function clearPins() {
+    _pins = [];
+    _cases.forEach(function(c) { c.pinned = false; });
+    render();
+  }
+
+  // ── Severity colour helper ────────────────────────────────────────────────
+  function sevColor(sev) {
+    return { CRITICAL:'#ff0044', WARNING:'#ff9933', WATCH:'#ffcc00', LOW:'#00ff88' }[sev] || '#4a7da8';
+  }
+
+  // ── Update cluster status bar ─────────────────────────────────────────────
+  function updateClusterBar() {
+    var bar = document.getElementById('cb-cluster-bar');
+    if (!bar) return;
+    bar.innerHTML = _clusters.length
+      ? _clusters.length + ' CLUSTER' + (_clusters.length > 1 ? 'S' : '') + ' DETECTED' +
+        ' &nbsp;·&nbsp; ' + _pins.length + ' PINNED' +
+        ' &nbsp;·&nbsp; RADIUS ' + CLUSTER_RADIUS_KM + 'KM'
+      : 'NO DATA — PRESS SCAN';
+  }
+
+  // ── Render dispatcher ─────────────────────────────────────────────────────
+  function render() {
+    updateClusterBar();
+    if (_mode === 'brief')   renderBrief();
+    if (_mode === 'network') renderNetwork();
+    if (_mode === 'timeline') renderTimeline();
+  }
+
+  // ── Mode 1: Intelligence Brief ────────────────────────────────────────────
+  // High-density text, just the facts, grouped by cluster.
+  function renderBrief() {
+    var el = document.getElementById('cb-brief');
+    if (!el) return;
+    if (!_cases.length) {
+      el.innerHTML = '<div style="font-size:9px;color:#2a4a6a;padding:20px 0;text-align:center;letter-spacing:1px">NO CASES — PRESS SCAN TO ANALYSE</div>';
+      return;
+    }
+    var mkt = getMarket();
+    var html = '';
+
+    // Market context strip
+    html += '<div class="cb-brief-section">';
+    html += '<div class="cb-brief-section__hdr">MARKET CONTEXT</div>';
+    html += '<div style="font-size:9px;color:#c5d7e8;line-height:1.7">';
+    if (mkt.brent) html += 'BRENT <span style="color:#ff9933">$' + parseFloat(mkt.brent).toFixed(2) + '</span> &nbsp;';
+    if (mkt.wti)   html += 'WTI <span style="color:#ff9933">$' + parseFloat(mkt.wti).toFixed(2) + '</span> &nbsp;';
+    if (mkt.spy)   html += 'SPY <span style="color:#00ff88">$' + parseFloat(mkt.spy).toFixed(2) + '</span>';
+    if (mkt.spyChg) {
+      var p = parseFloat(mkt.spyChg);
+      html += ' <span style="color:' + (p>=0?'#00ff88':'#ff0044') + '">' + (p>=0?'+':'') + p.toFixed(2) + '%</span>';
+    }
+    html += '</div></div>';
+
+    // Cases
+    _cases.forEach(function(c) {
+      var pinColor = c.pinned ? '#ff9933' : '#b464ff';
+      html += '<div class="case-card' + (c.pinned ? ' is-pinned' : '') + (c.news.length ? ' has-link' : '') + '" onclick="ArgusCaseBuilder.togglePin(\'' + c.id + '\')">';
+      html += '<div style="display:flex;justify-content:space-between;align-items:flex-start">';
+      html += '<span class="case-card__tag" style="color:' + pinColor + '">' + c.id + (c.pinned ? ' ◈ PINNED' : '') + '</span>';
+      html += '<span class="case-card__score">SCORE ' + c.score + '</span>';
+      html += '</div>';
+      html += '<div class="case-card__title">' + c.title + '</div>';
+      // Seismic anchor
+      html += '<div class="case-card__meta">⬡ SEISMIC: ' + c.seismic.title.slice(0, 50) + '</div>';
+      // Top news events
+      c.news.slice(0, 2).forEach(function(n) {
+        html += '<div class="case-card__meta" style="color:' + sevColor(n.severity) + '">▸ ' + (n.title || '').slice(0, 55) + '</div>';
+      });
+      // Market signal
+      if (c.market) html += '<div class="case-card__meta" style="color:#ff9933;margin-top:3px">⚡ ' + c.market.slice(0, 90) + '</div>';
+      html += '</div>';
+    });
+    el.innerHTML = html;
+  }
+
+  // ── Mode 2: Neural Web (Canvas) ───────────────────────────────────────────
+  // Draws nodes for cases and edges for shared region/type connections.
+  function renderNetwork() {
+    var canvas = document.getElementById('cb-network-canvas');
+    if (!canvas) return;
+    var W = canvas.offsetWidth  || canvas.parentElement.clientWidth  || 260;
+    var H = canvas.offsetHeight || 320;
+    canvas.width  = W;
+    canvas.height = H;
+    var ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, W, H);
+
+    if (!_cases.length) {
+      ctx.fillStyle = '#2a4a6a';
+      ctx.font = '9px JetBrains Mono, monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText('NO CASES — PRESS SCAN', W/2, H/2);
+      return;
+    }
+
+    // Layout: radial arrangement around center
+    var cx = W / 2, cy = H / 2;
+    var r  = Math.min(W, H) * 0.34;
+    var nodes = _cases.map(function(c, i) {
+      var angle = (i / _cases.length) * Math.PI * 2 - Math.PI / 2;
+      return {
+        x:    cx + Math.cos(angle) * r,
+        y:    cy + Math.sin(angle) * r,
+        c:    c,
+        col:  c.pinned ? '#ff9933' : '#b464ff',
+        rad:  6 + Math.min(c.score / 20, 8),
+      };
+    });
+
+    // Draw edges between nodes sharing type or region
+    ctx.lineWidth = 0.8;
+    for (var i = 0; i < nodes.length; i++) {
+      for (var j = i + 1; j < nodes.length; j++) {
+        var a = nodes[i], b = nodes[j];
+        var shared = a.c.type === b.c.type || a.c.region === b.c.region;
+        if (!shared) continue;
+        var grad = ctx.createLinearGradient(a.x, a.y, b.x, b.y);
+        grad.addColorStop(0, a.col + '44');
+        grad.addColorStop(1, b.col + '44');
+        ctx.strokeStyle = grad;
+        ctx.beginPath();
+        ctx.moveTo(a.x, a.y);
+        // Slight curve via midpoint
+        var mx = (a.x + b.x) / 2 + (Math.random() - 0.5) * 20;
+        var my = (a.y + b.y) / 2 + (Math.random() - 0.5) * 20;
+        ctx.quadraticCurveTo(mx, my, b.x, b.y);
+        ctx.stroke();
+      }
+    }
+
+    // Market node at centre
+    var mkt = getMarket();
+    ctx.beginPath();
+    ctx.arc(cx, cy, 10, 0, Math.PI * 2);
+    ctx.fillStyle = mkt.spyChg && parseFloat(mkt.spyChg) < -1 ? '#ff004433' : '#00ff8822';
+    ctx.fill();
+    ctx.strokeStyle = mkt.spyChg && parseFloat(mkt.spyChg) < -1 ? '#ff0044' : '#00ff88';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.fillStyle = mkt.spyChg && parseFloat(mkt.spyChg) < -1 ? '#ff0044' : '#00ff88';
+    ctx.font = '7px JetBrains Mono, monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('MKT', cx, cy + 3);
+
+    // Draw market edges to pinned nodes
+    nodes.forEach(function(n) {
+      if (!n.c.pinned && !n.c.market) return;
+      ctx.strokeStyle = '#ff993322';
+      ctx.lineWidth = 0.6;
+      ctx.setLineDash([2, 4]);
+      ctx.beginPath();
+      ctx.moveTo(cx, cy);
+      ctx.lineTo(n.x, n.y);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    });
+
+    // Draw case nodes on top
+    nodes.forEach(function(n) {
+      ctx.beginPath();
+      ctx.arc(n.x, n.y, n.rad, 0, Math.PI * 2);
+      ctx.fillStyle = n.col + '33';
+      ctx.fill();
+      ctx.strokeStyle = n.col;
+      ctx.lineWidth = n.c.pinned ? 2 : 1;
+      ctx.stroke();
+      // Label
+      ctx.fillStyle = n.col;
+      ctx.font = '7px JetBrains Mono, monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText(n.c.id.replace('CASE-', 'C'), n.x, n.y + 3);
+    });
+
+    // Legend
+    ctx.fillStyle = '#2a4a6a';
+    ctx.font = '7px JetBrains Mono, monospace';
+    ctx.textAlign = 'left';
+    ctx.fillText('◈ PINNED   ⬡ ACTIVE   — SHARED LINK', 4, H - 6);
+  }
+
+  // ── Mode 3: Timeline Matrix ───────────────────────────────────────────────
+  // Vertical chronological escalation flow.
+  function renderTimeline() {
+    var el = document.getElementById('cb-timeline');
+    if (!el) return;
+    if (!_cases.length) {
+      el.innerHTML = '<div style="font-size:9px;color:#2a4a6a;padding:20px 0;text-align:center;letter-spacing:1px">NO CASES — PRESS SCAN</div>';
+      return;
+    }
+
+    // Flatten all events from all cases, sort by time
+    var events = [];
+    _cases.forEach(function(c) {
+      events.push({ ts: c.ts, title: c.title, sev: c.type === 'CONFLICT' ? 'CRITICAL' : 'WARNING', src: 'CLUSTER', id: c.id });
+      c.news.forEach(function(n) {
+        var t = n.pubDate ? new Date(n.pubDate).getTime() : c.ts;
+        if (!isNaN(t)) events.push({ ts: t, title: (n.title||'').slice(0,55), sev: n.severity || 'LOW', src: n.source || 'NEWS', id: c.id });
+      });
+      if (c.seismic) {
+        var st = c.seismic.pubDate ? new Date(c.seismic.pubDate).getTime() : c.ts;
+        if (!isNaN(st)) events.push({ ts: st, title: c.seismic.title.slice(0,55), sev: c.seismic.severity || 'WATCH', src: 'SEISMIC', id: c.id });
+      }
+    });
+    events.sort(function(a,b) { return b.ts - a.ts; });
+
+    var mo = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
+    var html = '';
+    events.slice(0, 30).forEach(function(ev) {
+      var d   = new Date(ev.ts);
+      var ts  = (isNaN(d.getTime()) ? '——' : d.getUTCDate() + ' ' + mo[d.getUTCMonth()] + ' ' +
+                String(d.getUTCHours()).padStart(2,'0') + ':' + String(d.getUTCMinutes()).padStart(2,'0'));
+      var col = sevColor(ev.sev);
+      html += '<div class="cb-timeline-row">';
+      html += '<div class="cb-timeline-ts">' + ts + '</div>';
+      html += '<div class="cb-timeline-dot" style="background:' + col + '33;border-color:' + col + '"></div>';
+      html += '<div class="cb-timeline-body">';
+      html += '<div style="font-size:9px;color:#c5d7e8;line-height:1.4">' + ev.title + '</div>';
+      html += '<div style="font-size:7px;color:#4a7da8;letter-spacing:1px;margin-top:2px">' + ev.src + ' &nbsp;·&nbsp; <span style="color:' + col + '">' + ev.sev + '</span></div>';
+      html += '</div></div>';
+    });
+    el.innerHTML = html;
+  }
+
+  // ── Export ────────────────────────────────────────────────────────────────
+  function exportReport() {
+    var target = _pins.length ? _pins : _cases;
+    if (!target.length) { alert('No cases to export. Run SCAN first.'); return; }
+    var mkt    = getMarket();
+    var lines  = [];
+    lines.push('# ARGUS NEURAL CASE BUILDER — INTELLIGENCE REPORT');
+    lines.push('Generated: ' + new Date().toUTCString());
+    lines.push('');
+    lines.push('## MARKET SNAPSHOT');
+    lines.push('- Brent: $' + (mkt.brent || 'N/A'));
+    lines.push('- WTI:   $' + (mkt.wti   || 'N/A'));
+    lines.push('- SPY:   $' + (mkt.spy   || 'N/A') + '  (' + (mkt.spyChg || '0') + ')');
+    lines.push('- EUR/USD: ' + (mkt.eur  || 'N/A'));
+    lines.push('- 10Y:  ' + (mkt.t10y   || 'N/A'));
+    lines.push('');
+    lines.push('## CASES (' + target.length + ')');
+    target.forEach(function(c) {
+      lines.push('');
+      lines.push('### ' + c.id + ' — ' + c.title);
+      lines.push('- Region:       ' + c.region);
+      lines.push('- Score:        ' + c.score);
+      lines.push('- Type:         ' + c.type);
+      lines.push('- Seismic Anchor: ' + (c.seismic ? c.seismic.title : 'None'));
+      lines.push('- Market Signal: ' + (c.market || 'None'));
+      lines.push('- News Events:');
+      (c.news || []).forEach(function(n) {
+        lines.push('  · [' + (n.severity||'?') + '] ' + (n.title||'').slice(0,80));
+      });
+    });
+
+    // Also emit raw JSON
+    var jsonPayload = JSON.stringify({ generated: new Date().toISOString(), market: mkt, cases: target }, null, 2);
+    var mdBlob   = new Blob([lines.join('\n')], { type: 'text/markdown' });
+    var jsonBlob = new Blob([jsonPayload],       { type: 'application/json' });
+    var mdUrl    = URL.createObjectURL(mdBlob);
+    var jsonUrl  = URL.createObjectURL(jsonBlob);
+    var ts       = new Date().toISOString().slice(0,10);
+
+    var a1 = document.createElement('a'); a1.href = mdUrl;   a1.download = 'argus-case-' + ts + '.md';   a1.click();
+    setTimeout(function() {
+      var a2 = document.createElement('a'); a2.href = jsonUrl; a2.download = 'argus-case-' + ts + '.json'; a2.click();
+      URL.revokeObjectURL(mdUrl);
+      URL.revokeObjectURL(jsonUrl);
+    }, 300);
+
+    console.log('ArgusCaseBuilder: exported ' + target.length + ' cases');
+  }
+
+  // ── Mode switcher ─────────────────────────────────────────────────────────
+  function setMode(mode) {
+    _mode = mode;
+    ['brief','network','timeline'].forEach(function(m) {
+      var btn = document.getElementById('cbm-' + m);
+      var view = document.getElementById('cb-' + m);
+      if (btn)  btn.className  = 'cb-mode-btn' + (m === mode ? ' active' : '');
+      if (view) view.style.display = m === mode ? (m === 'network' ? 'block' : 'block') : 'none';
+    });
+    render();
+  }
+
+  // ── Drawer toggle — called by the bottom triangle trigger ─────────────────
+  var _drawerOpen = false;
+  function toggleDrawer() {
+    _drawerOpen = !_drawerOpen;
+    var panel    = document.getElementById('panel-cases');
+    var trigger  = document.getElementById('cb-trigger');
+    var backdrop = document.getElementById('cb-backdrop');
+    if (panel)    { panel.classList.toggle('is-visible', _drawerOpen);    panel.setAttribute('aria-hidden', String(!_drawerOpen)); }
+    if (trigger)  { trigger.classList.toggle('is-open', _drawerOpen); }
+    if (backdrop) { backdrop.classList.toggle('is-visible', _drawerOpen); }
+    if (_drawerOpen) activate();
+  }
+
+  function activate() {
+    var locked  = document.getElementById('cb-locked');
+    var content = document.getElementById('cb-content');
+    if (!hasAccess()) {
+      if (locked)  locked.classList.add('is-visible');
+      if (content) content.style.display = 'none';
+      return;
+    }
+    if (locked)  locked.classList.remove('is-visible');
+    if (content) { content.style.display = 'flex'; }
+
+    // Cipher decode header on first open
+    if (!_initialized) {
+      _initialized = true;
+      var hdr = document.getElementById('cb-header');
+      if (hdr && window.ArgusAnim) {
+        window.ArgusAnim.cipherDecode(hdr, 'NEURAL CASE BUILDER — ACTIVE', 800);
+      }
+      // Auto-scan on first open if data is available
+      if ((window._usgsEvents || []).length) {
+        setTimeout(scan, 600);
+      }
+    }
+  }
+
+  // ── Public API ────────────────────────────────────────────────────────────
+  return {
+    activate:     activate,
+    toggleDrawer: toggleDrawer,
+    scan:         scan,
+    setMode:      setMode,
+    togglePin:    togglePin,
+    clearPins:    clearPins,
+    exportReport: exportReport,
+    getCases:     function() { return _cases; },
+    getClusters:  function() { return _clusters; },
+    getPins:      function() { return _pins; },
+  };
+})();
+// ── End ArgusCaseBuilder ──────────────────────────────────────────────────────
 </script>
 </body>
 </html>

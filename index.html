@@ -469,6 +469,42 @@
     .cb-btn:hover { background: rgba(180,100,255,0.12); }
     .cb-btn.danger { border-color: #ff004444; color: #ff0044; }
 
+    /* Keyword input — terminal aesthetic */
+    #cb-keyword-row { display: flex; gap: 5px; margin-top: 6px; flex-shrink: 0; }
+    .argus-input {
+      flex: 1;
+      background: rgba(2, 8, 18, 0.7);
+      border: 1px solid #0f2744;
+      color: #c5d7e8;
+      font-family: var(--font-mono);
+      font-size: 9px;
+      letter-spacing: 0.8px;
+      padding: 5px 8px;
+      outline: none;
+      border-radius: 1px;
+      transition: border-color 0.18s, box-shadow 0.18s;
+    }
+    .argus-input::placeholder { color: #2a4a6a; letter-spacing: 0.5px; }
+    .argus-input:focus {
+      border-color: var(--color-accent);
+      box-shadow: 0 0 0 1px var(--color-accent)22, inset 0 0 8px rgba(0,153,255,0.04);
+    }
+
+    /* Keyword match highlight in case cards */
+    .kw-hit {
+      background: rgba(180,100,255,0.22);
+      color: #d49fff;
+      border-radius: 1px;
+      padding: 0 2px;
+      font-weight: 700;
+    }
+    /* Keyword badge on case card */
+    .kw-badge {
+      display: inline-block; font-size: 7px; letter-spacing: 1px;
+      padding: 1px 5px; border: 1px solid #b464ff55;
+      color: #b464ff; margin-left: 5px; vertical-align: middle;
+    }
+
     /* Locked overlay */
     #cb-locked { display: none; align-items: center; justify-content: center;
       flex-direction: column; gap: 8px; height: 100%;
@@ -1630,47 +1666,7 @@
     <div id="ev-list" role="list"></div>
   </aside>
 
-  <!-- ── Neural Case Builder Backdrop — blocks globe interaction when open ── -->
-  <div id="cb-backdrop"></div>
 
-  <!-- ── Neural Case Builder Trigger Tab ──────────────────────────────────── -->
-  <div id="cb-trigger" onclick="ArgusCaseBuilder.toggleDrawer()" title="Neural Case Builder">
-    <div id="cb-trigger-arrow"></div>
-    <div id="cb-trigger-label">◈ CASES</div>
-  </div>
-
-  <!-- ── Neural Case Builder Panel ─────────────────────────────────────────── -->
-  <aside id="panel-cases" class="panel" aria-label="Neural Case Builder" aria-hidden="true">
-    <div class="events-header" style="cursor:default">
-      <span class="events-header__pulse" style="background:#b464ff;box-shadow:0 0 6px #b464ff" aria-hidden="true"></span>
-      NEURAL CASE BUILDER
-      <button class="panel-min-btn" onclick="ArgusCaseBuilder.toggleDrawer()" style="color:#b464ff" title="Close">—</button>
-    </div>
-    <!-- Locked overlay — shown to viewer/guest -->
-    <div id="cb-locked">
-      <div style="font-size:22px;opacity:0.3">⬡</div>
-      <div>PRO · ADMIN · OWNER</div>
-      <div style="font-size:8px;color:#2a4a6a;margin-top:4px">NEURAL CASE BUILDER — RESTRICTED ACCESS</div>
-    </div>
-    <!-- Authenticated content -->
-    <div id="cb-content" style="display:none;flex-direction:column;flex:1;overflow:hidden;min-height:0">
-      <div id="cb-header" style="font-size:10px;letter-spacing:3px;color:#b464ff;margin-bottom:7px;flex-shrink:0"></div>
-      <div id="cb-mode-bar">
-        <div class="cb-mode-btn active" id="cbm-brief"    onclick="ArgusCaseBuilder.setMode('brief')">⬛ BRIEF</div>
-        <div class="cb-mode-btn"        id="cbm-network"  onclick="ArgusCaseBuilder.setMode('network')">◈ NEURAL WEB</div>
-        <div class="cb-mode-btn"        id="cbm-timeline" onclick="ArgusCaseBuilder.setMode('timeline')">▤ TIMELINE</div>
-      </div>
-      <div id="cb-cluster-bar" style="font-size:8px;color:#4a7da8;letter-spacing:1px;margin-bottom:6px;flex-shrink:0"></div>
-      <div id="cb-brief"    style="display:block;overflow-y:auto;flex:1"></div>
-      <canvas id="cb-network-canvas" style="display:none;flex:1;width:100%;min-height:0"></canvas>
-      <div id="cb-timeline" style="display:none;overflow-y:auto;flex:1"></div>
-      <div id="cb-action-bar">
-        <div class="cb-btn" onclick="ArgusCaseBuilder.scan()">↻ SCAN</div>
-        <div class="cb-btn" onclick="ArgusCaseBuilder.exportReport()">↓ EXPORT</div>
-        <div class="cb-btn danger" onclick="ArgusCaseBuilder.clearPins()">✕ CLEAR</div>
-      </div>
-    </div>
-  </aside>
 
   <!-- ── Node Detail Panel ───────────────────────────────────────────────────── -->
   <aside id="panel-detail" class="panel" aria-label="Node detail" aria-hidden="true">
@@ -1970,6 +1966,49 @@
   </div>
 
 </div><!-- /#app -->
+
+<!-- ── Neural Case Builder — outside #app to escape overflow:hidden clipping ── -->
+<div id="cb-backdrop"></div>
+
+<div id="cb-trigger" onclick="if(window.ArgusCaseBuilder) ArgusCaseBuilder.toggleDrawer()" title="Neural Case Builder">
+  <div id="cb-trigger-arrow"></div>
+  <div id="cb-trigger-label">◈ CASES</div>
+</div>
+
+<aside id="panel-cases" aria-label="Neural Case Builder" aria-hidden="true">
+  <div class="events-header" style="cursor:default">
+    <span class="events-header__pulse" style="background:#b464ff;box-shadow:0 0 6px #b464ff" aria-hidden="true"></span>
+    NEURAL CASE BUILDER
+    <button class="panel-min-btn" onclick="if(window.ArgusCaseBuilder) ArgusCaseBuilder.toggleDrawer()" style="color:#b464ff" title="Close">—</button>
+  </div>
+  <div id="cb-locked">
+    <div style="font-size:22px;opacity:0.3">⬡</div>
+    <div>PRO · ADMIN · OWNER</div>
+    <div style="font-size:8px;color:#2a4a6a;margin-top:4px">NEURAL CASE BUILDER — RESTRICTED ACCESS</div>
+  </div>
+  <div id="cb-content" style="display:none;flex-direction:column;flex:1;overflow:hidden;min-height:0">
+    <div id="cb-header" style="font-size:10px;letter-spacing:3px;color:#b464ff;margin-bottom:7px;flex-shrink:0"></div>
+    <div id="cb-mode-bar">
+      <div class="cb-mode-btn active" id="cbm-brief"    onclick="ArgusCaseBuilder.setMode('brief')">⬛ BRIEF</div>
+      <div class="cb-mode-btn"        id="cbm-network"  onclick="ArgusCaseBuilder.setMode('network')">◈ NEURAL WEB</div>
+      <div class="cb-mode-btn"        id="cbm-timeline" onclick="ArgusCaseBuilder.setMode('timeline')">▤ TIMELINE</div>
+    </div>
+    <div id="cb-cluster-bar" style="font-size:8px;color:#4a7da8;letter-spacing:1px;margin-bottom:6px;flex-shrink:0"></div>
+    <div id="cb-brief"    style="display:block;overflow-y:auto;flex:1"></div>
+    <canvas id="cb-network-canvas" style="display:none;flex:1;width:100%;min-height:0"></canvas>
+    <div id="cb-timeline" style="display:none;overflow-y:auto;flex:1"></div>
+    <div id="cb-keyword-row">
+      <input type="text" id="input-case-keywords" class="argus-input"
+        placeholder="Target parameters: lithium, shipping, blackout…"
+        onkeydown="if(event.key==='Enter') ArgusCaseBuilder.scan()" />
+    </div>
+    <div id="cb-action-bar">
+      <div class="cb-btn" id="cb-scan-btn" onclick="ArgusCaseBuilder.scan()">↻ SCAN</div>
+      <div class="cb-btn" onclick="ArgusCaseBuilder.exportReport()">↓ EXPORT</div>
+      <div class="cb-btn danger" onclick="ArgusCaseBuilder.clearPins()">✕ CLEAR</div>
+    </div>
+  </div>
+</aside>
 
 <!-- ══════════════════════════════════════════════════════════════════════════════
      SCRIPT 1 — Three.js Globe Engine
@@ -8099,8 +8138,235 @@ window.ArgusCaseBuilder = (function() {
   // Returns array of cluster objects with correlation score.
   var CLUSTER_RADIUS_KM = 500;
 
-  function scan() {
+  // ── Keyword helpers ───────────────────────────────────────────────────────
+
+  /**
+   * parseKeywords — reads #input-case-keywords, splits by comma, trims, lowercases.
+   * Returns [] if blank (triggers General Anomaly mode).
+   */
+  function parseKeywords() {
+    var el  = document.getElementById('input-case-keywords');
+    var raw = el ? el.value.trim() : '';
+    if (!raw) return [];
+    return raw.split(',').map(function(k) { return k.trim().toLowerCase(); }).filter(Boolean);
+  }
+
+  /**
+   * keywordHits — returns array of keywords found in a text string.
+   * Case-insensitive whole-word-ish match (allows partial for compound terms).
+   */
+  function keywordHits(text, keywords) {
+    if (!text || !keywords.length) return [];
+    var lower = text.toLowerCase();
+    return keywords.filter(function(k) { return lower.indexOf(k) !== -1; });
+  }
+
+  /**
+   * highlightKeywords — wraps keyword matches in <span class="kw-hit"> in a
+   * plain-text string. Safe: escapes the text first, then re-inserts spans.
+   */
+  function highlightKeywords(text, keywords) {
+    if (!text || !keywords.length) return text;
+    // Escape HTML entities first so we don't double-encode
+    var escaped = text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    keywords.forEach(function(k) {
+      // Case-insensitive global replace, preserving original casing in output
+      var re = new RegExp('(' + k.replace(/[.*+?^${}()|[\]\\]/g,'\\$&') + ')', 'gi');
+      escaped = escaped.replace(re, '<span class="kw-hit">$1</span>');
+    });
+    return escaped;
+  }
+
+  // Store last-used keywords for renderBrief access
+  var _activeKeywords = [];
+
+  /**
+   * scan(customKeywords) — geographic cluster engine with dynamic keyword weighting.
+   *
+   * Keyword mode:   user-defined terms get a heavy multiplier (×3 per hit) applied
+   *                 to the cluster score. Clusters with zero keyword hits are demoted.
+   * General mode:   (blank input) — falls back to broad anomaly scan, no multiplier.
+   */
+  function scan(customKeywords) {
     _clusters = [];
+    _cases    = [];
+
+    // Parse keywords — prefer passed argument, then read from input field
+    var keywords = Array.isArray(customKeywords) ? customKeywords : parseKeywords();
+    _activeKeywords = keywords;
+    var keywordMode = keywords.length > 0;
+
+    // Animate scan button
+    var btn = document.getElementById('cb-scan-btn');
+    if (btn && window.ArgusAnim) {
+      window.ArgusAnim.cipherDecode(btn, '↻ SCANNING…', 600);
+      setTimeout(function() {
+        if (btn) btn.textContent = '↻ SCAN';
+      }, 1800);
+    }
+
+    var seismic  = getSeismic();
+    var news     = getNews();
+    // Also pull from _currentEvents (the live merged feed) for keyword matching
+    var current  = window._currentEvents || [];
+
+    // ── Geographic cluster detection ─────────────────────────────────────────
+    seismic.forEach(function(s) {
+      var nearby = news.filter(function(n) {
+        return haversineKm(s.lat, s.lon, n.lat, n.lon) <= CLUSTER_RADIUS_KM;
+      });
+
+      // In keyword mode — also include current events within radius even if
+      // they don't have lat/lon, by checking if the cluster region text matches
+      var currentNearby = current.filter(function(e) {
+        if (e.lat != null && e.lon != null) {
+          return haversineKm(s.lat, s.lon, e.lat, e.lon) <= CLUSTER_RADIUS_KM;
+        }
+        // Region text fallback — crude but catches uncoded events
+        if (keywordMode && s.region) {
+          var reg = s.region.toLowerCase();
+          return (e.region || '').toLowerCase().indexOf(reg.slice(0,6)) !== -1;
+        }
+        return false;
+      });
+
+      if (!nearby.length && !currentNearby.length) return;
+
+      // ── Base score ────────────────────────────────────────────────────────
+      var magVal    = parseFloat((s.title || '').match(/M(\d+\.?\d*)/)?.[1] || 0);
+      var newsScore = nearby.reduce(function(acc, n) {
+        return acc + ({ CRITICAL: 4, WARNING: 3, WATCH: 2, LOW: 1 }[n.severity] || 1);
+      }, 0);
+      var baseScore = Math.round((magVal * 10) + (newsScore * 5));
+
+      // ── Keyword weighting ─────────────────────────────────────────────────
+      // Check every text field of every event in this cluster for keyword hits.
+      // Each unique keyword hit = ×3 multiplier on top of base score.
+      var hitKeywords = []; // deduplicated list of matched keywords for this cluster
+      var kwMultiplier = 1;
+
+      if (keywordMode) {
+        var allTexts = [];
+        // Seismic anchor text
+        allTexts.push(s.title, s.impact, s.region);
+        // Nearby news
+        nearby.concat(currentNearby).forEach(function(e) {
+          allTexts.push(e.title, e.impact, e.description, e.region);
+        });
+        // EIA commodity data — check if keywords relate to energy
+        var eia = window._eiaData || {};
+        if (eia.brent) allTexts.push('crude oil brent wti energy petroleum');
+
+        allTexts.forEach(function(t) {
+          keywordHits(t || '', keywords).forEach(function(kw) {
+            if (hitKeywords.indexOf(kw) === -1) hitKeywords.push(kw);
+          });
+        });
+
+        // ×3 per unique keyword hit, but cap to prevent absurdly high scores
+        kwMultiplier = 1 + (hitKeywords.length * 3);
+        // Clusters with zero keyword hits get demoted heavily in keyword mode
+        if (!hitKeywords.length) kwMultiplier = 0.15;
+      }
+
+      var score = Math.round(baseScore * kwMultiplier);
+
+      // Identify dominant news type
+      var types = {};
+      nearby.forEach(function(n) { types[n.type] = (types[n.type] || 0) + 1; });
+      var dominantType = Object.keys(types).sort(function(a,b){return types[b]-types[a];})[0];
+
+      _clusters.push({
+        id:          'CLU-' + _clusters.length,
+        lat:         s.lat,
+        lon:         s.lon,
+        anchor:      s,
+        newsEvents:  nearby.concat(currentNearby.slice(0, 2)),
+        score:       score,
+        baseScore:   baseScore,
+        type:        dominantType || 'MIXED',
+        region:      s.region || (nearby[0] && nearby[0].region) || 'Unknown',
+        seismicMag:  magVal,
+        hitKeywords: hitKeywords,  // keywords that triggered this cluster
+      });
+    });
+
+    // ── General anomaly mode: also scan news-only clusters (no seismic anchor) ──
+    // When keywords provided, check current events directly for keyword matches
+    // even if there's no seismic event nearby — pure keyword-driven cases
+    if (keywordMode) {
+      current.forEach(function(e) {
+        var allText = (e.title || '') + ' ' + (e.impact || '') + ' ' + (e.region || '');
+        var hits = keywordHits(allText, keywords);
+        if (!hits.length) return;
+        // Check not already covered by a seismic cluster
+        var alreadyCovered = _clusters.some(function(cl) {
+          if (e.lat == null || cl.lat == null) return false;
+          return haversineKm(cl.lat, cl.lon, e.lat || cl.lat, e.lon || cl.lon) <= CLUSTER_RADIUS_KM;
+        });
+        if (alreadyCovered) return;
+        var sevScore = { CRITICAL: 40, WARNING: 30, WATCH: 20, LOW: 10 }[e.severity] || 10;
+        _clusters.push({
+          id:          'CLU-' + _clusters.length,
+          lat:         e.lat,
+          lon:         e.lon,
+          anchor:      null,  // no seismic anchor — pure keyword cluster
+          newsEvents:  [e],
+          score:       Math.round(sevScore * (1 + hits.length * 3)),
+          baseScore:   sevScore,
+          type:        e.type || 'INTELLIGENCE',
+          region:      e.region || 'Unknown',
+          seismicMag:  0,
+          hitKeywords: hits,
+        });
+      });
+    }
+
+    // Sort clusters by score descending
+    _clusters.sort(function(a,b) { return b.score - a.score; });
+
+    // ── Synthesize cases ──────────────────────────────────────────────────────
+    var mkt = getMarket();
+    _cases = _clusters.slice(0, 8).map(function(cl, i) {
+      var marketSignal = '';
+      if (mkt.brent && parseFloat(mkt.brent) > 85)
+        marketSignal = 'Elevated Brent ($' + parseFloat(mkt.brent).toFixed(2) + ') correlates with regional instability.';
+      if (mkt.spyChg && parseFloat(mkt.spyChg) < -1.5)
+        marketSignal += ' SPY drawdown (' + parseFloat(mkt.spyChg).toFixed(2) + '%) concurrent with cluster spike.';
+      // Keyword-specific market note
+      if (cl.hitKeywords.length) {
+        var energyHit = cl.hitKeywords.some(function(k) {
+          return ['oil','brent','wti','energy','petroleum','gas','lng'].indexOf(k) !== -1;
+        });
+        if (energyHit && mkt.brent)
+          marketSignal += ' Energy keyword match — Brent: $' + parseFloat(mkt.brent).toFixed(2) + '.';
+      }
+      return {
+        id:          'CASE-' + String(i + 1).padStart(3, '0'),
+        title:       cl.type + ' CLUSTER — ' + cl.region.toUpperCase(),
+        region:      cl.region,
+        score:       cl.score,
+        baseScore:   cl.baseScore,
+        lat:         cl.lat,
+        lon:         cl.lon,
+        seismic:     cl.anchor,
+        news:        cl.newsEvents.slice(0, 4),
+        market:      marketSignal,
+        type:        cl.type,
+        hitKeywords: cl.hitKeywords,
+        pinned:      false,
+        ts:          Date.now(),
+      };
+    });
+
+    render();
+    updateClusterBar();
+
+    var modeLabel = keywordMode
+      ? 'KEYWORD [' + keywords.join(', ') + ']'
+      : 'GENERAL ANOMALY';
+    console.log('ArgusCaseBuilder scan (' + modeLabel + '): ' + _clusters.length + ' clusters → ' + _cases.length + ' cases');
+  }
     _cases    = [];
     var seismic = getSeismic();
     var news    = getNews();
@@ -8159,18 +8425,6 @@ window.ArgusCaseBuilder = (function() {
         lon:       cl.lon,
         seismic:   cl.anchor,
         news:      cl.newsEvents.slice(0, 4),
-        market:    marketSignal,
-        type:      cl.type,
-        pinned:    false,
-        ts:        Date.now(),
-      };
-    });
-
-    render();
-    updateClusterBar();
-    console.log('ArgusCaseBuilder: ' + _clusters.length + ' clusters, ' + _cases.length + ' cases synthesized');
-  }
-
   // ── Pin management ────────────────────────────────────────────────────────
   function togglePin(caseId) {
     var c = _cases.find(function(x) { return x.id === caseId; });
@@ -8199,11 +8453,14 @@ window.ArgusCaseBuilder = (function() {
   function updateClusterBar() {
     var bar = document.getElementById('cb-cluster-bar');
     if (!bar) return;
+    var modeStr = _activeKeywords.length
+      ? 'KW: ' + _activeKeywords.map(function(k){ return '⬡ '+k; }).join(' ')
+      : 'GENERAL ANOMALY';
     bar.innerHTML = _clusters.length
-      ? _clusters.length + ' CLUSTER' + (_clusters.length > 1 ? 'S' : '') + ' DETECTED' +
+      ? _clusters.length + ' CLUSTER' + (_clusters.length > 1 ? 'S' : '') +
         ' &nbsp;·&nbsp; ' + _pins.length + ' PINNED' +
-        ' &nbsp;·&nbsp; RADIUS ' + CLUSTER_RADIUS_KM + 'KM'
-      : 'NO DATA — PRESS SCAN';
+        ' &nbsp;·&nbsp; <span style="color:' + (_activeKeywords.length ? '#b464ff' : '#4a7da8') + '">' + modeStr + '</span>'
+      : 'NO DATA — ENTER PARAMETERS AND PRESS SCAN';
   }
 
   // ── Render dispatcher ─────────────────────────────────────────────────────
@@ -8245,14 +8502,27 @@ window.ArgusCaseBuilder = (function() {
       html += '<div class="case-card' + (c.pinned ? ' is-pinned' : '') + (c.news.length ? ' has-link' : '') + '" onclick="ArgusCaseBuilder.togglePin(\'' + c.id + '\')">';
       html += '<div style="display:flex;justify-content:space-between;align-items:flex-start">';
       html += '<span class="case-card__tag" style="color:' + pinColor + '">' + c.id + (c.pinned ? ' ◈ PINNED' : '') + '</span>';
-      html += '<span class="case-card__score">SCORE ' + c.score + '</span>';
+      html += '<span class="case-card__score">SCORE ' + c.score + (c.baseScore && c.score !== c.baseScore ? ' <span style="color:#4a7da8;font-weight:400">(base ' + c.baseScore + ')</span>' : '') + '</span>';
       html += '</div>';
-      html += '<div class="case-card__title">' + c.title + '</div>';
+      // Title with keyword highlights
+      html += '<div class="case-card__title">' + highlightKeywords(c.title, _activeKeywords) + '</div>';
+      // Keyword hit badges
+      if (c.hitKeywords && c.hitKeywords.length) {
+        html += '<div style="margin-top:3px">';
+        c.hitKeywords.forEach(function(kw) {
+          html += '<span class="kw-badge">⬡ ' + kw + '</span>';
+        });
+        html += '</div>';
+      }
       // Seismic anchor
-      html += '<div class="case-card__meta">⬡ SEISMIC: ' + c.seismic.title.slice(0, 50) + '</div>';
-      // Top news events
+      if (c.seismic) {
+        html += '<div class="case-card__meta">⬡ SEISMIC: ' + highlightKeywords(c.seismic.title.slice(0, 50), _activeKeywords) + '</div>';
+      } else {
+        html += '<div class="case-card__meta" style="color:#b464ff88">◈ KEYWORD-DRIVEN — no seismic anchor</div>';
+      }
+      // Top news events with highlights
       c.news.slice(0, 2).forEach(function(n) {
-        html += '<div class="case-card__meta" style="color:' + sevColor(n.severity) + '">▸ ' + (n.title || '').slice(0, 55) + '</div>';
+        html += '<div class="case-card__meta" style="color:' + sevColor(n.severity) + '">▸ ' + highlightKeywords((n.title || '').slice(0, 55), _activeKeywords) + '</div>';
       });
       // Market signal
       if (c.market) html += '<div class="case-card__meta" style="color:#ff9933;margin-top:3px">⚡ ' + c.market.slice(0, 90) + '</div>';

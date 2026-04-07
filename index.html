@@ -221,78 +221,6 @@
       transition: max-height 0.25s cubic-bezier(0.22,1,0.36,1), padding 0.25s;
     }
 
-    /* Case Builder panel — bottom-center drawer, slides up on open */
-    #panel-cases {
-      position: fixed;
-      bottom: -480px; /* hidden below viewport by default */
-      left: 50%;
-      transform: translateX(-50%);
-      width: clamp(520px, 55vw, 780px);
-      height: 480px;
-      z-index: var(--z-panels);
-      background: linear-gradient(135deg, var(--color-bg-panel) 0%, var(--color-bg-panel-alt) 100%);
-      backdrop-filter: blur(12px);
-      border: 1px solid #b464ff33;
-      border-bottom: none;
-      border-radius: 2px 2px 0 0;
-      display: flex;
-      flex-direction: column;
-      padding: 12px;
-      transition: bottom 0.35s cubic-bezier(0.22,1,0.36,1);
-    }
-    #panel-cases.is-visible { bottom: 0; }
-
-    /* Triangular trigger tab — sits just above the bottom edge, always visible */
-    #cb-trigger {
-      position: fixed;
-      bottom: 0;
-      left: 50%;
-      transform: translateX(-50%);
-      z-index: calc(var(--z-panels) + 1);
-      cursor: pointer;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 0;
-      transition: bottom 0.35s cubic-bezier(0.22,1,0.36,1);
-    }
-    #cb-trigger.is-open { bottom: 480px; }
-    /* The triangle shape */
-    #cb-trigger-arrow {
-      width: 0; height: 0;
-      border-left: 35px solid transparent;
-      border-right: 35px solid transparent;
-      border-bottom: 21px solid #b464ff66;
-      transition: border-bottom-color 0.18s, transform 0.35s;
-    }
-    #cb-trigger:hover #cb-trigger-arrow { border-bottom-color: #b464ffcc; }
-
-    /* Backdrop — blocks all globe/marker interaction when drawer is open */
-    #cb-backdrop {
-      display: none;
-      position: fixed;
-      inset: 0;
-      bottom: 480px; /* only covers above the drawer */
-      z-index: calc(var(--z-panels) - 1); /* below panel-cases, above globe */
-      background: rgba(2, 8, 18, 0.45);
-      cursor: not-allowed;
-    }
-    #cb-backdrop.is-visible { display: block; }
-    #cb-trigger.is-open #cb-trigger-arrow { transform: rotate(180deg); }
-    /* Label pill below triangle */
-    #cb-trigger-label {
-      background: rgba(5,15,30,0.85);
-      border: 1px solid #b464ff44;
-      border-top: none;
-      font-size: 7px;
-      letter-spacing: 2px;
-      color: #b464ff88;
-      padding: 2px 10px 3px;
-      font-family: var(--font-mono);
-      transition: color 0.18s, border-color 0.18s;
-    }
-    #cb-trigger:hover #cb-trigger-label { color: #b464ff; border-color: #b464ff88; }
-
     #panel-events.is-minimized {
       max-height: 32px;
       overflow: hidden;
@@ -360,12 +288,6 @@
       display: none;
     }
     .event-card.is-open .event-card__detail { display: block; }
-    /* ── Seismic Triage Engine visual cues ── non-invasive additions ────────── */
-    .event-card[data-triage="P0"] { border-left-color: var(--threat-color, #ff0044) !important; box-shadow: 0 0 8px rgba(255,0,68,0.3); }
-    .event-card[data-triage="P1"] { border-left-color: var(--threat-color, #ff9933) !important; }
-    .event-card[data-triage="P2"] { border-left-color: var(--threat-color, #ffcc00) !important; }
-    .event-card[data-triage="IGNORE"] { opacity: 0.4; }
-    .event-card.triage-hidden { display: none; } /* toggled via JS — data not deleted */
 
     /* GDELT tab styles — injected by GDELT module but defined here for maintainability */
     #feed-toggle { display: flex; margin-bottom: 8px; }
@@ -388,93 +310,191 @@
     .feed-tab.is-news-active     { background: rgba(0, 255, 136, 0.10); border-color: #00ff8844; color: var(--color-green); }
     .feed-tab.is-gdelt-active    { background: rgba(0, 204, 255, 0.12); border-color: #00ccff44; color: #00ccff; }
     .feed-tab.is-disaster-active { background: rgba(255, 153, 0, 0.12); border-color: #ff990044; color: #ff9900; }
-    .feed-tab.is-cases-active    { background: rgba(180,100,255,0.12); border-color: #b464ff44; color: #b464ff; }
 
-    /* ── Neural Case Builder ──────────────────────────────────────────────── */
+    /* ══════════════════════════════════════════════════════════════════════════
+       NEURAL CASE BUILDER — CSS
+       All selectors are ID/class-scoped. Zero interference with existing UI.
+    ══════════════════════════════════════════════════════════════════════════ */
 
-    /* Mode toggle bar */
-    #cb-mode-bar { display: flex; gap: 4px; margin-bottom: 8px; flex-shrink: 0; }
+    /* ── Trigger tab (bottom-center, always visible) ── */
+    #cb-trigger {
+      position: fixed;
+      bottom: 0;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 9999;
+      cursor: pointer;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 6px 20px 0;
+      min-width: 110px;
+      transition: bottom 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+    }
+    #cb-trigger.is-open { bottom: 480px; }
+    #cb-trigger-arrow {
+      width: 0; height: 0;
+      border-left: 35px solid transparent;
+      border-right: 35px solid transparent;
+      border-bottom: 21px solid #b464ff;
+      filter: drop-shadow(0 0 6px #b464ff88);
+      transition: border-bottom-color 0.18s, transform 0.35s;
+    }
+    #cb-trigger:hover #cb-trigger-arrow   { border-bottom-color: #d49fff; }
+    #cb-trigger.is-open #cb-trigger-arrow { transform: rotate(180deg); }
+    #cb-trigger-label {
+      background: rgba(5, 15, 30, 0.92);
+      border: 1px solid #b464ff66;
+      border-top: none;
+      font-family: var(--font-mono);
+      font-size: 7px;
+      letter-spacing: 2px;
+      color: #b464ff;
+      padding: 2px 12px 3px;
+      transition: color 0.18s, border-color 0.18s;
+    }
+    #cb-trigger:hover #cb-trigger-label { color: #d49fff; border-color: #b464ffaa; }
+
+    /* ── Backdrop — blocks globe interaction when drawer open ── */
+    #cb-backdrop {
+      display: none;
+      position: fixed;
+      inset: 0;
+      bottom: 480px;
+      z-index: 9997;
+      background: rgba(2, 8, 18, 0.5);
+      cursor: not-allowed;
+    }
+    #cb-backdrop.is-visible { display: block; }
+
+    /* ── Main drawer panel ── */
+    #panel-cases {
+      position: fixed;
+      bottom: -490px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: clamp(520px, 58vw, 800px);
+      height: 480px;
+      z-index: 9998;
+      display: flex;
+      flex-direction: column;
+      padding: 12px;
+      background: linear-gradient(135deg, rgba(5,15,30,0.97) 0%, rgba(8,20,42,0.97) 100%);
+      backdrop-filter: blur(14px);
+      border: 1px solid #b464ff44;
+      border-bottom: none;
+      border-radius: 3px 3px 0 0;
+      transition: bottom 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+    }
+    #panel-cases.is-visible { bottom: 0; }
+
+    /* ── Panel header ── */
+    #cb-panel-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 8px;
+      flex-shrink: 0;
+      border-bottom: 1px solid #b464ff22;
+      padding-bottom: 7px;
+    }
+    #cb-title-text {
+      font-size: 10px;
+      letter-spacing: 3px;
+      color: #b464ff;
+      font-family: var(--font-mono);
+    }
+    #cb-close-btn {
+      cursor: pointer;
+      color: #b464ff66;
+      font-size: 14px;
+      line-height: 1;
+      padding: 2px 6px;
+      transition: color 0.15s;
+    }
+    #cb-close-btn:hover { color: #b464ff; }
+
+    /* ── Locked overlay (viewer/guest) ── */
+    #cb-locked {
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      flex: 1;
+      gap: 8px;
+      color: #4a7da8;
+      font-size: 9px;
+      letter-spacing: 2px;
+      text-align: center;
+    }
+    #cb-locked.active { display: flex; }
+
+    /* ── Authenticated content wrapper ── */
+    #cb-content {
+      display: none;
+      flex-direction: column;
+      flex: 1;
+      min-height: 0;
+      overflow: hidden;
+    }
+    #cb-content.active { display: flex; }
+
+    /* ── Mode toggle bar ── */
+    #cb-mode-bar {
+      display: flex;
+      gap: 4px;
+      margin-bottom: 6px;
+      flex-shrink: 0;
+    }
     .cb-mode-btn {
-      flex: 1; padding: 4px 0; font-size: 8px; letter-spacing: 1.5px; font-weight: 700;
-      cursor: pointer; text-align: center; border: 1px solid #0f274488;
-      color: #4a7da8; background: rgba(5,15,30,0.5); font-family: var(--font-mono);
+      flex: 1;
+      padding: 4px 0;
+      font-size: 8px;
+      letter-spacing: 1.5px;
+      font-weight: 700;
+      cursor: pointer;
+      text-align: center;
+      border: 1px solid #1a3050;
+      color: #4a7da8;
+      background: rgba(5, 15, 30, 0.5);
+      font-family: var(--font-mono);
       transition: all 0.18s;
     }
     .cb-mode-btn.active { background: rgba(180,100,255,0.14); border-color: #b464ff66; color: #b464ff; }
+    .cb-mode-btn:hover   { border-color: #b464ff44; color: #b464ffaa; }
 
-    /* Case cards — mimics event-card + connection indicator */
-    .case-card {
-      position: relative; margin-bottom: 7px; padding: 9px 11px 9px 13px;
-      background: rgba(20,8,40,0.5); border: 1px solid #2a1a4a88;
-      border-left: 2px solid #b464ff; border-radius: 1px;
-      font-family: var(--font-mono); cursor: pointer;
-      transition: border-color 0.18s, background 0.18s;
-    }
-    .case-card:hover { background: rgba(30,12,55,0.7); border-color: #b464ff66; }
-    .case-card.is-pinned { border-left-color: #ff9933; background: rgba(40,20,5,0.45); }
-    .case-card__tag { font-size: 8px; letter-spacing: 1.5px; color: #b464ff; font-weight: 700; }
-    .case-card__title { font-size: 10px; color: #ddeeff; margin-top: 3px; line-height: 1.45; }
-    .case-card__meta { font-size: 8px; color: #4a7da8; margin-top: 4px; letter-spacing: 0.8px; }
-    .case-card__score { font-size: 8px; color: #ff9933; float: right; }
-    /* Connection line — decorative left-side thread */
-    .case-card::before {
-      content: ''; position: absolute; left: -1px; top: 50%; width: 6px; height: 1px;
-      background: #b464ff55; transform: translateY(-50%);
-    }
-    .case-card.has-link::after {
-      content: '⬡'; position: absolute; left: -8px; top: 50%;
-      transform: translateY(-50%); font-size: 8px; color: #b464ff88;
+    /* ── Status bar ── */
+    #cb-status-bar {
+      font-size: 8px;
+      color: #4a7da8;
+      letter-spacing: 1px;
+      margin-bottom: 6px;
+      flex-shrink: 0;
+      min-height: 12px;
     }
 
-    /* Intelligence Brief mode */
-    #cb-brief { overflow-y: auto; flex: 1; }
-    .cb-brief-section { margin-bottom: 10px; }
-    .cb-brief-section__hdr {
-      font-size: 8px; letter-spacing: 2px; color: #4a7da8; margin-bottom: 5px;
-      border-bottom: 1px solid #0f274455; padding-bottom: 3px;
-    }
-
-    /* Neural Web mode */
-    #cb-network-canvas { flex: 1; width: 100%; min-height: 0; }
-
-    /* Timeline Matrix mode */
-    #cb-timeline { overflow-y: auto; flex: 1; }
-    .cb-timeline-row {
-      display: flex; gap: 8px; align-items: flex-start;
-      margin-bottom: 6px; position: relative;
-    }
-    .cb-timeline-row::before {
-      content: ''; position: absolute; left: 28px; top: 20px;
-      width: 1px; height: calc(100% + 6px); background: #0f274488;
-    }
-    .cb-timeline-ts { font-size: 8px; color: #4a7da8; width: 54px; flex-shrink: 0; padding-top: 3px; letter-spacing: 0.5px; }
-    .cb-timeline-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; margin-top: 4px; border: 1px solid #0f2744; }
-    .cb-timeline-body { flex: 1; }
-
-    /* Cluster badge */
-    .cb-cluster-badge {
-      display: inline-block; font-size: 7px; letter-spacing: 1px;
-      padding: 1px 5px; border: 1px solid #b464ff44; color: #b464ff;
-      margin-left: 6px; vertical-align: middle;
-    }
-
-    /* Export / pin row */
-    #cb-action-bar { display: flex; gap: 5px; margin-top: 6px; flex-shrink: 0; }
-    .cb-btn {
-      flex: 1; padding: 5px 0; font-size: 8px; letter-spacing: 1.5px; font-weight: 700;
-      cursor: pointer; text-align: center; border: 1px solid #b464ff44;
-      color: #b464ff; background: rgba(5,15,30,0.5); font-family: var(--font-mono);
-      transition: all 0.18s;
-    }
-    .cb-btn:hover { background: rgba(180,100,255,0.12); }
-    .cb-btn.danger { border-color: #ff004444; color: #ff0044; }
-
-    /* Keyword input — terminal aesthetic */
-    #cb-keyword-row { display: flex; gap: 5px; margin-top: 6px; flex-shrink: 0; }
-    .argus-input {
+    /* ── View containers ── */
+    #cb-brief, #cb-timeline {
       flex: 1;
-      background: rgba(2, 8, 18, 0.7);
-      border: 1px solid #0f2744;
+      overflow-y: auto;
+      scrollbar-width: thin;
+      scrollbar-color: #2a3a5a transparent;
+    }
+    #cb-network-canvas { flex: 1; width: 100%; display: none; min-height: 0; }
+    #cb-brief    { display: block; }
+    #cb-timeline { display: none; }
+
+    /* ── Keyword input row ── */
+    #cb-keyword-row {
+      display: flex;
+      gap: 5px;
+      margin-top: 7px;
+      flex-shrink: 0;
+    }
+    .cb-argus-input {
+      flex: 1;
+      background: rgba(2, 8, 18, 0.8);
+      border: 1px solid #1a3050;
       color: #c5d7e8;
       font-family: var(--font-mono);
       font-size: 9px;
@@ -484,32 +504,69 @@
       border-radius: 1px;
       transition: border-color 0.18s, box-shadow 0.18s;
     }
-    .argus-input::placeholder { color: #2a4a6a; letter-spacing: 0.5px; }
-    .argus-input:focus {
+    .cb-argus-input::placeholder { color: #2a4a6a; }
+    .cb-argus-input:focus {
       border-color: var(--color-accent);
-      box-shadow: 0 0 0 1px var(--color-accent)22, inset 0 0 8px rgba(0,153,255,0.04);
+      box-shadow: 0 0 0 1px rgba(0,153,255,0.2);
     }
 
-    /* Keyword match highlight in case cards */
-    .kw-hit {
-      background: rgba(180,100,255,0.22);
-      color: #d49fff;
-      border-radius: 1px;
-      padding: 0 2px;
+    /* ── Action buttons ── */
+    #cb-action-bar {
+      display: flex;
+      gap: 5px;
+      margin-top: 5px;
+      flex-shrink: 0;
+    }
+    .cb-btn {
+      flex: 1;
+      padding: 5px 0;
+      font-size: 8px;
+      letter-spacing: 1.5px;
       font-weight: 700;
+      cursor: pointer;
+      text-align: center;
+      border: 1px solid #b464ff44;
+      color: #b464ff;
+      background: rgba(5, 15, 30, 0.5);
+      font-family: var(--font-mono);
+      transition: all 0.18s;
     }
-    /* Keyword badge on case card */
-    .kw-badge {
-      display: inline-block; font-size: 7px; letter-spacing: 1px;
-      padding: 1px 5px; border: 1px solid #b464ff55;
-      color: #b464ff; margin-left: 5px; vertical-align: middle;
-    }
+    .cb-btn:hover  { background: rgba(180,100,255,0.12); border-color: #b464ff88; }
+    .cb-btn.danger { border-color: #ff004444; color: #ff4466; }
+    .cb-btn.danger:hover { background: rgba(255,0,68,0.1); border-color: #ff004488; }
 
-    /* Locked overlay */
-    #cb-locked { display: none; align-items: center; justify-content: center;
-      flex-direction: column; gap: 8px; height: 100%;
-      color: #4a7da8; font-size: 9px; letter-spacing: 2px; text-align: center; }
-    #cb-locked.is-visible { display: flex; }
+    /* ── Case cards ── */
+    .case-card {
+      position: relative;
+      margin-bottom: 6px;
+      padding: 8px 10px 8px 12px;
+      background: rgba(15, 8, 35, 0.6);
+      border: 1px solid #2a1a4a88;
+      border-left: 2px solid #b464ff;
+      border-radius: 1px;
+      font-family: var(--font-mono);
+      cursor: pointer;
+      transition: background 0.15s, border-color 0.15s;
+    }
+    .case-card:hover  { background: rgba(25, 12, 50, 0.8); }
+    .case-card.pinned { border-left-color: #ff9933; background: rgba(40, 20, 5, 0.5); }
+    .case-card__id    { font-size: 8px; letter-spacing: 1.5px; color: #b464ff; font-weight: 700; }
+    .case-card__score { font-size: 8px; color: #ff9933; float: right; }
+    .case-card__title { font-size: 10px; color: #ddeeff; margin-top: 3px; line-height: 1.4; }
+    .case-card__meta  { font-size: 8px; color: #4a7da8; margin-top: 3px; letter-spacing: 0.8px; }
+
+    /* ── Keyword highlight ── */
+    .kw-hit   { background: rgba(180,100,255,0.25); color: #d49fff; border-radius: 1px; padding: 0 2px; font-weight: 700; }
+    .kw-badge { display: inline-block; font-size: 7px; letter-spacing: 1px; padding: 1px 5px;
+                border: 1px solid #b464ff44; color: #b464ff; margin: 2px 3px 0 0; }
+
+    /* ── Timeline ── */
+    .cb-tl-row   { display: flex; gap: 8px; align-items: flex-start; margin-bottom: 6px; }
+    .cb-tl-ts    { font-size: 8px; color: #4a7da8; width: 60px; flex-shrink: 0; padding-top: 2px; }
+    .cb-tl-dot   { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; margin-top: 3px; border: 1px solid #0f2744; }
+    .cb-tl-body  { flex: 1; }
+    .cb-tl-title { font-size: 9px; color: #c5d7e8; line-height: 1.4; }
+    .cb-tl-src   { font-size: 7px; color: #4a7da8; letter-spacing: 1px; margin-top: 2px; }
 
     .tone-bar-wrap { height: 3px; background: rgba(15, 39, 68, 0.4); border-radius: 2px; margin-top: 5px; overflow: hidden; }
     .tone-bar { height: 100%; border-radius: 2px; transition: width 0.6s ease; }
@@ -1666,8 +1723,6 @@
     <div id="ev-list" role="list"></div>
   </aside>
 
-
-
   <!-- ── Node Detail Panel ───────────────────────────────────────────────────── -->
   <aside id="panel-detail" class="panel" aria-label="Node detail" aria-hidden="true">
     <div class="detail__header">
@@ -1967,48 +2022,78 @@
 
 </div><!-- /#app -->
 
-<!-- ── Neural Case Builder — outside #app to escape overflow:hidden clipping ── -->
+<!-- ══════════════════════════════════════════════════════════════════════════════
+     NEURAL CASE BUILDER — HTML
+     Placed OUTSIDE #app to escape overflow:hidden clipping on #app and body.
+     All three elements are position:fixed and z-index 9997-9999.
+══════════════════════════════════════════════════════════════════════════════ -->
+
+<!-- Backdrop: dims globe and blocks all globe/marker interaction when open -->
 <div id="cb-backdrop"></div>
 
-<div id="cb-trigger" onclick="if(window.ArgusCaseBuilder) ArgusCaseBuilder.toggleDrawer()" title="Neural Case Builder">
+<!-- Trigger: persistent bottom-centre triangle tab, visible to all tiers -->
+<div id="cb-trigger">
   <div id="cb-trigger-arrow"></div>
   <div id="cb-trigger-label">◈ CASES</div>
 </div>
 
+<!-- Main drawer panel -->
 <aside id="panel-cases" aria-label="Neural Case Builder" aria-hidden="true">
-  <div class="events-header" style="cursor:default">
-    <span class="events-header__pulse" style="background:#b464ff;box-shadow:0 0 6px #b464ff" aria-hidden="true"></span>
-    NEURAL CASE BUILDER
-    <button class="panel-min-btn" onclick="if(window.ArgusCaseBuilder) ArgusCaseBuilder.toggleDrawer()" style="color:#b464ff" title="Close">—</button>
+
+  <!-- Header row -->
+  <div id="cb-panel-header">
+    <span id="cb-title-text">NEURAL CASE BUILDER</span>
+    <span id="cb-close-btn" title="Close">✕</span>
   </div>
+
+  <!-- Locked overlay — shown when tier is viewer/guest -->
   <div id="cb-locked">
-    <div style="font-size:22px;opacity:0.3">⬡</div>
+    <div style="font-size:24px;opacity:0.25">⬡</div>
     <div>PRO · ADMIN · OWNER</div>
-    <div style="font-size:8px;color:#2a4a6a;margin-top:4px">NEURAL CASE BUILDER — RESTRICTED ACCESS</div>
+    <div style="font-size:8px;color:#2a4a6a;margin-top:4px;letter-spacing:1px">RESTRICTED ACCESS</div>
   </div>
-  <div id="cb-content" style="display:none;flex-direction:column;flex:1;overflow:hidden;min-height:0">
-    <div id="cb-header" style="font-size:10px;letter-spacing:3px;color:#b464ff;margin-bottom:7px;flex-shrink:0"></div>
+
+  <!-- Authenticated content — shown when tier is pro/admin/owner -->
+  <div id="cb-content">
+
+    <!-- Animated header text (cipherDecode target) -->
+    <div id="cb-header-text" style="font-size:9px;letter-spacing:2px;color:#b464ff88;margin-bottom:6px;flex-shrink:0;min-height:14px"></div>
+
+    <!-- View mode toggle -->
     <div id="cb-mode-bar">
-      <div class="cb-mode-btn active" id="cbm-brief"    onclick="ArgusCaseBuilder.setMode('brief')">⬛ BRIEF</div>
-      <div class="cb-mode-btn"        id="cbm-network"  onclick="ArgusCaseBuilder.setMode('network')">◈ NEURAL WEB</div>
-      <div class="cb-mode-btn"        id="cbm-timeline" onclick="ArgusCaseBuilder.setMode('timeline')">▤ TIMELINE</div>
+      <div class="cb-mode-btn active" id="cbm-brief">⬛ BRIEF</div>
+      <div class="cb-mode-btn"        id="cbm-network">◈ NEURAL WEB</div>
+      <div class="cb-mode-btn"        id="cbm-timeline">▤ TIMELINE</div>
     </div>
-    <div id="cb-cluster-bar" style="font-size:8px;color:#4a7da8;letter-spacing:1px;margin-bottom:6px;flex-shrink:0"></div>
-    <div id="cb-brief"    style="display:block;overflow-y:auto;flex:1"></div>
-    <canvas id="cb-network-canvas" style="display:none;flex:1;width:100%;min-height:0"></canvas>
-    <div id="cb-timeline" style="display:none;overflow-y:auto;flex:1"></div>
+
+    <!-- Status / cluster info bar -->
+    <div id="cb-status-bar">NO DATA — PRESS SCAN</div>
+
+    <!-- Brief view (default) -->
+    <div id="cb-brief"></div>
+
+    <!-- Neural Web canvas view -->
+    <canvas id="cb-network-canvas"></canvas>
+
+    <!-- Timeline view -->
+    <div id="cb-timeline"></div>
+
+    <!-- Keyword input -->
     <div id="cb-keyword-row">
-      <input type="text" id="input-case-keywords" class="argus-input"
-        placeholder="Target parameters: lithium, shipping, blackout…"
-        onkeydown="if(event.key==='Enter') ArgusCaseBuilder.scan()" />
+      <input id="input-case-keywords" type="text" class="cb-argus-input"
+        placeholder="Target parameters: lithium, shipping, conflict…" />
     </div>
+
+    <!-- Action buttons -->
     <div id="cb-action-bar">
-      <div class="cb-btn" id="cb-scan-btn" onclick="ArgusCaseBuilder.scan()">↻ SCAN</div>
-      <div class="cb-btn" onclick="ArgusCaseBuilder.exportReport()">↓ EXPORT</div>
-      <div class="cb-btn danger" onclick="ArgusCaseBuilder.clearPins()">✕ CLEAR</div>
+      <div class="cb-btn" id="cb-scan-btn">↻ SCAN</div>
+      <div class="cb-btn" id="cb-export-btn">↓ EXPORT</div>
+      <div class="cb-btn danger" id="cb-clear-btn">✕ CLEAR</div>
     </div>
-  </div>
-</aside>
+
+  </div><!-- /#cb-content -->
+
+</aside><!-- /#panel-cases -->
 
 <!-- ══════════════════════════════════════════════════════════════════════════════
      SCRIPT 1 — Three.js Globe Engine
@@ -2995,39 +3080,25 @@ window.ArgusData = (function() {
     }
 
     // ── FX: EUR/USD, GBP/USD, USD/JPY — single Frankfurter call ─────────────
-    // ── FX: EUR/USD, GBP/USD, USD/JPY — fallback chain ──────────────────
-    // Primary: ExchangeRate-API open access — no key, CORS-open, high limits
-    // Fallback: Frankfurter ECB — no key, CORS-open
-    function applyFXRates(eur, gbp, jpy) {
-      if (eur) { setEl('fx-eurusd', eur, 4); window._avData['fx-eurusd'] = eur; }
-      if (gbp) { setEl('fx-gbpusd', gbp, 4); window._avData['fx-gbpusd'] = gbp; }
-      if (jpy) { setEl('fx-usdjpy', jpy, 2); window._avData['fx-usdjpy'] = jpy; }
-      console.log('FX loaded — EUR/USD:', eur && eur.toFixed(4), 'GBP/USD:', gbp && gbp.toFixed(4), 'USD/JPY:', jpy && jpy.toFixed(2));
-    }
-    fetch('https://v6.exchangerate-api.com/v6/61302f7a6faa1d1912c1edd1/latest/USD')
-      .then(function(r) { return r.ok ? r.json() : Promise.reject('exchangerate-api ' + r.status); })
+    // Frankfurter publishes ECB reference rates. Free, no key, CORS-open.
+    // One request for all three pairs eliminates AV rate-limit pressure on FX entirely.
+    // Note: Frankfurter returns rates as "units of X per 1 USD", so:
+    //   EUR → we get USD/EUR (e.g. 0.92) → invert to get EUR/USD (e.g. 1.087)
+    //   GBP → same inversion for GBP/USD
+    //   JPY → direct (units of JPY per USD, no inversion needed)
+    fetch('https://api.frankfurter.app/latest?from=USD&to=EUR,GBP,JPY')
+      .then(function(r) { return r.json(); })
       .then(function(d) {
-        var rates = d && d.conversion_rates;
-        if (!rates || !rates.EUR) return Promise.reject('exchangerate-api: no rates');
-        applyFXRates(
-          rates.EUR ? 1 / rates.EUR : null,
-          rates.GBP ? 1 / rates.GBP : null,
-          rates.JPY || null
-        );
+        if (!d || !d.rates) { console.warn('Frankfurter FX: no rates'); return; }
+        var eur = d.rates.EUR ? (1 / d.rates.EUR) : null;   // EUR/USD
+        var gbp = d.rates.GBP ? (1 / d.rates.GBP) : null;   // GBP/USD
+        var jpy = d.rates.JPY || null;                        // USD/JPY direct
+        if (eur) { setEl('fx-eurusd', eur, 4); window._avData['fx-eurusd'] = eur; }
+        if (gbp) { setEl('fx-gbpusd', gbp, 4); window._avData['fx-gbpusd'] = gbp; }
+        if (jpy) { setEl('fx-usdjpy', jpy, 2); window._avData['fx-usdjpy'] = jpy; }
+        console.log('FX via Frankfurter — EUR/USD:', eur && eur.toFixed(4), 'GBP/USD:', gbp && gbp.toFixed(4), 'USD/JPY:', jpy && jpy.toFixed(2));
       })
-      .catch(function() {
-        fetch('https://api.frankfurter.app/latest?from=USD&to=EUR,GBP,JPY')
-          .then(function(r) { return r.json(); })
-          .then(function(d) {
-            if (!d || !d.rates) return;
-            applyFXRates(
-              d.rates.EUR ? 1 / d.rates.EUR : null,
-              d.rates.GBP ? 1 / d.rates.GBP : null,
-              d.rates.JPY || null
-            );
-          })
-          .catch(function(e) { console.warn('All FX sources failed:', e.message); });
-      });
+      .catch(function(e) { console.warn('Frankfurter FX failed:', e.message); });
 
     // ── SPY — AV only used for equities quote (no FX competition) ────────────
     doCall(avQuoteUrl('SPY'), function(d) { avSetSPY(d); }, 'SPY');
@@ -3807,7 +3878,6 @@ window.ArgusData = (function() {
     fetchAlphaVantage();
     fetchFRED();
     fetchTDData();
-    fetchFMPIndexes();
     fetchFinnhubCommodities();
     fetchBondYields();
     fetchBDI();
@@ -3873,8 +3943,6 @@ window.ArgusData = (function() {
       var ts = parseInt(localStorage.getItem(CACHE_T) || "0");
       if (cached && Date.now() - ts < TTL) { applyMarketPayload(JSON.parse(cached)); return; }
     } catch(e) {}
-    // Only call Netlify functions when served from Netlify — avoids 404 on GitHub Pages
-    if (window.location.hostname.indexOf('netlify') === -1 && window.location.hostname.indexOf('localhost') === -1) return;
     fetch('/.netlify/functions/fetch-market-data')
     .then(function(r) { return r.ok ? r.json() : null; })
     .then(function(res) {
@@ -3908,58 +3976,6 @@ window.ArgusData = (function() {
       });
       console.log("Stooq via Netlify: " + Object.keys(d.stooq).length + " symbols");
     }
-  }
-
-
-  // ── FMP Global Indexes — real index values, free tier, CORS-open ──────────
-  var FMP_KEY = 'Vmzo0OLxAPfvwaDWraXsIhuXUnZczNTI';
-  function fetchFMPIndexes() {
-    var CACHE_K = 'argus_fmp_idx_v1', CACHE_T = 'argus_fmp_idx_ts_v1';
-    var TTL = 15 * 60 * 1000;
-    try {
-      var cached = localStorage.getItem(CACHE_K);
-      var ts = parseInt(localStorage.getItem(CACHE_T) || '0');
-      if (cached && Date.now() - ts < TTL) {
-        renderExchanges(JSON.parse(cached));
-        return;
-      }
-    } catch(e) {}
-    // Single batch call — all 7 symbols, true index values
-    var syms = '^FTSE,^GDAXI,^N225,^HSI,^VIX,KSA,SPY';
-    var url  = 'https://financialmodelingprep.com/api/v3/quote/' + syms + '?apikey=' + FMP_KEY;
-    fetch(url)
-    .then(function(r) { return r.ok ? r.json() : Promise.reject('FMP HTTP ' + r.status); })
-    .then(function(data) {
-      if (!Array.isArray(data) || !data.length) return;
-      // Map FMP symbols to ARGUS sym keys
-      var symMap = {
-        '^FTSE':  'FTSE',
-        '^GDAXI': 'DAX',
-        '^N225':  'N225',
-        '^HSI':   'HSI',
-        '^VIX':   'VIX',
-        'KSA':    'KSA',
-        'SPY':    'NYA',
-      };
-      var exData = {};
-      data.forEach(function(q) {
-        var key = symMap[q.symbol];
-        if (!key || q.price == null) return;
-        exData[key] = {
-          price: q.price,
-          chg:   q.changesPercentage != null ? q.changesPercentage.toFixed(2) + '%' : '',
-          prices: [], dates: [], src: 'FMP'
-        };
-      });
-      if (!Object.keys(exData).length) return;
-      try {
-        localStorage.setItem(CACHE_K, JSON.stringify(exData));
-        localStorage.setItem(CACHE_T, String(Date.now()));
-      } catch(e) {}
-      renderExchanges(exData);
-      console.log('FMP indexes: ' + Object.keys(exData).length + ' symbols loaded');
-    })
-    .catch(function(e) { console.warn('FMP indexes failed:', e.message); });
   }
 
   return { init: init, buildSnapshot: buildSnapshot, downloadSnapshot: downloadSnapshot, toggleExchanges: toggleExchanges, selectExchange: selectExchange };
@@ -4111,12 +4127,6 @@ function renderEvents(events, isLive) {
     div.className = 'event-card';
     div.style.cssText = 'border-left-color:' + col + ';border-color:' + col + '44;background:' + bg +
       ';--card-i:' + idx;
-    // Stamp triage level as data attr — non-invasive, original data preserved
-    if (ev._triage) {
-      div.setAttribute('data-triage', ev._triage);
-      div.style.setProperty('--threat-color', ev._triageColor || col);
-    }
-    if (ev._suppress) div.classList.add('triage-hidden');
     div.innerHTML =
       '<div class="event-card__row">' +
         '<span class="event-card__type" style="color:' + col + '">' + ev.type + '</span>' +
@@ -4256,133 +4266,10 @@ function scorePlotPriority(ev) {
   return Math.round(humScore + ecoScore + typeBonus + sourceBoost);
 }
 
-// ── NewsTriage — Entertainment Circuit Breaker + Reality Scoring ─────────────
-// Runs BEFORE classifyArticle. Gate: suppresses entertainment false positives.
-// Non-invasive: failed articles still appear at LOW severity — never deleted.
-var NewsTriage = (function() {
-  'use strict';
-
-  // Step 1 — Entertainment domains: entire output is entertainment, no geopolitics.
-  var ENT_DOMAINS = [
-    'variety','ign','rottentomatoes','imdb','hollywoodreporter','deadline','screenrant',
-    'comicbook','cbr.com','indiewire','empireonline','collider','slashfilm','thewrap',
-    'tvline','fandom','gamesradar','polygon','kotaku','rockpapershotgun','pcgamer',
-    'eurogamer','gamespot','giant bomb','metacritic',
-  ];
-
-  // Fiction keywords — strong entertainment indicators regardless of source.
-  var FICTION_KW = [
-    'trailer','season premiere','series premiere','reboot','spinoff','spin-off',
-    'box office','streaming debut','cast announced','showrunner',
-    'limited series','miniseries','mid-season','season finale',
-    'series finale','cancelled series','renewed for season',
-    'episode recap','episode review','movie review','film review',
-    'game review','game release','dlc','patch notes',
-  ];
-
-  // Step 2 — Reality scoring markers.
-  var COUNTRIES = [
-    'ukraine','russia','china','taiwan','iran','israel','gaza','lebanon',
-    'syria','iraq','afghanistan','pakistan','india','yemen','sudan','somalia',
-    'ethiopia','myanmar','north korea','south korea','japan','germany','france',
-    'united kingdom','united states','turkey','saudi arabia','egypt',
-  ];
-  var GOVT_AGENCIES = [
-    'united nations','un security council','nato','pentagon','department of defense',
-    'state department','cia','fbi','iaea','imf','world bank','g7','g20',
-    'eu commission','european commission','white house','kremlin','icc',
-  ];
-  var STREAMING = [
-    'netflix','hulu','disney+','disney plus','paramount+','paramount plus',
-    'apple tv+','hbo max','peacock','amazon prime video','crunchyroll',
-  ];
-  var THREAT_KW = [
-    'conflict','airstrike','bombing','missile strike','military operation',
-    'invasion','troops deployed','casualties','civilian deaths','martial law',
-    'state of emergency','economic collapse','famine','coup','nuclear',
-    'crisis','blockade','genocide','war crimes',
-  ];
-
-  function contains(text, list) {
-    var lower = text.toLowerCase();
-    for (var i = 0; i < list.length; i++) { if (lower.indexOf(list[i]) !== -1) return true; }
-    return false;
-  }
-
-  /**
-   * processArticle — gate before classifyArticle.
-   * Returns { pass, realityScore, threatLevel, reason }
-   * threatLevel null  = let classifyArticle handle normally
-   * threatLevel None  = suppress to LOW, do not globe-plot
-   * threatLevel P0    = confirm CRITICAL — reality-gated high score + threat keyword
-   */
-  function processArticle(article) {
-    var title  = (article.title       || '').toLowerCase();
-    var desc   = (article.description || article.content || '').toLowerCase();
-    var source = (article.source_name  || article.source_id || article.link || '').toLowerCase();
-    var full   = title + ' ' + desc;
-
-    // Step 1: Circuit breaker — entertainment source or fiction keyword
-    if (contains(source, ENT_DOMAINS)) {
-      return { pass: false, realityScore: -100, threatLevel: 'None', reason: 'entertainment domain' };
-    }
-    if (contains(full, FICTION_KW)) {
-      return { pass: false, realityScore: -50, threatLevel: 'None', reason: 'fiction keyword' };
-    }
-
-    // Step 2: Reality scoring
-    var score = 0, hits = [];
-    if (contains(full, COUNTRIES))     { score += 5;  hits.push('country+5');  }
-    if (contains(full, GOVT_AGENCIES)) { score += 10; hits.push('agency+10');  }
-    if (typeof TIER_1_SOURCES !== 'undefined' &&
-        TIER_1_SOURCES.some(function(t) { return source.indexOf(t) !== -1; })) {
-      score += 10; hits.push('tier1+10');
-    }
-    if (contains(full, STREAMING))       { score -= 20; hits.push('streaming-20'); }
-    if (/\brecap\b|\breview\b/i.test(full)) { score -= 15; hits.push('recap-15');    }
-
-    // Step 3: Threat scaling — P0 only when reality score passes credibility threshold
-    var threatLevel = null;
-    if (score > 15 && contains(full, THREAT_KW)) {
-      threatLevel = 'P0';
-    }
-
-    return {
-      pass:         score > -10,
-      realityScore: score,
-      threatLevel:  threatLevel,
-      reason:       hits.join(' | ') || 'no markers'
-    };
-  }
-
-  return { processArticle: processArticle };
-})();
-// ── End NewsTriage ────────────────────────────────────────────────────────────
-
 function classifyArticle(article, idx) {
   var title  = (article.title || '').slice(0, 80);
   var desc   = (article.description || article.content || '').slice(0, 200);
   var full   = title + ' ' + desc;
-
-
-  // ── NewsTriage gate — runs before type/severity classification ────────────
-  // Suppresses entertainment false positives. threatLevel None → cap at LOW.
-  // P0 confirmation means reality score was high AND threat keyword present.
-  var _triage = NewsTriage.processArticle(article);
-  if (!_triage.pass || _triage.threatLevel === 'None') {
-    // Entertainment or fiction — pass through as LOW, no globe plot
-    var _impact = (desc.length > 40 ? desc.slice(0, 160) : (IMPACT_MAP['POLICY'] || ''));
-    return {
-      id: idx + 1, type: 'POLICY', severity: 'LOW',
-      title: (article.title || '').slice(0, 80),
-      impact: _impact,
-      pubDate: '', region: '', regionRaw: '',
-      link: article.link || '',
-      source: article.source_name || article.source_id || '',
-      lat: null, lon: null, plotPriority: 0,
-      _triageFiltered: true, _triageReason: _triage.reason,
-    };
-  }
 
   var type = 'POLICY';
   for (var i = 0; i < TYPE_RULES.length; i++) {
@@ -4428,14 +4315,6 @@ function classifyArticle(article, idx) {
     lat: null, lon: null,
   };
   ev.plotPriority = scorePlotPriority(ev);
-  // NewsTriage P0 confirmation — upgrade severity if reality-gated threat confirmed
-  if (_triage.threatLevel === 'P0' && ev.severity !== 'CRITICAL') {
-    ev.severity = 'CRITICAL';
-    ev.impact  += ' [TRIAGE P0: reality-confirmed threat]';
-    ev.plotPriority = Math.max(ev.plotPriority, 90);
-  }
-  ev._triageScore  = _triage.realityScore;
-  ev._triageReason = _triage.reason;
 
   // Async geocode — staggered to respect Nominatim 1 req/sec; cached in localStorage
   if (regionRaw) {
@@ -4514,15 +4393,9 @@ async function fetchAndClassify() {
 
   console.log('ARGUS NewsData: ' + articles.length + ' fetched, ' + filtered.length + ' after filter');
   var classified = filtered.map(classifyArticle);
-  // Separate triage-suppressed entertainment articles — not deleted, stored for inspection
-  window._triageFiltered = classified.filter(function(e) { return e._triageFiltered; });
-  if (window._triageFiltered.length) {
-    console.log('NewsTriage: suppressed ' + window._triageFiltered.length + ' entertainment/fiction articles');
-  }
-  // Sort: highest humanitarian-weighted priority first, exclude triage-suppressed from live feed
-  var live = classified.filter(function(e) { return !e._triageFiltered; });
-  live.sort(function(a, b) { return b.plotPriority - a.plotPriority; });
-  return live;
+  // Sort: highest humanitarian-weighted priority first
+  classified.sort(function(a, b) { return b.plotPriority - a.plotPriority; });
+  return classified;
 }
 
 async function loadLiveEvents() {
@@ -4558,292 +4431,6 @@ setInterval(loadLiveEvents, FEED_TTL);
 // USGS Earthquake Feed — free, no key, real-time GeoJSON
 // Fetches M4.5+ earthquakes from past 7 days
 // ════════════════════════════════════════════════════════════════════════════
-
-// ── Seismic Triage Engine ────────────────────────────────────────────────────
-// Filters raw USGS features into meaningful threat levels before UI render.
-// Threat levels: P0 (Critical/Tsunami), P1 (High Alert), P2 (Awareness), IGNORE
-// Non-invasive: IGNORE events are tagged but not deleted — toggle with data-triage attr.
-var TriageEngine = (function() {
-  'use strict';
-
-  // ── Coastal proximity dataset ─────────────────────────────────────────────
-  // Sampled major coastal population centres (lat, lon).
-  // Great-circle distance used for proximity checks — fast, accurate to ~1%.
-  // Extend this array to improve geofencing resolution without touching engine logic.
-  // Seismic-zone coastline reference grid — dense enough that no coastal point
-  // is more than ~200km from the nearest reference. Covers Ring of Fire, Mediterranean,
-  // Caribbean, and Indian Ocean seismic zones. Extend freely — engine is data-driven.
-  var COASTAL_POPULATIONS = [
-    // ── Pacific Ring of Fire — West Americas ────────────────────────────
-    { name:'AK-1',  lat:60.0,  lon:-152.0 }, { name:'AK-2',  lat:57.0,  lon:-153.0 },
-    { name:'AK-3',  lat:54.0,  lon:-162.0 }, { name:'AK-4',  lat:52.0,  lon:-170.0 },
-    { name:'AK-5',  lat:64.5,  lon:-165.0 }, { name:'AK-6',  lat:58.3,  lon:-136.5 },
-    { name:'BC-1',  lat:49.5,  lon:-124.8 }, { name:'PNW-1', lat:47.0,  lon:-124.2 },
-    { name:'PNW-2', lat:44.5,  lon:-124.1 }, { name:'CA-1',  lat:40.5,  lon:-124.3 },
-    { name:'CA-2',  lat:37.8,  lon:-122.5 }, { name:'CA-3',  lat:34.4,  lon:-119.7 },
-    { name:'CA-4',  lat:32.7,  lon:-117.2 }, { name:'MX-1',  lat:28.0,  lon:-114.0 },
-    { name:'MX-2',  lat:22.0,  lon:-106.0 }, { name:'MX-3',  lat:18.0,  lon:-102.5 },
-    { name:'GT-1',  lat:14.5,  lon:-92.0  }, { name:'SV-1',  lat:13.2,  lon:-89.5  },
-    { name:'NI-1',  lat:12.4,  lon:-87.2  }, { name:'CR-1',  lat:9.8,   lon:-85.2  },
-    { name:'PA-1',  lat:8.4,   lon:-82.4  }, { name:'CO-1',  lat:4.0,   lon:-77.0  },
-    { name:'EC-1',  lat:1.0,   lon:-80.5  }, { name:'EC-2',  lat:-2.0,  lon:-80.7  },
-    { name:'PE-1',  lat:-6.0,  lon:-81.0  }, { name:'PE-2',  lat:-12.0, lon:-77.5  },
-    { name:'PE-3',  lat:-17.0, lon:-72.0  }, { name:'CL-1',  lat:-22.0, lon:-70.2  },
-    { name:'CL-2',  lat:-27.0, lon:-71.0  }, { name:'CL-3',  lat:-33.0, lon:-71.6  },
-    { name:'CL-4',  lat:-37.0, lon:-73.5  }, { name:'CL-5',  lat:-42.0, lon:-74.5  },
-    { name:'CL-6',  lat:-46.0, lon:-75.0  },
-    // ── Caribbean ────────────────────────────────────────────────────────
-    { name:'CB-1',  lat:18.5,  lon:-72.3  }, { name:'CB-2',  lat:18.0,  lon:-76.8  },
-    { name:'CB-3',  lat:13.1,  lon:-59.6  }, { name:'CB-4',  lat:17.1,  lon:-61.8  },
-    { name:'CB-5',  lat:16.0,  lon:-68.0  }, { name:'CB-6',  lat:10.5,  lon:-61.5  },
-    // ── Pacific Ring of Fire — East Asia & Pacific ───────────────────────
-    { name:'KAM-1', lat:52.0,  lon:158.7  }, { name:'KAM-2', lat:48.0,  lon:153.0  },
-    { name:'JP-1',  lat:43.0,  lon:144.5  }, { name:'JP-2',  lat:40.0,  lon:141.5  },
-    { name:'JP-3',  lat:37.5,  lon:141.0  }, { name:'JP-4',  lat:35.0,  lon:136.0  },
-    { name:'JP-5',  lat:32.0,  lon:131.5  }, { name:'JP-6',  lat:30.0,  lon:130.5  },
-    { name:'RYU-1', lat:26.5,  lon:128.0  }, { name:'RYU-2', lat:24.5,  lon:122.5  },
-    { name:'TW-1',  lat:24.0,  lon:122.0  }, { name:'TW-2',  lat:22.5,  lon:120.5  },
-    { name:'PH-1',  lat:18.5,  lon:122.0  }, { name:'PH-2',  lat:16.0,  lon:120.0  },
-    { name:'PH-3',  lat:12.0,  lon:124.0  }, { name:'PH-4',  lat:8.5,   lon:126.5  },
-    { name:'PH-5',  lat:5.5,   lon:125.5  }, { name:'SUL-1', lat:1.5,   lon:125.0  },
-    { name:'HAL-1', lat:-0.5,  lon:128.0  }, { name:'PNG-1', lat:-4.5,  lon:152.0  },
-    { name:'PNG-2', lat:-6.0,  lon:147.0  }, { name:'SOL-1', lat:-9.5,  lon:161.0  },
-    { name:'VAN-1', lat:-15.5, lon:167.0  }, { name:'NZ-1',  lat:-38.5, lon:177.5  },
-    { name:'NZ-2',  lat:-42.0, lon:171.5  }, { name:'NZ-3',  lat:-45.5, lon:168.0  },
-    { name:'TON-1', lat:-20.0, lon:-175.0 }, { name:'SAM-1', lat:-14.0, lon:-171.0 },
-    { name:'FIJI-1',lat:-17.5, lon:178.5  }, { name:'KC-1',  lat:-29.0, lon:-177.0 },
-    // ── Indonesia & Southeast Asia ───────────────────────────────────────
-    { name:'SUM-1', lat:5.5,   lon:95.5   }, { name:'SUM-2', lat:2.0,   lon:99.0   },
-    { name:'SUM-3', lat:-2.5,  lon:101.5  }, { name:'SUM-4', lat:-5.5,  lon:105.0  },
-    { name:'JAV-1', lat:-7.0,  lon:107.5  }, { name:'JAV-2', lat:-8.5,  lon:115.0  },
-    { name:'JAV-3', lat:-8.0,  lon:122.0  }, { name:'SUND-1',lat:-10.5, lon:120.0  },
-    { name:'SUND-2',lat:-10.0, lon:124.5  }, { name:'TIMOR', lat:-9.5,  lon:125.0  },
-    { name:'BANDA', lat:-5.0,  lon:131.0  }, { name:'SEA-1', lat:6.0,   lon:102.5  },
-    // ── Indian Ocean & South Asia ────────────────────────────────────────
-    { name:'AND-1', lat:13.0,  lon:93.0   }, { name:'AND-2', lat:10.0,  lon:92.7   },
-    { name:'AND-3', lat:7.0,   lon:93.8   }, { name:'SRI-1', lat:8.5,   lon:81.5   },
-    { name:'IND-1', lat:15.0,  lon:74.0   }, { name:'IND-2', lat:20.0,  lon:86.5   },
-    { name:'PAK-1', lat:25.0,  lon:63.5   }, { name:'IRAN-1',lat:27.0,  lon:57.0   },
-    { name:'IRAN-2',lat:25.0,  lon:61.0   }, { name:'OMAN-1',lat:22.5,  lon:59.5   },
-    { name:'YEM-1', lat:14.5,  lon:49.5   }, { name:'HORN-1',lat:11.5,  lon:51.0   },
-    { name:'MADA-1',lat:-20.0, lon:44.5   }, { name:'MOZ-1', lat:-17.0, lon:37.0   },
-    // ── Mediterranean & Middle East ──────────────────────────────────────
-    { name:'TUR-1', lat:39.0,  lon:27.0   }, { name:'TUR-2', lat:37.0,  lon:36.5   },
-    { name:'GRC-1', lat:38.0,  lon:21.5   }, { name:'GRC-2', lat:35.3,  lon:25.0   },
-    { name:'ITA-1', lat:37.5,  lon:15.0   }, { name:'ITA-2', lat:38.5,  lon:16.0   },
-    { name:'ALG-1', lat:37.0,  lon:3.0    }, { name:'MOR-1', lat:35.5,  lon:-5.5   },
-    { name:'CYP-1', lat:35.0,  lon:33.5   }, { name:'LEB-1', lat:33.9,  lon:35.5   },
-    { name:'AZOR-1',lat:37.7,  lon:-25.5  }, { name:'CAN-1', lat:28.0,  lon:-15.5  },
-    // ── Atlantic seismic zones ───────────────────────────────────────────
-    { name:'PT-1',  lat:39.0,  lon:-9.5   }, { name:'PT-2',  lat:37.0,  lon:-8.5   },
-    { name:'EC-ATL',lat:0.0,   lon:-11.0  }, { name:'MID-ATL',lat:20.0, lon:-24.0  },
-  ];
-
-  var RAD = Math.PI / 180;
-  var EARTH_KM = 6371;
-
-  /**
-   * Great-circle distance between two lat/lon points (Haversine formula).
-   * Returns distance in kilometres.
-   * Threshold-based — we stop at first coast within range for performance.
-   */
-  function haversineKm(lat1, lon1, lat2, lon2) {
-    var dLat = (lat2 - lat1) * RAD;
-    var dLon = (lon2 - lon1) * RAD;
-    var a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-            Math.cos(lat1 * RAD) * Math.cos(lat2 * RAD) *
-            Math.sin(dLon / 2) * Math.sin(dLon / 2);
-    return EARTH_KM * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  }
-
-  /**
-   * Returns km to nearest coastal population centre.
-   * Short-circuits once a city within `threshold` km is found.
-   */
-  function nearestCoastKm(lat, lon, threshold) {
-    var min = Infinity;
-    for (var i = 0; i < COASTAL_POPULATIONS.length; i++) {
-      var c = COASTAL_POPULATIONS[i];
-      var d = haversineKm(lat, lon, c.lat, c.lon);
-      if (d < min) min = d;
-      if (min <= threshold) return min; // early exit
-    }
-    return min;
-  }
-
-  // ── Keyword lists ──────────────────────────────────────────────────────────
-  // P0 escalation keywords — any match in place/title/alert → Critical
-  var P0_KEYWORDS = ['tsunami warning', 'inundation', 'tsunami advisory'];
-  // Auto-suppress keywords — these are not seismic hazards
-  var SUPPRESS_KEYWORDS = ['explosion', 'quarry blast', 'quarry'];
-
-  function containsKeyword(text, keywords) {
-    if (!text) return false;
-    var lower = text.toLowerCase();
-    for (var i = 0; i < keywords.length; i++) {
-      if (lower.indexOf(keywords[i]) !== -1) return true;
-    }
-    return false;
-  }
-
-  /**
-   * triageEvent — core classification function.
-   *
-   * @param {object} f  USGS GeoJSON Feature object
-   * @returns {{ threatLevel: string, severity: string, suppress: boolean }}
-   *
-   * Magnitude thresholds rationale (2026 PNSN/USGS standards):
-   *   < 4.5 → Below human-perceptible structural damage threshold
-   *   4.5–6.0 → Can cause minor damage near epicentre; coast proximity elevates risk
-   *   6.0–7.5 → Moderate-major; potential for significant damage and local tsunami
-   *   > 7.5 → Major; historically associated with tsunamigenic potential
-   *
-   * Depth threshold rationale:
-   *   > 100 km (intermediate/deep focus) → Energy largely absorbed by mantle;
-   *   surface shaking attenuated; tsunami generation essentially impossible.
-   */
-  function triageEvent(f) {
-    var p      = f.properties || {};
-    var coords = f.geometry && f.geometry.coordinates;
-    var mag    = parseFloat(p.mag || 0);
-    var depth  = coords ? parseFloat(coords[2]) : 0;
-    var place  = p.place || '';
-    var type   = (p.type || '').toLowerCase();
-    var alert  = (p.alert || '').toLowerCase();
-
-    // ── Suppress non-seismic events ──────────────────────────────────────────
-    // Quarry blasts and explosions appear in USGS feed but are not natural hazards.
-    // Low-magnitude aftershocks (< 5.0) are informational only — suppress from feed.
-    if (containsKeyword(place + ' ' + type, SUPPRESS_KEYWORDS)) {
-      return { threatLevel: 'IGNORE', severity: 'LOW', suppress: true, reason: 'non-seismic' };
-    }
-    if (type === 'quarry blast' || type === 'explosion') {
-      return { threatLevel: 'IGNORE', severity: 'LOW', suppress: true, reason: 'non-seismic' };
-    }
-    if (type === 'aftershock' && mag < 5.0) {
-      return { threatLevel: 'IGNORE', severity: 'LOW', suppress: true, reason: 'minor aftershock' };
-    }
-
-    // ── P0 keyword escalation — highest priority check ───────────────────────
-    // Tsunami warnings supersede all magnitude/depth logic.
-    if (containsKeyword(place + ' ' + alert, P0_KEYWORDS)) {
-      return { threatLevel: 'P0', severity: 'CRITICAL', suppress: false, reason: 'tsunami keyword' };
-    }
-
-    // ── Depth filter — deep-focus events don't threaten surface ─────────────
-    // > 100 km: intermediate/deep focus. Waves attenuated through mantle.
-    if (depth > 100) {
-      return { threatLevel: 'IGNORE', severity: 'LOW', suppress: false, reason: 'deep focus >' + depth.toFixed(0) + 'km' };
-    }
-
-    var lat = coords ? coords[1] : null;
-    var lon = coords ? coords[0] : null;
-
-    // ── P0: Major/great earthquakes ──────────────────────────────────────────
-    // M > 7.5 — historically produces tsunamis regardless of location.
-    if (mag > 7.5) {
-      return { threatLevel: 'P0', severity: 'CRITICAL', suppress: false, reason: 'M' + mag.toFixed(1) + ' major event' };
-    }
-
-    // ── Proximity-dependent classification ───────────────────────────────────
-    var coastKm = (lat !== null && lon !== null) ? nearestCoastKm(lat, lon, 200) : 999;
-
-    // Underwater events (depth < 30 km, ocean setting) with M < 6.5:
-    // Suppress unless within 20 km of a populated coast.
-    // Rationale: shallow offshore M < 6.5 rarely generates damaging tsunamis far from shore.
-    if (mag < 6.5 && depth < 30 && coastKm > 20) {
-      // Check if it looks like an ocean event (place often says "of the coast")
-      var isOcean = /\bof the\b|\bocean\b|\bsea\b|\btrench\b|\brise\b|\bdeep\b/i.test(place);
-      if (isOcean && mag < 6.5) {
-        return { threatLevel: 'IGNORE', severity: 'LOW', suppress: false, reason: 'offshore M<6.5 >20km from coast' };
-      }
-    }
-
-    // ── P1: High Alert ───────────────────────────────────────────────────────
-    // M 6.0–7.5 within 300 km of coastline reference point.
-    if (mag >= 6.0 && coastKm <= 300) {
-      return { threatLevel: 'P1', severity: 'WARNING', suppress: false, reason: 'M' + mag.toFixed(1) + ' within ' + Math.round(coastKm) + 'km of coastline' };
-    }
-
-    // ── P2: Awareness ────────────────────────────────────────────────────────
-    // M 4.5–6.0 within 150 km of coastline reference point.
-    if (mag >= 4.5 && mag < 6.0 && coastKm <= 150) {
-      return { threatLevel: 'P2', severity: 'WATCH', suppress: false, reason: 'M' + mag.toFixed(1) + ' within ' + Math.round(coastKm) + 'km of coastline' };
-    }
-
-    // ── IGNORE — remaining events are low-impact noise ───────────────────────
-    // M 4.5–6.0 far from coasts, or M 6.0+ inland far from population centres.
-    return { threatLevel: 'IGNORE', severity: 'LOW', suppress: false, reason: 'low coastal impact' };
-  }
-
-  /**
-   * applyTriage — runs triageEvent over a USGS features array.
-   * Returns mapped ARGUS event objects with triage metadata attached.
-   * IGNORE events are included with suppress/triage flags for UI toggling.
-   *
-   * @param {Array} features  Raw USGS GeoJSON features
-   * @returns {Array} ARGUS-compatible event objects
-   */
-  function applyTriage(features) {
-    // Threat level → ARGUS plotPriority mapping
-    var PRIORITY = { P0: 95, P1: 70, P2: 45, IGNORE: 5 };
-    // Threat level → CSS variable colour (injected as inline style for non-invasive theming)
-    var THREAT_COLOR = { P0: '#ff0044', P1: '#ff9933', P2: '#ffcc00', IGNORE: '#2a4a6a' };
-
-    var results = [];
-    features.forEach(function(f, i) {
-      var p      = f.properties || {};
-      var coords = f.geometry && f.geometry.coordinates;
-      var mag    = parseFloat(p.mag || 0);
-      var depth  = coords ? parseFloat(coords[2]) : 0;
-      var triage = triageEvent(f);
-
-      // Map to ARGUS event object — all fields preserved regardless of triage level
-      var ev = {
-        id:          9000 + i,
-        type:        'SEISMIC',
-        severity:    triage.severity,
-        title:       'M' + mag.toFixed(1) + ' Earthquake — ' + (p.place || 'Unknown region'),
-        impact:      'Magnitude ' + mag.toFixed(1) + ' · Depth: ' + depth.toFixed(0) + ' km' +
-                     ' · Triage: ' + triage.threatLevel + ' (' + triage.reason + ')',
-        region:      p.place || '',
-        pubDate:     p.time ? new Date(p.time).toUTCString().slice(0, 22) : '',
-        source:      'USGS',
-        link:        p.url || '',
-        lat:         coords ? coords[1] : null,
-        lon:         coords ? coords[0] : null,
-        plotPriority: PRIORITY[triage.threatLevel],
-        // ── Triage metadata (non-invasive — never mutates original data) ──────
-        _triage:     triage.threatLevel,
-        _triageReason: triage.reason,
-        _triageColor: THREAT_COLOR[triage.threatLevel],
-        _suppress:   triage.suppress,
-      };
-      results.push(ev);
-    });
-
-    // Sort: highest threat first, then by magnitude within same threat level
-    results.sort(function(a, b) {
-      if (b.plotPriority !== a.plotPriority) return b.plotPriority - a.plotPriority;
-      return parseFloat(b.title) - parseFloat(a.title);
-    });
-
-    var visible  = results.filter(function(e) { return e._triage !== 'IGNORE' && !e._suppress; });
-    var ignored  = results.filter(function(e) { return e._triage === 'IGNORE' || e._suppress; });
-    console.log('TriageEngine: P0=' + results.filter(function(e){return e._triage==='P0';}).length +
-                ' P1=' + results.filter(function(e){return e._triage==='P1';}).length +
-                ' P2=' + results.filter(function(e){return e._triage==='P2';}).length +
-                ' IGNORE=' + ignored.length + ' SUPPRESS=' + results.filter(function(e){return e._suppress;}).length);
-
-    // Store full dataset on window for later toggle — IGNORE events accessible but hidden
-    window._usgsIgnored = ignored;
-    return visible;
-  }
-
-  return { triageEvent: triageEvent, applyTriage: applyTriage };
-})();
-// ── End Seismic Triage Engine ─────────────────────────────────────────────────
-
 (function loadUSGS() {
   var USGS_URL   = 'https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/4.5_week.geojson';
   var CACHE_KEY  = 'argus_usgs_v1';
@@ -4869,12 +4456,29 @@ var TriageEngine = (function() {
   .catch(function(e) { console.warn('USGS: failed', e.message); });
 
   function injectUSGS(features) {
-    // Run all features through the Seismic Triage Engine.
-    // Returns only P0/P1/P2 events; IGNORE events stored in window._usgsIgnored for toggle.
-    var events = TriageEngine.applyTriage(features);
+    var events = features.map(function(f, i) {
+      var p   = f.properties;
+      var mag = parseFloat(p.mag || 0);
+      var sev = mag >= 7.0 ? 'CRITICAL' : mag >= 6.0 ? 'WARNING' : mag >= 5.0 ? 'WATCH' : 'LOW';
+      var coords = f.geometry && f.geometry.coordinates;
+      return {
+        id: 9000 + i,
+        type: 'DISASTER',
+        severity: sev,
+        title: 'M' + mag.toFixed(1) + ' Earthquake — ' + (p.place || 'Unknown region'),
+        impact: 'Magnitude ' + mag.toFixed(1) + ' seismic event detected. Depth: ' + (coords ? coords[2] : '?') + ' km.',
+        region: p.place || '',
+        pubDate: p.time ? new Date(p.time).toUTCString().slice(0,22) : '',
+        source: 'USGS',
+        link: p.url || '',
+        lat: coords ? coords[1] : null,
+        lon: coords ? coords[0] : null,
+        plotPriority: mag >= 7 ? 90 : mag >= 6 ? 60 : 30,
+      };
+    }).filter(function(e) { return e.plotPriority >= 30; });
 
     window._usgsEvents = events;
-    console.log('USGS: ' + events.length + ' triaged earthquakes loaded');
+    console.log('USGS: ' + events.length + ' earthquakes loaded');
     mergeAuxEvents();
   }
 })();
@@ -5781,12 +5385,12 @@ var data      = { events: [], tones: {}, chokeScores: {}, context: '' };
 // Proxies below are ordered by reliability from null origin in 2025-2026.
 var SUPA_ANON_GDELT = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndidnpseHRyb2V3eHJtb254b2R4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM3OTQzNzMsImV4cCI6MjA4OTM3MDM3M30.0zp-wQ3wKpYc0f7LqFCOEea_d9HJuWnUSWgF4BAW82w';
 var GDELT_PROXIES = [
-  // 1. codetabs — works from GitHub Pages
-  function(url) { return 'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(url); },
-  // 2. corsproxy.io — fallback
-  function(url) { return 'https://corsproxy.io/?url=' + encodeURIComponent(url); },
-  // 3. Supabase data-proxy — only works from Netlify domain
+  // 1. Supabase data-proxy — most reliable from GitHub Pages, no rate limit issues
   function(url) { return '__SUPA__' + url; },
+  // 2. codetabs — rate-limited fallback
+  function(url) { return 'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(url); },
+  // 3. corsproxy.io — final fallback
+  function(url) { return 'https://corsproxy.io/?url=' + encodeURIComponent(url); },
 ];
 
 // ── Inject tab toggle into events panel ──────────────────────────────────────
@@ -5941,15 +5545,12 @@ async function fetchAll() {
   } catch(e) {}
 
 
-  // Try Netlify function first — only on Netlify domain, skip on GitHub Pages to avoid 404 noise
+  // Try Netlify function first (no proxy, no CORS, server-side)
   var feedJson = null;
-  var isNetlify = window.location.hostname.indexOf('netlify') !== -1 || window.location.hostname.indexOf('localhost') !== -1;
-  if (isNetlify) {
-    try {
-      var nRes = await fetch('/.netlify/functions/fetch-gdelt');
-      if (nRes.ok) feedJson = await nRes.json();
-    } catch(e) {}
-  }
+  try {
+    var nRes = await fetch('/.netlify/functions/fetch-gdelt');
+    if (nRes.ok) feedJson = await nRes.json();
+  } catch(e) {}
 
   // Fallback to proxy chain if Netlify unavailable
   if (!feedJson || !feedJson.articles || !feedJson.articles.length) {
@@ -6245,7 +5846,7 @@ function renderGdeltTab() {
 // ── Tab switch ────────────────────────────────────────────────────────────────
 function switchTab(tab) {
   activeTab = tab;
-  window._argusActiveTab = tab;
+  window._argusActiveTab = tab; // expose cross-scope for mergeAuxEvents
   var newsTab     = document.getElementById('tab-news');
   var gdeltTab    = document.getElementById('tab-gdelt');
   var disasterTab = document.getElementById('tab-disaster');
@@ -6262,8 +5863,8 @@ function switchTab(tab) {
       var c = localStorage.getItem('argus_live_events_v2');
       if (c) { window.renderEvents(JSON.parse(c), true); return; }
     } catch(e) {}
-    var evListEl = document.getElementById('ev-list');
-    if (evListEl) evListEl.innerHTML = '<div style="font-size:10px;color:#4a7da8;padding:12px 0;letter-spacing:1px">AWAITING NEWS FEED…</div>';
+    var evList = document.getElementById('ev-list');
+    if (evList) evList.innerHTML = '<div style="font-size:10px;color:#4a7da8;padding:12px 0;letter-spacing:1px">AWAITING NEWS FEED…</div>';
   }
 }
 
@@ -6273,7 +5874,7 @@ setInterval(fetchAll, TTL);
 
 // ── DISASTER tab — NOAA severe weather fetch ──────────────────────────────────
 (function loadNOAA() {
-  var URL      = 'https://api.weather.gov/alerts/active?status=actual&message_type=alert&limit=50';
+  var URL      = 'https://api.weather.gov/alerts/active?status=actual&message_type=alert&urgency=Immediate,Expected&limit=20';
   var CACHE_K  = 'argus_noaa_v2';
   var CACHE_T  = 'argus_noaa_ts_v2';
   var TTL_MS   = 15 * 60 * 1000;
@@ -6326,13 +5927,28 @@ setInterval(fetchAll, TTL);
     }
   } catch(e) {}
 
-  // NASA FIRMS CSV — VIIRS SNPP last 24h, world — via allorigins proxy (CORS-open)
+  // NASA FIRMS CSV — VIIRS SNPP last 24h, world
+  // Direct fetch is CORS-blocked on desktop. Use proxy chain.
   var firmsUrl = 'https://firms.modaps.eosdis.nasa.gov/data/active_fire/suomi-npp-viirs-c2/csv/SUOMI_VIIRS_C2_Global_24h.csv';
-  var url = 'https://api.allorigins.win/raw?url=' + encodeURIComponent(firmsUrl);
-  fetch(url)
-  .then(function(r) { return r.ok ? r.text() : null; })
-  .then(function(csv) {
-    if (!csv) return;
+  var proxies = [
+    'https://corsproxy.io/?url=' + encodeURIComponent(firmsUrl),
+    'https://api.allorigins.win/raw?url=' + encodeURIComponent(firmsUrl),
+    'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(firmsUrl),
+  ];
+
+  function tryProxy(idx) {
+    if (idx >= proxies.length) { console.warn('FIRMS: all proxies failed'); return; }
+    fetch(proxies[idx])
+    .then(function(r) { return r.ok ? r.text() : Promise.reject('HTTP ' + r.status); })
+    .then(function(csv) {
+      if (!csv || csv.indexOf(',') === -1) return tryProxy(idx + 1);
+      handleCSV(csv);
+    })
+    .catch(function() { tryProxy(idx + 1); });
+  }
+  tryProxy(0);
+
+  function handleCSV(csv) {
     var rows = csv.trim().split('\n');
     var headers = rows[0].split(',');
     var latIdx  = headers.indexOf('latitude');
@@ -6377,8 +5993,7 @@ setInterval(fetchAll, TTL);
     try { localStorage.setItem(CACHE_K, JSON.stringify(events)); localStorage.setItem(CACHE_T, String(Date.now())); } catch(e) {}
     console.log('NASA FIRMS: ' + events.length + ' fire clusters loaded');
     if (typeof activeTab !== 'undefined' && activeTab === 'disaster') renderDisasterTab();
-  })
-  .catch(function(e) { console.warn('FIRMS wildfire fetch failed:', e.message); });
+  }
 })();
 
 // ── NHC Active Storms — NOAA National Hurricane Center RSS — free, no key ────
@@ -8063,750 +7678,525 @@ window._plotPermanentMarkers = function(classified) {
 </script>
 
 <script>
-// ════════════════════════════════════════════════════════════════════════════
-// ArgusCaseBuilder — Neural Case Builder
-// Pro/Admin/Owner only. Reads window._usgsEvents, window.gdelt.getData(),
-// window._avData, window._eiaData. Never mutates any global event state.
-// ════════════════════════════════════════════════════════════════════════════
-window.ArgusCaseBuilder = (function() {
+/* ══════════════════════════════════════════════════════════════════════════════
+   ArgusCaseBuilder — Neural Case Builder
+   Requires: window.ArgusSession, window.ArgusAnim, window._usgsEvents,
+             window.gdelt, window._avData, window._eiaData, window._fredData
+   Read-only access to all global state — never mutates event arrays.
+══════════════════════════════════════════════════════════════════════════════ */
+window.ArgusCaseBuilder = (function () {
   'use strict';
 
   // ── Internal state ─────────────────────────────────────────────────────────
-  var _mode      = 'brief';   // 'brief' | 'network' | 'timeline'
-  var _pins      = [];        // pinned event objects
-  var _clusters  = [];        // geographic clusters found by scan()
-  var _cases     = [];        // synthesized case objects
-  var _initialized = false;
+  var _open         = false;
+  var _initialized  = false;
+  var _mode         = 'brief';
+  var _clusters     = [];
+  var _cases        = [];
+  var _pins         = [];
+  var _activeKw     = [];
 
-  // ── Tier check ─────────────────────────────────────────────────────────────
+  var RADIUS_KM = 500;
+  var SEV_W     = { CRITICAL: 4, WARNING: 3, WATCH: 2, LOW: 1 };
+
+  // ── Tier gate ───────────────────────────────────────────────────────────────
   function hasAccess() {
-    var tier = window.ArgusSession ? window.ArgusSession.tier : 'viewer';
-    return tier === 'owner' || tier === 'admin' || tier === 'pro';
+    var t = window.ArgusSession ? window.ArgusSession.tier : 'viewer';
+    return t === 'owner' || t === 'admin' || t === 'pro';
   }
 
-  // ── Haversine — reused from TriageEngine concept, standalone here ──────────
-  function haversineKm(lat1, lon1, lat2, lon2) {
+  // ── Wait for session to resolve, then call fn ───────────────────────────────
+  function whenResolved(fn) {
+    if (window.ArgusSession && window.ArgusSession._resolved) { fn(); return; }
+    var n = 0, iv = setInterval(function () {
+      n++;
+      if ((window.ArgusSession && window.ArgusSession._resolved) || n > 50) {
+        clearInterval(iv); fn();
+      }
+    }, 120);
+  }
+
+  // ── Haversine (km) ──────────────────────────────────────────────────────────
+  function hav(a1, o1, a2, o2) {
     var R = 6371, r = Math.PI / 180;
-    var dL = (lat2 - lat1) * r, dO = (lon2 - lon1) * r;
-    var a  = Math.sin(dL/2)*Math.sin(dL/2) +
-             Math.cos(lat1*r)*Math.cos(lat2*r)*Math.sin(dO/2)*Math.sin(dO/2);
+    var da = (a2-a1)*r, dо = (o2-o1)*r;
+    var a  = Math.sin(da/2)*Math.sin(da/2) +
+             Math.cos(a1*r)*Math.cos(a2*r)*Math.sin(dо/2)*Math.sin(dо/2);
     return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
   }
 
-  // ── Data collectors — read-only, never mutate globals ─────────────────────
+  // ── Data accessors (read-only) ──────────────────────────────────────────────
   function getSeismic() {
-    return (window._usgsEvents || []).filter(function(e) {
+    return (window._usgsEvents || []).filter(function (e) {
       return e.lat != null && e.lon != null;
     });
   }
 
   function getNews() {
-    var gdelt = window.gdelt && window.gdelt.getData ? window.gdelt.getData() : null;
-    var events = (gdelt && gdelt.events) || [];
-    // Also pull from live feed cache
+    var evs = [];
+    var gd = window.gdelt && window.gdelt.getData ? window.gdelt.getData() : null;
+    if (gd && gd.events) evs = gd.events.slice();
     try {
       var c = localStorage.getItem('argus_live_events_v2');
       if (c) {
-        var live = JSON.parse(c);
-        live.forEach(function(e) {
-          if (!events.find(function(x) { return x.id === e.id; })) events.push(e);
+        JSON.parse(c).forEach(function (e) {
+          if (!evs.find(function (x) { return x.id === e.id; })) evs.push(e);
         });
       }
-    } catch(ex) {}
-    return events.filter(function(e) { return e.lat != null && e.lon != null; });
+    } catch (ex) {}
+    return evs.filter(function (e) { return e.lat != null && e.lon != null; });
   }
 
   function getMarket() {
-    var av  = window._avData   || {};
-    var eia = window._eiaData  || {};
-    var fr  = window._fredData || {};
+    var av = window._avData  || {};
+    var ei = window._eiaData || {};
+    var fr = window._fredData || {};
     return {
-      spy:   av.spy        || null,
-      spyChg: av.spyChange || null,
-      brent: eia.brent     || null,
-      wti:   eia.wti       || null,
-      eur:   av['fx-eurusd'] || null,
-      gbp:   av['fx-gbpusd'] || null,
-      jpy:   av['fx-usdjpy'] || null,
-      t10y:  fr.t10y       || null,
-      t2y:   fr.t2y        || null,
+      spy: av.spy, spyChg: av.spyChange,
+      brent: ei.brent, wti: ei.wti,
+      eur: av['fx-eurusd'], gbp: av['fx-gbpusd'], jpy: av['fx-usdjpy'],
+      t10y: fr.t10y, t2y: fr.t2y
     };
   }
 
-  // ── Geographic cluster detection ──────────────────────────────────────────
-  // Finds areas where seismic + news events overlap within RADIUS_KM.
-  // Returns array of cluster objects with correlation score.
-  var CLUSTER_RADIUS_KM = 500;
-
-  // ── Keyword helpers ───────────────────────────────────────────────────────
-
-  /**
-   * parseKeywords — reads #input-case-keywords, splits by comma, trims, lowercases.
-   * Returns [] if blank (triggers General Anomaly mode).
-   */
-  function parseKeywords() {
-    var el  = document.getElementById('input-case-keywords');
-    var raw = el ? el.value.trim() : '';
-    if (!raw) return [];
-    return raw.split(',').map(function(k) { return k.trim().toLowerCase(); }).filter(Boolean);
+  // ── Keyword helpers ─────────────────────────────────────────────────────────
+  function parseKw() {
+    var el = document.getElementById('input-case-keywords');
+    var v  = el ? el.value.trim() : '';
+    if (!v) return [];
+    return v.split(',').map(function (k) { return k.trim().toLowerCase(); }).filter(Boolean);
   }
 
-  /**
-   * keywordHits — returns array of keywords found in a text string.
-   * Case-insensitive whole-word-ish match (allows partial for compound terms).
-   */
-  function keywordHits(text, keywords) {
-    if (!text || !keywords.length) return [];
-    var lower = text.toLowerCase();
-    return keywords.filter(function(k) { return lower.indexOf(k) !== -1; });
+  function kwHits(text, kws) {
+    if (!text || !kws.length) return [];
+    var lo = text.toLowerCase();
+    return kws.filter(function (k) { return lo.indexOf(k) !== -1; });
   }
 
-  /**
-   * highlightKeywords — wraps keyword matches in <span class="kw-hit"> in a
-   * plain-text string. Safe: escapes the text first, then re-inserts spans.
-   */
-  function highlightKeywords(text, keywords) {
-    if (!text || !keywords.length) return text;
-    // Escape HTML entities first so we don't double-encode
-    var escaped = text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-    keywords.forEach(function(k) {
-      // Case-insensitive global replace, preserving original casing in output
-      var re = new RegExp('(' + k.replace(/[.*+?^${}()|[\]\\]/g,'\\$&') + ')', 'gi');
-      escaped = escaped.replace(re, '<span class="kw-hit">$1</span>');
+  function hlKw(text, kws) {
+    if (!text || !kws.length) return esc(text);
+    var s = esc(text);
+    kws.forEach(function (k) {
+      var re = new RegExp('(' + k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'gi');
+      s = s.replace(re, '<span class="kw-hit">$1</span>');
     });
-    return escaped;
+    return s;
   }
 
-  // Store last-used keywords for renderBrief access
-  var _activeKeywords = [];
+  function esc(s) {
+    return (s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
 
-  /**
-   * scan(customKeywords) — geographic cluster engine with dynamic keyword weighting.
-   *
-   * Keyword mode:   user-defined terms get a heavy multiplier (×3 per hit) applied
-   *                 to the cluster score. Clusters with zero keyword hits are demoted.
-   * General mode:   (blank input) — falls back to broad anomaly scan, no multiplier.
-   */
-  function scan(customKeywords) {
-    _clusters = [];
-    _cases    = [];
+  function sevCol(s) {
+    return { CRITICAL:'#ff0044', WARNING:'#ff9933', WATCH:'#ffcc00', LOW:'#00ff88' }[s] || '#4a7da8';
+  }
 
-    // Parse keywords — prefer passed argument, then read from input field
-    var keywords = Array.isArray(customKeywords) ? customKeywords : parseKeywords();
-    _activeKeywords = keywords;
-    var keywordMode = keywords.length > 0;
+  // ── scan(customKw) ──────────────────────────────────────────────────────────
+  function scan(customKw) {
+    _clusters = []; _cases = [];
+    var kws     = Array.isArray(customKw) ? customKw : parseKw();
+    _activeKw   = kws;
+    var kwMode  = kws.length > 0;
+    var seismic = getSeismic();
+    var news    = getNews();
+    var current = window._currentEvents || [];
 
     // Animate scan button
     var btn = document.getElementById('cb-scan-btn');
     if (btn && window.ArgusAnim) {
-      window.ArgusAnim.cipherDecode(btn, '↻ SCANNING…', 600);
-      setTimeout(function() {
-        if (btn) btn.textContent = '↻ SCAN';
-      }, 1800);
+      window.ArgusAnim.cipherDecode(btn, '↻ SCANNING…', 500);
+      setTimeout(function () { if (btn) btn.textContent = '↻ SCAN'; }, 1600);
     }
 
-    var seismic  = getSeismic();
-    var news     = getNews();
-    // Also pull from _currentEvents (the live merged feed) for keyword matching
-    var current  = window._currentEvents || [];
-
-    // ── Geographic cluster detection ─────────────────────────────────────────
-    seismic.forEach(function(s) {
-      var nearby = news.filter(function(n) {
-        return haversineKm(s.lat, s.lon, n.lat, n.lon) <= CLUSTER_RADIUS_KM;
+    // ── Seismic-anchored clusters ────────────────────────────────────────────
+    seismic.forEach(function (s) {
+      var nearby = news.filter(function (n) {
+        return hav(s.lat, s.lon, n.lat, n.lon) <= RADIUS_KM;
       });
+      if (!nearby.length) return;
 
-      // In keyword mode — also include current events within radius even if
-      // they don't have lat/lon, by checking if the cluster region text matches
-      var currentNearby = current.filter(function(e) {
-        if (e.lat != null && e.lon != null) {
-          return haversineKm(s.lat, s.lon, e.lat, e.lon) <= CLUSTER_RADIUS_KM;
-        }
-        // Region text fallback — crude but catches uncoded events
-        if (keywordMode && s.region) {
-          var reg = s.region.toLowerCase();
-          return (e.region || '').toLowerCase().indexOf(reg.slice(0,6)) !== -1;
-        }
-        return false;
-      });
-
-      if (!nearby.length && !currentNearby.length) return;
-
-      // ── Base score ────────────────────────────────────────────────────────
       var magVal    = parseFloat((s.title || '').match(/M(\d+\.?\d*)/)?.[1] || 0);
-      var newsScore = nearby.reduce(function(acc, n) {
-        return acc + ({ CRITICAL: 4, WARNING: 3, WATCH: 2, LOW: 1 }[n.severity] || 1);
-      }, 0);
-      var baseScore = Math.round((magVal * 10) + (newsScore * 5));
+      var newsScore = nearby.reduce(function (a, n) { return a + (SEV_W[n.severity] || 1); }, 0);
+      var base      = Math.round(magVal * 10 + newsScore * 5);
 
-      // ── Keyword weighting ─────────────────────────────────────────────────
-      // Check every text field of every event in this cluster for keyword hits.
-      // Each unique keyword hit = ×3 multiplier on top of base score.
-      var hitKeywords = []; // deduplicated list of matched keywords for this cluster
-      var kwMultiplier = 1;
-
-      if (keywordMode) {
-        var allTexts = [];
-        // Seismic anchor text
-        allTexts.push(s.title, s.impact, s.region);
-        // Nearby news
-        nearby.concat(currentNearby).forEach(function(e) {
-          allTexts.push(e.title, e.impact, e.description, e.region);
+      // Keyword weighting: ×(1 + hits×3), demote to ×0.15 if zero hits in kw mode
+      var hits = [];
+      var mult = 1;
+      if (kwMode) {
+        var texts = [s.title, s.impact, s.region];
+        nearby.concat(current).forEach(function (e) {
+          texts.push(e.title, e.impact, e.description, e.region);
         });
-        // EIA commodity data — check if keywords relate to energy
-        var eia = window._eiaData || {};
-        if (eia.brent) allTexts.push('crude oil brent wti energy petroleum');
-
-        allTexts.forEach(function(t) {
-          keywordHits(t || '', keywords).forEach(function(kw) {
-            if (hitKeywords.indexOf(kw) === -1) hitKeywords.push(kw);
+        texts.forEach(function (t) {
+          kwHits(t || '', kws).forEach(function (k) {
+            if (hits.indexOf(k) === -1) hits.push(k);
           });
         });
-
-        // ×3 per unique keyword hit, but cap to prevent absurdly high scores
-        kwMultiplier = 1 + (hitKeywords.length * 3);
-        // Clusters with zero keyword hits get demoted heavily in keyword mode
-        if (!hitKeywords.length) kwMultiplier = 0.15;
+        mult = hits.length ? 1 + hits.length * 3 : 0.15;
       }
 
-      var score = Math.round(baseScore * kwMultiplier);
-
-      // Identify dominant news type
       var types = {};
-      nearby.forEach(function(n) { types[n.type] = (types[n.type] || 0) + 1; });
-      var dominantType = Object.keys(types).sort(function(a,b){return types[b]-types[a];})[0];
+      nearby.forEach(function (n) { types[n.type] = (types[n.type] || 0) + 1; });
+      var domType = Object.keys(types).sort(function (a,b) { return types[b]-types[a]; })[0] || 'MIXED';
 
       _clusters.push({
-        id:          'CLU-' + _clusters.length,
-        lat:         s.lat,
-        lon:         s.lon,
-        anchor:      s,
-        newsEvents:  nearby.concat(currentNearby.slice(0, 2)),
-        score:       score,
-        baseScore:   baseScore,
-        type:        dominantType || 'MIXED',
-        region:      s.region || (nearby[0] && nearby[0].region) || 'Unknown',
-        seismicMag:  magVal,
-        hitKeywords: hitKeywords,  // keywords that triggered this cluster
+        lat: s.lat, lon: s.lon, anchor: s,
+        news: nearby, score: Math.round(base * mult), base: base,
+        type: domType, region: s.region || (nearby[0] && nearby[0].region) || 'Unknown',
+        mag: magVal, hits: hits
       });
     });
 
-    // ── General anomaly mode: also scan news-only clusters (no seismic anchor) ──
-    // When keywords provided, check current events directly for keyword matches
-    // even if there's no seismic event nearby — pure keyword-driven cases
-    if (keywordMode) {
-      current.forEach(function(e) {
-        var allText = (e.title || '') + ' ' + (e.impact || '') + ' ' + (e.region || '');
-        var hits = keywordHits(allText, keywords);
-        if (!hits.length) return;
-        // Check not already covered by a seismic cluster
-        var alreadyCovered = _clusters.some(function(cl) {
-          if (e.lat == null || cl.lat == null) return false;
-          return haversineKm(cl.lat, cl.lon, e.lat || cl.lat, e.lon || cl.lon) <= CLUSTER_RADIUS_KM;
+    // ── Keyword-only clusters (no seismic anchor) ────────────────────────────
+    if (kwMode) {
+      current.forEach(function (e) {
+        var h = kwHits([e.title, e.impact, e.region].join(' '), kws);
+        if (!h.length) return;
+        var covered = _clusters.some(function (cl) {
+          return e.lat != null && cl.lat != null && hav(cl.lat, cl.lon, e.lat, e.lon) <= RADIUS_KM;
         });
-        if (alreadyCovered) return;
-        var sevScore = { CRITICAL: 40, WARNING: 30, WATCH: 20, LOW: 10 }[e.severity] || 10;
+        if (covered) return;
+        var sv = { CRITICAL: 40, WARNING: 30, WATCH: 20, LOW: 10 }[e.severity] || 10;
         _clusters.push({
-          id:          'CLU-' + _clusters.length,
-          lat:         e.lat,
-          lon:         e.lon,
-          anchor:      null,  // no seismic anchor — pure keyword cluster
-          newsEvents:  [e],
-          score:       Math.round(sevScore * (1 + hits.length * 3)),
-          baseScore:   sevScore,
-          type:        e.type || 'INTELLIGENCE',
-          region:      e.region || 'Unknown',
-          seismicMag:  0,
-          hitKeywords: hits,
+          lat: e.lat, lon: e.lon, anchor: null, news: [e],
+          score: Math.round(sv * (1 + h.length * 3)), base: sv,
+          type: e.type || 'INTELLIGENCE',
+          region: e.region || 'Unknown', mag: 0, hits: h
         });
       });
     }
 
-    // Sort clusters by score descending
-    _clusters.sort(function(a,b) { return b.score - a.score; });
+    _clusters.sort(function (a, b) { return b.score - a.score; });
 
-    // ── Synthesize cases ──────────────────────────────────────────────────────
+    // ── Synthesise cases ─────────────────────────────────────────────────────
     var mkt = getMarket();
-    _cases = _clusters.slice(0, 8).map(function(cl, i) {
-      var marketSignal = '';
+    _cases = _clusters.slice(0, 8).map(function (cl, i) {
+      var mktNote = '';
       if (mkt.brent && parseFloat(mkt.brent) > 85)
-        marketSignal = 'Elevated Brent ($' + parseFloat(mkt.brent).toFixed(2) + ') correlates with regional instability.';
+        mktNote = 'Brent $' + parseFloat(mkt.brent).toFixed(2) + ' elevated.';
       if (mkt.spyChg && parseFloat(mkt.spyChg) < -1.5)
-        marketSignal += ' SPY drawdown (' + parseFloat(mkt.spyChg).toFixed(2) + '%) concurrent with cluster spike.';
-      // Keyword-specific market note
-      if (cl.hitKeywords.length) {
-        var energyHit = cl.hitKeywords.some(function(k) {
-          return ['oil','brent','wti','energy','petroleum','gas','lng'].indexOf(k) !== -1;
-        });
-        if (energyHit && mkt.brent)
-          marketSignal += ' Energy keyword match — Brent: $' + parseFloat(mkt.brent).toFixed(2) + '.';
-      }
+        mktNote += ' SPY ' + parseFloat(mkt.spyChg).toFixed(2) + '%.';
+      if (cl.hits.some(function (k) { return ['oil','brent','wti','energy','gas','lng'].indexOf(k)!==-1; }) && mkt.brent)
+        mktNote += ' Energy kw — Brent $' + parseFloat(mkt.brent).toFixed(2) + '.';
       return {
-        id:          'CASE-' + String(i + 1).padStart(3, '0'),
-        title:       cl.type + ' CLUSTER — ' + cl.region.toUpperCase(),
-        region:      cl.region,
-        score:       cl.score,
-        baseScore:   cl.baseScore,
-        lat:         cl.lat,
-        lon:         cl.lon,
-        seismic:     cl.anchor,
-        news:        cl.newsEvents.slice(0, 4),
-        market:      marketSignal,
-        type:        cl.type,
-        hitKeywords: cl.hitKeywords,
-        pinned:      false,
-        ts:          Date.now(),
+        id: 'CASE-' + String(i+1).padStart(3,'0'),
+        title: cl.type + ' CLUSTER — ' + cl.region.toUpperCase(),
+        region: cl.region, score: cl.score, base: cl.base,
+        lat: cl.lat, lon: cl.lon,
+        seismic: cl.anchor, news: cl.news.slice(0,4),
+        market: mktNote, type: cl.type, hits: cl.hits,
+        pinned: false, ts: Date.now()
       };
     });
 
     render();
-    updateClusterBar();
-
-    var modeLabel = keywordMode
-      ? 'KEYWORD [' + keywords.join(', ') + ']'
-      : 'GENERAL ANOMALY';
-    console.log('ArgusCaseBuilder scan (' + modeLabel + '): ' + _clusters.length + ' clusters → ' + _cases.length + ' cases');
+    setStatus();
+    var ml = kwMode ? 'KW[' + kws.join(',') + ']' : 'GENERAL';
+    console.log('ArgusCaseBuilder scan(' + ml + '): ' + _clusters.length + ' clusters, ' + _cases.length + ' cases');
   }
-    _cases    = [];
-    var seismic = getSeismic();
-    var news    = getNews();
 
-    // For each seismic event, find news events within radius
-    seismic.forEach(function(s) {
-      var nearby = news.filter(function(n) {
-        return haversineKm(s.lat, s.lon, n.lat, n.lon) <= CLUSTER_RADIUS_KM;
-      });
-      if (!nearby.length) return;
+  // ── Status bar ──────────────────────────────────────────────────────────────
+  function setStatus() {
+    var el = document.getElementById('cb-status-bar');
+    if (!el) return;
+    if (!_clusters.length) { el.textContent = 'NO DATA — PRESS SCAN'; return; }
+    var kwStr = _activeKw.length ? ' · KW: ' + _activeKw.join(', ') : ' · GENERAL ANOMALY';
+    el.innerHTML = _clusters.length + ' CLUSTERS · ' + _pins.length + ' PINNED' + kwStr;
+  }
 
-      // Correlation score: seismic magnitude weight + news severity weight
-      var magVal   = parseFloat((s.title || '').match(/M(\d+\.?\d*)/)?.[1] || 0);
-      var newsScore = nearby.reduce(function(acc, n) {
-        return acc + ({ CRITICAL: 4, WARNING: 3, WATCH: 2, LOW: 1 }[n.severity] || 1);
-      }, 0);
-      var score = Math.round((magVal * 10) + (newsScore * 5));
-
-      // Identify dominant news type in cluster
-      var types = {};
-      nearby.forEach(function(n) { types[n.type] = (types[n.type] || 0) + 1; });
-      var dominantType = Object.keys(types).sort(function(a,b){return types[b]-types[a];})[0];
-
-      _clusters.push({
-        id:          'CLU-' + _clusters.length,
-        lat:         s.lat,
-        lon:         s.lon,
-        anchor:      s,
-        newsEvents:  nearby,
-        score:       score,
-        type:        dominantType || 'MIXED',
-        region:      s.region || nearby[0].region || 'Unknown',
-        seismicMag:  magVal,
-      });
-    });
-
-    // Sort clusters by score descending
-    _clusters.sort(function(a,b) { return b.score - a.score; });
-
-    // Synthesize cases from top clusters
-    _cases = _clusters.slice(0, 8).map(function(cl, i) {
-      var mkt = getMarket();
-      // Narrative — look for market stress correlating with cluster region
-      var marketSignal = '';
-      if (mkt.brent && parseFloat(mkt.brent) > 85) marketSignal = 'Elevated Brent ($' + parseFloat(mkt.brent).toFixed(2) + ') correlates with regional instability.';
-      if (mkt.spyChg) {
-        var pct = parseFloat(mkt.spyChg);
-        if (pct < -1.5) marketSignal += ' SPY drawdown (' + pct.toFixed(2) + '%) concurrent with cluster spike.';
-      }
-      return {
-        id:        'CASE-' + String(i + 1).padStart(3, '0'),
-        title:     cl.type + ' CLUSTER — ' + cl.region.toUpperCase(),
-        region:    cl.region,
-        score:     cl.score,
-        lat:       cl.lat,
-        lon:       cl.lon,
-        seismic:   cl.anchor,
-        news:      cl.newsEvents.slice(0, 4),
-  // ── Pin management ────────────────────────────────────────────────────────
-  function togglePin(caseId) {
-    var c = _cases.find(function(x) { return x.id === caseId; });
+  // ── Pin / clear ─────────────────────────────────────────────────────────────
+  function togglePin(id) {
+    var c = _cases.find(function (x) { return x.id === id; });
     if (!c) return;
     c.pinned = !c.pinned;
-    if (c.pinned) {
-      if (!_pins.find(function(p) { return p.id === caseId; })) _pins.push(c);
-    } else {
-      _pins = _pins.filter(function(p) { return p.id !== caseId; });
-    }
-    render();
+    _pins = _cases.filter(function (x) { return x.pinned; });
+    render(); setStatus();
   }
 
   function clearPins() {
+    _cases.forEach(function (c) { c.pinned = false; });
     _pins = [];
-    _cases.forEach(function(c) { c.pinned = false; });
-    render();
+    render(); setStatus();
   }
 
-  // ── Severity colour helper ────────────────────────────────────────────────
-  function sevColor(sev) {
-    return { CRITICAL:'#ff0044', WARNING:'#ff9933', WATCH:'#ffcc00', LOW:'#00ff88' }[sev] || '#4a7da8';
-  }
-
-  // ── Update cluster status bar ─────────────────────────────────────────────
-  function updateClusterBar() {
-    var bar = document.getElementById('cb-cluster-bar');
-    if (!bar) return;
-    var modeStr = _activeKeywords.length
-      ? 'KW: ' + _activeKeywords.map(function(k){ return '⬡ '+k; }).join(' ')
-      : 'GENERAL ANOMALY';
-    bar.innerHTML = _clusters.length
-      ? _clusters.length + ' CLUSTER' + (_clusters.length > 1 ? 'S' : '') +
-        ' &nbsp;·&nbsp; ' + _pins.length + ' PINNED' +
-        ' &nbsp;·&nbsp; <span style="color:' + (_activeKeywords.length ? '#b464ff' : '#4a7da8') + '">' + modeStr + '</span>'
-      : 'NO DATA — ENTER PARAMETERS AND PRESS SCAN';
-  }
-
-  // ── Render dispatcher ─────────────────────────────────────────────────────
+  // ── Render dispatcher ────────────────────────────────────────────────────────
   function render() {
-    updateClusterBar();
     if (_mode === 'brief')   renderBrief();
     if (_mode === 'network') renderNetwork();
     if (_mode === 'timeline') renderTimeline();
   }
 
-  // ── Mode 1: Intelligence Brief ────────────────────────────────────────────
-  // High-density text, just the facts, grouped by cluster.
+  // ── Mode 1: Intelligence Brief ───────────────────────────────────────────────
   function renderBrief() {
     var el = document.getElementById('cb-brief');
     if (!el) return;
     if (!_cases.length) {
-      el.innerHTML = '<div style="font-size:9px;color:#2a4a6a;padding:20px 0;text-align:center;letter-spacing:1px">NO CASES — PRESS SCAN TO ANALYSE</div>';
+      el.innerHTML = '<div style="padding:20px 0;text-align:center;font-size:9px;color:#2a4a6a;letter-spacing:1px">NO CASES — PRESS SCAN</div>';
       return;
     }
-    var mkt = getMarket();
+    var mkt  = getMarket();
     var html = '';
 
     // Market context strip
-    html += '<div class="cb-brief-section">';
-    html += '<div class="cb-brief-section__hdr">MARKET CONTEXT</div>';
-    html += '<div style="font-size:9px;color:#c5d7e8;line-height:1.7">';
-    if (mkt.brent) html += 'BRENT <span style="color:#ff9933">$' + parseFloat(mkt.brent).toFixed(2) + '</span> &nbsp;';
-    if (mkt.wti)   html += 'WTI <span style="color:#ff9933">$' + parseFloat(mkt.wti).toFixed(2) + '</span> &nbsp;';
-    if (mkt.spy)   html += 'SPY <span style="color:#00ff88">$' + parseFloat(mkt.spy).toFixed(2) + '</span>';
-    if (mkt.spyChg) {
-      var p = parseFloat(mkt.spyChg);
-      html += ' <span style="color:' + (p>=0?'#00ff88':'#ff0044') + '">' + (p>=0?'+':'') + p.toFixed(2) + '%</span>';
+    html += '<div style="font-size:8px;color:#4a7da8;margin-bottom:8px;letter-spacing:1px">';
+    if (mkt.brent) html += 'BRENT <span style="color:#ff9933">$' + parseFloat(mkt.brent).toFixed(2) + '</span>  ';
+    if (mkt.wti)   html += 'WTI <span style="color:#ff9933">$' + parseFloat(mkt.wti).toFixed(2) + '</span>  ';
+    if (mkt.spy) {
+      html += 'SPY <span style="color:#00ff88">$' + parseFloat(mkt.spy).toFixed(2) + '</span>';
+      if (mkt.spyChg) {
+        var p = parseFloat(mkt.spyChg);
+        html += ' <span style="color:' + (p>=0?'#00ff88':'#ff0044') + '">' + (p>=0?'+':'') + p.toFixed(2) + '%</span>';
+      }
     }
-    html += '</div></div>';
+    html += '</div>';
 
-    // Cases
-    _cases.forEach(function(c) {
-      var pinColor = c.pinned ? '#ff9933' : '#b464ff';
-      html += '<div class="case-card' + (c.pinned ? ' is-pinned' : '') + (c.news.length ? ' has-link' : '') + '" onclick="ArgusCaseBuilder.togglePin(\'' + c.id + '\')">';
-      html += '<div style="display:flex;justify-content:space-between;align-items:flex-start">';
-      html += '<span class="case-card__tag" style="color:' + pinColor + '">' + c.id + (c.pinned ? ' ◈ PINNED' : '') + '</span>';
-      html += '<span class="case-card__score">SCORE ' + c.score + (c.baseScore && c.score !== c.baseScore ? ' <span style="color:#4a7da8;font-weight:400">(base ' + c.baseScore + ')</span>' : '') + '</span>';
-      html += '</div>';
-      // Title with keyword highlights
-      html += '<div class="case-card__title">' + highlightKeywords(c.title, _activeKeywords) + '</div>';
-      // Keyword hit badges
-      if (c.hitKeywords && c.hitKeywords.length) {
+    _cases.forEach(function (c) {
+      var idCol = c.pinned ? '#ff9933' : '#b464ff';
+      html += '<div class="case-card' + (c.pinned ? ' pinned' : '') + '" data-cid="' + c.id + '">';
+      html += '<span class="case-card__id" style="color:' + idCol + '">' + c.id + (c.pinned ? ' ◈' : '') + '</span>';
+      html += '<span class="case-card__score">SCORE ' + c.score;
+      if (c.score !== c.base) html += ' <span style="color:#4a7da8;font-weight:400">(base ' + c.base + ')</span>';
+      html += '</span>';
+      html += '<div class="case-card__title">' + hlKw(c.title, _activeKw) + '</div>';
+      if (c.hits.length) {
         html += '<div style="margin-top:3px">';
-        c.hitKeywords.forEach(function(kw) {
-          html += '<span class="kw-badge">⬡ ' + kw + '</span>';
-        });
+        c.hits.forEach(function (k) { html += '<span class="kw-badge">⬡ ' + k + '</span>'; });
         html += '</div>';
       }
-      // Seismic anchor
       if (c.seismic) {
-        html += '<div class="case-card__meta">⬡ SEISMIC: ' + highlightKeywords(c.seismic.title.slice(0, 50), _activeKeywords) + '</div>';
+        html += '<div class="case-card__meta">⬡ SEISMIC: ' + hlKw(esc(c.seismic.title.slice(0,50)), _activeKw) + '</div>';
       } else {
-        html += '<div class="case-card__meta" style="color:#b464ff88">◈ KEYWORD-DRIVEN — no seismic anchor</div>';
+        html += '<div class="case-card__meta" style="color:#b464ff77">◈ KEYWORD-DRIVEN (no seismic anchor)</div>';
       }
-      // Top news events with highlights
-      c.news.slice(0, 2).forEach(function(n) {
-        html += '<div class="case-card__meta" style="color:' + sevColor(n.severity) + '">▸ ' + highlightKeywords((n.title || '').slice(0, 55), _activeKeywords) + '</div>';
+      c.news.slice(0,2).forEach(function (n) {
+        html += '<div class="case-card__meta" style="color:' + sevCol(n.severity) + '">▸ ' + hlKw(esc((n.title||'').slice(0,55)), _activeKw) + '</div>';
       });
-      // Market signal
-      if (c.market) html += '<div class="case-card__meta" style="color:#ff9933;margin-top:3px">⚡ ' + c.market.slice(0, 90) + '</div>';
+      if (c.market) html += '<div class="case-card__meta" style="color:#ff9933;margin-top:2px">⚡ ' + esc(c.market.slice(0,90)) + '</div>';
       html += '</div>';
     });
+
     el.innerHTML = html;
+
+    // Attach pin clicks
+    el.querySelectorAll('.case-card[data-cid]').forEach(function (div) {
+      div.addEventListener('click', function () { togglePin(div.dataset.cid); });
+    });
   }
 
-  // ── Mode 2: Neural Web (Canvas) ───────────────────────────────────────────
-  // Draws nodes for cases and edges for shared region/type connections.
+  // ── Mode 2: Neural Web canvas ────────────────────────────────────────────────
   function renderNetwork() {
-    var canvas = document.getElementById('cb-network-canvas');
-    if (!canvas) return;
-    var W = canvas.offsetWidth  || canvas.parentElement.clientWidth  || 260;
-    var H = canvas.offsetHeight || 320;
-    canvas.width  = W;
-    canvas.height = H;
-    var ctx = canvas.getContext('2d');
+    var cv = document.getElementById('cb-network-canvas');
+    if (!cv) return;
+    var W = cv.offsetWidth || 600, H = cv.offsetHeight || 300;
+    cv.width = W; cv.height = H;
+    var ctx = cv.getContext('2d');
     ctx.clearRect(0, 0, W, H);
 
     if (!_cases.length) {
-      ctx.fillStyle = '#2a4a6a';
-      ctx.font = '9px JetBrains Mono, monospace';
-      ctx.textAlign = 'center';
-      ctx.fillText('NO CASES — PRESS SCAN', W/2, H/2);
-      return;
+      ctx.fillStyle = '#2a4a6a'; ctx.font = '9px JetBrains Mono,monospace'; ctx.textAlign = 'center';
+      ctx.fillText('NO CASES — PRESS SCAN', W/2, H/2); return;
     }
 
-    // Layout: radial arrangement around center
-    var cx = W / 2, cy = H / 2;
-    var r  = Math.min(W, H) * 0.34;
-    var nodes = _cases.map(function(c, i) {
-      var angle = (i / _cases.length) * Math.PI * 2 - Math.PI / 2;
-      return {
-        x:    cx + Math.cos(angle) * r,
-        y:    cy + Math.sin(angle) * r,
-        c:    c,
-        col:  c.pinned ? '#ff9933' : '#b464ff',
-        rad:  6 + Math.min(c.score / 20, 8),
-      };
+    var cx = W/2, cy = H/2, r = Math.min(W,H) * 0.33;
+    var nodes = _cases.map(function (c, i) {
+      var a = (i / _cases.length) * Math.PI * 2 - Math.PI/2;
+      return { x: cx + Math.cos(a)*r, y: cy + Math.sin(a)*r, c: c,
+               col: c.pinned ? '#ff9933' : '#b464ff', rad: 5 + Math.min(c.score/18, 9) };
     });
 
-    // Draw edges between nodes sharing type or region
-    ctx.lineWidth = 0.8;
+    // Edges
+    ctx.lineWidth = 0.7;
     for (var i = 0; i < nodes.length; i++) {
-      for (var j = i + 1; j < nodes.length; j++) {
-        var a = nodes[i], b = nodes[j];
-        var shared = a.c.type === b.c.type || a.c.region === b.c.region;
-        if (!shared) continue;
-        var grad = ctx.createLinearGradient(a.x, a.y, b.x, b.y);
-        grad.addColorStop(0, a.col + '44');
-        grad.addColorStop(1, b.col + '44');
-        ctx.strokeStyle = grad;
-        ctx.beginPath();
-        ctx.moveTo(a.x, a.y);
-        // Slight curve via midpoint
-        var mx = (a.x + b.x) / 2 + (Math.random() - 0.5) * 20;
-        var my = (a.y + b.y) / 2 + (Math.random() - 0.5) * 20;
-        ctx.quadraticCurveTo(mx, my, b.x, b.y);
-        ctx.stroke();
+      for (var j = i+1; j < nodes.length; j++) {
+        if (nodes[i].c.type !== nodes[j].c.type && nodes[i].c.region !== nodes[j].c.region) continue;
+        var g = ctx.createLinearGradient(nodes[i].x, nodes[i].y, nodes[j].x, nodes[j].y);
+        g.addColorStop(0, nodes[i].col + '44'); g.addColorStop(1, nodes[j].col + '44');
+        ctx.strokeStyle = g; ctx.beginPath();
+        ctx.moveTo(nodes[i].x, nodes[i].y); ctx.lineTo(nodes[j].x, nodes[j].y); ctx.stroke();
       }
     }
 
-    // Market node at centre
+    // Market centre node
     var mkt = getMarket();
-    ctx.beginPath();
-    ctx.arc(cx, cy, 10, 0, Math.PI * 2);
-    ctx.fillStyle = mkt.spyChg && parseFloat(mkt.spyChg) < -1 ? '#ff004433' : '#00ff8822';
-    ctx.fill();
-    ctx.strokeStyle = mkt.spyChg && parseFloat(mkt.spyChg) < -1 ? '#ff0044' : '#00ff88';
-    ctx.lineWidth = 1;
-    ctx.stroke();
-    ctx.fillStyle = mkt.spyChg && parseFloat(mkt.spyChg) < -1 ? '#ff0044' : '#00ff88';
-    ctx.font = '7px JetBrains Mono, monospace';
-    ctx.textAlign = 'center';
+    var mktStress = mkt.spyChg && parseFloat(mkt.spyChg) < -1;
+    ctx.beginPath(); ctx.arc(cx, cy, 10, 0, Math.PI*2);
+    ctx.fillStyle   = mktStress ? 'rgba(255,0,68,0.2)' : 'rgba(0,255,136,0.15)';
+    ctx.strokeStyle = mktStress ? '#ff0044' : '#00ff88';
+    ctx.lineWidth   = 1.5; ctx.fill(); ctx.stroke();
+    ctx.fillStyle   = mktStress ? '#ff0044' : '#00ff88';
+    ctx.font = '7px JetBrains Mono,monospace'; ctx.textAlign = 'center';
     ctx.fillText('MKT', cx, cy + 3);
 
-    // Draw market edges to pinned nodes
-    nodes.forEach(function(n) {
-      if (!n.c.pinned && !n.c.market) return;
-      ctx.strokeStyle = '#ff993322';
-      ctx.lineWidth = 0.6;
-      ctx.setLineDash([2, 4]);
-      ctx.beginPath();
-      ctx.moveTo(cx, cy);
-      ctx.lineTo(n.x, n.y);
-      ctx.stroke();
-      ctx.setLineDash([]);
-    });
-
-    // Draw case nodes on top
-    nodes.forEach(function(n) {
-      ctx.beginPath();
-      ctx.arc(n.x, n.y, n.rad, 0, Math.PI * 2);
-      ctx.fillStyle = n.col + '33';
-      ctx.fill();
-      ctx.strokeStyle = n.col;
-      ctx.lineWidth = n.c.pinned ? 2 : 1;
-      ctx.stroke();
-      // Label
-      ctx.fillStyle = n.col;
-      ctx.font = '7px JetBrains Mono, monospace';
-      ctx.textAlign = 'center';
+    // Nodes
+    nodes.forEach(function (n) {
+      ctx.beginPath(); ctx.arc(n.x, n.y, n.rad, 0, Math.PI*2);
+      ctx.fillStyle = n.col + '30'; ctx.fill();
+      ctx.strokeStyle = n.col; ctx.lineWidth = n.c.pinned ? 2 : 1; ctx.stroke();
+      ctx.fillStyle = n.col; ctx.font = '7px JetBrains Mono,monospace'; ctx.textAlign = 'center';
       ctx.fillText(n.c.id.replace('CASE-', 'C'), n.x, n.y + 3);
     });
 
-    // Legend
-    ctx.fillStyle = '#2a4a6a';
-    ctx.font = '7px JetBrains Mono, monospace';
-    ctx.textAlign = 'left';
-    ctx.fillText('◈ PINNED   ⬡ ACTIVE   — SHARED LINK', 4, H - 6);
+    ctx.fillStyle = '#2a4a6a'; ctx.font = '7px JetBrains Mono,monospace'; ctx.textAlign = 'left';
+    ctx.fillText('◈ PINNED  ⬡ ACTIVE  — SHARED TYPE/REGION', 4, H - 5);
   }
 
-  // ── Mode 3: Timeline Matrix ───────────────────────────────────────────────
-  // Vertical chronological escalation flow.
+  // ── Mode 3: Timeline Matrix ──────────────────────────────────────────────────
   function renderTimeline() {
     var el = document.getElementById('cb-timeline');
     if (!el) return;
     if (!_cases.length) {
-      el.innerHTML = '<div style="font-size:9px;color:#2a4a6a;padding:20px 0;text-align:center;letter-spacing:1px">NO CASES — PRESS SCAN</div>';
+      el.innerHTML = '<div style="padding:20px 0;text-align:center;font-size:9px;color:#2a4a6a;letter-spacing:1px">NO CASES — PRESS SCAN</div>';
       return;
     }
-
-    // Flatten all events from all cases, sort by time
-    var events = [];
-    _cases.forEach(function(c) {
-      events.push({ ts: c.ts, title: c.title, sev: c.type === 'CONFLICT' ? 'CRITICAL' : 'WARNING', src: 'CLUSTER', id: c.id });
-      c.news.forEach(function(n) {
+    var evts = [];
+    var mo = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
+    _cases.forEach(function (c) {
+      evts.push({ ts: c.ts, title: c.title, sev: c.type==='CONFLICT'?'CRITICAL':'WARNING', src: 'CLUSTER' });
+      c.news.forEach(function (n) {
         var t = n.pubDate ? new Date(n.pubDate).getTime() : c.ts;
-        if (!isNaN(t)) events.push({ ts: t, title: (n.title||'').slice(0,55), sev: n.severity || 'LOW', src: n.source || 'NEWS', id: c.id });
+        if (!isNaN(t)) evts.push({ ts: t, title: (n.title||'').slice(0,55), sev: n.severity||'LOW', src: n.source||'NEWS' });
       });
       if (c.seismic) {
         var st = c.seismic.pubDate ? new Date(c.seismic.pubDate).getTime() : c.ts;
-        if (!isNaN(st)) events.push({ ts: st, title: c.seismic.title.slice(0,55), sev: c.seismic.severity || 'WATCH', src: 'SEISMIC', id: c.id });
+        if (!isNaN(st)) evts.push({ ts: st, title: c.seismic.title.slice(0,55), sev: c.seismic.severity||'WATCH', src: 'SEISMIC' });
       }
     });
-    events.sort(function(a,b) { return b.ts - a.ts; });
+    evts.sort(function (a, b) { return b.ts - a.ts; });
 
-    var mo = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
     var html = '';
-    events.slice(0, 30).forEach(function(ev) {
-      var d   = new Date(ev.ts);
-      var ts  = (isNaN(d.getTime()) ? '——' : d.getUTCDate() + ' ' + mo[d.getUTCMonth()] + ' ' +
-                String(d.getUTCHours()).padStart(2,'0') + ':' + String(d.getUTCMinutes()).padStart(2,'0'));
-      var col = sevColor(ev.sev);
-      html += '<div class="cb-timeline-row">';
-      html += '<div class="cb-timeline-ts">' + ts + '</div>';
-      html += '<div class="cb-timeline-dot" style="background:' + col + '33;border-color:' + col + '"></div>';
-      html += '<div class="cb-timeline-body">';
-      html += '<div style="font-size:9px;color:#c5d7e8;line-height:1.4">' + ev.title + '</div>';
-      html += '<div style="font-size:7px;color:#4a7da8;letter-spacing:1px;margin-top:2px">' + ev.src + ' &nbsp;·&nbsp; <span style="color:' + col + '">' + ev.sev + '</span></div>';
+    evts.slice(0, 28).forEach(function (e) {
+      var d  = new Date(e.ts);
+      var ts = isNaN(d.getTime()) ? '——' :
+               d.getUTCDate() + ' ' + mo[d.getUTCMonth()] + ' ' +
+               String(d.getUTCHours()).padStart(2,'0') + ':' + String(d.getUTCMinutes()).padStart(2,'0');
+      var col = sevCol(e.sev);
+      html += '<div class="cb-tl-row">';
+      html += '<div class="cb-tl-ts">' + ts + '</div>';
+      html += '<div class="cb-tl-dot" style="background:' + col + '44;border-color:' + col + '"></div>';
+      html += '<div class="cb-tl-body">';
+      html += '<div class="cb-tl-title">' + esc(e.title) + '</div>';
+      html += '<div class="cb-tl-src">' + esc(e.src) + ' · <span style="color:' + col + '">' + e.sev + '</span></div>';
       html += '</div></div>';
     });
     el.innerHTML = html;
   }
 
-  // ── Export ────────────────────────────────────────────────────────────────
+  // ── Export ───────────────────────────────────────────────────────────────────
   function exportReport() {
     var target = _pins.length ? _pins : _cases;
-    if (!target.length) { alert('No cases to export. Run SCAN first.'); return; }
-    var mkt    = getMarket();
-    var lines  = [];
-    lines.push('# ARGUS NEURAL CASE BUILDER — INTELLIGENCE REPORT');
-    lines.push('Generated: ' + new Date().toUTCString());
-    lines.push('');
-    lines.push('## MARKET SNAPSHOT');
-    lines.push('- Brent: $' + (mkt.brent || 'N/A'));
-    lines.push('- WTI:   $' + (mkt.wti   || 'N/A'));
-    lines.push('- SPY:   $' + (mkt.spy   || 'N/A') + '  (' + (mkt.spyChg || '0') + ')');
-    lines.push('- EUR/USD: ' + (mkt.eur  || 'N/A'));
-    lines.push('- 10Y:  ' + (mkt.t10y   || 'N/A'));
-    lines.push('');
-    lines.push('## CASES (' + target.length + ')');
-    target.forEach(function(c) {
-      lines.push('');
-      lines.push('### ' + c.id + ' — ' + c.title);
-      lines.push('- Region:       ' + c.region);
-      lines.push('- Score:        ' + c.score);
-      lines.push('- Type:         ' + c.type);
-      lines.push('- Seismic Anchor: ' + (c.seismic ? c.seismic.title : 'None'));
-      lines.push('- Market Signal: ' + (c.market || 'None'));
-      lines.push('- News Events:');
-      (c.news || []).forEach(function(n) {
-        lines.push('  · [' + (n.severity||'?') + '] ' + (n.title||'').slice(0,80));
-      });
+    if (!target.length) { console.warn('ArgusCaseBuilder: nothing to export'); return; }
+    var mkt = getMarket();
+    var md  = ['# ARGUS NEURAL CASE BUILDER — REPORT', 'Generated: ' + new Date().toUTCString(), ''];
+    md.push('## MARKET', '- Brent: $' + (mkt.brent||'N/A'), '- WTI: $'+(mkt.wti||'N/A'),
+            '- SPY: $'+(mkt.spy||'N/A'), '- EUR/USD: '+(mkt.eur||'N/A'), '');
+    md.push('## CASES (' + target.length + ')');
+    target.forEach(function (c) {
+      md.push('', '### ' + c.id + ' — ' + c.title,
+              '- Region: ' + c.region, '- Score: ' + c.score + ' (base ' + c.base + ')',
+              '- Keywords: ' + (c.hits.join(', ') || 'none'),
+              '- Market: ' + (c.market || 'none'));
+      (c.news||[]).forEach(function (n) { md.push('  · [' + (n.severity||'?') + '] ' + (n.title||'').slice(0,80)); });
     });
-
-    // Also emit raw JSON
-    var jsonPayload = JSON.stringify({ generated: new Date().toISOString(), market: mkt, cases: target }, null, 2);
-    var mdBlob   = new Blob([lines.join('\n')], { type: 'text/markdown' });
-    var jsonBlob = new Blob([jsonPayload],       { type: 'application/json' });
-    var mdUrl    = URL.createObjectURL(mdBlob);
-    var jsonUrl  = URL.createObjectURL(jsonBlob);
-    var ts       = new Date().toISOString().slice(0,10);
-
-    var a1 = document.createElement('a'); a1.href = mdUrl;   a1.download = 'argus-case-' + ts + '.md';   a1.click();
-    setTimeout(function() {
-      var a2 = document.createElement('a'); a2.href = jsonUrl; a2.download = 'argus-case-' + ts + '.json'; a2.click();
-      URL.revokeObjectURL(mdUrl);
-      URL.revokeObjectURL(jsonUrl);
-    }, 300);
-
-    console.log('ArgusCaseBuilder: exported ' + target.length + ' cases');
+    var json = JSON.stringify({ generated: new Date().toISOString(), market: mkt, cases: target }, null, 2);
+    var ts   = new Date().toISOString().slice(0,10);
+    [['argus-case-'+ts+'.md', md.join('\n'), 'text/markdown'],
+     ['argus-case-'+ts+'.json', json, 'application/json']].forEach(function (f) {
+      var a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([f[1]], { type: f[2] }));
+      a.download = f[0]; a.click();
+      setTimeout(function () { URL.revokeObjectURL(a.href); }, 1000);
+    });
   }
 
-  // ── Mode switcher ─────────────────────────────────────────────────────────
+  // ── Mode switching ───────────────────────────────────────────────────────────
   function setMode(mode) {
     _mode = mode;
-    ['brief','network','timeline'].forEach(function(m) {
-      var btn = document.getElementById('cbm-' + m);
+    ['brief','network','timeline'].forEach(function (m) {
+      var btn  = document.getElementById('cbm-' + m);
       var view = document.getElementById('cb-' + m);
       if (btn)  btn.className  = 'cb-mode-btn' + (m === mode ? ' active' : '');
-      if (view) view.style.display = m === mode ? (m === 'network' ? 'block' : 'block') : 'none';
+      if (view) view.style.display = m === mode ? 'block' : 'none';
     });
+    var cv = document.getElementById('cb-network-canvas');
+    if (cv) cv.style.display = mode === 'network' ? 'block' : 'none';
     render();
   }
 
-  // ── Drawer toggle — called by the bottom triangle trigger ─────────────────
-  var _drawerOpen = false;
+  // ── Drawer open / close ──────────────────────────────────────────────────────
   function toggleDrawer() {
-    _drawerOpen = !_drawerOpen;
+    _open = !_open;
     var panel    = document.getElementById('panel-cases');
     var trigger  = document.getElementById('cb-trigger');
     var backdrop = document.getElementById('cb-backdrop');
-    if (panel)    { panel.classList.toggle('is-visible', _drawerOpen);    panel.setAttribute('aria-hidden', String(!_drawerOpen)); }
-    if (trigger)  { trigger.classList.toggle('is-open', _drawerOpen); }
-    if (backdrop) { backdrop.classList.toggle('is-visible', _drawerOpen); }
-    if (_drawerOpen) activate();
+    if (panel)    { panel.classList.toggle('is-visible', _open); panel.setAttribute('aria-hidden', String(!_open)); }
+    if (trigger)  { trigger.classList.toggle('is-open', _open); }
+    if (backdrop) { backdrop.classList.toggle('is-visible', _open); }
+    if (_open) whenResolved(showContent);
   }
 
-  function activate() {
-    // Session resolves asynchronously — if not yet resolved, poll until it is
-    // then re-run activate. This prevents the locked overlay flashing for pro/admin/owner.
-    if (!window.ArgusSession || !window.ArgusSession._resolved) {
-      var attempts = 0;
-      var wait = setInterval(function() {
-        attempts++;
-        if ((window.ArgusSession && window.ArgusSession._resolved) || attempts > 40) {
-          clearInterval(wait);
-          activate();
-        }
-      }, 150);
-      return;
-    }
-
+  // ── Show locked or content based on tier ────────────────────────────────────
+  function showContent() {
     var locked  = document.getElementById('cb-locked');
     var content = document.getElementById('cb-content');
     if (!hasAccess()) {
-      if (locked)  locked.classList.add('is-visible');
-      if (content) content.style.display = 'none';
+      if (locked)  locked.classList.add('active');
+      if (content) content.classList.remove('active');
       return;
     }
-    if (locked)  locked.classList.remove('is-visible');
-    if (content) { content.style.display = 'flex'; }
-
-    // Cipher decode header on first open
+    if (locked)  locked.classList.remove('active');
+    if (content) content.classList.add('active');
     if (!_initialized) {
       _initialized = true;
-      var hdr = document.getElementById('cb-header');
-      if (hdr && window.ArgusAnim) {
-        window.ArgusAnim.cipherDecode(hdr, 'NEURAL CASE BUILDER — ACTIVE', 800);
-      }
-      // Auto-scan on first open if data is available
-      if ((window._usgsEvents || []).length) {
-        setTimeout(scan, 600);
-      }
+      var hdr = document.getElementById('cb-header-text');
+      if (hdr && window.ArgusAnim) window.ArgusAnim.cipherDecode(hdr, 'NEURAL CASE BUILDER — ACTIVE', 900);
+      if ((window._usgsEvents || []).length) setTimeout(scan, 700);
     }
   }
 
-  // ── Public API ────────────────────────────────────────────────────────────
+  // ── Wire all event listeners after DOM is ready ──────────────────────────────
+  function wireEvents() {
+    var trigger   = document.getElementById('cb-trigger');
+    var closeBtn  = document.getElementById('cb-close-btn');
+    var scanBtn   = document.getElementById('cb-scan-btn');
+    var exportBtn = document.getElementById('cb-export-btn');
+    var clearBtn  = document.getElementById('cb-clear-btn');
+    var kwInput   = document.getElementById('input-case-keywords');
+    var briefBtn  = document.getElementById('cbm-brief');
+    var netBtn    = document.getElementById('cbm-network');
+    var tlBtn     = document.getElementById('cbm-timeline');
+
+    if (trigger)   trigger.addEventListener('click', toggleDrawer);
+    if (closeBtn)  closeBtn.addEventListener('click', toggleDrawer);
+    if (scanBtn)   scanBtn.addEventListener('click', function () { scan(); });
+    if (exportBtn) exportBtn.addEventListener('click', exportReport);
+    if (clearBtn)  clearBtn.addEventListener('click', clearPins);
+    if (kwInput)   kwInput.addEventListener('keydown', function (e) { if (e.key === 'Enter') scan(); });
+    if (briefBtn)  briefBtn.addEventListener('click', function () { setMode('brief'); });
+    if (netBtn)    netBtn.addEventListener('click', function () { setMode('network'); });
+    if (tlBtn)     tlBtn.addEventListener('click', function () { setMode('timeline'); });
+  }
+
+  // Wire on DOM ready
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', wireEvents);
+  } else {
+    wireEvents();
+  }
+
+  // ── Public API ───────────────────────────────────────────────────────────────
   return {
-    activate:     activate,
     toggleDrawer: toggleDrawer,
     scan:         scan,
     setMode:      setMode,
     togglePin:    togglePin,
     clearPins:    clearPins,
     exportReport: exportReport,
-    getCases:     function() { return _cases; },
-    getClusters:  function() { return _clusters; },
-    getPins:      function() { return _pins; },
+    getCases:     function () { return _cases; },
+    getPins:      function () { return _pins; }
   };
-})();
-// ── End ArgusCaseBuilder ──────────────────────────────────────────────────────
+
+}());
+/* ── End ArgusCaseBuilder ─────────────────────────────────────────────────── */
 </script>
 </body>
 </html>

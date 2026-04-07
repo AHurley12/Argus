@@ -2154,6 +2154,7 @@
       <div class="cb-mode-btn active" id="cbm-brief">⬛ BRIEF</div>
       <div class="cb-mode-btn"        id="cbm-network">◈ NEURAL WEB</div>
       <div class="cb-mode-btn"        id="cbm-timeline">▤ TIMELINE</div>
+      <div class="cb-mode-btn"        id="cbm-notes">✎ NOTES</div>
     </div>
 
     <!-- Status / cluster info bar -->
@@ -2176,6 +2177,19 @@
 
     <!-- Timeline view -->
     <div id="cb-timeline"></div>
+
+    <!-- Notes view -->
+    <div id="cb-notes" style="display:none;flex-direction:column;flex:1;min-height:0;gap:5px">
+      <textarea id="cb-notes-input" placeholder="Analyst notes — observations, hypotheses, follow-up actions…"
+        style="flex:1;resize:none;background:rgba(2,8,18,0.8);border:1px solid #1a3050;color:#c5d7e8;
+               font-family:var(--font-mono);font-size:9px;letter-spacing:0.5px;line-height:1.6;
+               padding:8px 10px;outline:none;min-height:0;border-radius:1px;"></textarea>
+      <div style="display:flex;gap:5px;flex-shrink:0">
+        <div class="cb-btn" id="cb-notes-export-txt" style="flex:2">↓ EXPORT .TXT</div>
+        <div class="cb-btn" id="cb-notes-export-md"  style="flex:2">↓ EXPORT .MD</div>
+        <div class="cb-btn danger" id="cb-notes-clear" style="flex:1">✕</div>
+      </div>
+    </div>
 
     <!-- Keyword input -->
     <div id="cb-keyword-row">
@@ -7826,12 +7840,13 @@ window.ArgusCaseBuilder = (function () {
 
   // ── Data accessors (read-only) ──────────────────────────────────────────────
   function getSeismic() {
-    return (window._usgsEvents || []).filter(function (e) {
-      return e.lat != null && e.lon != null;
-    });
+    // Include all USGS events — coordinates always present from USGS feed
+    return window._usgsEvents || [];
   }
 
   function getNews() {
+    // Collect from all sources — do NOT filter by lat/lon here.
+    // Many news events are never geocoded; we still want them for keyword matching.
     var evs = [];
     var gd = window.gdelt && window.gdelt.getData ? window.gdelt.getData() : null;
     if (gd && gd.events) evs = gd.events.slice();
@@ -7843,7 +7858,11 @@ window.ArgusCaseBuilder = (function () {
         });
       }
     } catch (ex) {}
-    return evs.filter(function (e) { return e.lat != null && e.lon != null; });
+    // Also include current merged feed
+    (window._currentEvents || []).forEach(function (e) {
+      if (!evs.find(function (x) { return x.id === e.id; })) evs.push(e);
+    });
+    return evs;
   }
 
   function getMarket() {
@@ -7907,63 +7926,82 @@ window.ArgusCaseBuilder = (function () {
       setTimeout(function () { if (btn) btn.textContent = '↻ SCAN'; }, 1600);
     }
 
-    // ── Seismic-anchored clusters ────────────────────────────────────────────
+    // ── Seismic-anchored clusters ─────────────────────────────────────────
+    // nearbyGeo: events with coords within radius
+    // nearbyKw:  keyword-matching events regardless of coordinates
     seismic.forEach(function (s) {
-      var nearby = news.filter(function (n) {
-        return hav(s.lat, s.lon, n.lat, n.lon) <= RADIUS_KM;
+      if (s.lat == null || s.lon == null) return;
+
+      var nearbyGeo = news.filter(function (n) {
+        return n.lat != null && n.lon != null && hav(s.lat, s.lon, n.lat, n.lon) <= RADIUS_KM;
       });
-      if (!nearby.length) return;
+      var nearbyKw = kwMode ? news.filter(function (n) {
+        if (nearbyGeo.find(function(x){ return x.id === n.id; })) return false;
+        return kwHits([n.title, n.impact, n.description, n.region].join(' '), kws).length > 0;
+      }) : [];
+      var allNearby = nearbyGeo.concat(nearbyKw);
+
+      if (!kwMode && !nearbyGeo.length) return;
+      if (kwMode  && !allNearby.length) return;
 
       var magVal    = parseFloat((s.title || '').match(/M(\d+\.?\d*)/)?.[1] || 0);
-      var newsScore = nearby.reduce(function (a, n) { return a + (SEV_W[n.severity] || 1); }, 0);
+      var newsScore = allNearby.reduce(function (a, n) { return a + (SEV_W[n.severity] || 1); }, 0);
       var base      = Math.round(magVal * 10 + newsScore * 5);
-
-      // Keyword weighting: ×(1 + hits×3), demote to ×0.15 if zero hits in kw mode
-      var hits = [];
-      var mult = 1;
+      var hits = [], mult = 1;
       if (kwMode) {
         var texts = [s.title, s.impact, s.region];
-        nearby.concat(current).forEach(function (e) {
-          texts.push(e.title, e.impact, e.description, e.region);
-        });
+        allNearby.forEach(function (e) { texts.push(e.title, e.impact, e.description, e.region); });
         texts.forEach(function (t) {
-          kwHits(t || '', kws).forEach(function (k) {
-            if (hits.indexOf(k) === -1) hits.push(k);
-          });
+          kwHits(t || '', kws).forEach(function (k) { if (hits.indexOf(k) === -1) hits.push(k); });
         });
         mult = hits.length ? 1 + hits.length * 3 : 0.15;
       }
-
       var types = {};
-      nearby.forEach(function (n) { types[n.type] = (types[n.type] || 0) + 1; });
+      allNearby.forEach(function (n) { types[n.type] = (types[n.type] || 0) + 1; });
       var domType = Object.keys(types).sort(function (a,b) { return types[b]-types[a]; })[0] || 'MIXED';
-
       _clusters.push({
-        lat: s.lat, lon: s.lon, anchor: s,
-        news: nearby, score: Math.round(base * mult), base: base,
-        type: domType, region: s.region || (nearby[0] && nearby[0].region) || 'Unknown',
+        lat: s.lat, lon: s.lon, anchor: s, news: allNearby,
+        score: Math.round(base * mult), base: base, type: domType,
+        region: s.region || (nearbyGeo[0] && nearbyGeo[0].region) || 'Unknown',
         mag: magVal, hits: hits
       });
     });
 
-    // ── Keyword-only clusters (no seismic anchor) ────────────────────────────
-    if (kwMode) {
-      current.forEach(function (e) {
-        var h = kwHits([e.title, e.impact, e.region].join(' '), kws);
-        if (!h.length) return;
-        var covered = _clusters.some(function (cl) {
-          return e.lat != null && cl.lat != null && hav(cl.lat, cl.lon, e.lat, e.lon) <= RADIUS_KM;
-        });
-        if (covered) return;
-        var sv = { CRITICAL: 40, WARNING: 30, WATCH: 20, LOW: 10 }[e.severity] || 10;
-        _clusters.push({
-          lat: e.lat, lon: e.lon, anchor: null, news: [e],
-          score: Math.round(sv * (1 + h.length * 3)), base: sv,
-          type: e.type || 'INTELLIGENCE',
-          region: e.region || 'Unknown', mag: 0, hits: h
-        });
+    // ── News-only clusters (keyword mode OR general fallback) ─────────────────
+    // Groups news by type when no seismic anchor — primary path in general mode
+    // since most news events are never geocoded.
+    var usedIds = {};
+    _clusters.forEach(function (cl) { cl.news.forEach(function (n) { usedIds[n.id] = true; }); });
+    var groups = {};
+    news.forEach(function (e) {
+      if (usedIds[e.id]) return;
+      if (kwMode) {
+        if (!kwHits([e.title, e.impact, e.description, e.region].join(' '), kws).length) return;
+      }
+      var key = (e.type || 'MIXED') + '|' + (e.region || 'Global').slice(0, 20);
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(e);
+    });
+    Object.keys(groups).forEach(function (key) {
+      var grp = groups[key]; if (!grp.length) return;
+      var sv = grp.reduce(function (a, n) { return a + (SEV_W[n.severity] || 1); }, 0) * 8;
+      var hits = [];
+      if (kwMode) {
+        var txt = grp.map(function(e){ return [e.title,e.impact,e.region].join(' '); }).join(' ');
+        hits = kwHits(txt, kws);
+        sv = Math.round(sv * (hits.length ? 1 + hits.length * 3 : 0.15));
+      }
+      if (sv < 5) return; // skip trivially low-signal clusters
+      var best = grp.find(function(e){ return e.lat != null; }) || grp[0];
+      var parts = key.split('|');
+      _clusters.push({
+        lat: best.lat || null, lon: best.lon || null, anchor: null,
+        news: grp.slice(0, 4), score: sv, base: sv,
+        type: parts[0] || 'INTELLIGENCE',
+        region: parts[1] || best.region || 'Global',
+        mag: 0, hits: hits
       });
-    }
+    });
 
     _clusters.sort(function (a, b) { return b.score - a.score; });
 
@@ -8373,7 +8411,6 @@ window.ArgusCaseBuilder = (function () {
   // ── Mode switching ───────────────────────────────────────────────────────────
   function setMode(mode) {
     _mode = mode;
-    // Reset network pan/zoom state when switching away
     if (mode !== 'network') { _net.wired = false; hideNetTooltip(); }
     ['brief','timeline'].forEach(function (m) {
       var btn  = document.getElementById('cbm-' + m);
@@ -8385,6 +8422,12 @@ window.ArgusCaseBuilder = (function () {
     var netWrap = document.getElementById('cb-network-wrap');
     if (netBtn)  netBtn.className  = 'cb-mode-btn' + (mode === 'network' ? ' active' : '');
     if (netWrap) netWrap.style.display = mode === 'network' ? 'flex' : 'none';
+
+    var notesBtn  = document.getElementById('cbm-notes');
+    var notesView = document.getElementById('cb-notes');
+    if (notesBtn)  notesBtn.className  = 'cb-mode-btn' + (mode === 'notes' ? ' active' : '');
+    if (notesView) notesView.style.display = mode === 'notes' ? 'flex' : 'none';
+
     render();
   }
 
@@ -8419,7 +8462,39 @@ window.ArgusCaseBuilder = (function () {
     }
   }
 
-  // ── Wire all event listeners after DOM is ready ──────────────────────────────
+  // ── Notes export ─────────────────────────────────────────────────────────────
+  function exportNotes(fmt) {
+    var ta      = document.getElementById('cb-notes-input');
+    var rawText = ta ? ta.value.trim() : '';
+    var ts      = new Date().toISOString().slice(0, 16).replace('T', ' ');
+    var header  = 'ARGUS NEURAL CASE BUILDER — ANALYST NOTES\n' +
+                  'Generated: ' + ts + ' UTC\n' +
+                  'Cases in session: ' + _cases.length + '\n';
+    if (fmt === 'md') {
+      header = '# ARGUS — Analyst Notes\n**Generated:** ' + ts + ' UTC  \n**Cases:** ' + _cases.length + '\n\n---\n';
+      // Append case summaries as context
+      if (_cases.length) {
+        header += '\n## Active Cases\n';
+        _cases.forEach(function (c) {
+          header += '\n### ' + c.id + ' — ' + c.title + '\n';
+          header += '- **Score:** ' + c.score + '  **Region:** ' + c.region + '\n';
+          if (c.hits.length) header += '- **Keywords:** ' + c.hits.join(', ') + '\n';
+          if (c.market) header += '- **Market:** ' + c.market + '\n';
+        });
+        header += '\n---\n\n## Notes\n\n';
+      }
+    } else {
+      header += '─'.repeat(50) + '\n\n';
+    }
+    var content  = header + (rawText || '(no notes entered)');
+    var filename = 'argus-notes-' + new Date().toISOString().slice(0,10) + (fmt === 'md' ? '.md' : '.txt');
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([content], { type: 'text/plain' }));
+    a.download = filename; a.click();
+    setTimeout(function () { URL.revokeObjectURL(a.href); }, 1000);
+  }
+
+  // ── Wire all event listeners ──────────────────────────────────────────────────
   function wireEvents() {
     var trigger   = document.getElementById('cb-trigger');
     var closeBtn  = document.getElementById('cb-close-btn');
@@ -8440,6 +8515,18 @@ window.ArgusCaseBuilder = (function () {
     if (briefBtn)  briefBtn.addEventListener('click', function () { setMode('brief'); });
     if (netBtn)    netBtn.addEventListener('click', function () { setMode('network'); });
     if (tlBtn)     tlBtn.addEventListener('click', function () { setMode('timeline'); });
+
+    var notesBtn    = document.getElementById('cbm-notes');
+    var notesTxt    = document.getElementById('cb-notes-export-txt');
+    var notesMd     = document.getElementById('cb-notes-export-md');
+    var notesClear  = document.getElementById('cb-notes-clear');
+    if (notesBtn)   notesBtn.addEventListener('click', function () { setMode('notes'); });
+    if (notesTxt)   notesTxt.addEventListener('click', function () { exportNotes('txt'); });
+    if (notesMd)    notesMd.addEventListener('click', function () { exportNotes('md'); });
+    if (notesClear) notesClear.addEventListener('click', function () {
+      var ta = document.getElementById('cb-notes-input');
+      if (ta) ta.value = '';
+    });
   }
 
   // Wire on DOM ready

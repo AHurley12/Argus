@@ -647,6 +647,33 @@
 
     /* ── Keyword highlight ── */
     .kw-hit   { background: rgba(180,100,255,0.25); color: #d49fff; border-radius: 1px; padding: 0 2px; font-weight: 700; }
+
+    /* ── Dimensional case card sections ── */
+    .cb-dim-header {
+      font-size: 7px; letter-spacing: 2px; color: #b464ff88;
+      border-top: 1px solid #b464ff15; margin: 5px 0 3px;
+      padding-top: 4px; font-weight: 700;
+    }
+    .cb-dim-row {
+      font-size: 8px; color: #4a7da8; line-height: 1.5;
+      margin-bottom: 1px; letter-spacing: 0.5px;
+    }
+
+    /* ── Per-case analyst notes textarea ── */
+    .case-notes {
+      width: 100%; box-sizing: border-box;
+      margin-top: 4px; min-height: 52px; max-height: 90px;
+      resize: vertical;
+      background: rgba(2, 8, 18, 0.7);
+      border: 1px solid #1a2a3a;
+      color: #c5d7e8;
+      font-family: var(--font-mono);
+      font-size: 8px; line-height: 1.55; letter-spacing: 0.4px;
+      padding: 5px 7px; outline: none; border-radius: 1px;
+      transition: border-color 0.15s;
+    }
+    .case-notes:focus { border-color: #b464ff66; }
+    .case-notes::placeholder { color: #2a4a6a; }
     .kw-badge { display: inline-block; font-size: 7px; letter-spacing: 1px; padding: 1px 5px;
                 border: 1px solid #b464ff44; color: #b464ff; margin: 2px 3px 0 0; }
 
@@ -7839,45 +7866,195 @@ window.ArgusCaseBuilder = (function () {
   }
 
   // ── Data accessors (read-only) ──────────────────────────────────────────────
-  function getSeismic() {
-    // Include all USGS events — coordinates always present from USGS feed
-    return window._usgsEvents || [];
-  }
 
-  function getNews() {
-    // Collect from all sources — do NOT filter by lat/lon here.
-    // Many news events are never geocoded; we still want them for keyword matching.
-    var evs = [];
-    var gd = window.gdelt && window.gdelt.getData ? window.gdelt.getData() : null;
-    if (gd && gd.events) evs = gd.events.slice();
-    try {
-      var c = localStorage.getItem('argus_live_events_v2');
-      if (c) {
-        JSON.parse(c).forEach(function (e) {
-          if (!evs.find(function (x) { return x.id === e.id; })) evs.push(e);
-        });
-      }
-    } catch (ex) {}
-    // Also include current merged feed
-    (window._currentEvents || []).forEach(function (e) {
-      if (!evs.find(function (x) { return x.id === e.id; })) evs.push(e);
+  // ════════════════════════════════════════════════════════════════════════════
+  // FUZZY HEURISTIC SCAN ENGINE
+  // Ingests all terminal data objects, scores by synonym expansion + relational
+  // proximity, groups into dimensional case cards.
+  // ════════════════════════════════════════════════════════════════════════════
+
+  // ── Synonym dictionary ───────────────────────────────────────────────────────
+  var SYNONYMS = {
+    energy:       ['oil','gas','brent','wti','petroleum','pipeline','aramco','opec','lng','crude','refinery','energy'],
+    tech:         ['semiconductor','chip','tsmc','nvidia','cyber','silicon','ai','drone','satellite','electronics','technology'],
+    food:         ['wheat','grain','corn','soybean','famine','food','harvest','drought','fertilizer','agriculture'],
+    conflict:     ['war','attack','strike','missile','airstrike','troops','military','armed','combat','shelling','offensive','coup','insurgency','conflict','killed','casualties'],
+    shipping:     ['shipping','freight','container','vessel','port','suez','hormuz','malacca','bosphorus','panama','chokepoint','tanker','cargo','trade route'],
+    finance:      ['inflation','recession','gdp','debt','bond','yield','currency','devaluation','sanction','tariff','imf','default','market','bank','fed','rate'],
+    climate:      ['flood','fire','wildfire','hurricane','typhoon','cyclone','earthquake','tsunami','drought','storm','disaster','volcano'],
+    lithium:      ['lithium','battery','ev','electric vehicle','cobalt','nickel','rare earth','mining'],
+    china:        ['china','chinese','beijing','taiwan','south china sea','pla','ccp'],
+    russia:       ['russia','russian','moscow','ukraine','nato','kremlin','putin','zelensky','black sea'],
+  };
+
+  // Expand query terms into full synonym set
+  function expandTerms(kws) {
+    var all = [];
+    kws.forEach(function (k) {
+      all.push(k);
+      var key = k.toLowerCase().trim();
+      if (SYNONYMS[key]) SYNONYMS[key].forEach(function (s) { if (all.indexOf(s) === -1) all.push(s); });
+      // Also try partial match on synonym keys
+      Object.keys(SYNONYMS).forEach(function (dictKey) {
+        if (dictKey.indexOf(key) !== -1 || key.indexOf(dictKey) !== -1) {
+          SYNONYMS[dictKey].forEach(function (s) { if (all.indexOf(s) === -1) all.push(s); });
+        }
+      });
     });
-    return evs;
+    return all;
   }
 
-  function getMarket() {
-    var av = window._avData  || {};
-    var ei = window._eiaData || {};
-    var fr = window._fredData || {};
-    return {
-      spy: av.spy, spyChg: av.spyChange,
-      brent: ei.brent, wti: ei.wti,
-      eur: av['fx-eurusd'], gbp: av['fx-gbpusd'], jpy: av['fx-usdjpy'],
-      t10y: fr.t10y, t2y: fr.t2y
-    };
+  // ── Scoring helpers ──────────────────────────────────────────────────────────
+  var SCORE_THRESHOLD = 10; // minimum score for inclusion
+
+  function scoreText(text, terms) {
+    if (!text || !terms.length) return 0;
+    var lo = text.toLowerCase(), pts = 0;
+    terms.forEach(function (t) { if (lo.indexOf(t) !== -1) pts += 1; });
+    return pts;
   }
 
-  // ── Keyword helpers ─────────────────────────────────────────────────────────
+  function scoreTitleHeavy(title, terms) {
+    // Title match = +20, body match = +5
+    return scoreText(title, terms) * 20;
+  }
+
+  function matchedTerms(texts, terms) {
+    var hits = [];
+    var joined = texts.join(' ').toLowerCase();
+    terms.forEach(function (t) { if (joined.indexOf(t) !== -1 && hits.indexOf(t) === -1) hits.push(t); });
+    return hits;
+  }
+
+  // ── Country relational scoring ───────────────────────────────────────────────
+  // Returns { score, matchedCountries } for a given set of terms
+  function scoreCountries(terms) {
+    var countries = window.COUNTRIES_DATA || [];
+    var matched = [];
+    countries.forEach(function (c) {
+      var tradeText = (c.topE || []).concat(c.topI || []).join(' ').toLowerCase();
+      var labelText = (c.label || '').toLowerCase();
+      var pts = 0;
+      terms.forEach(function (t) {
+        if (tradeText.indexOf(t) !== -1) pts += 10; // trade match
+        if (labelText.indexOf(t) !== -1) pts += 5;  // country name match
+      });
+      if (pts > 0) matched.push({ code: c.code, label: c.label, score: pts,
+                                   risk: c.risk, lat: c.rawLat, lon: c.rawLon });
+    });
+    matched.sort(function (a, b) { return b.score - a.score; });
+    return matched.slice(0, 6);
+  }
+
+  // ── Data ingestors ───────────────────────────────────────────────────────────
+  function ingestEvents(terms, matchedCountryCodes) {
+    var sources = [
+      window._currentEvents || [],
+      window._usgsEvents    || [],
+      window._noaaEvents    || [],
+      window._fireEvents    || [],
+      window._stormEvents   || [],
+    ];
+    var all = [];
+    var seen = {};
+    sources.forEach(function (src) {
+      src.forEach(function (e) {
+        if (seen[e.id]) return;
+        seen[e.id] = true;
+        var texts  = [e.title, e.impact, e.description, e.region];
+        var pts    = scoreTitleHeavy(e.title, terms) +
+                     scoreText([e.impact, e.description, e.region].join(' '), terms) * 5;
+        // Proximity bonus: +15 if event region matches a query-relevant country
+        if (matchedCountryCodes.length && e.region) {
+          var rlo = e.region.toLowerCase();
+          matchedCountryCodes.forEach(function (cc) { if (rlo.indexOf(cc.toLowerCase()) !== -1) pts += 15; });
+        }
+        if (pts >= SCORE_THRESHOLD || !terms.length) {
+          all.push({ ev: e, score: pts, hits: matchedTerms(texts, terms),
+                     src: e.source || 'FEED',
+                     sType: detectType(e) });
+        }
+      });
+    });
+    all.sort(function (a, b) { return b.score - a.score; });
+    return all;
+  }
+
+  function detectType(e) {
+    var t = (e.type || '').toUpperCase();
+    if (t === 'WILDFIRE' || t === 'SEISMIC' || t === 'DISASTER' || e.source === 'NASA FIRMS' || e.source === 'USGS') return 'disaster';
+    if (t === 'CONFLICT' || t === 'POLICY') return 'geopolitics';
+    return 'geopolitics';
+  }
+
+  function ingestHumanitarian(terms) {
+    var rw = window._rwData || {};
+    var results = [];
+    Object.keys(rw).forEach(function (iso) {
+      var entry = rw[iso];
+      var disasters = (entry.disasters || []);
+      disasters.forEach(function (d) {
+        var texts = [d.name, d.type, iso];
+        var pts   = scoreTitleHeavy(d.name, terms) + scoreText(texts.join(' '), terms) * 5;
+        if (pts >= SCORE_THRESHOLD || !terms.length) {
+          results.push({ iso: iso, name: d.name, type: d.type,
+                         severity: d.severity || 'WATCH', score: pts,
+                         displaced: entry.displaced, refugees: entry.refugees });
+        }
+      });
+    });
+    results.sort(function (a, b) { return b.score - a.score; });
+    return results.slice(0, 5);
+  }
+
+  function ingestMarkets(terms) {
+    var av  = window._avData   || {};
+    var eia = window._eiaData  || {};
+    var fr  = window._fredData || {};
+    var signals = [];
+
+    // Energy signals
+    if (eia.brent) {
+      var brentVal = parseFloat(eia.brent);
+      var brentPts = scoreText('brent crude oil energy petroleum', terms) * 20;
+      if (brentVal > 85) brentPts += 15;
+      if (brentPts > 0 || !terms.length)
+        signals.push({ label: 'Brent Crude', value: '$' + brentVal.toFixed(2),
+                       note: brentVal > 90 ? 'ELEVATED' : brentVal > 80 ? 'HIGH' : 'NORMAL',
+                       score: brentPts, col: brentVal > 85 ? '#ff9933' : '#00ff88' });
+    }
+    if (eia.wti) {
+      var wtiVal = parseFloat(eia.wti);
+      signals.push({ label: 'WTI Crude', value: '$' + wtiVal.toFixed(2),
+                     note: wtiVal > 80 ? 'ELEVATED' : 'NORMAL',
+                     score: scoreText('wti crude oil energy', terms) * 20,
+                     col: wtiVal > 80 ? '#ff9933' : '#c5d7e8' });
+    }
+    // Macro
+    if (av.spy) {
+      var spyPct = av.spyChange ? parseFloat(av.spyChange) : 0;
+      signals.push({ label: 'SPY', value: '$' + parseFloat(av.spy).toFixed(2) + (av.spyChange ? ' (' + (spyPct>=0?'+':'') + spyPct.toFixed(2) + '%)' : ''),
+                     note: spyPct < -2 ? 'DRAWDOWN' : 'NOMINAL',
+                     score: scoreText('market equity stock trade finance', terms) * 15,
+                     col: spyPct < -1.5 ? '#ff0044' : '#00ff88' });
+    }
+    if (av['fx-eurusd']) signals.push({ label: 'EUR/USD', value: parseFloat(av['fx-eurusd']).toFixed(4), note: '', score: 0, col: '#c5d7e8' });
+    if (av['fx-usdjpy']) signals.push({ label: 'USD/JPY', value: parseFloat(av['fx-usdjpy']).toFixed(2), note: '', score: 0, col: '#c5d7e8' });
+    if (fr.t10y) signals.push({ label: '10Y UST', value: fr.t10y, note: parseFloat(fr.t10y) > 4.5 ? 'ELEVATED' : '', score: 0, col: '#c5d7e8' });
+
+    return signals;
+  }
+
+  function ingestChokepoints(terms) {
+    var cps = window.CHOKEPOINTS_DATA || [];
+    return cps.filter(function (cp) {
+      if (!terms.length) return cp.risk === 'CRITICAL' || cp.risk === 'WARNING';
+      var txt = [cp.label, cp.status, cp.id].join(' ');
+      return scoreText(txt, terms) > 0 || cp.risk === 'CRITICAL';
+    }).slice(0, 4);
+  }
+
+  // ── Keyword / query parsing ──────────────────────────────────────────────────
   function parseKw() {
     var el = document.getElementById('input-case-keywords');
     var v  = el ? el.value.trim() : '';
@@ -7885,6 +8062,7 @@ window.ArgusCaseBuilder = (function () {
     return v.split(',').map(function (k) { return k.trim().toLowerCase(); }).filter(Boolean);
   }
 
+  // ── Utility ──────────────────────────────────────────────────────────────────
   function kwHits(text, kws) {
     if (!text || !kws.length) return [];
     var lo = text.toLowerCase();
@@ -7909,139 +8087,130 @@ window.ArgusCaseBuilder = (function () {
     return { CRITICAL:'#ff0044', WARNING:'#ff9933', WATCH:'#ffcc00', LOW:'#00ff88' }[s] || '#4a7da8';
   }
 
-  // ── scan(customKw) ──────────────────────────────────────────────────────────
+  // ── Notes persistence ────────────────────────────────────────────────────────
+  function saveNotes(caseId, text) {
+    try { localStorage.setItem('argus_notes_' + caseId, text); } catch(e) {}
+  }
+
+  function loadNotes(caseId) {
+    try { return localStorage.getItem('argus_notes_' + caseId) || ''; } catch(e) { return ''; }
+  }
+
+  // ── Market snapshot (for renderBrief / tooltip) ──────────────────────────────
+  function getMarket() {
+    var av = window._avData || {}, ei = window._eiaData || {}, fr = window._fredData || {};
+    return { spy: av.spy, spyChg: av.spyChange,
+             brent: ei.brent, wti: ei.wti,
+             eur: av['fx-eurusd'], gbp: av['fx-gbpusd'], jpy: av['fx-usdjpy'],
+             t10y: fr.t10y, t2y: fr.t2y };
+  }
+
+  // ── SCAN ─────────────────────────────────────────────────────────────────────
   function scan(customKw) {
     _clusters = []; _cases = [];
-    var kws     = Array.isArray(customKw) ? customKw : parseKw();
-    _activeKw   = kws;
-    var kwMode  = kws.length > 0;
-    var seismic = getSeismic();
-    var news    = getNews();
-    var current = window._currentEvents || [];
+    var rawKws  = Array.isArray(customKw) ? customKw : parseKw();
+    var terms   = rawKws.length ? expandTerms(rawKws) : [];
+    _activeKw   = rawKws;
 
-    // Animate scan button
+    // Animate button
     var btn = document.getElementById('cb-scan-btn');
     if (btn && window.ArgusAnim) {
       window.ArgusAnim.cipherDecode(btn, '↻ SCANNING…', 500);
       setTimeout(function () { if (btn) btn.textContent = '↻ SCAN'; }, 1600);
     }
 
-    // ── Seismic-anchored clusters ─────────────────────────────────────────
-    // nearbyGeo: events with coords within radius
-    // nearbyKw:  keyword-matching events regardless of coordinates
-    seismic.forEach(function (s) {
-      if (s.lat == null || s.lon == null) return;
+    // ── Ingest all data streams ─────────────────────────────────────────────
+    var matchedCountries = scoreCountries(terms);
+    var matchedCCodes    = matchedCountries.map(function (c) { return c.label; });
+    var scoredEvents     = ingestEvents(terms, matchedCCodes);
+    var humData          = ingestHumanitarian(terms);
+    var marketSignals    = ingestMarkets(terms);
+    var chokepoints      = ingestChokepoints(terms);
 
-      var nearbyGeo = news.filter(function (n) {
-        return n.lat != null && n.lon != null && hav(s.lat, s.lon, n.lat, n.lon) <= RADIUS_KM;
+    // ── Group scored events into dimensional case clusters ──────────────────
+    // Partition events by dimension: geopolitics, disaster/humanitarian
+    var geoEvents      = scoredEvents.filter(function (e) { return e.sType === 'geopolitics'; }).slice(0, 6);
+    var disasterEvents = scoredEvents.filter(function (e) { return e.sType === 'disaster'; }).slice(0, 4);
+
+    // Build a single "Big Picture" case if enough signal, else multiple by event cluster
+    if (!terms.length) {
+      // General scan: group all scored events by type
+      var groups = {};
+      scoredEvents.forEach(function (e) {
+        var key = e.ev.type || 'MIXED';
+        if (!groups[key]) groups[key] = [];
+        groups[key].push(e);
       });
-      var nearbyKw = kwMode ? news.filter(function (n) {
-        if (nearbyGeo.find(function(x){ return x.id === n.id; })) return false;
-        return kwHits([n.title, n.impact, n.description, n.region].join(' '), kws).length > 0;
-      }) : [];
-      var allNearby = nearbyGeo.concat(nearbyKw);
-
-      if (!kwMode && !nearbyGeo.length) return;
-      if (kwMode  && !allNearby.length) return;
-
-      var magVal    = parseFloat((s.title || '').match(/M(\d+\.?\d*)/)?.[1] || 0);
-      var newsScore = allNearby.reduce(function (a, n) { return a + (SEV_W[n.severity] || 1); }, 0);
-      var base      = Math.round(magVal * 10 + newsScore * 5);
-      var hits = [], mult = 1;
-      if (kwMode) {
-        var texts = [s.title, s.impact, s.region];
-        allNearby.forEach(function (e) { texts.push(e.title, e.impact, e.description, e.region); });
-        texts.forEach(function (t) {
-          kwHits(t || '', kws).forEach(function (k) { if (hits.indexOf(k) === -1) hits.push(k); });
+      Object.keys(groups).slice(0, 8).forEach(function (key, i) {
+        var grp = groups[key];
+        var sv  = grp.reduce(function (a, e) { return a + ({ CRITICAL:40,WARNING:30,WATCH:20,LOW:10 }[e.ev.severity]||10); }, 0);
+        _clusters.push({
+          id: 'CLU-' + i, type: key, score: sv,
+          geoEvents: grp.slice(0, 4), disasterEvents: [],
+          humData: [], marketSignals: marketSignals.slice(0, 3),
+          chokepoints: [], matchedCountries: [],
+          region: (grp[0] && grp[0].ev.region) || key, hits: []
         });
-        mult = hits.length ? 1 + hits.length * 3 : 0.15;
-      }
-      var types = {};
-      allNearby.forEach(function (n) { types[n.type] = (types[n.type] || 0) + 1; });
-      var domType = Object.keys(types).sort(function (a,b) { return types[b]-types[a]; })[0] || 'MIXED';
-      _clusters.push({
-        lat: s.lat, lon: s.lon, anchor: s, news: allNearby,
-        score: Math.round(base * mult), base: base, type: domType,
-        region: s.region || (nearbyGeo[0] && nearbyGeo[0].region) || 'Unknown',
-        mag: magVal, hits: hits
       });
-    });
-
-    // ── News-only clusters (keyword mode OR general fallback) ─────────────────
-    // Groups news by type when no seismic anchor — primary path in general mode
-    // since most news events are never geocoded.
-    var usedIds = {};
-    _clusters.forEach(function (cl) { cl.news.forEach(function (n) { usedIds[n.id] = true; }); });
-    var groups = {};
-    news.forEach(function (e) {
-      if (usedIds[e.id]) return;
-      if (kwMode) {
-        if (!kwHits([e.title, e.impact, e.description, e.region].join(' '), kws).length) return;
-      }
-      var key = (e.type || 'MIXED') + '|' + (e.region || 'Global').slice(0, 20);
-      if (!groups[key]) groups[key] = [];
-      groups[key].push(e);
-    });
-    Object.keys(groups).forEach(function (key) {
-      var grp = groups[key]; if (!grp.length) return;
-      var sv = grp.reduce(function (a, n) { return a + (SEV_W[n.severity] || 1); }, 0) * 8;
-      var hits = [];
-      if (kwMode) {
-        var txt = grp.map(function(e){ return [e.title,e.impact,e.region].join(' '); }).join(' ');
-        hits = kwHits(txt, kws);
-        sv = Math.round(sv * (hits.length ? 1 + hits.length * 3 : 0.15));
-      }
-      if (sv < 5) return; // skip trivially low-signal clusters
-      var best = grp.find(function(e){ return e.lat != null; }) || grp[0];
-      var parts = key.split('|');
+    } else {
+      // Keyword / fuzzy scan: one synthesised Big Picture case + overflow cases
+      var topScore = scoredEvents.reduce(function (a, e) { return a + e.score; }, 0);
       _clusters.push({
-        lat: best.lat || null, lon: best.lon || null, anchor: null,
-        news: grp.slice(0, 4), score: sv, base: sv,
-        type: parts[0] || 'INTELLIGENCE',
-        region: parts[1] || best.region || 'Global',
-        mag: 0, hits: hits
+        id: 'CLU-0', type: 'SYNTHESIS', score: topScore,
+        geoEvents: geoEvents, disasterEvents: disasterEvents,
+        humData: humData, marketSignals: marketSignals,
+        chokepoints: chokepoints, matchedCountries: matchedCountries,
+        region: matchedCountries.length ? matchedCountries[0].label : 'Global',
+        hits: terms.slice(0, 8)
       });
-    });
+      // Additional per-type overflow cases if enough data
+      ['CONFLICT','DISASTER','POLICY'].forEach(function (t, ti) {
+        var subset = scoredEvents.filter(function (e) { return (e.ev.type||'') === t; });
+        if (subset.length < 2) return;
+        var sv2 = subset.reduce(function (a, e) { return a + e.score; }, 0);
+        _clusters.push({
+          id: 'CLU-' + (ti+1), type: t, score: sv2,
+          geoEvents: subset.slice(0, 4), disasterEvents: [],
+          humData: [], marketSignals: [],
+          chokepoints: [], matchedCountries: [],
+          region: (subset[0] && subset[0].ev.region) || t, hits: []
+        });
+      });
+    }
 
     _clusters.sort(function (a, b) { return b.score - a.score; });
 
-    // ── Synthesise cases ─────────────────────────────────────────────────────
-    var mkt = getMarket();
+    // ── Synthesise final cases ───────────────────────────────────────────────
     _cases = _clusters.slice(0, 8).map(function (cl, i) {
-      var mktNote = '';
-      if (mkt.brent && parseFloat(mkt.brent) > 85)
-        mktNote = 'Brent $' + parseFloat(mkt.brent).toFixed(2) + ' elevated.';
-      if (mkt.spyChg && parseFloat(mkt.spyChg) < -1.5)
-        mktNote += ' SPY ' + parseFloat(mkt.spyChg).toFixed(2) + '%.';
-      if (cl.hits.some(function (k) { return ['oil','brent','wti','energy','gas','lng'].indexOf(k)!==-1; }) && mkt.brent)
-        mktNote += ' Energy kw — Brent $' + parseFloat(mkt.brent).toFixed(2) + '.';
+      var caseId = 'CASE-' + String(i + 1).padStart(3, '0');
       return {
-        id: 'CASE-' + String(i+1).padStart(3,'0'),
-        title: cl.type + ' CLUSTER — ' + cl.region.toUpperCase(),
-        region: cl.region, score: cl.score, base: cl.base,
-        lat: cl.lat, lon: cl.lon,
-        seismic: cl.anchor, news: cl.news.slice(0,4),
-        market: mktNote, type: cl.type, hits: cl.hits,
-        pinned: false, ts: Date.now()
+        id: caseId, title: cl.type + ' — ' + cl.region.toUpperCase(),
+        region: cl.region, score: cl.score, type: cl.type,
+        geoEvents: cl.geoEvents, disasterEvents: cl.disasterEvents,
+        humData: cl.humData, marketSignals: cl.marketSignals,
+        chokepoints: cl.chokepoints, matchedCountries: cl.matchedCountries,
+        hits: cl.hits, pinned: false, ts: Date.now(),
+        // lat/lon from first geolocated event for neural web
+        lat: (cl.geoEvents[0] && cl.geoEvents[0].ev.lat) || null,
+        lon: (cl.geoEvents[0] && cl.geoEvents[0].ev.lon) || null,
       };
     });
 
-    render();
-    setStatus();
-    var ml = kwMode ? 'KW[' + kws.join(',') + ']' : 'GENERAL';
+    render(); setStatus();
+    var ml = rawKws.length ? 'KW[' + rawKws.join(',') + '] → ' + terms.length + ' expanded terms' : 'GENERAL';
     console.log('ArgusCaseBuilder scan(' + ml + '): ' + _clusters.length + ' clusters, ' + _cases.length + ' cases');
   }
 
-  // ── Status bar ──────────────────────────────────────────────────────────────
+  // ── Status bar ───────────────────────────────────────────────────────────────
   function setStatus() {
     var el = document.getElementById('cb-status-bar');
     if (!el) return;
-    if (!_clusters.length) { el.textContent = 'NO DATA — PRESS SCAN'; return; }
-    var kwStr = _activeKw.length ? ' · KW: ' + _activeKw.join(', ') : ' · GENERAL ANOMALY';
-    el.innerHTML = _clusters.length + ' CLUSTERS · ' + _pins.length + ' PINNED' + kwStr;
+    if (!_cases.length) { el.textContent = 'NO DATA — PRESS SCAN'; return; }
+    var kwStr = _activeKw.length ? ' · QUERY: ' + _activeKw.join(', ') : ' · GENERAL ANOMALY';
+    el.innerHTML = _cases.length + ' CASES · ' + _pins.length + ' PINNED' + kwStr;
   }
 
-  // ── Pin / clear ─────────────────────────────────────────────────────────────
+  // ── Pin / clear ───────────────────────────────────────────────────────────────
   function togglePin(id) {
     var c = _cases.find(function (x) { return x.id === id; });
     if (!c) return;
@@ -8056,14 +8225,26 @@ window.ArgusCaseBuilder = (function () {
     render(); setStatus();
   }
 
-  // ── Render dispatcher ────────────────────────────────────────────────────────
-  function render() {
-    if (_mode === 'brief')   renderBrief();
-    if (_mode === 'network') renderNetwork();
-    if (_mode === 'timeline') renderTimeline();
+  // ── Export full report ────────────────────────────────────────────────────────
+  function exportReport() {
+    var target = _pins.length ? _pins : _cases;
+    if (!target.length) return;
+    var mkt  = getMarket();
+    var md   = ['# ARGUS NEURAL CASE BUILDER — REPORT', 'Generated: ' + new Date().toUTCString(), ''];
+    md.push('## MARKET', '- Brent: $' + (mkt.brent||'N/A'), '- WTI: $' + (mkt.wti||'N/A'), '- SPY: $' + (mkt.spy||'N/A'), '');
+    target.forEach(function (c) {
+      md.push('### ' + c.id + ' — ' + c.title, '- Score: ' + c.score, '- Region: ' + c.region);
+      if (c.hits.length) md.push('- Keywords: ' + c.hits.join(', '));
+      var notes = loadNotes(c.id);
+      if (notes) md.push('', '**Analyst Notes:**', notes);
+      md.push('');
+    });
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([md.join('\n')], { type: 'text/markdown' }));
+    a.download = 'argus-case-' + new Date().toISOString().slice(0,10) + '.md';
+    a.click(); setTimeout(function () { URL.revokeObjectURL(a.href); }, 1000);
   }
 
-  // ── Mode 1: Intelligence Brief ───────────────────────────────────────────────
   function renderBrief() {
     var el = document.getElementById('cb-brief');
     if (!el) return;
@@ -8071,52 +8252,94 @@ window.ArgusCaseBuilder = (function () {
       el.innerHTML = '<div style="padding:20px 0;text-align:center;font-size:9px;color:#2a4a6a;letter-spacing:1px">NO CASES — PRESS SCAN</div>';
       return;
     }
-    var mkt  = getMarket();
     var html = '';
-
-    // Market context strip
-    html += '<div style="font-size:8px;color:#4a7da8;margin-bottom:8px;letter-spacing:1px">';
-    if (mkt.brent) html += 'BRENT <span style="color:#ff9933">$' + parseFloat(mkt.brent).toFixed(2) + '</span>  ';
-    if (mkt.wti)   html += 'WTI <span style="color:#ff9933">$' + parseFloat(mkt.wti).toFixed(2) + '</span>  ';
-    if (mkt.spy) {
-      html += 'SPY <span style="color:#00ff88">$' + parseFloat(mkt.spy).toFixed(2) + '</span>';
-      if (mkt.spyChg) {
-        var p = parseFloat(mkt.spyChg);
-        html += ' <span style="color:' + (p>=0?'#00ff88':'#ff0044') + '">' + (p>=0?'+':'') + p.toFixed(2) + '%</span>';
-      }
-    }
-    html += '</div>';
-
     _cases.forEach(function (c) {
       var idCol = c.pinned ? '#ff9933' : '#b464ff';
       html += '<div class="case-card' + (c.pinned ? ' pinned' : '') + '" data-cid="' + c.id + '">';
-      html += '<span class="case-card__id" style="color:' + idCol + '">' + c.id + (c.pinned ? ' ◈' : '') + '</span>';
-      html += '<span class="case-card__score">SCORE ' + c.score;
-      if (c.score !== c.base) html += ' <span style="color:#4a7da8;font-weight:400">(base ' + c.base + ')</span>';
-      html += '</span>';
-      html += '<div class="case-card__title">' + hlKw(c.title, _activeKw) + '</div>';
-      if (c.hits.length) {
-        html += '<div style="margin-top:3px">';
-        c.hits.forEach(function (k) { html += '<span class="kw-badge">⬡ ' + k + '</span>'; });
-        html += '</div>';
-      }
-      if (c.seismic) {
-        html += '<div class="case-card__meta">⬡ SEISMIC: ' + hlKw(esc(c.seismic.title.slice(0,50)), _activeKw) + '</div>';
-      } else {
-        html += '<div class="case-card__meta" style="color:#b464ff77">◈ KEYWORD-DRIVEN (no seismic anchor)</div>';
-      }
-      c.news.slice(0,2).forEach(function (n) {
-        html += '<div class="case-card__meta" style="color:' + sevCol(n.severity) + '">▸ ' + hlKw(esc((n.title||'').slice(0,55)), _activeKw) + '</div>';
-      });
-      if (c.market) html += '<div class="case-card__meta" style="color:#ff9933;margin-top:2px">⚡ ' + esc(c.market.slice(0,90)) + '</div>';
+
+      // ── Header row ──
+      html += '<div style="display:flex;justify-content:space-between;align-items:flex-start">';
+      html += '<span style="font-size:8px;letter-spacing:1.5px;color:' + idCol + ';font-weight:700">' + c.id + (c.pinned?' ◈':'') + '</span>';
+      html += '<span style="font-size:8px;color:#ff9933">SCORE ' + c.score + '</span>';
       html += '</div>';
+      html += '<div style="font-size:10px;color:#ddeeff;margin:3px 0 5px">' + hlKw(esc(c.title), _activeKw) + '</div>';
+      if (c.hits.length) {
+        c.hits.slice(0,6).forEach(function (k) { html += '<span class="kw-badge">⬡ ' + k + '</span>'; });
+        html += '<br style="margin-bottom:4px">';
+      }
+
+      // ── [Geopolitics] dimension ──
+      if (c.geoEvents && c.geoEvents.length) {
+        html += '<div class="cb-dim-header">[ Geopolitics ]</div>';
+        c.geoEvents.slice(0, 3).forEach(function (e) {
+          html += '<div class="cb-dim-row" style="color:' + sevCol(e.ev.severity) + '">';
+          html += '▸ ' + hlKw(esc((e.ev.title||'').slice(0,60)), _activeKw);
+          if (e.hits.length) html += ' <span style="color:#b464ff55;font-size:7px">[' + e.hits.slice(0,2).join(',') + ']</span>';
+          html += '</div>';
+        });
+      }
+
+      // ── [Markets] dimension ──
+      if (c.marketSignals && c.marketSignals.length) {
+        html += '<div class="cb-dim-header">[ Markets ]</div>';
+        c.marketSignals.slice(0, 4).forEach(function (s) {
+          html += '<div class="cb-dim-row">';
+          html += '<span style="color:#4a7da8">' + esc(s.label) + '</span> ';
+          html += '<span style="color:' + (s.col||'#c5d7e8') + '">' + esc(s.value) + '</span>';
+          if (s.note) html += ' <span style="color:' + (s.col||'#ff9933') + ';font-size:7px;letter-spacing:1px"> ' + s.note + '</span>';
+          html += '</div>';
+        });
+      }
+
+      // ── [Disasters / Humanitarian] dimension ──
+      var hasDisaster = (c.disasterEvents && c.disasterEvents.length) || (c.humData && c.humData.length);
+      if (hasDisaster) {
+        html += '<div class="cb-dim-header">[ Disasters / Humanitarian ]</div>';
+        (c.disasterEvents||[]).slice(0,2).forEach(function (e) {
+          html += '<div class="cb-dim-row" style="color:' + sevCol(e.ev.severity) + '">⚠ ' + esc((e.ev.title||'').slice(0,55)) + '</div>';
+        });
+        (c.humData||[]).slice(0,2).forEach(function (h) {
+          html += '<div class="cb-dim-row" style="color:#ff9933">◉ ' + esc(h.iso) + ' — ' + esc(h.name||h.type);
+          if (h.displaced) html += ' · ' + h.displaced + ' displaced';
+          html += '</div>';
+        });
+      }
+
+      // ── [Exposed Countries] dimension ──
+      if (c.matchedCountries && c.matchedCountries.length) {
+        html += '<div class="cb-dim-header">[ Exposed Countries ]</div>';
+        html += '<div class="cb-dim-row">';
+        c.matchedCountries.slice(0, 5).forEach(function (co) {
+          html += '<span style="font-size:7px;padding:1px 5px;border:1px solid ' + sevCol(co.risk) + '44;color:' + sevCol(co.risk) + ';margin-right:4px">' + esc(co.label) + '</span>';
+        });
+        html += '</div>';
+        // Exposed chokepoints
+        if (c.chokepoints && c.chokepoints.length) {
+          c.chokepoints.forEach(function (cp) {
+            html += '<div class="cb-dim-row" style="color:' + sevCol(cp.risk) + ';font-size:8px">⬡ ' + esc(cp.label) + ' — ' + esc(cp.status.slice(0,50)) + '</div>';
+          });
+        }
+      }
+
+      // ── Analyst Notes (persistent via localStorage) ──
+      var savedNotes = loadNotes(c.id);
+      html += '<div class="cb-dim-header" style="margin-top:5px">[ Analyst Notes ]</div>';
+      html += '<textarea class="case-notes" data-cid="' + c.id + '" placeholder="Observations, hypotheses, follow-up…">' + esc(savedNotes) + '</textarea>';
+
+      html += '</div>'; // end case-card
     });
 
     el.innerHTML = html;
 
-    // Attach pin clicks
+    // Wire pin clicks and notes autosave
     el.querySelectorAll('.case-card[data-cid]').forEach(function (div) {
-      div.addEventListener('click', function () { togglePin(div.dataset.cid); });
+      div.addEventListener('click', function (e) {
+        if (e.target.classList.contains('case-notes')) return; // don't pin when typing
+        togglePin(div.dataset.cid);
+      });
+    });
+    el.querySelectorAll('.case-notes').forEach(function (ta) {
+      ta.addEventListener('input', function () { saveNotes(ta.dataset.cid, ta.value); });
     });
   }
 

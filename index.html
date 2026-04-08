@@ -8845,11 +8845,22 @@ window.ArgusTracking = (function () {
 'use strict';
 
 // ── Config ────────────────────────────────────────────────────────────────────
-var AISSTREAM_KEY  = '';   // Paste your free aisstream.io key here to enable ships
-var AIRCRAFT_LIMIT = 200;  // Max aircraft markers rendered at once
-var SHIP_LIMIT     = 150;  // Max ship markers rendered at once
-var CACHE_MS       = 60000; // OpenSky re-fetch interval (ms) — respect rate limits
-var OPENSKY_URL    = 'https://opensky-network.org/api/states/all';
+var AISSTREAM_KEY  = '';    // Free key — sign up at aisstream.io to enable ships
+var AIRCRAFT_LIMIT = 200;   // Max aircraft markers on globe at once
+var SHIP_LIMIT     = 150;   // Max ship markers on globe at once
+var CACHE_MS       = 60000; // Aircraft re-fetch interval ms (60 s)
+
+// Aircraft source URLs — tried in order, first success wins
+// adsb.fi and adsb.lol are community ADS-B networks with CORS enabled (no key, no proxy)
+// OpenSky is kept as a proxy fallback; corsproxy is omitted (consistently 522s on OpenSky)
+var OPENSKY_URL = 'https://opensky-network.org/api/states/all';
+var AC_SOURCES  = [
+  'https://opendata.adsb.fi/api/v2/all',                                              // 1. adsb.fi  — CORS open, very stable
+  'https://api.adsb.lol/v2/all',                                                      // 2. adsb.lol — CORS open, community feed
+  'https://api.adsb.one/v2/all',                                                      // 3. adsb.one — CORS open, community feed
+  'https://api.allorigins.win/raw?url=' + encodeURIComponent(OPENSKY_URL),            // 4. OpenSky via allorigins
+  'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(OPENSKY_URL)        // 5. OpenSky via codetabs
+];
 
 // ── State ─────────────────────────────────────────────────────────────────────
 var aircraftGroup = null;   // THREE.Group for aircraft meshes
@@ -8996,42 +9007,31 @@ function placeShip(lat, lon, name) {
   shipGroup.add(outline);
 }
 
-// ── OpenSky aircraft fetch ─────────────────────────────────────────────────────
+// ── Aircraft fetch — waterfall through AC_SOURCES ─────────────────────────────
 function fetchAndRenderAircraft() {
-  var now = Date.now();
-  if (cachedStates && (now - lastFetch) < CACHE_MS) {
+  if (cachedStates && (Date.now() - lastFetch) < CACHE_MS) {
     renderAircraft(cachedStates);
     return;
   }
 
-  // Waterfall — OpenSky blocks direct browser requests (CORS) and many proxy IPs.
-  // Try adsb.lol first (community ADS-B network, CORS-open, no key required),
-  // then fall through multiple OpenSky proxy routes matching the FIRMS pattern.
-  var attempts = [
-    'https://api.adsb.lol/v2/all',
-    'https://api.allorigins.win/raw?url=' + encodeURIComponent(OPENSKY_URL),
-    'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(OPENSKY_URL),
-    'https://corsproxy.io/?url='              + encodeURIComponent(OPENSKY_URL),
-    OPENSKY_URL  // direct last — occasionally works when CORS headers are present
-  ];
-
-  function tryNext(idx) {
-    if (idx >= attempts.length) {
-      console.warn('[ArgusTracking] All aircraft fetch attempts failed');
+  var idx = 0;
+  function tryNext() {
+    if (idx >= AC_SOURCES.length) {
+      console.warn('[ArgusTracking] All aircraft sources failed');
       updateStatus('AIRCRAFT: UNAVAILABLE');
       return;
     }
-    fetch(attempts[idx])
-      .then(function (r) { return r.ok ? r.json() : Promise.reject('HTTP ' + r.status); })
+    var url = AC_SOURCES[idx++];
+    fetch(url)
+      .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
       .then(function (json) {
         lastFetch    = Date.now();
         cachedStates = json;
         renderAircraft(json);
       })
-      .catch(function () { tryNext(idx + 1); });
+      .catch(tryNext);
   }
-
-  tryNext(0);
+  tryNext();
 }
 
 function renderAircraft(json) {
@@ -9039,17 +9039,20 @@ function renderAircraft(json) {
   clearGroup(aircraftGroup, aircraftHits);
   if (!json) { updateStatus(); return; }
 
-  // Normalise both response shapes into a common array of {lat, lon, track, cs, country}
+  // Normalise three possible response shapes into {lat, lon, track, cs, country}
+  // adsb.fi  → { aircraft: [...] }   fields: lat, lon, track, flight, alt_baro
+  // adsb.lol / adsb.one → { ac: [...] }   same fields as above
+  // OpenSky  → { states:   [[...]] } indices: 5=lon 6=lat 8=on_ground 10=true_track
+  var raw = json.aircraft || json.ac || null;
   var states = [];
-  if (Array.isArray(json.ac)) {
-    // adsb.lol format: { ac: [{ lat, lon, track, flight, alt_baro, ... }] }
-    states = json.ac
+
+  if (Array.isArray(raw)) {
+    states = raw
       .filter(function (a) { return a.lat != null && a.lon != null && a.alt_baro !== 'ground'; })
       .map(function (a) {
         return { lat: a.lat, lon: a.lon, track: a.track, cs: (a.flight || '').trim(), country: '' };
       });
   } else if (Array.isArray(json.states)) {
-    // OpenSky format: state vector indices — 5=lon 6=lat 8=on_ground 10=true_track
     states = json.states
       .filter(function (s) { return s[5] != null && s[6] != null && s[8] === false; })
       .map(function (s) {
@@ -9059,7 +9062,6 @@ function renderAircraft(json) {
 
   if (!states.length) { updateStatus(); return; }
 
-  // Even-stride sampling to stay within marker budget
   var step = Math.max(1, Math.floor(states.length / AIRCRAFT_LIMIT));
   for (var i = 0; i < states.length && aircraftHits.length < AIRCRAFT_LIMIT; i += step) {
     var s = states[i];

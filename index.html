@@ -4466,14 +4466,28 @@ function scorePlotPriority(ev) {
   return Math.round(humScore + ecoScore + typeBonus + sourceBoost);
 }
 
+// Kinetic keywords that MUST classify as CONFLICT regardless of other signals.
+// Weighted above all TYPE_RULES — policy/diplomatic language never overrides these.
+var KINETIC_OVERRIDE_RE = /\bwar\b|genocide|massacre|violence|airstrike|bombing|missile.strike|troops|shelling|offensive|coup|terror.attack|chemical.weapon|ethnic.cleansing|war.crime|atrocity|armed.conflict|civilian.death|military.operation|killed.in|casualties.reported/i;
+
 function classifyArticle(article, idx) {
   var title  = (article.title || '').slice(0, 80);
   var desc   = (article.description || article.content || '').slice(0, 200);
-  var full   = title + ' ' + desc;
+  // Include ai_tag so tagged-but-sparse articles are classified correctly
+  var tags   = Array.isArray(article.ai_tag) ? article.ai_tag.join(' ') : (article.ai_tag || '');
+  var full   = title + ' ' + desc + ' ' + tags;
 
-  var type = 'POLICY';
-  for (var i = 0; i < TYPE_RULES.length; i++) {
-    if (TYPE_RULES[i].re.test(full)) { type = TYPE_RULES[i].type; break; }
+  // Tier 1 — Kinetic hard-override: if any kinetic keyword is present,
+  // classify as CONFLICT unconditionally (higher weight than any policy signal)
+  var type;
+  if (KINETIC_OVERRIDE_RE.test(full)) {
+    type = 'CONFLICT';
+  } else {
+    // Tier 2 — ordered TYPE_RULES (CONFLICT still first, but not reached if override fired)
+    type = 'POLICY';
+    for (var i = 0; i < TYPE_RULES.length; i++) {
+      if (TYPE_RULES[i].re.test(full)) { type = TYPE_RULES[i].type; break; }
+    }
   }
 
   var sev = 'LOW';
@@ -7911,6 +7925,7 @@ window.ArgusCaseBuilder = (function () {
   var _pins         = [];
   var _activeKw     = [];
   var _qHash        = '';         // djb2 hash of query + date (notes persistence key)
+  var _globalBrief  = [];         // flat sorted list of ALL active events for the Global Briefing Feed
 
   var RADIUS_KM = 500;
   var SEV_W     = { CRITICAL: 4, WARNING: 3, WATCH: 2, LOW: 1 };
@@ -8119,11 +8134,12 @@ window.ArgusCaseBuilder = (function () {
   // ── Data ingestors ───────────────────────────────────────────────────────────
   function ingestEvents(terms, matchedCountryCodes) {
     var sources = [
-      window._currentEvents || [],
-      window._usgsEvents    || [],
-      window._noaaEvents    || [],
-      window._fireEvents    || [],
-      window._stormEvents   || [],
+      window._currentEvents   || [],   // NewsData / GDELT classified feed
+      window._usgsEvents      || [],   // USGS seismic M4.5+
+      window._noaaEvents      || [],   // NWS severe weather alerts
+      window._fireEvents      || [],   // NASA FIRMS wildfire clusters
+      window._stormEvents     || [],   // NHC tropical storms
+      window._rwCrisisEvents  || [],   // UN OCHA ReliefWeb active crises
     ];
     var all = [], seen = {};
     sources.forEach(function (src) {
@@ -8261,6 +8277,68 @@ window.ArgusCaseBuilder = (function () {
       if (!terms.length) return r.risk === 'CRITICAL' || r.risk === 'WARNING';
       return scoreText([r.from||'',r.to||'',r.label||'',r.vol||''].join(' '), terms) > 0 || r.risk === 'CRITICAL';
     }).slice(0, 4);
+  }
+
+  // ── Relational mapping: news articles geographically/semantically linked to a chokepoint ──
+  // Used in renderBrief to pull GDELT context when a chokepoint is selected in a case.
+  function getRelatedNews(cp, events) {
+    var cpWords = (cp.label + ' ' + (cp.id || '')).toLowerCase().split(/[\s\-_]+/).filter(function(w){ return w.length > 3; });
+    return (events || []).filter(function(e) {
+      var eText = ((e.title || '') + ' ' + (e.region || '') + ' ' + (e.impact || '')).toLowerCase();
+      return cpWords.some(function(k) { return eText.indexOf(k) !== -1; });
+    }).slice(0, 3);
+  }
+
+  // ════════════════════════════════════════════════════════════════════════════
+  // GLOBAL BRIEFING FEED — aggregates every active data stream into one sorted
+  // event list. Excludes static country dots. Sorted: Severity → Recency.
+  // Uses DocumentFragment when the list exceeds 100 entries for performance.
+  // ════════════════════════════════════════════════════════════════════════════
+  function generateIntelligenceBrief() {
+    var SEV_RANK = { CRITICAL: 4, WARNING: 3, WATCH: 2, LOW: 1 };
+    var all = [], seen = {};
+
+    // 1. Collect from every named event feed
+    [
+      window._currentEvents   || [],
+      window._usgsEvents      || [],
+      window._noaaEvents      || [],
+      window._fireEvents      || [],
+      window._stormEvents     || [],
+      window._rwCrisisEvents  || [],
+    ].forEach(function(src) {
+      src.forEach(function(e) {
+        var uid = String(e.id || (e.title || '').slice(0, 40) + '|' + (e.lat || ''));
+        if (seen[uid]) return; seen[uid] = true;
+        all.push(e);
+      });
+    });
+
+    // 2. Harvest active globe markers — skip static country dots and capital pins
+    (window.eventMarkers || []).forEach(function(m) {
+      var ud = m.userData || {};
+      // Exclusion rule: skip any marker that represents country metadata, not incidents
+      if (ud.isCountry || ud.isCapital || ud._staticMarker || !ud.title) return;
+      var uid = 'mkr|' + (ud.title || '').slice(0, 40);
+      if (seen[uid]) return; seen[uid] = true;
+      all.push({
+        id: uid, title: ud.title || '', type: ud.type || 'CONFLICT',
+        severity: ud.severity || 'WATCH', impact: ud.impact || '',
+        source: ud.source || 'GLOBE', pubDate: '', region: ud.countryCode || '',
+        lat: null, lon: null, plotPriority: ud.severity === 'CRITICAL' ? 80 : 40,
+      });
+    });
+
+    // 3. Sort: CRITICAL first, then by severity tier, then by recency (pubDate desc)
+    all.sort(function(a, b) {
+      var sa = SEV_RANK[a.severity] || 0, sb = SEV_RANK[b.severity] || 0;
+      if (sb !== sa) return sb - sa;
+      var da = a.pubDate || '', db = b.pubDate || '';
+      return db > da ? 1 : db < da ? -1 : 0;
+    });
+
+    _globalBrief = all;
+    return all;
   }
 
   // ── Query parsing ────────────────────────────────────────────────────────────
@@ -8416,8 +8494,9 @@ window.ArgusCaseBuilder = (function () {
               };
             });
 
+            generateIntelligenceBrief(); // build _globalBrief before render so renderBrief can use it
             render(); setStatus();
-            console.log('ArgusCaseBuilder: '+_cases.length+' cases | '+terms.length+' terms | query=['+rawKws.join(',')+']');
+            console.log('ArgusCaseBuilder: '+_cases.length+' cases | '+terms.length+' terms | '+_globalBrief.length+' brief items | query=['+rawKws.join(',')+']');
           });
         });
       });
@@ -8573,7 +8652,14 @@ window.ArgusCaseBuilder = (function () {
           c.matchedCountries.slice(0,5).forEach(function(co){ html+='<span style="font-size:7px;padding:1px 5px;border:1px solid '+sevCol(co.risk)+'44;color:'+sevCol(co.risk)+';margin-right:3px">'+esc(co.label)+'</span>'; });
           html += '</div>';
         }
-        if (hasCPs) c.chokepoints.forEach(function(cp){ html+='<div class="cb-dim-row" style="color:'+sevCol(cp.risk)+';font-size:8px">⬡ '+esc(cp.label)+(cp.status?' — '+esc(cp.status.slice(0,48)):'')+' ['+cp.risk+']</div>'; });
+        if (hasCPs) c.chokepoints.forEach(function(cp){
+          html+='<div class="cb-dim-row" style="color:'+sevCol(cp.risk)+';font-size:8px">⬡ '+esc(cp.label)+(cp.status?' — '+esc(cp.status.slice(0,48)):'')+' ['+cp.risk+']</div>';
+          // ── Relational mapping: pull GDELT news articles tied to this chokepoint ──
+          var relNews = getRelatedNews(cp, window._currentEvents || []);
+          relNews.forEach(function(e){
+            html += '<div class="cb-dim-row" style="color:#4a7da8aa;font-size:7.5px;padding-left:10px">⤷ '+esc((e.title||'').slice(0,58))+'</div>';
+          });
+        });
         if (hasRts) c.tradeRoutes.slice(0,2).forEach(function(r){ html+='<div class="cb-dim-row" style="color:#4a7da8;font-size:8px">⇌ '+esc((r.from||'')+'→'+(r.to||''))+(r.risk?' ['+r.risk+']':'')+' </div>'; });
         if (hasSEv) c.strategicEvts.slice(0,2).forEach(function(e){ html+='<div class="cb-dim-row" style="color:#4a7da8aa">▸ '+hlKw(esc((e.ev.title||'').slice(0,60)),_activeKw)+'</div>'; });
       }
@@ -8592,6 +8678,52 @@ window.ArgusCaseBuilder = (function () {
     el.querySelectorAll('.case-notes').forEach(function(ta){
       ta.addEventListener('input', function(){ saveNotes(ta.dataset.cid, ta.value); });
     });
+
+    // ── GLOBAL BRIEFING FEED — appended below case cards ─────────────────────
+    // Renders _globalBrief as a high-density scrollable feed sorted by SEV → Recency.
+    // Uses DocumentFragment when the list exceeds 100 entries to avoid layout thrash.
+    if (_globalBrief.length) {
+      var SEV_COL_MAP = { CRITICAL:'#ff0044', WARNING:'#ff9933', WATCH:'#ffcc00', LOW:'#00ff88' };
+      var SEV_ICON    = { CRITICAL:'⚠', WARNING:'▲', WATCH:'▸', LOW:'·' };
+
+      // Header div
+      var hdr = document.createElement('div');
+      hdr.style.cssText = 'margin-top:12px;padding:5px 0 4px;border-top:1px solid #0f274422;' +
+                          'font-size:8px;letter-spacing:2px;color:#4a7da8;flex-shrink:0';
+      hdr.textContent = '◉ GLOBAL BRIEFING FEED — ' + _globalBrief.length + ' ACTIVE INCIDENTS';
+      if (window.ArgusAnim) window.ArgusAnim.cipherDecode(hdr, '◉ GLOBAL BRIEFING FEED — ' + _globalBrief.length + ' ACTIVE INCIDENTS', 600);
+      el.appendChild(hdr);
+
+      // Build rows via DocumentFragment (performance: avoids per-append reflow)
+      var frag     = document.createDocumentFragment();
+      var LIMIT    = 120; // cap at 120 rows for panel performance
+      var briefSlice = _globalBrief.slice(0, LIMIT);
+
+      briefSlice.forEach(function(e) {
+        var sev  = e.severity || 'LOW';
+        var col  = SEV_COL_MAP[sev] || '#4a7da8';
+        var icon = SEV_ICON[sev]    || '·';
+        var src  = e.source ? ' <span style="color:#2a4a6a">[' + e.source + ']</span>' : '';
+        var reg  = e.region ? ' <span style="color:#1a3a5a">' + esc(e.region.slice(0,18)) + '</span>' : '';
+
+        var row = document.createElement('div');
+        row.style.cssText = 'padding:2px 0;border-bottom:1px solid #0a1a2a;font-size:8px;' +
+                            'line-height:1.45;color:' + col + ';display:flex;gap:5px;align-items:baseline';
+        row.innerHTML = '<span style="flex-shrink:0;color:' + col + '">' + icon + '</span>' +
+                        '<span style="flex:1;color:#c5d7e880">' + esc((e.title||'').slice(0,72)) + src + reg + '</span>' +
+                        (e.pubDate ? '<span style="flex-shrink:0;color:#1a3a5a;font-size:7px">' + esc(e.pubDate.slice(0,12)) + '</span>' : '');
+        frag.appendChild(row);
+      });
+
+      if (_globalBrief.length > LIMIT) {
+        var more = document.createElement('div');
+        more.style.cssText = 'font-size:7px;color:#2a4a6a;letter-spacing:1px;padding:4px 0;text-align:center';
+        more.textContent = '+ ' + (_globalBrief.length - LIMIT) + ' MORE INCIDENTS (export for full list)';
+        frag.appendChild(more);
+      }
+
+      el.appendChild(frag);
+    }
   }
 
   // ── Mode 2: Neural Web — interactive pan, zoom, click nodes ────────────────

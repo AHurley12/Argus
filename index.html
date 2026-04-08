@@ -9003,45 +9003,67 @@ function fetchAndRenderAircraft() {
     renderAircraft(cachedStates);
     return;
   }
-  fetch(OPENSKY_URL)
-    .then(function (r) {
-      if (!r.ok) throw new Error('HTTP ' + r.status);
-      return r.json();
-    })
-    .then(function (json) {
-      lastFetch    = Date.now();
-      cachedStates = json;
-      renderAircraft(json);
-    })
-    .catch(function (e) {
-      console.warn('[ArgusTracking] OpenSky fetch failed:', e.message);
-      // Try via CORS proxy as fallback
-      fetch('https://corsproxy.io/?url=' + encodeURIComponent(OPENSKY_URL))
-        .then(function (r) { return r.ok ? r.json() : null; })
-        .then(function (json) {
-          if (json) { lastFetch = Date.now(); cachedStates = json; renderAircraft(json); }
-        })
-        .catch(function () { updateStatus('AIRCRAFT: FETCH FAILED'); });
-    });
+
+  // Waterfall — OpenSky blocks direct browser requests (CORS) and many proxy IPs.
+  // Try adsb.lol first (community ADS-B network, CORS-open, no key required),
+  // then fall through multiple OpenSky proxy routes matching the FIRMS pattern.
+  var attempts = [
+    'https://api.adsb.lol/v2/all',
+    'https://api.allorigins.win/raw?url=' + encodeURIComponent(OPENSKY_URL),
+    'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(OPENSKY_URL),
+    'https://corsproxy.io/?url='              + encodeURIComponent(OPENSKY_URL),
+    OPENSKY_URL  // direct last — occasionally works when CORS headers are present
+  ];
+
+  function tryNext(idx) {
+    if (idx >= attempts.length) {
+      console.warn('[ArgusTracking] All aircraft fetch attempts failed');
+      updateStatus('AIRCRAFT: UNAVAILABLE');
+      return;
+    }
+    fetch(attempts[idx])
+      .then(function (r) { return r.ok ? r.json() : Promise.reject('HTTP ' + r.status); })
+      .then(function (json) {
+        lastFetch    = Date.now();
+        cachedStates = json;
+        renderAircraft(json);
+      })
+      .catch(function () { tryNext(idx + 1); });
+  }
+
+  tryNext(0);
 }
 
 function renderAircraft(json) {
   if (!aircraftGroup) return;
   clearGroup(aircraftGroup, aircraftHits);
-  if (!json || !Array.isArray(json.states)) { updateStatus(); return; }
+  if (!json) { updateStatus(); return; }
 
-  // OpenSky state vector indices:
-  //  0=icao24  1=callsign  2=origin_country  5=longitude  6=latitude
-  //  8=on_ground  9=velocity  10=true_track (deg CW from north)
-  var states = json.states.filter(function (s) {
-    return s[5] != null && s[6] != null && s[8] === false;
-  });
+  // Normalise both response shapes into a common array of {lat, lon, track, cs, country}
+  var states = [];
+  if (Array.isArray(json.ac)) {
+    // adsb.lol format: { ac: [{ lat, lon, track, flight, alt_baro, ... }] }
+    states = json.ac
+      .filter(function (a) { return a.lat != null && a.lon != null && a.alt_baro !== 'ground'; })
+      .map(function (a) {
+        return { lat: a.lat, lon: a.lon, track: a.track, cs: (a.flight || '').trim(), country: '' };
+      });
+  } else if (Array.isArray(json.states)) {
+    // OpenSky format: state vector indices — 5=lon 6=lat 8=on_ground 10=true_track
+    states = json.states
+      .filter(function (s) { return s[5] != null && s[6] != null && s[8] === false; })
+      .map(function (s) {
+        return { lat: s[6], lon: s[5], track: s[10], cs: (s[1] || '').trim(), country: s[2] || '' };
+      });
+  }
+
+  if (!states.length) { updateStatus(); return; }
 
   // Even-stride sampling to stay within marker budget
   var step = Math.max(1, Math.floor(states.length / AIRCRAFT_LIMIT));
   for (var i = 0; i < states.length && aircraftHits.length < AIRCRAFT_LIMIT; i += step) {
     var s = states[i];
-    placeAircraft(s[6], s[5], s[10], s[1], s[2]);
+    placeAircraft(s.lat, s.lon, s.track, s.cs, s.country);
   }
   updateStatus();
 }

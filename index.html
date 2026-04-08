@@ -8848,18 +8848,25 @@ window.ArgusTracking = (function () {
 var AISSTREAM_KEY  = '';    // Free key — sign up at aisstream.io to enable ships
 var AIRCRAFT_LIMIT = 200;   // Max aircraft markers on globe at once
 var SHIP_LIMIT     = 150;   // Max ship markers on globe at once
-var CACHE_MS       = 60000; // Aircraft re-fetch interval ms (60 s)
+var CACHE_MS       = 900000; // Aircraft re-fetch interval ms (15 min)
 
 // Aircraft source URLs — tried in order, first success wins
-// adsb.fi and adsb.lol are community ADS-B networks with CORS enabled (no key, no proxy)
-// OpenSky is kept as a proxy fallback; corsproxy is omitted (consistently 522s on OpenSky)
+// adsb.fi / adsb.lol / adsb.one / airplanes.live are community ADS-B networks with CORS enabled (no key, no proxy)
+// OpenSky is kept as a proxy fallback; codetabs replaced with corsproxy.io (more reliable)
 var OPENSKY_URL = 'https://opensky-network.org/api/states/all';
 var AC_SOURCES  = [
-  'https://opendata.adsb.fi/api/v2/all',                                              // 1. adsb.fi  — CORS open, very stable
-  'https://api.adsb.lol/v2/all',                                                      // 2. adsb.lol — CORS open, community feed
-  'https://api.adsb.one/v2/all',                                                      // 3. adsb.one — CORS open, community feed
-  'https://api.allorigins.win/raw?url=' + encodeURIComponent(OPENSKY_URL),            // 4. OpenSky via allorigins
-  'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(OPENSKY_URL)        // 5. OpenSky via codetabs
+  'https://opendata.adsb.fi/api/v2/all',                                              // 1. adsb.fi      — CORS open, very stable
+  'https://api.adsb.lol/v2/all',                                                      // 2. adsb.lol     — CORS open, community feed
+  'https://api.adsb.one/v2/all',                                                      // 3. adsb.one     — CORS open, community feed
+  'https://api.airplanes.live/v2/all',                                                // 4. airplanes.live — CORS open, community feed
+  'https://api.allorigins.win/raw?url=' + encodeURIComponent(OPENSKY_URL),            // 5. OpenSky via allorigins
+  'https://corsproxy.io/?url=' + encodeURIComponent(OPENSKY_URL)                      // 6. OpenSky via corsproxy.io
+];
+
+// Ship REST sources — used when AISSTREAM_KEY is absent (no WebSocket needed)
+// digitraffic.fi = Finnish Transport Agency open AIS data (CORS-open, no auth, Baltic/North Sea coverage)
+var SHIP_REST_SOURCES = [
+  'https://meri.digitraffic.fi/api/v1/locations/latest'
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
@@ -8875,6 +8882,8 @@ var lastFetch     = 0;      // timestamp of last successful OpenSky fetch
 var cachedStates  = null;   // cached OpenSky response
 var renderPending = false;  // throttle flag for AIS re-render
 var refreshTimer  = null;   // setInterval handle for aircraft auto-refresh
+var lastShipRestFetch = 0;   // timestamp of last successful REST ship fetch
+var shipRestTimer     = null; // setInterval handle for REST ship polling
 
 // Shared geometries (created once, reused across all markers)
 var _acGeo, _acEdge, _shGeo, _shEdge;
@@ -9070,16 +9079,68 @@ function renderAircraft(json) {
   updateStatus();
 }
 
+// ── Ship REST fetch — used when no AISSTREAM_KEY is configured ───────────────
+// Polls digitraffic.fi (Finnish Transport Agency) — CORS-open, no auth required.
+// Response: array of {x: lon, y: lat, mmsi, ...} or GeoJSON FeatureCollection.
+function fetchShipsREST() {
+  if (Date.now() - lastShipRestFetch < CACHE_MS) {
+    if (shipsOn && shipGroup && shipBuffer.length) renderShips();
+    return;
+  }
+
+  var idx = 0;
+  function tryNext() {
+    if (idx >= SHIP_REST_SOURCES.length) {
+      console.warn('[ArgusTracking] All ship REST sources failed');
+      updateStatus('SHIPS: UNAVAILABLE');
+      return;
+    }
+    var url = SHIP_REST_SOURCES[idx++];
+    fetch(url)
+      .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
+      .then(function (json) {
+        lastShipRestFetch = Date.now();
+        shipBuffer = [];
+        var vessels = Array.isArray(json) ? json : (json.vessels || json.features || []);
+        vessels.forEach(function (v) {
+          var lat, lon, name;
+          if (v.geometry && v.geometry.coordinates) {
+            // GeoJSON FeatureCollection format
+            lon  = v.geometry.coordinates[0];
+            lat  = v.geometry.coordinates[1];
+            name = (v.properties && (v.properties.shipName || v.properties.name || String(v.properties.mmsi || ''))) || '';
+          } else {
+            // Flat object — digitraffic uses x=lon, y=lat
+            lat  = v.y  != null ? v.y  : (v.lat || v.latitude);
+            lon  = v.x  != null ? v.x  : (v.lon || v.longitude);
+            name = (v.shipName || v.name || v.vesselName || String(v.mmsi || '')).trim();
+          }
+          if (lat == null || lon == null) return;
+          if (lat === 0 && lon === 0) return;
+          shipBuffer.push({ lat: lat, lon: lon, name: String(name).trim() });
+        });
+        if (shipBuffer.length > SHIP_LIMIT * 4) shipBuffer.splice(0, SHIP_LIMIT);
+        if (shipsOn && shipGroup) renderShips();
+      })
+      .catch(tryNext);
+  }
+  tryNext();
+}
+
 // ── aisstream.io WebSocket for ships ──────────────────────────────────────────
 function startAIS() {
   if (!AISSTREAM_KEY) {
     console.info(
-      '[ArgusTracking] Ships disabled — no AIS key.\n' +
-      '  Sign up free at aisstream.io, then call:\n' +
-      '  ArgusTracking.setAISKey("your-key")\n' +
-      '  or set AISSTREAM_KEY in the script config.'
+      '[ArgusTracking] No AIS key — using REST fallback (Baltic/North Sea coverage).\n' +
+      '  For global real-time coverage sign up free at aisstream.io, then call:\n' +
+      '  ArgusTracking.setAISKey("your-key")'
     );
-    updateStatus('SHIPS: NO KEY — SEE CONSOLE');
+    fetchShipsREST();
+    if (!shipRestTimer) {
+      shipRestTimer = setInterval(function () {
+        if (shipsOn) fetchShipsREST();
+      }, CACHE_MS);
+    }
     return;
   }
   if (wsAIS) return; // already open
@@ -9138,7 +9199,9 @@ function startAIS() {
 
 function stopAIS() {
   if (wsAIS) { wsAIS.close(); wsAIS = null; }
+  if (shipRestTimer) { clearInterval(shipRestTimer); shipRestTimer = null; }
   shipBuffer = [];
+  lastShipRestFetch = 0;
 }
 
 function renderShips() {
@@ -9209,10 +9272,7 @@ function updateStatus(msg) {
   if (msg) { el.textContent = msg; return; }
   var parts = [];
   if (aircraftOn) parts.push(aircraftHits.length + ' AC');
-  if (shipsOn) {
-    if (AISSTREAM_KEY) parts.push(shipHits.length + ' VES');
-    else               parts.push('SHIPS: NO KEY');
-  }
+  if (shipsOn) parts.push(shipHits.length + ' VES');
   el.textContent = parts.join(' · ');
 }
 

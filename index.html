@@ -1753,6 +1753,53 @@
   }
   .admin-refresh-btn:hover { border-color: #1a4a70; color: #7aafcc; }
   .admin-status { font-size: 9px; letter-spacing: 1px; color: #1a4a70; margin-bottom: 8px; }
+
+  /* ── Live Tracking Controls ─────────────────────────────────────────────── */
+  #tracking-controls {
+    position: absolute;
+    bottom: 18px;
+    right: 18px;
+    z-index: var(--z-panels);
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    align-items: flex-end;
+  }
+  .track-btn {
+    background: rgba(5, 15, 30, 0.82);
+    border: 1px solid rgba(15, 39, 68, 0.8);
+    color: var(--color-text-dim);
+    padding: 3px 9px;
+    font-size: 8px;
+    font-family: var(--font-mono);
+    letter-spacing: 1.5px;
+    font-weight: 600;
+    cursor: pointer;
+    border-radius: 2px;
+    transition: all 0.2s ease;
+    white-space: nowrap;
+  }
+  .track-btn:hover { border-color: var(--color-accent); color: var(--color-accent); }
+  .track-btn.is-active {
+    border-color: #00ffff;
+    color: #00ffff;
+    background: rgba(0, 255, 255, 0.07);
+    box-shadow: 0 0 8px rgba(0, 255, 255, 0.18);
+  }
+  .track-btn.track-ship.is-active {
+    border-color: var(--color-orange);
+    color: var(--color-orange);
+    background: rgba(255, 153, 51, 0.07);
+    box-shadow: 0 0 8px rgba(255, 153, 51, 0.18);
+  }
+  #tracking-status {
+    font-size: 7px;
+    letter-spacing: 1px;
+    color: var(--color-text-faint);
+    text-align: right;
+    min-height: 10px;
+    font-family: var(--font-mono);
+  }
   </style>
 </head>
 
@@ -2135,6 +2182,19 @@
     <div class="kbd-row"><span class="kbd-key">C</span><span class="kbd-label">COUNTRIES</span></div>
     <div class="kbd-row"><span class="kbd-key">V</span><span class="kbd-label">CITIES</span></div>
     <div class="kbd-row"><span class="kbd-key">E</span><span class="kbd-label">EVENTS</span></div>
+    <div class="kbd-row"><span class="kbd-key">A</span><span class="kbd-label">AIRCRAFT</span></div>
+    <div class="kbd-row"><span class="kbd-key">S</span><span class="kbd-label">SHIPS</span></div>
+  </div>
+
+  <!-- ── Live Tracking Toggle Buttons ───────────────────────────────────────── -->
+  <div id="tracking-controls" aria-label="Live tracking controls">
+    <button id="btn-track-aircraft" class="track-btn"
+            onclick="window.ArgusTracking && ArgusTracking.toggleAircraft()"
+            title="Toggle live aircraft (OpenSky Network · key A)">✈ AIRCRAFT</button>
+    <button id="btn-track-ships" class="track-btn track-ship"
+            onclick="window.ArgusTracking && ArgusTracking.toggleShips()"
+            title="Toggle live ships (aisstream.io · key S)">⚓ SHIPS</button>
+    <div id="tracking-status"></div>
   </div>
 
 </div><!-- /#app -->
@@ -8773,6 +8833,398 @@ window.ArgusCaseBuilder = (function () {
 
 }());
 /* ── End ArgusCaseBuilder ─────────────────────────────────────────────────── */
+</script>
+
+<!-- ══════════════════════════════════════════════════════════════════════════════
+     SCRIPT 4 — Live Tracking: Aircraft (OpenSky Network) + Ships (aisstream.io)
+     Aircraft: free, no key — https://opensky-network.org/api/states/all
+     Ships:    free WebSocket — sign up at aisstream.io, paste key in AISSTREAM_KEY
+══════════════════════════════════════════════════════════════════════════════ -->
+<script>
+window.ArgusTracking = (function () {
+'use strict';
+
+// ── Config ────────────────────────────────────────────────────────────────────
+var AISSTREAM_KEY  = '';   // Paste your free aisstream.io key here to enable ships
+var AIRCRAFT_LIMIT = 200;  // Max aircraft markers rendered at once
+var SHIP_LIMIT     = 150;  // Max ship markers rendered at once
+var CACHE_MS       = 60000; // OpenSky re-fetch interval (ms) — respect rate limits
+var OPENSKY_URL    = 'https://opensky-network.org/api/states/all';
+
+// ── State ─────────────────────────────────────────────────────────────────────
+var aircraftGroup = null;   // THREE.Group for aircraft meshes
+var shipGroup     = null;   // THREE.Group for ship meshes
+var aircraftOn    = false;
+var shipsOn       = false;
+var aircraftHits  = [];     // meshes registered in window.eventMarkers (for tooltips)
+var shipHits      = [];
+var wsAIS         = null;   // WebSocket connection
+var shipBuffer    = [];     // accumulated AIS position reports
+var lastFetch     = 0;      // timestamp of last successful OpenSky fetch
+var cachedStates  = null;   // cached OpenSky response
+var renderPending = false;  // throttle flag for AIS re-render
+var refreshTimer  = null;   // setInterval handle for aircraft auto-refresh
+
+// Shared geometries (created once, reused across all markers)
+var _acGeo, _acEdge, _shGeo, _shEdge;
+function ensureGeometries() {
+  if (_acGeo) return;
+  _acGeo  = new THREE.ConeGeometry(0.72, 1.7, 3, 1);
+  _acEdge = new THREE.EdgesGeometry(_acGeo);
+  _shGeo  = new THREE.OctahedronGeometry(1.1, 0);
+  _shEdge = new THREE.EdgesGeometry(_shGeo);
+}
+
+// ── Longitude correction (mirrors Script-1 correctLongitude) ──────────────────
+function corrLon(lon) {
+  var c = lon + 90;
+  while (c >  180) c -= 360;
+  while (c < -180) c += 360;
+  return c;
+}
+
+// ── Init — attach groups to eventMarkerGroup ──────────────────────────────────
+function init() {
+  var AG = window.ArgusGlobe;
+  if (!AG || !AG.eventMarkerGroup || !AG.latLonToVector) return false;
+  ensureGeometries();
+  if (!aircraftGroup) {
+    aircraftGroup          = new THREE.Group();
+    aircraftGroup.name     = 'ArgusAircraft';
+    aircraftGroup.visible  = false;
+    AG.eventMarkerGroup.add(aircraftGroup);
+  }
+  if (!shipGroup) {
+    shipGroup         = new THREE.Group();
+    shipGroup.name    = 'ArgusShips';
+    shipGroup.visible = false;
+    AG.eventMarkerGroup.add(shipGroup);
+  }
+  return true;
+}
+
+function ensureInit() {
+  if (aircraftGroup && shipGroup) return true;
+  return init();
+}
+
+// ── Clear a group and de-register its tooltip meshes ─────────────────────────
+function clearGroup(group, hitsArr) {
+  if (window.eventMarkers && hitsArr.length) {
+    window.eventMarkers = window.eventMarkers.filter(function (m) {
+      return hitsArr.indexOf(m) === -1;
+    });
+  }
+  hitsArr.length = 0;
+  while (group.children.length) group.remove(group.children[0]);
+}
+
+// ── Aircraft marker — cyan triangle, oriented by heading ──────────────────────
+function placeAircraft(lat, lon, heading, callsign, country) {
+  var AG  = window.ArgusGlobe;
+  var pos = AG.latLonToVector(lat, corrLon(lon), 101.8);
+
+  // Solid fill — same lookAt+rotateX approach as capital cities
+  var mesh = new THREE.Mesh(
+    _acGeo,
+    new THREE.MeshBasicMaterial({ color: 0x00ffff, transparent: true, opacity: 0.82 })
+  );
+  mesh.position.copy(pos);
+  mesh.lookAt(pos.clone().normalize().multiplyScalar(200));
+  mesh.rotateX(Math.PI / 2);
+  // Rotate in tangent plane by heading (0° = north, clockwise)
+  if (heading != null && !isNaN(heading)) {
+    mesh.rotateZ(heading * Math.PI / 180);
+  }
+
+  var cs = (callsign || '').trim() || '???';
+  mesh.userData = {
+    isAircraft: true,
+    title:    cs + (country ? ' · ' + country : ''),
+    type:     'AIRCRAFT',
+    severity: 'LOW',
+    lat: lat, lon: lon
+  };
+  aircraftGroup.add(mesh);
+  aircraftHits.push(mesh);
+  window.eventMarkers.push(mesh); // enables hover tooltip
+
+  // Edge outline
+  var outline = new THREE.LineSegments(
+    _acEdge,
+    new THREE.LineBasicMaterial({ color: 0x00ffff, transparent: true, opacity: 0.5 })
+  );
+  outline.position.copy(pos);
+  outline.lookAt(pos.clone().normalize().multiplyScalar(200));
+  outline.rotateX(Math.PI / 2);
+  if (heading != null && !isNaN(heading)) outline.rotateZ(heading * Math.PI / 180);
+  outline.userData = { _trackOutline: true };
+  aircraftGroup.add(outline);
+}
+
+// ── Ship marker — orange diamond (octahedron), follows GDACS pattern ───────────
+function placeShip(lat, lon, name) {
+  var AG  = window.ArgusGlobe;
+  var pos = AG.latLonToVector(lat, corrLon(lon), 101.5);
+
+  var mesh = new THREE.Mesh(
+    _shGeo,
+    new THREE.MeshBasicMaterial({ color: 0xff9933, transparent: true, opacity: 0.78 })
+  );
+  mesh.position.copy(pos);
+  mesh.rotation.y = Math.PI / 4; // diamond orientation (same as GDACS markers)
+
+  var label = (name || '').trim() || 'VESSEL';
+  mesh.userData = {
+    isShip:   true,
+    title:    label,
+    type:     'VESSEL',
+    severity: 'LOW',
+    lat: lat, lon: lon
+  };
+  shipGroup.add(mesh);
+  shipHits.push(mesh);
+  window.eventMarkers.push(mesh);
+
+  var outline = new THREE.LineSegments(
+    _shEdge,
+    new THREE.LineBasicMaterial({ color: 0xff9933, transparent: true, opacity: 0.45 })
+  );
+  outline.position.copy(pos);
+  outline.rotation.y = Math.PI / 4;
+  outline.userData = { _trackOutline: true };
+  shipGroup.add(outline);
+}
+
+// ── OpenSky aircraft fetch ─────────────────────────────────────────────────────
+function fetchAndRenderAircraft() {
+  var now = Date.now();
+  if (cachedStates && (now - lastFetch) < CACHE_MS) {
+    renderAircraft(cachedStates);
+    return;
+  }
+  fetch(OPENSKY_URL)
+    .then(function (r) {
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    })
+    .then(function (json) {
+      lastFetch    = Date.now();
+      cachedStates = json;
+      renderAircraft(json);
+    })
+    .catch(function (e) {
+      console.warn('[ArgusTracking] OpenSky fetch failed:', e.message);
+      // Try via CORS proxy as fallback
+      fetch('https://corsproxy.io/?url=' + encodeURIComponent(OPENSKY_URL))
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (json) {
+          if (json) { lastFetch = Date.now(); cachedStates = json; renderAircraft(json); }
+        })
+        .catch(function () { updateStatus('AIRCRAFT: FETCH FAILED'); });
+    });
+}
+
+function renderAircraft(json) {
+  if (!aircraftGroup) return;
+  clearGroup(aircraftGroup, aircraftHits);
+  if (!json || !Array.isArray(json.states)) { updateStatus(); return; }
+
+  // OpenSky state vector indices:
+  //  0=icao24  1=callsign  2=origin_country  5=longitude  6=latitude
+  //  8=on_ground  9=velocity  10=true_track (deg CW from north)
+  var states = json.states.filter(function (s) {
+    return s[5] != null && s[6] != null && s[8] === false;
+  });
+
+  // Even-stride sampling to stay within marker budget
+  var step = Math.max(1, Math.floor(states.length / AIRCRAFT_LIMIT));
+  for (var i = 0; i < states.length && aircraftHits.length < AIRCRAFT_LIMIT; i += step) {
+    var s = states[i];
+    placeAircraft(s[6], s[5], s[10], s[1], s[2]);
+  }
+  updateStatus();
+}
+
+// ── aisstream.io WebSocket for ships ──────────────────────────────────────────
+function startAIS() {
+  if (!AISSTREAM_KEY) {
+    console.info(
+      '[ArgusTracking] Ships disabled — no AIS key.\n' +
+      '  Sign up free at aisstream.io, then call:\n' +
+      '  ArgusTracking.setAISKey("your-key")\n' +
+      '  or set AISSTREAM_KEY in the script config.'
+    );
+    updateStatus('SHIPS: NO KEY — SEE CONSOLE');
+    return;
+  }
+  if (wsAIS) return; // already open
+
+  try {
+    wsAIS = new WebSocket('wss://stream.aisstream.io/v0/stream');
+  } catch (e) {
+    console.warn('[ArgusTracking] WebSocket unavailable:', e);
+    return;
+  }
+
+  wsAIS.onopen = function () {
+    console.log('[ArgusTracking] AIS stream connected');
+    wsAIS.send(JSON.stringify({
+      APIKey:             AISSTREAM_KEY,
+      BoundingBoxes:      [[[-90, -180], [90, 180]]],
+      FilterMessageTypes: ['PositionReport']
+    }));
+  };
+
+  wsAIS.onmessage = function (evt) {
+    try {
+      var msg = JSON.parse(evt.data);
+      if (msg.MessageType !== 'PositionReport') return;
+      var pr = msg.Message && msg.Message.PositionReport;
+      var md = msg.MetaData || {};
+      if (!pr) return;
+      var lat = pr.Latitude, lon = pr.Longitude;
+      if (lat == null || lon == null) return;
+      if (lat === 0 && lon === 0) return; // null-island sentinel
+
+      shipBuffer.push({ lat: lat, lon: lon, name: (md.ShipName || '').trim() });
+      // Keep buffer bounded to avoid unbounded growth
+      if (shipBuffer.length > SHIP_LIMIT * 4) shipBuffer.splice(0, SHIP_LIMIT);
+
+      // Throttle globe re-render
+      if (!renderPending) {
+        renderPending = true;
+        setTimeout(function () {
+          renderPending = false;
+          if (shipsOn && shipGroup) renderShips();
+        }, 3000);
+      }
+    } catch (_) {}
+  };
+
+  wsAIS.onerror = function () {
+    console.warn('[ArgusTracking] AIS WebSocket error');
+  };
+
+  wsAIS.onclose = function () {
+    console.log('[ArgusTracking] AIS stream closed');
+    wsAIS = null;
+  };
+}
+
+function stopAIS() {
+  if (wsAIS) { wsAIS.close(); wsAIS = null; }
+  shipBuffer = [];
+}
+
+function renderShips() {
+  if (!shipGroup) return;
+  clearGroup(shipGroup, shipHits);
+  var sample = shipBuffer.slice(-SHIP_LIMIT);
+  sample.forEach(function (s) { placeShip(s.lat, s.lon, s.name); });
+  updateStatus();
+}
+
+// ── Toggle functions (public) ─────────────────────────────────────────────────
+function toggleAircraft() {
+  if (!ensureInit()) {
+    console.warn('[ArgusTracking] Globe not ready yet');
+    return;
+  }
+  aircraftOn             = !aircraftOn;
+  aircraftGroup.visible  = aircraftOn;
+
+  if (aircraftOn) {
+    fetchAndRenderAircraft();
+    // Auto-refresh every 60 s while active
+    if (!refreshTimer) {
+      refreshTimer = setInterval(function () {
+        if (aircraftOn) { lastFetch = 0; fetchAndRenderAircraft(); }
+      }, CACHE_MS);
+    }
+  } else {
+    clearGroup(aircraftGroup, aircraftHits);
+    if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null; }
+  }
+
+  setActive('btn-track-aircraft', aircraftOn);
+  updateStatus();
+}
+
+function toggleShips() {
+  if (!ensureInit()) {
+    console.warn('[ArgusTracking] Globe not ready yet');
+    return;
+  }
+  shipsOn            = !shipsOn;
+  shipGroup.visible  = shipsOn;
+
+  if (shipsOn) {
+    startAIS();
+    if (shipBuffer.length) renderShips(); // show buffered data immediately
+  } else {
+    stopAIS();
+    clearGroup(shipGroup, shipHits);
+  }
+
+  setActive('btn-track-ships', shipsOn);
+  updateStatus();
+}
+
+// ── UI helpers ────────────────────────────────────────────────────────────────
+function setActive(id, on) {
+  var el = document.getElementById(id);
+  if (!el) return;
+  if (on) el.classList.add('is-active');
+  else    el.classList.remove('is-active');
+}
+
+function updateStatus(msg) {
+  var el = document.getElementById('tracking-status');
+  if (!el) return;
+  if (msg) { el.textContent = msg; return; }
+  var parts = [];
+  if (aircraftOn) parts.push(aircraftHits.length + ' AC');
+  if (shipsOn) {
+    if (AISSTREAM_KEY) parts.push(shipHits.length + ' VES');
+    else               parts.push('SHIPS: NO KEY');
+  }
+  el.textContent = parts.join(' · ');
+}
+
+// ── Keyboard shortcuts (A = aircraft, S = ships) ──────────────────────────────
+window.addEventListener('keydown', function (e) {
+  var tag = document.activeElement && document.activeElement.tagName;
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+  if (document.activeElement && document.activeElement.isContentEditable) return;
+  if (document.querySelector('#analyst-modal-overlay.is-open')) return;
+  if (document.querySelector('#es-modal-overlay.is-open')) return;
+  if (document.querySelector('#panel-ai.is-open')) return;
+  var k = e.key.toLowerCase();
+  if (k === 'a') toggleAircraft();
+  if (k === 's') toggleShips();
+});
+
+// ── Bootstrap — poll until ArgusGlobe is ready ────────────────────────────────
+(function bootstrap() {
+  var attempts = 0;
+  var timer = setInterval(function () {
+    if (init() || ++attempts > 60) clearInterval(timer);
+  }, 200);
+}());
+
+// ── Public API ────────────────────────────────────────────────────────────────
+return {
+  toggleAircraft: toggleAircraft,
+  toggleShips:    toggleShips,
+  /** Call after setting key to immediately activate ship tracking */
+  setAISKey: function (key) {
+    AISSTREAM_KEY = key;
+    if (shipsOn && !wsAIS) startAIS();
+  }
+};
+
+}());
 </script>
 </body>
 </html>

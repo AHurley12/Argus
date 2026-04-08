@@ -7895,6 +7895,7 @@ window.ArgusCaseBuilder = (function () {
   var _cases        = [];
   var _pins         = [];
   var _activeKw     = [];
+  var _qHash        = '';         // djb2 hash of query + date (notes persistence key)
 
   var RADIUS_KM = 500;
   var SEV_W     = { CRITICAL: 4, WARNING: 3, WATCH: 2, LOW: 1 };
@@ -7933,31 +7934,55 @@ window.ArgusCaseBuilder = (function () {
   // proximity, groups into dimensional case cards.
   // ════════════════════════════════════════════════════════════════════════════
 
-  // ── Synonym dictionary ───────────────────────────────────────────────────────
+  // ══════════════════════════════════════════════════════════════════════════════
+  // FULL-SPECTRUM INTELLIGENCE ENGINE
+  // Zero-exception ingestion of all terminal data, weighted relational scan,
+  // fuzzy synonym expansion, spatial synergy bonuses, four Intelligence Pillars.
+  // ══════════════════════════════════════════════════════════════════════════════
+
+  // ── Synonym bridge ───────────────────────────────────────────────────────────
   var SYNONYMS = {
-    energy:       ['oil','gas','brent','wti','petroleum','pipeline','aramco','opec','lng','crude','refinery','energy'],
-    tech:         ['semiconductor','chip','tsmc','nvidia','cyber','silicon','ai','drone','satellite','electronics','technology'],
-    food:         ['wheat','grain','corn','soybean','famine','food','harvest','drought','fertilizer','agriculture'],
-    conflict:     ['war','attack','strike','missile','airstrike','troops','military','armed','combat','shelling','offensive','coup','insurgency','conflict','killed','casualties'],
-    shipping:     ['shipping','freight','container','vessel','port','suez','hormuz','malacca','bosphorus','panama','chokepoint','tanker','cargo','trade route'],
-    finance:      ['inflation','recession','gdp','debt','bond','yield','currency','devaluation','sanction','tariff','imf','default','market','bank','fed','rate'],
-    climate:      ['flood','fire','wildfire','hurricane','typhoon','cyclone','earthquake','tsunami','drought','storm','disaster','volcano'],
-    lithium:      ['lithium','battery','ev','electric vehicle','cobalt','nickel','rare earth','mining'],
-    china:        ['china','chinese','beijing','taiwan','south china sea','pla','ccp'],
-    russia:       ['russia','russian','moscow','ukraine','nato','kremlin','putin','zelensky','black sea'],
+    energy:       ['oil','gas','brent','wti','petroleum','pipeline','aramco','opec','lng','crude','refinery','energy','petchem','diesel','fuel','electricity','grid','power'],
+    tech:         ['semiconductor','chip','tsmc','nvidia','cyber','silicon','ai','drone','satellite','electronics','technology','microchip','quantum','data center'],
+    food:         ['wheat','grain','corn','soybean','famine','food','harvest','drought','fertilizer','agriculture','rice','barley','livestock','hunger','starvation'],
+    conflict:     ['war','attack','strike','missile','airstrike','troops','military','armed','combat','shelling','offensive','coup','insurgency','conflict','killed','casualties','bombing','siege','blockade','ambush','artillery'],
+    shipping:     ['shipping','freight','container','vessel','port','suez','hormuz','malacca','bosphorus','panama','chokepoint','tanker','cargo','trade route','canal','strait','maritime','fleet'],
+    finance:      ['inflation','recession','gdp','debt','bond','yield','currency','devaluation','sanction','tariff','imf','default','market','bank','fed','rate','dollar','forex','liquidity','interest'],
+    climate:      ['flood','fire','wildfire','hurricane','typhoon','cyclone','earthquake','tsunami','drought','storm','disaster','volcano','eruption','avalanche','mudslide'],
+    lithium:      ['lithium','battery','ev','electric vehicle','cobalt','nickel','rare earth','mining','graphite','manganese','cathode'],
+    china:        ['china','chinese','beijing','taiwan','south china sea','pla','ccp','hong kong','xinjiang','bri','belt and road','renminbi','yuan'],
+    russia:       ['russia','russian','moscow','ukraine','nato','kremlin','putin','zelensky','black sea','kaliningrad','gazprom','rosneft'],
+    gold:         ['gold','xau','bullion','precious metal','gold mine','gold reserve','safe haven','xauusd'],
+    silver:       ['silver','xag','precious metal','silver mine'],
+    copper:       ['copper','cper','industrial metal','base metal','copper mine'],
+    crypto:       ['bitcoin','btc','ethereum','eth','crypto','cryptocurrency','blockchain','defi','stablecoin','altcoin','binance','coinbase'],
+    humanitarian: ['refugee','displaced','famine','epidemic','cholera','aid','relief','crisis','malnutrition','displacement','civilian','unhcr','wfp','undp'],
+    sanctions:    ['sanction','embargo','export ban','import restriction','blacklist','asset freeze','swift','ofac','blocked'],
+    supplychain:  ['supply chain','logistics','port closure','shipping disruption','chokepoint','semiconductor shortage','container','freight','trade route'],
+    nuclear:      ['nuclear','uranium','iaea','nonproliferation','reactor','warhead','radiation','plutonium','enrichment'],
+    iran:         ['iran','iranian','tehran','irgc','khamenei','strait of hormuz','persian gulf'],
+    middleeast:   ['middle east','saudi','riyadh','israel','jerusalem','gaza','west bank','hamas','hezbollah','beirut','jordan','kuwait','bahrain','oman','uae'],
+    africa:       ['africa','sahel','niger','mali','chad','ethiopia','kenya','nigeria','south africa','congo','drc','sudan','somalia'],
+    india:        ['india','indian','modi','new delhi','pakistan','kashmir','south asia','brahmaputra'],
+    europe:       ['europe','european','eu','nato','berlin','paris','london','warsaw','brussels','munich','rome'],
+    dollar:       ['dollar','usd','dxy','reserve currency','fed','federal reserve','treasury','dollar index'],
+    metals:       ['gold','silver','copper','aluminum','iron ore','steel','nickel','zinc','lead','tin','palladium','platinum'],
   };
 
-  // Expand query terms into full synonym set
+  // Expand query keywords into full synonym set (bidirectional lookup)
   function expandTerms(kws) {
     var all = [];
     kws.forEach(function (k) {
       all.push(k);
       var key = k.toLowerCase().trim();
       if (SYNONYMS[key]) SYNONYMS[key].forEach(function (s) { if (all.indexOf(s) === -1) all.push(s); });
-      // Also try partial match on synonym keys
-      Object.keys(SYNONYMS).forEach(function (dictKey) {
-        if (dictKey.indexOf(key) !== -1 || key.indexOf(dictKey) !== -1) {
-          SYNONYMS[dictKey].forEach(function (s) { if (all.indexOf(s) === -1) all.push(s); });
+      Object.keys(SYNONYMS).forEach(function (dk) {
+        if (dk !== key && (dk.indexOf(key) !== -1 || key.indexOf(dk) !== -1)) {
+          SYNONYMS[dk].forEach(function (s) { if (all.indexOf(s) === -1) all.push(s); });
+        }
+        // reverse: if query matches a synonym value, pull the whole group
+        if (SYNONYMS[dk].indexOf(key) !== -1) {
+          SYNONYMS[dk].forEach(function (s) { if (all.indexOf(s) === -1) all.push(s); });
         }
       });
     });
@@ -7965,7 +7990,7 @@ window.ArgusCaseBuilder = (function () {
   }
 
   // ── Scoring helpers ──────────────────────────────────────────────────────────
-  var SCORE_THRESHOLD = 10; // minimum score for inclusion
+  var SCORE_THRESHOLD = 10;
 
   function scoreText(text, terms) {
     if (!text || !terms.length) return 0;
@@ -7974,20 +7999,31 @@ window.ArgusCaseBuilder = (function () {
     return pts;
   }
 
-  function scoreTitleHeavy(title, terms) {
-    // Title match = +20, body match = +5
-    return scoreText(title, terms) * 20;
-  }
+  function scoreTitleHeavy(title, terms) { return scoreText(title, terms) * 20; }
 
   function matchedTerms(texts, terms) {
-    var hits = [];
-    var joined = texts.join(' ').toLowerCase();
+    var hits = [], joined = texts.join(' ').toLowerCase();
     terms.forEach(function (t) { if (joined.indexOf(t) !== -1 && hits.indexOf(t) === -1) hits.push(t); });
     return hits;
   }
 
-  // ── Country relational scoring ───────────────────────────────────────────────
-  // Returns { score, matchedCountries } for a given set of terms
+  // ── Commodity → top-exporter map (Economic Impact Mapping) ──────────────────
+  var COMMODITY_EXPORTERS = {
+    gold:     ['Australia','China','Russia','Canada','Ghana','Mexico','Peru','Kazakhstan'],
+    silver:   ['Mexico','Peru','China','Bolivia','Australia','Russia'],
+    copper:   ['Chile','Peru','China','Congo','Australia','Zambia','Kazakhstan'],
+    oil:      ['Saudi Arabia','Russia','UAE','Iraq','Kuwait','Nigeria','Libya','USA','Kazakhstan','Iran'],
+    gas:      ['Russia','Qatar','Iran','USA','Australia','Norway','Algeria','Canada'],
+    wheat:    ['Russia','Australia','Canada','USA','Ukraine','France','India','Argentina'],
+    lithium:  ['Chile','Australia','Argentina','China','Zimbabwe'],
+    coal:     ['Australia','Indonesia','Russia','South Africa','Colombia','Mongolia'],
+    nickel:   ['Indonesia','Philippines','Russia','Canada'],
+    aluminum: ['China','Russia','Canada','UAE','India'],
+    uranium:  ['Kazakhstan','Canada','Australia','Namibia','Niger','Russia'],
+    steel:    ['China','Japan','South Korea','Germany','India','Russia'],
+  };
+
+  // ── Country relational scoring (with Economic Impact Mapping) ────────────────
   function scoreCountries(terms) {
     var countries = window.COUNTRIES_DATA || [];
     var matched = [];
@@ -7996,14 +8032,73 @@ window.ArgusCaseBuilder = (function () {
       var labelText = (c.label || '').toLowerCase();
       var pts = 0;
       terms.forEach(function (t) {
-        if (tradeText.indexOf(t) !== -1) pts += 10; // trade match
-        if (labelText.indexOf(t) !== -1) pts += 5;  // country name match
+        if (tradeText.indexOf(t) !== -1) pts += 10;
+        if (labelText.indexOf(t) !== -1) pts += 5;
+      });
+      // Economic impact mapping: boost countries that export query-matched commodities
+      Object.keys(COMMODITY_EXPORTERS).forEach(function (comm) {
+        if (terms.some(function (t) { return comm.indexOf(t) !== -1 || t.indexOf(comm) !== -1; })) {
+          if (COMMODITY_EXPORTERS[comm].indexOf(c.label) !== -1) pts += 15;
+        }
       });
       if (pts > 0) matched.push({ code: c.code, label: c.label, score: pts,
-                                   risk: c.risk, lat: c.rawLat, lon: c.rawLon });
+                                   risk: c.risk, gdp: c.gdp, lat: c.rawLat, lon: c.rawLon });
     });
     matched.sort(function (a, b) { return b.score - a.score; });
-    return matched.slice(0, 6);
+    return matched.slice(0, 8);
+  }
+
+  // ── Spatial Correlation — +25% synergy bonus when events cluster geographically
+  function applySynergyBonuses(scoredEvents) {
+    for (var i = 0; i < scoredEvents.length; i++) {
+      var a = scoredEvents[i];
+      if (a.ev.lat == null || a.ev.lon == null) continue;
+      for (var j = i + 1; j < scoredEvents.length; j++) {
+        var b = scoredEvents[j];
+        if (b.ev.lat == null || b.ev.lon == null) continue;
+        if (hav(a.ev.lat, a.ev.lon, b.ev.lat, b.ev.lon) <= RADIUS_KM) {
+          var bonus = Math.ceil((a.score + b.score) * 0.125);
+          a.score += bonus; b.score += bonus;
+          a.synergy = true; b.synergy = true;
+        }
+      }
+    }
+  }
+
+  // ── Intelligence Pillar classifier ────────────────────────────────────────────
+  function pillarOf(e) {
+    var t   = ((e.type || '')).toUpperCase();
+    var src = (e.source || '').toUpperCase();
+    if (t === 'CONFLICT' || t === 'SEISMIC' || t === 'WILDFIRE' || t === 'DISASTER' ||
+        t === 'STORM'    || src === 'USGS'  || src === 'NASA FIRMS' || src === 'NHC' || src === 'NOAA')
+      return 'KINETIC';
+    if (t === 'ECONOMIC' || t === 'SUPPLY_CHAIN') return 'ECONOMIC';
+    if (t === 'HUMANITARIAN' || t === 'HUMAN_RIGHTS') return 'HUMANITARIAN';
+    return 'STRATEGIC';
+  }
+
+  // ── Formatting helper ────────────────────────────────────────────────────────
+  function fmtNum(n, dec) {
+    if (n == null || isNaN(n)) return '—';
+    return parseFloat(n).toLocaleString(undefined, { minimumFractionDigits: dec||0, maximumFractionDigits: dec||0 });
+  }
+
+  // ── Notes persistence keyed by djb2(query+date) ───────────────────────────────
+  function hashQ(kws) {
+    var s = kws.slice().sort().join(',') + '|' + new Date().toISOString().slice(0, 10);
+    var h = 5381;
+    for (var i = 0; i < s.length; i++) { h = ((h << 5) + h) + s.charCodeAt(i); h |= 0; }
+    return Math.abs(h).toString(36);
+  }
+
+  function noteKey(caseId) { return 'argus_note_' + _qHash + '_' + caseId; }
+
+  // ── Non-blocking yield (preserves 3D globe frame-rate during heavy scans) ─────
+  function yieldToMain() {
+    return new Promise(function (resolve) {
+      if (typeof requestIdleCallback !== 'undefined') requestIdleCallback(resolve, { timeout: 40 });
+      else setTimeout(resolve, 0);
+    });
   }
 
   // ── Data ingestors ───────────────────────────────────────────────────────────
@@ -8015,24 +8110,22 @@ window.ArgusCaseBuilder = (function () {
       window._fireEvents    || [],
       window._stormEvents   || [],
     ];
-    var all = [];
-    var seen = {};
+    var all = [], seen = {};
     sources.forEach(function (src) {
       src.forEach(function (e) {
-        if (seen[e.id]) return;
-        seen[e.id] = true;
-        var texts  = [e.title, e.impact, e.description, e.region];
-        var pts    = scoreTitleHeavy(e.title, terms) +
-                     scoreText([e.impact, e.description, e.region].join(' '), terms) * 5;
-        // Proximity bonus: +15 if event region matches a query-relevant country
+        var uid = e.id || (e.title + '|' + (e.lat || ''));
+        if (seen[uid]) return; seen[uid] = true;
+        var texts = [e.title, e.impact, e.description, e.region];
+        var pts   = scoreTitleHeavy(e.title, terms) +
+                    scoreText([e.impact, e.description, e.region].join(' '), terms) * 5;
         if (matchedCountryCodes.length && e.region) {
           var rlo = e.region.toLowerCase();
           matchedCountryCodes.forEach(function (cc) { if (rlo.indexOf(cc.toLowerCase()) !== -1) pts += 15; });
         }
         if (pts >= SCORE_THRESHOLD || !terms.length) {
           all.push({ ev: e, score: pts, hits: matchedTerms(texts, terms),
-                     src: e.source || 'FEED',
-                     sType: detectType(e) });
+                     src: e.source || 'FEED', sType: detectType(e),
+                     pillar: pillarOf(e), synergy: false });
         }
       });
     });
@@ -8043,7 +8136,6 @@ window.ArgusCaseBuilder = (function () {
   function detectType(e) {
     var t = (e.type || '').toUpperCase();
     if (t === 'WILDFIRE' || t === 'SEISMIC' || t === 'DISASTER' || e.source === 'NASA FIRMS' || e.source === 'USGS') return 'disaster';
-    if (t === 'CONFLICT' || t === 'POLICY') return 'geopolitics';
     return 'geopolitics';
   }
 
@@ -8052,56 +8144,90 @@ window.ArgusCaseBuilder = (function () {
     var results = [];
     Object.keys(rw).forEach(function (iso) {
       var entry = rw[iso];
-      var disasters = (entry.disasters || []);
-      disasters.forEach(function (d) {
+      (entry.disasters || []).forEach(function (d) {
         var texts = [d.name, d.type, iso];
         var pts   = scoreTitleHeavy(d.name, terms) + scoreText(texts.join(' '), terms) * 5;
         if (pts >= SCORE_THRESHOLD || !terms.length) {
-          results.push({ iso: iso, name: d.name, type: d.type,
-                         severity: d.severity || 'WATCH', score: pts,
-                         displaced: entry.displaced, refugees: entry.refugees });
+          results.push({ iso: iso, name: d.name, type: d.type, severity: d.severity || 'WATCH',
+                         score: pts, displaced: entry.displaced, refugees: entry.refugees, pillar: 'HUMANITARIAN' });
         }
       });
+      // Always surface high-displacement countries even without keyword match
+      if (!results.some(function(r){ return r.iso === iso; }) &&
+          ((entry.displaced || 0) > 100000 || (entry.refugees || 0) > 50000)) {
+        results.push({ iso: iso, name: iso + ' — Population at Risk', type: 'DISPLACEMENT',
+                       severity: 'WATCH', score: 5, displaced: entry.displaced, refugees: entry.refugees, pillar: 'HUMANITARIAN' });
+      }
     });
     results.sort(function (a, b) { return b.score - a.score; });
-    return results.slice(0, 5);
+    return results.slice(0, 8);
+  }
+
+  // Reads metals + crypto from Twelve Data localStorage cache (shared with dashboard)
+  function ingestCommodities(terms) {
+    var tdRaw = {};
+    try { var c2 = localStorage.getItem('argus_td_v3'); if (c2) tdRaw = (JSON.parse(c2).raw || {}); } catch(e) {}
+    var COMM = [
+      { sym: 'XAU/USD', label: 'Gold',     elId: 'gold-val',   kws: ['gold','xau','bullion','precious metal','safe haven'], col: '#ffcc00' },
+      { sym: 'XAG/USD', label: 'Silver',   elId: 'silver-val', kws: ['silver','xag','precious metal'],                      col: '#c5d7e8' },
+      { sym: 'CPER',    label: 'Copper',   elId: 'copper-val', kws: ['copper','cper','industrial metal','base metal'],       col: '#ff9933' },
+      { sym: 'WEAT',    label: 'Wheat',    elId: 'wheat-val',  kws: ['wheat','grain','food','agriculture','hunger','famine'],col: '#ffcc6a' },
+      { sym: 'BTC/USD', label: 'Bitcoin',  elId: 'btc-val',    kws: ['bitcoin','btc','crypto','cryptocurrency','blockchain'],col: '#ff9933' },
+      { sym: 'ETH/USD', label: 'Ethereum', elId: 'eth-val',    kws: ['ethereum','eth','crypto','defi','blockchain'],         col: '#7b95cc' },
+    ];
+    var signals = [];
+    COMM.forEach(function (c) {
+      var pts = 0;
+      terms.forEach(function (t) { c.kws.forEach(function (k) { if (k.indexOf(t)!==-1||t.indexOf(k)!==-1) pts += 20; }); });
+      var val = null, pct = null;
+      var raw = tdRaw[c.sym];
+      if (raw && raw.close) {
+        val = parseFloat(raw.close);
+        var prev = parseFloat(raw.previous_close || raw.open || val);
+        if (prev && prev !== val) pct = (val - prev) / prev * 100;
+      }
+      if (val == null) {
+        var el = document.getElementById(c.elId);
+        if (el && el.textContent && el.textContent !== '—') val = parseFloat(el.textContent.replace(/[$,]/g,''));
+      }
+      if (pts > 0 || val != null || !terms.length) {
+        signals.push({ label: c.label, value: val != null ? '$' + (val >= 1000 ? Math.round(val).toLocaleString() : val.toFixed(2)) : '—',
+                       pct: pct, note: pct != null ? (pct > 3 ? 'SURGING' : pct > 1 ? 'UP' : pct < -3 ? 'FALLING' : pct < -1 ? 'DOWN' : '') : '',
+                       score: pts, col: c.col, pillar: 'ECONOMIC' });
+      }
+    });
+    return signals;
   }
 
   function ingestMarkets(terms) {
     var av  = window._avData   || {};
     var eia = window._eiaData  || {};
     var fr  = window._fredData || {};
+    var bonds = {};
+    try { var bc = localStorage.getItem('argus_bonds_v1'); if (bc) bonds = JSON.parse(bc); } catch(e) {}
     var signals = [];
-
-    // Energy signals
     if (eia.brent) {
-      var brentVal = parseFloat(eia.brent);
-      var brentPts = scoreText('brent crude oil energy petroleum', terms) * 20;
-      if (brentVal > 85) brentPts += 15;
-      if (brentPts > 0 || !terms.length)
-        signals.push({ label: 'Brent Crude', value: '$' + brentVal.toFixed(2),
-                       note: brentVal > 90 ? 'ELEVATED' : brentVal > 80 ? 'HIGH' : 'NORMAL',
-                       score: brentPts, col: brentVal > 85 ? '#ff9933' : '#00ff88' });
+      var bv = parseFloat(eia.brent), bp = scoreText('brent crude oil energy petroleum refinery', terms) * 20;
+      if (bv > 90) bp += 20; else if (bv > 80) bp += 10;
+      if (bp > 0 || !terms.length) signals.push({ label: 'Brent Crude', value: '$'+bv.toFixed(2), note: bv>90?'ELEVATED':bv>80?'HIGH':'NORMAL', score: bp, col: bv>85?'#ff9933':'#00ff88', pillar:'ECONOMIC' });
     }
     if (eia.wti) {
-      var wtiVal = parseFloat(eia.wti);
-      signals.push({ label: 'WTI Crude', value: '$' + wtiVal.toFixed(2),
-                     note: wtiVal > 80 ? 'ELEVATED' : 'NORMAL',
-                     score: scoreText('wti crude oil energy', terms) * 20,
-                     col: wtiVal > 80 ? '#ff9933' : '#c5d7e8' });
+      var wv = parseFloat(eia.wti);
+      signals.push({ label: 'WTI Crude', value: '$'+wv.toFixed(2), note: wv>80?'ELEVATED':'NORMAL', score: scoreText('wti crude oil energy petroleum', terms)*20, col: wv>80?'#ff9933':'#c5d7e8', pillar:'ECONOMIC' });
     }
-    // Macro
     if (av.spy) {
-      var spyPct = av.spyChange ? parseFloat(av.spyChange) : 0;
-      signals.push({ label: 'SPY', value: '$' + parseFloat(av.spy).toFixed(2) + (av.spyChange ? ' (' + (spyPct>=0?'+':'') + spyPct.toFixed(2) + '%)' : ''),
-                     note: spyPct < -2 ? 'DRAWDOWN' : 'NOMINAL',
-                     score: scoreText('market equity stock trade finance', terms) * 15,
-                     col: spyPct < -1.5 ? '#ff0044' : '#00ff88' });
+      var sp = parseFloat(av.spyChange || 0);
+      signals.push({ label: 'SPY', value: '$'+parseFloat(av.spy).toFixed(2)+(av.spyChange?' ('+(sp>=0?'+':'')+sp.toFixed(2)+'%)':''),
+                     note: sp<-2?'DRAWDOWN':sp>2?'RALLY':'NOMINAL', score: scoreText('market equity stock trade finance index', terms)*15, col: sp<-1.5?'#ff0044':sp>1.5?'#00ff88':'#c5d7e8', pillar:'ECONOMIC' });
     }
-    if (av['fx-eurusd']) signals.push({ label: 'EUR/USD', value: parseFloat(av['fx-eurusd']).toFixed(4), note: '', score: 0, col: '#c5d7e8' });
-    if (av['fx-usdjpy']) signals.push({ label: 'USD/JPY', value: parseFloat(av['fx-usdjpy']).toFixed(2), note: '', score: 0, col: '#c5d7e8' });
-    if (fr.t10y) signals.push({ label: '10Y UST', value: fr.t10y, note: parseFloat(fr.t10y) > 4.5 ? 'ELEVATED' : '', score: 0, col: '#c5d7e8' });
-
+    if (av['fx-eurusd']) signals.push({ label:'EUR/USD', value:parseFloat(av['fx-eurusd']).toFixed(4), note:'', score:scoreText('euro dollar forex currency europe',terms)*10, col:'#c5d7e8', pillar:'ECONOMIC' });
+    if (av['fx-gbpusd']) signals.push({ label:'GBP/USD', value:parseFloat(av['fx-gbpusd']).toFixed(4), note:'', score:scoreText('pound sterling uk britain forex',terms)*10, col:'#c5d7e8', pillar:'ECONOMIC' });
+    if (av['fx-usdjpy']) signals.push({ label:'USD/JPY', value:parseFloat(av['fx-usdjpy']).toFixed(2), note:'', score:scoreText('yen japan forex dollar',terms)*10, col:'#c5d7e8', pillar:'ECONOMIC' });
+    if (bonds.us10y != null) {
+      var y = bonds.us10y;
+      signals.push({ label:'10Y UST', value:y.toFixed(2)+'%', note:y>5?'ELEVATED':y>4.5?'HIGH':'', score:scoreText('bond yield treasury rate interest fed debt',terms)*10, col:y>5?'#ff9933':'#c5d7e8', pillar:'ECONOMIC' });
+    }
+    if (fr.usd) signals.push({ label:'DXY', value:fr.usd, note:parseFloat(fr.usd||0)>105?'STRONG USD':'', score:scoreText('dollar dxy usd reserve currency forex',terms)*10, col:'#c5d7e8', pillar:'ECONOMIC' });
     return signals;
   }
 
@@ -8109,12 +8235,20 @@ window.ArgusCaseBuilder = (function () {
     var cps = window.CHOKEPOINTS_DATA || [];
     return cps.filter(function (cp) {
       if (!terms.length) return cp.risk === 'CRITICAL' || cp.risk === 'WARNING';
-      var txt = [cp.label, cp.status, cp.id].join(' ');
+      var txt = [cp.label, cp.status || '', cp.id].join(' ');
       return scoreText(txt, terms) > 0 || cp.risk === 'CRITICAL';
+    }).map(function(cp){ return Object.assign({}, cp, { pillar: 'STRATEGIC' }); }).slice(0, 5);
+  }
+
+  function ingestTradeRoutes(terms) {
+    var routes = window.ROUTES_DATA || window.TRADE_ROUTES_DATA || [];
+    return routes.filter(function (r) {
+      if (!terms.length) return r.risk === 'CRITICAL' || r.risk === 'WARNING';
+      return scoreText([r.from||'',r.to||'',r.label||'',r.vol||''].join(' '), terms) > 0 || r.risk === 'CRITICAL';
     }).slice(0, 4);
   }
 
-  // ── Keyword / query parsing ──────────────────────────────────────────────────
+  // ── Query parsing ────────────────────────────────────────────────────────────
   function parseKw() {
     var el = document.getElementById('input-case-keywords');
     var v  = el ? el.value.trim() : '';
@@ -8122,7 +8256,7 @@ window.ArgusCaseBuilder = (function () {
     return v.split(',').map(function (k) { return k.trim().toLowerCase(); }).filter(Boolean);
   }
 
-  // ── Utility ──────────────────────────────────────────────────────────────────
+  // ── Utilities ─────────────────────────────────────────────────────────────────
   function kwHits(text, kws) {
     if (!text || !kws.length) return [];
     var lo = text.toLowerCase();
@@ -8139,135 +8273,162 @@ window.ArgusCaseBuilder = (function () {
     return s;
   }
 
-  function esc(s) {
-    return (s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-  }
+  function esc(s) { return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+  function sevCol(s) { return { CRITICAL:'#ff0044', WARNING:'#ff9933', WATCH:'#ffcc00', LOW:'#00ff88' }[s] || '#4a7da8'; }
 
-  function sevCol(s) {
-    return { CRITICAL:'#ff0044', WARNING:'#ff9933', WATCH:'#ffcc00', LOW:'#00ff88' }[s] || '#4a7da8';
-  }
+  // ── Notes persistence keyed by query-hash + session date ─────────────────────
+  function saveNotes(caseId, text) { try { localStorage.setItem(noteKey(caseId), text); } catch(e) {} }
+  function loadNotes(caseId) { try { return localStorage.getItem(noteKey(caseId)) || ''; } catch(e) { return ''; } }
 
-  // ── Notes persistence ────────────────────────────────────────────────────────
-  function saveNotes(caseId, text) {
-    try { localStorage.setItem('argus_notes_' + caseId, text); } catch(e) {}
-  }
-
-  function loadNotes(caseId) {
-    try { return localStorage.getItem('argus_notes_' + caseId) || ''; } catch(e) { return ''; }
-  }
-
-  // ── Market snapshot (for renderBrief / tooltip) ──────────────────────────────
+  // ── Market snapshot ───────────────────────────────────────────────────────────
   function getMarket() {
     var av = window._avData || {}, ei = window._eiaData || {}, fr = window._fredData || {};
+    var bonds = {};
+    try { var bc = localStorage.getItem('argus_bonds_v1'); if (bc) bonds = JSON.parse(bc); } catch(e) {}
     return { spy: av.spy, spyChg: av.spyChange,
              brent: ei.brent, wti: ei.wti,
              eur: av['fx-eurusd'], gbp: av['fx-gbpusd'], jpy: av['fx-usdjpy'],
-             t10y: fr.t10y, t2y: fr.t2y };
+             t10y: bonds.us10y != null ? bonds.us10y.toFixed(2) : null,
+             usd: fr.usd };
   }
 
-  // ── SCAN ─────────────────────────────────────────────────────────────────────
+  // ════════════════════════════════════════════════════════════════════════════
+  // SCAN — async, non-blocking, full-spectrum with pillar grouping + synergy
+  // ════════════════════════════════════════════════════════════════════════════
   function scan(customKw) {
     _clusters = []; _cases = [];
-    var rawKws  = Array.isArray(customKw) ? customKw : parseKw();
-    var terms   = rawKws.length ? expandTerms(rawKws) : [];
-    _activeKw   = rawKws;
+    var rawKws = Array.isArray(customKw) ? customKw : parseKw();
+    var terms  = rawKws.length ? expandTerms(rawKws) : [];
+    _activeKw  = rawKws;
+    _qHash     = hashQ(rawKws);
 
-    // Animate button
     var btn = document.getElementById('cb-scan-btn');
     if (btn && window.ArgusAnim) {
       window.ArgusAnim.cipherDecode(btn, '↻ SCANNING…', 500);
-      setTimeout(function () { if (btn) btn.textContent = '↻ SCAN'; }, 1600);
+      setTimeout(function () { if (btn) btn.textContent = '↻ SCAN'; }, 2200);
     }
 
-    // ── Ingest all data streams ─────────────────────────────────────────────
-    var matchedCountries = scoreCountries(terms);
-    var matchedCCodes    = matchedCountries.map(function (c) { return c.label; });
-    var scoredEvents     = ingestEvents(terms, matchedCCodes);
-    var humData          = ingestHumanitarian(terms);
-    var marketSignals    = ingestMarkets(terms);
-    var chokepoints      = ingestChokepoints(terms);
+    // Phase 1 — geo + country scoring (yield between phases to keep globe smooth)
+    yieldToMain().then(function () {
+      var matchedCountries = scoreCountries(terms);
+      var matchedCCodes    = matchedCountries.map(function (c) { return c.label; });
 
-    // ── Group scored events into dimensional case clusters ──────────────────
-    // Partition events by dimension: geopolitics, disaster/humanitarian
-    var geoEvents      = scoredEvents.filter(function (e) { return e.sType === 'geopolitics'; }).slice(0, 6);
-    var disasterEvents = scoredEvents.filter(function (e) { return e.sType === 'disaster'; }).slice(0, 4);
+      return yieldToMain().then(function () {
+        // Phase 2 — event ingestion + spatial synergy bonuses
+        var scoredEvents = ingestEvents(terms, matchedCCodes);
+        applySynergyBonuses(scoredEvents);
 
-    // Build a single "Big Picture" case if enough signal, else multiple by event cluster
-    if (!terms.length) {
-      // General scan: group all scored events by type
-      var groups = {};
-      scoredEvents.forEach(function (e) {
-        var key = e.ev.type || 'MIXED';
-        if (!groups[key]) groups[key] = [];
-        groups[key].push(e);
-      });
-      Object.keys(groups).slice(0, 8).forEach(function (key, i) {
-        var grp = groups[key];
-        var sv  = grp.reduce(function (a, e) { return a + ({ CRITICAL:40,WARNING:30,WATCH:20,LOW:10 }[e.ev.severity]||10); }, 0);
-        _clusters.push({
-          id: 'CLU-' + i, type: key, score: sv,
-          geoEvents: grp.slice(0, 4), disasterEvents: [],
-          humData: [], marketSignals: marketSignals.slice(0, 3),
-          chokepoints: [], matchedCountries: [],
-          region: (grp[0] && grp[0].ev.region) || key, hits: []
+        return yieldToMain().then(function () {
+          // Phase 3 — all other data streams
+          var humData       = ingestHumanitarian(terms);
+          var marketSigs    = ingestMarkets(terms);
+          var commoditySigs = ingestCommodities(terms);
+          var chokepoints   = ingestChokepoints(terms);
+          var tradeRoutes   = ingestTradeRoutes(terms);
+          var allMktSigs    = marketSigs.concat(commoditySigs).sort(function(a,b){ return b.score-a.score; });
+
+          // Partition by pillar
+          var kineticEvts    = scoredEvents.filter(function(e){ return e.pillar==='KINETIC'; }).slice(0,6);
+          var economicEvts   = scoredEvents.filter(function(e){ return e.pillar==='ECONOMIC'; }).slice(0,4);
+          var humanitarianEv = scoredEvents.filter(function(e){ return e.pillar==='HUMANITARIAN'; }).slice(0,4);
+          var strategicEvts  = scoredEvents.filter(function(e){ return e.pillar==='STRATEGIC'; }).slice(0,4);
+          // Legacy partition for network/timeline views
+          var geoEvents      = scoredEvents.filter(function(e){ return e.sType==='geopolitics'; }).slice(0,6);
+          var disasterEvents = scoredEvents.filter(function(e){ return e.sType==='disaster'; }).slice(0,4);
+
+          return yieldToMain().then(function () {
+            // Phase 4 — cluster building
+            if (!terms.length) {
+              var groups = {};
+              scoredEvents.forEach(function (e) { var k = e.ev.type||'MIXED'; if (!groups[k]) groups[k]=[]; groups[k].push(e); });
+              Object.keys(groups).slice(0, 8).forEach(function (key, i) {
+                var grp = groups[key];
+                var sv  = grp.reduce(function (a,e){ return a+({CRITICAL:40,WARNING:30,WATCH:20,LOW:10}[e.ev.severity]||10); },0);
+                _clusters.push({ id:'CLU-'+i, type:key, score:sv,
+                  kineticEvts:grp.filter(function(e){return e.pillar==='KINETIC';}).slice(0,4),
+                  economicEvts:[], humanitarianEv:[], strategicEvts:[],
+                  geoEvents:grp.slice(0,4), disasterEvents:[],
+                  humData:[], marketSignals:allMktSigs.slice(0,4), commoditySigs:[],
+                  chokepoints:[], tradeRoutes:[], matchedCountries:[],
+                  region:(grp[0]&&grp[0].ev.region)||key, hits:[] });
+              });
+            } else {
+              var topScore = scoredEvents.reduce(function(a,e){ return a+e.score; },0);
+              _clusters.push({ id:'CLU-0', type:'SYNTHESIS', score:topScore,
+                kineticEvts:kineticEvts, economicEvts:economicEvts,
+                humanitarianEv:humanitarianEv, strategicEvts:strategicEvts,
+                geoEvents:geoEvents, disasterEvents:disasterEvents,
+                humData:humData, marketSignals:allMktSigs, commoditySigs:commoditySigs,
+                chokepoints:chokepoints, tradeRoutes:tradeRoutes, matchedCountries:matchedCountries,
+                region:matchedCountries.length?matchedCountries[0].label:'Global', hits:terms.slice(0,8) });
+              ['CONFLICT','DISASTER','POLICY'].forEach(function(t,ti){
+                var sub = scoredEvents.filter(function(e){ return (e.ev.type||'')===t; });
+                if (sub.length<2) return;
+                var sv2 = sub.reduce(function(a,e){ return a+e.score; },0);
+                _clusters.push({ id:'CLU-'+(ti+1), type:t, score:sv2,
+                  kineticEvts:sub.filter(function(e){return e.pillar==='KINETIC';}).slice(0,4),
+                  economicEvts:[], humanitarianEv:[], strategicEvts:[],
+                  geoEvents:sub.slice(0,4), disasterEvents:[],
+                  humData:[], marketSignals:allMktSigs.slice(0,2), commoditySigs:[],
+                  chokepoints:[], tradeRoutes:[], matchedCountries:[],
+                  region:(sub[0]&&sub[0].ev.region)||t, hits:[] });
+              });
+            }
+            _clusters.sort(function(a,b){ return b.score-a.score; });
+
+            // Phase 5 — synthesise final cases
+            _cases = _clusters.slice(0,8).map(function(cl,i){
+              var cid = 'CASE-'+String(i+1).padStart(3,'0');
+              return {
+                id:cid, title:cl.type+' — '+cl.region.toUpperCase(),
+                region:cl.region, score:cl.score, type:cl.type, base:cl.score,
+                // Pillar arrays
+                kineticEvts:    cl.kineticEvts    || [],
+                economicEvts:   cl.economicEvts   || [],
+                humanitarianEv: cl.humanitarianEv || [],
+                strategicEvts:  cl.strategicEvts  || [],
+                // Legacy (renderNetwork + renderTimeline)
+                geoEvents:cl.geoEvents, disasterEvents:cl.disasterEvents,
+                humData:cl.humData, marketSignals:cl.marketSignals, commoditySigs:cl.commoditySigs||[],
+                chokepoints:cl.chokepoints, tradeRoutes:cl.tradeRoutes||[], matchedCountries:cl.matchedCountries,
+                hits:cl.hits, pinned:false, ts:Date.now(),
+                lat:(cl.geoEvents[0]&&cl.geoEvents[0].ev.lat)||null,
+                lon:(cl.geoEvents[0]&&cl.geoEvents[0].ev.lon)||null,
+                // Aliases for renderTimeline / renderNetwork tooltip
+                news:   (cl.geoEvents||[]).map(function(e){ return e.ev; }),
+                seismic:(cl.disasterEvents&&cl.disasterEvents[0])?cl.disasterEvents[0].ev:null,
+                market: cl.marketSignals&&cl.marketSignals[0]?cl.marketSignals[0].label+' '+cl.marketSignals[0].value:null,
+              };
+            });
+
+            render(); setStatus();
+            console.log('ArgusCaseBuilder: '+_cases.length+' cases | '+terms.length+' terms | query=['+rawKws.join(',')+']');
+          });
         });
       });
-    } else {
-      // Keyword / fuzzy scan: one synthesised Big Picture case + overflow cases
-      var topScore = scoredEvents.reduce(function (a, e) { return a + e.score; }, 0);
-      _clusters.push({
-        id: 'CLU-0', type: 'SYNTHESIS', score: topScore,
-        geoEvents: geoEvents, disasterEvents: disasterEvents,
-        humData: humData, marketSignals: marketSignals,
-        chokepoints: chokepoints, matchedCountries: matchedCountries,
-        region: matchedCountries.length ? matchedCountries[0].label : 'Global',
-        hits: terms.slice(0, 8)
-      });
-      // Additional per-type overflow cases if enough data
-      ['CONFLICT','DISASTER','POLICY'].forEach(function (t, ti) {
-        var subset = scoredEvents.filter(function (e) { return (e.ev.type||'') === t; });
-        if (subset.length < 2) return;
-        var sv2 = subset.reduce(function (a, e) { return a + e.score; }, 0);
-        _clusters.push({
-          id: 'CLU-' + (ti+1), type: t, score: sv2,
-          geoEvents: subset.slice(0, 4), disasterEvents: [],
-          humData: [], marketSignals: [],
-          chokepoints: [], matchedCountries: [],
-          region: (subset[0] && subset[0].ev.region) || t, hits: []
-        });
-      });
-    }
-
-    _clusters.sort(function (a, b) { return b.score - a.score; });
-
-    // ── Synthesise final cases ───────────────────────────────────────────────
-    _cases = _clusters.slice(0, 8).map(function (cl, i) {
-      var caseId = 'CASE-' + String(i + 1).padStart(3, '0');
-      return {
-        id: caseId, title: cl.type + ' — ' + cl.region.toUpperCase(),
-        region: cl.region, score: cl.score, type: cl.type,
-        geoEvents: cl.geoEvents, disasterEvents: cl.disasterEvents,
-        humData: cl.humData, marketSignals: cl.marketSignals,
-        chokepoints: cl.chokepoints, matchedCountries: cl.matchedCountries,
-        hits: cl.hits, pinned: false, ts: Date.now(),
-        // lat/lon from first geolocated event for neural web
-        lat: (cl.geoEvents[0] && cl.geoEvents[0].ev.lat) || null,
-        lon: (cl.geoEvents[0] && cl.geoEvents[0].ev.lon) || null,
-      };
+    }).catch(function(err){
+      console.error('ArgusCaseBuilder scan error:', err);
+      var b = document.getElementById('cb-scan-btn'); if (b) b.textContent = '↻ SCAN';
     });
-
-    render(); setStatus();
-    var ml = rawKws.length ? 'KW[' + rawKws.join(',') + '] → ' + terms.length + ' expanded terms' : 'GENERAL';
-    console.log('ArgusCaseBuilder scan(' + ml + '): ' + _clusters.length + ' clusters, ' + _cases.length + ' cases');
   }
 
-  // ── Status bar ───────────────────────────────────────────────────────────────
+  // ── Render dispatcher (was missing — caused silent ReferenceError on scan) ────
+  function render() {
+    if      (_mode === 'brief')    renderBrief();
+    else if (_mode === 'network')  renderNetwork();
+    else if (_mode === 'timeline') renderTimeline();
+    // notes mode has no data-driven render
+  }
+
+  // ── Status bar ────────────────────────────────────────────────────────────────
   function setStatus() {
     var el = document.getElementById('cb-status-bar');
     if (!el) return;
     if (!_cases.length) { el.textContent = 'NO DATA — PRESS SCAN'; return; }
     var kwStr = _activeKw.length ? ' · QUERY: ' + _activeKw.join(', ') : ' · GENERAL ANOMALY';
-    el.innerHTML = _cases.length + ' CASES · ' + _pins.length + ' PINNED' + kwStr;
+    var synCount = _cases.reduce(function(n,c){
+      return n + (c.kineticEvts||[]).filter(function(e){return e.synergy;}).length; }, 0);
+    el.innerHTML = _cases.length+' CASES · '+_pins.length+' PINNED'+kwStr+(synCount?' · '+synCount+' ⊕SYNERGY':'');
   }
 
   // ── Pin / clear ───────────────────────────────────────────────────────────────
@@ -8285,26 +8446,47 @@ window.ArgusCaseBuilder = (function () {
     render(); setStatus();
   }
 
-  // ── Export full report ────────────────────────────────────────────────────────
+  // ── Export (MD + JSON) ────────────────────────────────────────────────────────
   function exportReport() {
     var target = _pins.length ? _pins : _cases;
-    if (!target.length) return;
-    var mkt  = getMarket();
-    var md   = ['# ARGUS NEURAL CASE BUILDER — REPORT', 'Generated: ' + new Date().toUTCString(), ''];
-    md.push('## MARKET', '- Brent: $' + (mkt.brent||'N/A'), '- WTI: $' + (mkt.wti||'N/A'), '- SPY: $' + (mkt.spy||'N/A'), '');
-    target.forEach(function (c) {
-      md.push('### ' + c.id + ' — ' + c.title, '- Score: ' + c.score, '- Region: ' + c.region);
-      if (c.hits.length) md.push('- Keywords: ' + c.hits.join(', '));
+    if (!target.length) { console.warn('ArgusCaseBuilder: nothing to export'); return; }
+    var mkt = getMarket();
+    var md  = ['# ARGUS — FULL SPECTRUM INTELLIGENCE REPORT', 'Generated: '+new Date().toUTCString(),
+               'Query: '+(_activeKw.join(', ')||'GENERAL'), ''];
+    md.push('## MARKET SNAPSHOT');
+    md.push('- Brent: $'+(mkt.brent||'N/A'),'- WTI: $'+(mkt.wti||'N/A'),'- SPY: $'+(mkt.spy||'N/A'),
+            '- EUR/USD: '+(mkt.eur||'N/A'),'- 10Y UST: '+(mkt.t10y||'N/A')+'%','');
+    md.push('## CASES ('+target.length+')');
+    target.forEach(function(c){
+      md.push('','### '+c.id+' — '+c.title,'- Region: '+c.region,'- Score: '+c.score,'- Keywords: '+(c.hits.join(', ')||'none'));
+      if (c.kineticEvts&&c.kineticEvts.length) { md.push('#### KINETIC'); c.kineticEvts.forEach(function(e){ md.push('  · ['+(e.ev.severity||'?')+'] '+(e.ev.title||'').slice(0,80)); }); }
+      if (c.marketSignals&&c.marketSignals.length) { md.push('#### ECONOMIC'); c.marketSignals.slice(0,5).forEach(function(s){ md.push('  · '+s.label+' '+s.value+(s.note?' ('+s.note+')':'')); }); }
+      if (c.humData&&c.humData.length) { md.push('#### HUMANITARIAN'); c.humData.forEach(function(h){ md.push('  · '+h.iso+' — '+h.name+(h.displaced?' | '+fmtNum(h.displaced)+' displaced':'')+(h.refugees?' | '+fmtNum(h.refugees)+' refugees':'')); }); }
+      if (c.chokepoints&&c.chokepoints.length) { md.push('#### STRATEGIC'); c.chokepoints.forEach(function(cp){ md.push('  · '+cp.label+' ['+cp.risk+']'); }); }
       var notes = loadNotes(c.id);
-      if (notes) md.push('', '**Analyst Notes:**', notes);
+      if (notes) md.push('','**Analyst Notes:**',notes);
       md.push('');
     });
-    var a = document.createElement('a');
-    a.href = URL.createObjectURL(new Blob([md.join('\n')], { type: 'text/markdown' }));
-    a.download = 'argus-case-' + new Date().toISOString().slice(0,10) + '.md';
-    a.click(); setTimeout(function () { URL.revokeObjectURL(a.href); }, 1000);
+    var json = JSON.stringify({ generated:new Date().toISOString(), query:_activeKw, market:mkt, cases:target }, null, 2);
+    var ts   = new Date().toISOString().slice(0,10);
+    [['argus-case-'+ts+'.md',md.join('\n'),'text/markdown'],
+     ['argus-case-'+ts+'.json',json,'application/json']].forEach(function(f){
+      var a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([f[1]],{type:f[2]}));
+      a.download = f[0]; a.click();
+      setTimeout(function(){URL.revokeObjectURL(a.href);},1000);
+    });
   }
 
+  // ── Four Intelligence Pillars config ─────────────────────────────────────────
+  var PILLARS = [
+    { key:'KINETIC',      label:'[ ◉ KINETIC ]',      col:'#ff0044', desc:'Conflict · Disaster · Movement' },
+    { key:'ECONOMIC',     label:'[ ⬡ ECONOMIC ]',     col:'#ff9933', desc:'Markets · Trade · Commodities'  },
+    { key:'HUMANITARIAN', label:'[ ◈ HUMANITARIAN ]', col:'#ffcc00', desc:'Risk · Displaced · Health'      },
+    { key:'STRATEGIC',    label:'[ ▤ STRATEGIC ]',    col:'#4a7da8', desc:'Chokepoints · Supply Chain'     },
+  ];
+
+  // ── Mode 1: Brief — Four Intelligence Pillars ─────────────────────────────────
   function renderBrief() {
     var el = document.getElementById('cb-brief');
     if (!el) return;
@@ -8315,91 +8497,85 @@ window.ArgusCaseBuilder = (function () {
     var html = '';
     _cases.forEach(function (c) {
       var idCol = c.pinned ? '#ff9933' : '#b464ff';
-      html += '<div class="case-card' + (c.pinned ? ' pinned' : '') + '" data-cid="' + c.id + '">';
-
-      // ── Header row ──
+      html += '<div class="case-card'+(c.pinned?' pinned':'')+'" data-cid="'+c.id+'">';
+      // Header
       html += '<div style="display:flex;justify-content:space-between;align-items:flex-start">';
-      html += '<span style="font-size:8px;letter-spacing:1.5px;color:' + idCol + ';font-weight:700">' + c.id + (c.pinned?' ◈':'') + '</span>';
-      html += '<span style="font-size:8px;color:#ff9933">SCORE ' + c.score + '</span>';
-      html += '</div>';
-      html += '<div style="font-size:10px;color:#ddeeff;margin:3px 0 5px">' + hlKw(esc(c.title), _activeKw) + '</div>';
-      if (c.hits.length) {
-        c.hits.slice(0,6).forEach(function (k) { html += '<span class="kw-badge">⬡ ' + k + '</span>'; });
-        html += '<br style="margin-bottom:4px">';
-      }
+      html += '<span style="font-size:8px;letter-spacing:1.5px;color:'+idCol+';font-weight:700">'+c.id+(c.pinned?' ◈':'')+'</span>';
+      html += '<span style="font-size:8px;color:#ff9933">SCORE '+c.score+'</span></div>';
+      html += '<div style="font-size:10px;color:#ddeeff;margin:3px 0 5px">'+hlKw(esc(c.title),_activeKw)+'</div>';
+      if (c.hits&&c.hits.length) { c.hits.slice(0,6).forEach(function(k){ html+='<span class="kw-badge">⬡ '+k+'</span>'; }); html+='<br style="margin-bottom:4px">'; }
 
-      // ── [Geopolitics] dimension ──
-      if (c.geoEvents && c.geoEvents.length) {
-        html += '<div class="cb-dim-header">[ Geopolitics ]</div>';
-        c.geoEvents.slice(0, 3).forEach(function (e) {
-          html += '<div class="cb-dim-row" style="color:' + sevCol(e.ev.severity) + '">';
-          html += '▸ ' + hlKw(esc((e.ev.title||'').slice(0,60)), _activeKw);
-          if (e.hits.length) html += ' <span style="color:#b464ff55;font-size:7px">[' + e.hits.slice(0,2).join(',') + ']</span>';
+      // ── KINETIC Pillar ──
+      var kEvts = (c.kineticEvts||[]).concat(c.disasterEvents||[]);
+      if (kEvts.length) {
+        html += '<div class="cb-dim-header" style="color:#ff004488;border-color:#ff004422">[ ◉ KINETIC — Conflict · Disaster · Movement ]</div>';
+        kEvts.slice(0,4).forEach(function(e){
+          var ev = e.ev||e, sev = ev.severity||'LOW';
+          html += '<div class="cb-dim-row" style="color:'+sevCol(sev)+'">'+(sev==='CRITICAL'?'⚠ ':'▸ ')+hlKw(esc((ev.title||'').slice(0,65)),_activeKw);
+          if (e.synergy) html += ' <span style="color:#ff004466;font-size:7px"> ⊕GEO</span>';
+          if (e.hits&&e.hits.length) html += ' <span style="color:#b464ff44;font-size:7px">['+e.hits.slice(0,2).join(',')+']</span>';
           html += '</div>';
         });
       }
 
-      // ── [Markets] dimension ──
-      if (c.marketSignals && c.marketSignals.length) {
-        html += '<div class="cb-dim-header">[ Markets ]</div>';
-        c.marketSignals.slice(0, 4).forEach(function (s) {
+      // ── ECONOMIC Pillar ──
+      var eSigs  = (c.marketSignals||[]).concat(c.commoditySigs||[]);
+      var eEvts  = c.economicEvts||[];
+      if (eSigs.length||eEvts.length) {
+        html += '<div class="cb-dim-header" style="color:#ff993388;border-color:#ff993322">[ ⬡ ECONOMIC — Markets · Trade · Commodities ]</div>';
+        eSigs.slice(0,6).forEach(function(s){
+          html += '<div class="cb-dim-row"><span style="color:#4a7da8">'+esc(s.label)+'</span> <span style="color:'+(s.col||'#c5d7e8')+'">'+esc(s.value)+'</span>';
+          if (s.pct!=null) { var ps=(s.pct>=0?'+':'')+s.pct.toFixed(2)+'%'; html+=' <span style="color:'+(s.pct>0?'#00ff88':'#ff0044')+';font-size:7px"> '+ps+'</span>'; }
+          if (s.note) html += ' <span style="font-size:7px;color:'+(s.col||'#ff9933')+'88"> '+s.note+'</span>';
+          html += '</div>';
+        });
+        eEvts.slice(0,2).forEach(function(e){ html+='<div class="cb-dim-row" style="color:#ff993366">▸ '+hlKw(esc((e.ev.title||'').slice(0,60)),_activeKw)+'</div>'; });
+      }
+
+      // ── HUMANITARIAN Pillar ──
+      var hCrises = c.humData||[];
+      var hEvts   = c.humanitarianEv||[];
+      if (hCrises.length||hEvts.length) {
+        html += '<div class="cb-dim-header" style="color:#ffcc0088;border-color:#ffcc0022">[ ◈ HUMANITARIAN — Risk · Displaced · Health ]</div>';
+        hCrises.slice(0,3).forEach(function(h){
+          html += '<div class="cb-dim-row" style="color:'+sevCol(h.severity)+'">◉ '+esc(h.iso)+' — '+esc((h.name||h.type||'').slice(0,45));
+          if (h.displaced) html += ' <span style="color:#ffcc0066;font-size:7px"> '+fmtNum(h.displaced)+' disp</span>';
+          if (h.refugees)  html += ' <span style="color:#ff993366;font-size:7px"> '+fmtNum(h.refugees)+' ref</span>';
+          html += '</div>';
+        });
+        hEvts.slice(0,2).forEach(function(e){ html+='<div class="cb-dim-row" style="color:#ffcc0066">▸ '+hlKw(esc((e.ev.title||'').slice(0,60)),_activeKw)+'</div>'; });
+      }
+
+      // ── STRATEGIC Pillar ──
+      var hasCPs  = c.chokepoints&&c.chokepoints.length;
+      var hasRts  = c.tradeRoutes&&c.tradeRoutes.length;
+      var hasCtrs = c.matchedCountries&&c.matchedCountries.length;
+      var hasSEv  = c.strategicEvts&&c.strategicEvts.length;
+      if (hasCPs||hasRts||hasCtrs||hasSEv) {
+        html += '<div class="cb-dim-header" style="color:#4a7da888;border-color:#4a7da822">[ ▤ STRATEGIC — Chokepoints · Infrastructure · Supply Chain ]</div>';
+        if (hasCtrs) {
           html += '<div class="cb-dim-row">';
-          html += '<span style="color:#4a7da8">' + esc(s.label) + '</span> ';
-          html += '<span style="color:' + (s.col||'#c5d7e8') + '">' + esc(s.value) + '</span>';
-          if (s.note) html += ' <span style="color:' + (s.col||'#ff9933') + ';font-size:7px;letter-spacing:1px"> ' + s.note + '</span>';
+          c.matchedCountries.slice(0,5).forEach(function(co){ html+='<span style="font-size:7px;padding:1px 5px;border:1px solid '+sevCol(co.risk)+'44;color:'+sevCol(co.risk)+';margin-right:3px">'+esc(co.label)+'</span>'; });
           html += '</div>';
-        });
-      }
-
-      // ── [Disasters / Humanitarian] dimension ──
-      var hasDisaster = (c.disasterEvents && c.disasterEvents.length) || (c.humData && c.humData.length);
-      if (hasDisaster) {
-        html += '<div class="cb-dim-header">[ Disasters / Humanitarian ]</div>';
-        (c.disasterEvents||[]).slice(0,2).forEach(function (e) {
-          html += '<div class="cb-dim-row" style="color:' + sevCol(e.ev.severity) + '">⚠ ' + esc((e.ev.title||'').slice(0,55)) + '</div>';
-        });
-        (c.humData||[]).slice(0,2).forEach(function (h) {
-          html += '<div class="cb-dim-row" style="color:#ff9933">◉ ' + esc(h.iso) + ' — ' + esc(h.name||h.type);
-          if (h.displaced) html += ' · ' + h.displaced + ' displaced';
-          html += '</div>';
-        });
-      }
-
-      // ── [Exposed Countries] dimension ──
-      if (c.matchedCountries && c.matchedCountries.length) {
-        html += '<div class="cb-dim-header">[ Exposed Countries ]</div>';
-        html += '<div class="cb-dim-row">';
-        c.matchedCountries.slice(0, 5).forEach(function (co) {
-          html += '<span style="font-size:7px;padding:1px 5px;border:1px solid ' + sevCol(co.risk) + '44;color:' + sevCol(co.risk) + ';margin-right:4px">' + esc(co.label) + '</span>';
-        });
-        html += '</div>';
-        // Exposed chokepoints
-        if (c.chokepoints && c.chokepoints.length) {
-          c.chokepoints.forEach(function (cp) {
-            html += '<div class="cb-dim-row" style="color:' + sevCol(cp.risk) + ';font-size:8px">⬡ ' + esc(cp.label) + ' — ' + esc(cp.status.slice(0,50)) + '</div>';
-          });
         }
+        if (hasCPs) c.chokepoints.forEach(function(cp){ html+='<div class="cb-dim-row" style="color:'+sevCol(cp.risk)+';font-size:8px">⬡ '+esc(cp.label)+(cp.status?' — '+esc(cp.status.slice(0,48)):'')+' ['+cp.risk+']</div>'; });
+        if (hasRts) c.tradeRoutes.slice(0,2).forEach(function(r){ html+='<div class="cb-dim-row" style="color:#4a7da8;font-size:8px">⇌ '+esc((r.from||'')+'→'+(r.to||''))+(r.risk?' ['+r.risk+']':'')+' </div>'; });
+        if (hasSEv) c.strategicEvts.slice(0,2).forEach(function(e){ html+='<div class="cb-dim-row" style="color:#4a7da8aa">▸ '+hlKw(esc((e.ev.title||'').slice(0,60)),_activeKw)+'</div>'; });
       }
 
-      // ── Analyst Notes (persistent via localStorage) ──
+      // ── Analyst Notes (persistent by query-hash + date) ──────────────────────
       var savedNotes = loadNotes(c.id);
-      html += '<div class="cb-dim-header" style="margin-top:5px">[ Analyst Notes ]</div>';
-      html += '<textarea class="case-notes" data-cid="' + c.id + '" placeholder="Observations, hypotheses, follow-up…">' + esc(savedNotes) + '</textarea>';
-
+      var dateTag    = new Date().toISOString().slice(0,10);
+      html += '<div class="cb-dim-header" style="margin-top:5px">[ ✎ ANALYST NOTES — '+dateTag+' ]</div>';
+      html += '<textarea class="case-notes" data-cid="'+c.id+'" placeholder="Observations, hypotheses, follow-up actions…">'+esc(savedNotes)+'</textarea>';
       html += '</div>'; // end case-card
     });
-
     el.innerHTML = html;
-
-    // Wire pin clicks and notes autosave
-    el.querySelectorAll('.case-card[data-cid]').forEach(function (div) {
-      div.addEventListener('click', function (e) {
-        if (e.target.classList.contains('case-notes')) return; // don't pin when typing
-        togglePin(div.dataset.cid);
-      });
+    el.querySelectorAll('.case-card[data-cid]').forEach(function(div){
+      div.addEventListener('click', function(e){ if (e.target.classList.contains('case-notes')) return; togglePin(div.dataset.cid); });
     });
-    el.querySelectorAll('.case-notes').forEach(function (ta) {
-      ta.addEventListener('input', function () { saveNotes(ta.dataset.cid, ta.value); });
+    el.querySelectorAll('.case-notes').forEach(function(ta){
+      ta.addEventListener('input', function(){ saveNotes(ta.dataset.cid, ta.value); });
     });
   }
 
@@ -8662,33 +8838,6 @@ window.ArgusCaseBuilder = (function () {
       html += '</div></div>';
     });
     el.innerHTML = html;
-  }
-
-  // ── Export ───────────────────────────────────────────────────────────────────
-  function exportReport() {
-    var target = _pins.length ? _pins : _cases;
-    if (!target.length) { console.warn('ArgusCaseBuilder: nothing to export'); return; }
-    var mkt = getMarket();
-    var md  = ['# ARGUS NEURAL CASE BUILDER — REPORT', 'Generated: ' + new Date().toUTCString(), ''];
-    md.push('## MARKET', '- Brent: $' + (mkt.brent||'N/A'), '- WTI: $'+(mkt.wti||'N/A'),
-            '- SPY: $'+(mkt.spy||'N/A'), '- EUR/USD: '+(mkt.eur||'N/A'), '');
-    md.push('## CASES (' + target.length + ')');
-    target.forEach(function (c) {
-      md.push('', '### ' + c.id + ' — ' + c.title,
-              '- Region: ' + c.region, '- Score: ' + c.score + ' (base ' + c.base + ')',
-              '- Keywords: ' + (c.hits.join(', ') || 'none'),
-              '- Market: ' + (c.market || 'none'));
-      (c.news||[]).forEach(function (n) { md.push('  · [' + (n.severity||'?') + '] ' + (n.title||'').slice(0,80)); });
-    });
-    var json = JSON.stringify({ generated: new Date().toISOString(), market: mkt, cases: target }, null, 2);
-    var ts   = new Date().toISOString().slice(0,10);
-    [['argus-case-'+ts+'.md', md.join('\n'), 'text/markdown'],
-     ['argus-case-'+ts+'.json', json, 'application/json']].forEach(function (f) {
-      var a = document.createElement('a');
-      a.href = URL.createObjectURL(new Blob([f[1]], { type: f[2] }));
-      a.download = f[0]; a.click();
-      setTimeout(function () { URL.revokeObjectURL(a.href); }, 1000);
-    });
   }
 
   // ── Mode switching ───────────────────────────────────────────────────────────

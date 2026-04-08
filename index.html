@@ -3279,26 +3279,22 @@ window.ArgusData = (function() {
         .catch(function(e) { console.warn('AV', label, 'failed:', e.message); });
     }
 
-    // ── FX: EUR/USD, GBP/USD, USD/JPY — single Frankfurter call ─────────────
-    // Frankfurter publishes ECB reference rates. Free, no key, CORS-open.
-    // One request for all three pairs eliminates AV rate-limit pressure on FX entirely.
-    // Note: Frankfurter returns rates as "units of X per 1 USD", so:
-    //   EUR → we get USD/EUR (e.g. 0.92) → invert to get EUR/USD (e.g. 1.087)
-    //   GBP → same inversion for GBP/USD
-    //   JPY → direct (units of JPY per USD, no inversion needed)
-    fetch('https://api.allorigins.win/raw?url=' + encodeURIComponent('https://api.frankfurter.app/latest?from=USD&to=EUR,GBP,JPY'))
-      .then(function(r) { return r.json(); })
+    // ── FX: EUR/USD, GBP/USD, USD/JPY — exchangerate-api.com (keyed, CORS-open) ──
+    // Single request covers all three pairs. Frankfurter removed — blocked on GH Pages.
+    fetch('https://v6.exchangerate-api.com/v6/61302f7a6faa1d1912c1edd1/latest/USD')
+      .then(function(r) { return r.ok ? r.json() : null; })
       .then(function(d) {
-        if (!d || !d.rates) { console.warn('Frankfurter FX: no rates'); return; }
-        var eur = d.rates.EUR ? (1 / d.rates.EUR) : null;   // EUR/USD
-        var gbp = d.rates.GBP ? (1 / d.rates.GBP) : null;   // GBP/USD
-        var jpy = d.rates.JPY || null;                        // USD/JPY direct
+        if (!d || !d.conversion_rates) { console.warn('ExchangeRate-API FX: no rates'); return; }
+        var rates = d.conversion_rates;
+        var eur = rates.EUR ? rates.EUR : null;        // EUR per USD → EUR/USD
+        var gbp = rates.GBP ? rates.GBP : null;        // GBP per USD → GBP/USD
+        var jpy = rates.JPY ? rates.JPY : null;        // JPY per USD → USD/JPY
         if (eur) { setEl('fx-eurusd', eur, 4); window._avData['fx-eurusd'] = eur; }
         if (gbp) { setEl('fx-gbpusd', gbp, 4); window._avData['fx-gbpusd'] = gbp; }
         if (jpy) { setEl('fx-usdjpy', jpy, 2); window._avData['fx-usdjpy'] = jpy; }
-        console.log('FX via Frankfurter — EUR/USD:', eur && eur.toFixed(4), 'GBP/USD:', gbp && gbp.toFixed(4), 'USD/JPY:', jpy && jpy.toFixed(2));
+        console.log('FX via ExchangeRate-API — EUR/USD:', eur && eur.toFixed(4), 'GBP/USD:', gbp && gbp.toFixed(4), 'USD/JPY:', jpy && jpy.toFixed(2));
       })
-      .catch(function(e) { console.warn('Frankfurter FX failed:', e.message); });
+      .catch(function(e) { console.warn('ExchangeRate-API FX failed:', e.message); });
 
     // ── SPY — AV only used for equities quote (no FX competition) ────────────
     doCall(avQuoteUrl('SPY'), function(d) { avSetSPY(d); }, 'SPY');
@@ -6084,7 +6080,7 @@ setInterval(fetchAll, TTL);
 
 // ── DISASTER tab — NOAA severe weather fetch ──────────────────────────────────
 (function loadNOAA() {
-  var URL      = 'https://api.weather.gov/alerts/active?status=actual&message_type=alert&urgency=Immediate,Expected&limit=20';
+  var URL      = 'https://api.weather.gov/alerts/active?status=actual&message_type=alert&limit=50';
   var CACHE_K  = 'argus_noaa_v2';
   var CACHE_T  = 'argus_noaa_ts_v2';
   var TTL_MS   = 15 * 60 * 1000;
@@ -6140,9 +6136,10 @@ setInterval(fetchAll, TTL);
   // NASA FIRMS CSV — VIIRS SNPP last 24h, world
   // Direct fetch is CORS-blocked on desktop. Use proxy chain.
   var firmsUrl = 'https://firms.modaps.eosdis.nasa.gov/data/active_fire/suomi-npp-viirs-c2/csv/SUOMI_VIIRS_C2_Global_24h.csv';
+  // corsproxy.io returns 413 (payload too large) and allorigins CORS-blocks this file.
+  // thingproxy handles large payloads; codetabs is the fallback.
   var proxies = [
-    'https://corsproxy.io/?url=' + encodeURIComponent(firmsUrl),
-    'https://api.allorigins.win/raw?url=' + encodeURIComponent(firmsUrl),
+    'https://thingproxy.freeboard.io/fetch/' + firmsUrl,
     'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(firmsUrl),
   ];
 
@@ -6393,8 +6390,7 @@ function iso2to3(code) {
 }
 
 // ── 1. GDACS — active disasters GeoJSON ───────────────────────────────────────
-// api.gdacs.org returns proper GeoJSON with coords, alert level, event type.
-// Tries direct first; falls back to allorigins proxy if CORS-blocked on GitHub Pages.
+// api.gdacs.org blocks GitHub Pages. Route through corsproxy.io; allorigins fallback.
 var GDACS_URL = 'https://www.gdacs.org/gdacsapi/api/events/geteventlist/MAP?eventtypes=EQ,TC,FL,VO,DR,WF&alertlevel=Green,Orange,Red&limit=50';
 function fetchGDACS() {
   function parseGDACS(json) {
@@ -6429,14 +6425,14 @@ function fetchGDACS() {
     console.log('GDACS: ' + count + ' active disasters indexed across ' + Object.keys(window._rwData).length + ' countries');
   }
 
-  return fetch(GDACS_URL)
+  // Primary: corsproxy.io; fallback: allorigins
+  return fetch('https://corsproxy.io/?url=' + encodeURIComponent(GDACS_URL))
     .then(function(r) {
-      if (!r.ok) throw new Error('GDACS HTTP ' + r.status);
+      if (!r.ok) throw new Error('GDACS corsproxy HTTP ' + r.status);
       return r.json();
     })
     .then(parseGDACS)
     .catch(function() {
-      // Fallback: try via allorigins proxy
       return fetch('https://api.allorigins.win/raw?url=' + encodeURIComponent(GDACS_URL))
         .then(function(r) { return r.ok ? r.json() : null; })
         .then(function(json) { if (json) parseGDACS(json); });

@@ -3286,7 +3286,7 @@ window.ArgusData = (function() {
     //   EUR → we get USD/EUR (e.g. 0.92) → invert to get EUR/USD (e.g. 1.087)
     //   GBP → same inversion for GBP/USD
     //   JPY → direct (units of JPY per USD, no inversion needed)
-    fetch('https://api.frankfurter.app/latest?from=USD&to=EUR,GBP,JPY')
+    fetch('https://api.allorigins.win/raw?url=' + encodeURIComponent('https://api.frankfurter.app/latest?from=USD&to=EUR,GBP,JPY'))
       .then(function(r) { return r.json(); })
       .then(function(d) {
         if (!d || !d.rates) { console.warn('Frankfurter FX: no rates'); return; }
@@ -4101,7 +4101,7 @@ window.ArgusData = (function() {
       if (cached && Date.now() - ts < TTL) return;
     } catch(e) {}
 
-    fetch('https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent('https://stooq.com/q/d/l/?s=bdi&i=d'))
+    fetch('https://api.allorigins.win/raw?url=' + encodeURIComponent('https://stooq.com/q/d/l/?s=bdi&i=d'))
     .then(function(r) { return r.ok ? r.text() : null; })
     .then(function(csv) {
       if (!csv) throw new Error('No data');
@@ -4143,6 +4143,8 @@ window.ArgusData = (function() {
       var ts = parseInt(localStorage.getItem(CACHE_T) || "0");
       if (cached && Date.now() - ts < TTL) { applyMarketPayload(JSON.parse(cached)); return; }
     } catch(e) {}
+    // Only call Netlify functions when hosted on Netlify (not GitHub Pages)
+    if (window.location.hostname.indexOf('netlify') === -1 && window.location.hostname !== 'localhost') return;
     fetch('/.netlify/functions/fetch-market-data')
     .then(function(r) { return r.ok ? r.json() : null; })
     .then(function(res) {
@@ -4200,7 +4202,7 @@ var FALLBACK_EVENTS = [
 
 // ── Humanitarian tone classifier — runs on existing text, zero extra API calls ──
 var HC_CATEGORIES = {
-  CONFLICT:       { w: 40, kw: ['airstrike','bombing','missile','armed clash','insurgency','terrorist','civilian casualties','killed','troops','offensive','shelling','massacre','war','combat','gunfire','explosion','artillery','drone strike','ambush','siege','naval blockade','occupation'] },
+  CONFLICT:       { w: 40, kw: ['airstrike','bombing','missile','armed clash','insurgency','terrorist','civilian casualties','killed','troops','offensive','shelling','massacre','genocide','ethnic cleansing','war crimes','atrocity','atrocities','mass graves','chemical attack','war','combat','gunfire','explosion','artillery','drone strike','ambush','siege','naval blockade','occupation'] },
   HUMANITARIAN:   { w: 35, kw: ['famine','starvation','displacement','refugees','aid blocked','mass casualties','cholera','malnutrition','food insecurity','civilians trapped','mass exodus','displaced','aid workers killed','humanitarian','epidemic','outbreak','flooding','earthquake','tsunami','wildfire'] },
   HUMAN_RIGHTS:   { w: 30, kw: ['ethnic cleansing','war crimes','mass detention','crackdown','political prisoners','torture','disappearances','execution','persecution','arbitrary arrest','censorship','suppression','extrajudicial','protesters killed','journalists detained','atrocities'] },
   SUPPLY_CHAIN:   { w: 28, kw: ['port closure','shipping disruption','trade route','chokepoint','canal blocked','strait','supply chain','logistics breakdown','cargo','container','freight','export ban','import restriction','supply shortage','critical minerals','semiconductor','chip shortage'] },
@@ -4230,6 +4232,8 @@ function hcClassify(title, description) {
   score = Math.min(score, 100);
   var triggers = HC_TRIGGERS.filter(function(t) { return text.indexOf(t) !== -1; });
   if (triggers.length) score = Math.max(score, 50);
+  // Genocide/ethnic cleansing are always CONFLICT regardless of default
+  if (/genocide|ethnic.cleansing|war.crime|atrocit|mass.grave/.test(text) && type === 'POLICY') { type = 'CONFLICT'; }
 
   var risk = score >= 80 ? 'CRITICAL' : score >= 50 ? 'WARNING' : score >= 25 ? 'WATCH' : 'LOW';
   var col  = { CRITICAL:'#ff0044', WARNING:'#ff9933', WATCH:'#ffcc00', LOW:'#00ff88' }[risk];
@@ -4393,7 +4397,7 @@ var RELEVANT_TAGS = /conflict|war|military|attack|casualties|killed|wounded|disp
 
 // ── Type classifier — humanitarian events mapped before economic ones ─────────
 var TYPE_RULES = [
-  { re: /attack|militia|houthi|strike|bomb|missile|shoot|troops|war|military|weapon|armed|kill|coup|terror|casualties|airstrike|shelling|massacre|offensive|siege|conflict|civilian/i, type: 'CONFLICT'  },
+  { re: /attack|militia|houthi|strike|bomb|missile|shoot|troops|war|military|weapon|armed|kill|coup|terror|casualties|airstrike|shelling|massacre|genocide|ethnic.cleansing|atrocit|war.crime|offensive|siege|conflict|civilian/i, type: 'CONFLICT'  },
   { re: /hack|cyber|ransomware|breach|malware|phishing|ddos/i,                                                                                                                          type: 'CYBER'     },
   { re: /flood|earthquake|quake|hurricane|typhoon|drought|wildfire|tsunami|disaster|eruption|famine|epidemic|outbreak/i,                                                                type: 'DISASTER'  },
   { re: /inflation|recession|gdp|interest rate|debt|default|unemployment|market crash/i,                                                                                                type: 'ECONOMIC'  },
@@ -4700,9 +4704,15 @@ setInterval(loadLiveEvents, FEED_TTL);
     }
   } catch(e) {}
 
-  fetch('https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(RW_URL))
-  .then(function(r) { return r.json(); })
+  // Try direct first (ReliefWeb has CORS headers); fall back to allorigins proxy
+  fetch(RW_URL)
+  .then(function(r) { return r.ok ? r.json() : Promise.reject('HTTP ' + r.status); })
+  .catch(function() {
+    return fetch('https://api.allorigins.win/raw?url=' + encodeURIComponent(RW_URL))
+      .then(function(r) { return r.ok ? r.json() : null; });
+  })
   .then(function(data) {
+    if (!data) { console.warn('ReliefWeb: no data'); return; }
     var items = (data.data || []);
     localStorage.setItem(CACHE_KEY, JSON.stringify(items));
     localStorage.setItem(CACHE_TS, String(Date.now()));
@@ -6083,7 +6093,7 @@ setInterval(fetchAll, TTL);
     var ts     = parseInt(localStorage.getItem(CACHE_T) || '0');
     if (cached && Date.now() - ts < TTL_MS) { window._noaaEvents = JSON.parse(cached); return; }
   } catch(e) {}
-  fetch(URL, { headers: { 'User-Agent': 'ArgusIntel/1.0 argus@intel.com' } })
+  fetch(URL, { headers: { 'Accept': 'application/geo+json' } })
   .then(function(r) { return r.ok ? r.json() : null; })
   .then(function(data) {
     if (!data || !data.features) return;
@@ -6384,43 +6394,52 @@ function iso2to3(code) {
 
 // ── 1. GDACS — active disasters GeoJSON ───────────────────────────────────────
 // api.gdacs.org returns proper GeoJSON with coords, alert level, event type.
-// No proxy needed — GDACS explicitly serves public data with CORS headers.
+// Tries direct first; falls back to allorigins proxy if CORS-blocked on GitHub Pages.
+var GDACS_URL = 'https://www.gdacs.org/gdacsapi/api/events/geteventlist/MAP?eventtypes=EQ,TC,FL,VO,DR,WF&alertlevel=Green,Orange,Red&limit=50';
 function fetchGDACS() {
-  return fetch('https://www.gdacs.org/gdacsapi/api/events/geteventlist/MAP?eventtypes=EQ,TC,FL,VO,DR,WF&alertlevel=Green,Orange,Red&limit=50')
+  function parseGDACS(json) {
+    var features = (json && json.features) || [];
+    var count = 0;
+    features.forEach(function(f) {
+      var p   = f.properties || {};
+      var geo = f.geometry;
+      var iso = iso2to3(p.iso3 || p.country) ||
+                (p.countryname ? lookupByName(p.countryname) : null);
+      if (!iso) return;
+
+      var sev  = gdacsSev(p.alertlevel);
+      var lat  = geo && geo.coordinates ? geo.coordinates[1] : null;
+      var lon  = geo && geo.coordinates ? geo.coordinates[0] : null;
+      var date = (p.fromdate || '').slice(0, 10);
+      var name = p.eventname || (p.eventtype + ' — ' + p.countryname);
+
+      if (!window._rwData[iso]) window._rwData[iso] = { disasters:[], sitreps:[], displaced:null, refugees:null };
+      window._rwData[iso].disasters.push({
+        name:    name.slice(0, 80),
+        types:   [p.eventtype || 'DISASTER'],
+        sev:     sev,
+        date:    date,
+        lat:     lat,
+        lon:     lon,
+        url:     p.url ? 'https://www.gdacs.org' + p.url : '',
+        source:  'GDACS',
+      });
+      count++;
+    });
+    console.log('GDACS: ' + count + ' active disasters indexed across ' + Object.keys(window._rwData).length + ' countries');
+  }
+
+  return fetch(GDACS_URL)
     .then(function(r) {
       if (!r.ok) throw new Error('GDACS HTTP ' + r.status);
       return r.json();
     })
-    .then(function(json) {
-      var features = (json && json.features) || [];
-      var count = 0;
-      features.forEach(function(f) {
-        var p   = f.properties || {};
-        var geo = f.geometry;
-        var iso = iso2to3(p.iso3 || p.country) ||
-                  (p.countryname ? lookupByName(p.countryname) : null);
-        if (!iso) return;
-
-        var sev  = gdacsSev(p.alertlevel);
-        var lat  = geo && geo.coordinates ? geo.coordinates[1] : null;
-        var lon  = geo && geo.coordinates ? geo.coordinates[0] : null;
-        var date = (p.fromdate || '').slice(0, 10);
-        var name = p.eventname || (p.eventtype + ' — ' + p.countryname);
-
-        if (!window._rwData[iso]) window._rwData[iso] = { disasters:[], sitreps:[], displaced:null, refugees:null };
-        window._rwData[iso].disasters.push({
-          name:    name.slice(0, 80),
-          types:   [p.eventtype || 'DISASTER'],
-          sev:     sev,
-          date:    date,
-          lat:     lat,
-          lon:     lon,
-          url:     p.url ? 'https://www.gdacs.org' + p.url : '',
-          source:  'GDACS',
-        });
-        count++;
-      });
-      console.log('GDACS: ' + count + ' active disasters indexed across ' + Object.keys(window._rwData).length + ' countries');
+    .then(parseGDACS)
+    .catch(function() {
+      // Fallback: try via allorigins proxy
+      return fetch('https://api.allorigins.win/raw?url=' + encodeURIComponent(GDACS_URL))
+        .then(function(r) { return r.ok ? r.json() : null; })
+        .then(function(json) { if (json) parseGDACS(json); });
     });
 }
 

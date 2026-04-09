@@ -4397,7 +4397,7 @@ var TYPE_RULES = [
   { re: /hack|cyber|ransomware|breach|malware|phishing|ddos/i,                                                                                                                          type: 'CYBER'     },
   { re: /flood|earthquake|quake|hurricane|typhoon|drought|wildfire|tsunami|disaster|eruption|famine|epidemic|outbreak/i,                                                                type: 'DISASTER'  },
   { re: /inflation|recession|gdp|interest rate|debt|default|unemployment|market crash/i,                                                                                                type: 'ECONOMIC'  },
-  { re: /sanction|tariff|embargo|ban|regulation|treaty|accord|summit|diplomacy|policy|trade deal/i,                                                                                     type: 'POLICY'    },
+  { re: /sanction|tariff|embargo|ban|regulation|treaty|accord|summit|diplomacy|policy|trade deal|trade|economic|economy|market|fuel|shortage|deficit|boom|technology|science|foundation|\$|non.profit|demand|supply|surplus/i, type: 'POLICY'    },
 ];
 
 // ── Severity classifier — humanitarian signals weighted before economics ──────
@@ -7705,13 +7705,28 @@ window.ArgusAdmin = (function() {
     var AG = window.ArgusGlobe;
     if (!AG || !AG.eventMarkerGroup || !AG.latLonToVector) return;
     var SEV_COLORS = { CRITICAL: 0xff0044, WARNING: 0xff9933, WATCH: 0xffcc00, LOW: 0x00ff88 };
-    var t = ((req.title || '') + ' ' + (req.notes || '')).toLowerCase();
-    var type = 'POLICY', sev = 'WATCH';
-    if (/attack|war|military|conflict|coup|terror/i.test(t))   { type = 'CONFLICT'; sev = 'WARNING'; }
-    else if (/flood|quake|disaster|hurricane|famine/i.test(t)) { type = 'DISASTER'; sev = 'WARNING'; }
-    else if (/sanction|tariff|embargo|trade/i.test(t))         { type = 'POLICY';   sev = 'WATCH';   }
-    else if (/hack|cyber|breach/i.test(t))                     { type = 'CYBER';    sev = 'WATCH';   }
-    if (/critical|emergency|crisis/i.test(t)) sev = 'CRITICAL';
+
+    // Combine title, notes, and the user's explicit category dropdown selection
+    var t = ((req.title || '') + ' ' + (req.notes || '') + ' ' + (req.category || '')).toLowerCase();
+
+    // Step 1 — seed type from the user's explicit dropdown choice
+    var CAT_MAP = { conflict: 'CONFLICT', energy: 'ECONOMIC', economic: 'ECONOMIC',
+                    maritime: 'POLICY', policy: 'POLICY', general: 'POLICY' };
+    var type = CAT_MAP[req.category] || 'POLICY';
+    var sev  = (type === 'CONFLICT') ? 'WARNING' : 'WATCH';
+
+    // Step 2 — kinetic keyword hard-override: these always force CONFLICT + WARNING
+    // regardless of whatever category was selected (catches "genocide", "massacre", etc.)
+    if (/genocide|massacre|bombing|airstrike|war|attack|military|conflict|coup|terror|casualties|fatalities|killed|civilian.death|ethnic.cleansing|war.crime|atrocity/i.test(t)) {
+      type = 'CONFLICT'; sev = 'WARNING';
+    } else if (/flood|earthquake|quake|disaster|hurricane|famine|wildfire|epidemic/i.test(t)) {
+      if (type !== 'CONFLICT') { type = 'DISASTER'; sev = 'WARNING'; }
+    } else if (/hack|cyber|breach|ransomware/i.test(t)) {
+      if (type !== 'CONFLICT') { type = 'CYBER'; sev = 'WATCH'; }
+    }
+
+    // Step 3 — severity escalation: critical trigger words always produce CRITICAL alert
+    if (/critical|emergency|crisis|catastroph/i.test(t)) sev = 'CRITICAL';
 
     var correctedLon = geo.lon + 90;
     while (correctedLon >  180) correctedLon -= 360;

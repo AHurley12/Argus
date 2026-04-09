@@ -4407,14 +4407,65 @@ function showLoadingState() {
 // Economic (lower weight): trade, energy, market disruption
 var RELEVANT_TAGS = /conflict|war|military|attack|casualties|killed|wounded|displacement|refugee|famine|humanitarian|massacre|airstrike|bombing|terror|coup|geopolit|sanction|tariff|trade|oil|gas|energy|inflation|recession|economy|market|supply.chain|shipping|logistics|disaster|cyber|embargo/i;
 
-// ── Type classifier — humanitarian events mapped before economic ones ─────────
-var TYPE_RULES = [
-  { re: /attack|militia|houthi|strike|bomb|missile|shoot|troops|war|military|weapon|armed|kill|coup|terror|casualties|airstrike|shelling|massacre|genocide|ethnic.cleansing|atrocit|war.crime|offensive|siege|conflict|civilian/i, type: 'CONFLICT'  },
-  { re: /hack|cyber|ransomware|breach|malware|phishing|ddos/i,                                                                                                                          type: 'CYBER'     },
-  { re: /flood|earthquake|quake|hurricane|typhoon|drought|wildfire|tsunami|disaster|eruption|famine|epidemic|outbreak/i,                                                                type: 'DISASTER'  },
-  { re: /inflation|recession|gdp|interest rate|debt|default|unemployment|market crash/i,                                                                                                type: 'ECONOMIC'  },
-  { re: /sanction|tariff|embargo|ban|regulation|treaty|accord|summit|diplomacy|policy|trade deal|trade|economic|economy|market|fuel|shortage|deficit|boom|technology|science|foundation|\$|non.profit|demand|supply|surplus/i, type: 'POLICY'    },
-];
+// ── Type classifier — count-based, most-hits-wins, first-keyword tie-break ───
+// Each keyword belongs to exactly ONE category. No cross-category overlaps.
+var TYPE_KEYWORDS = {
+  CONFLICT: [
+    'attack','militia','houthi','strike','bomb','missile','shoot','troops',
+    'war','military','weapon','armed','kill','coup','terror','casualties',
+    'airstrike','shelling','massacre','genocide','ethnic cleansing','atrocity',
+    'war crime','offensive','siege','conflict','civilian'
+  ],
+  CYBER: [
+    'hack','cyber','ransomware','breach','malware','phishing','ddos'
+  ],
+  DISASTER: [
+    'flood','earthquake','quake','hurricane','typhoon','drought','wildfire',
+    'tsunami','disaster','eruption','famine','epidemic','outbreak'
+  ],
+  ECONOMIC: [
+    'inflation','recession','gdp','interest rate','debt','default','unemployment','crash'
+  ],
+  POLICY: [
+    'sanction','tariff','embargo','ban','regulation','treaty','accord','summit',
+    'diplomacy','policy','trade','economic','economy','market','fuel','shortage',
+    'deficit','boom','technology','science','foundation','non-profit',
+    'demand','supply','surplus'
+  ]
+};
+
+var _TYPE_CATS = ['CONFLICT','CYBER','DISASTER','ECONOMIC','POLICY'];
+
+function classifyType(text) {
+  var low = (text || '').toLowerCase();
+  // Hard kinetic override — always wins before counting
+  if (KINETIC_OVERRIDE_RE.test(low)) return 'CONFLICT';
+  var counts = { CONFLICT: 0, CYBER: 0, DISASTER: 0, ECONOMIC: 0, POLICY: 0 };
+  var firstCat = null, firstPos = Infinity;
+  for (var c = 0; c < _TYPE_CATS.length; c++) {
+    var cat = _TYPE_CATS[c];
+    var kws = TYPE_KEYWORDS[cat];
+    for (var k = 0; k < kws.length; k++) {
+      var pos = low.indexOf(kws[k]);
+      if (pos !== -1) {
+        counts[cat]++;
+        if (pos < firstPos) { firstPos = pos; firstCat = cat; }
+      }
+    }
+  }
+  // Most-hits wins; on tie use first keyword found
+  var best = null, bestCount = 0, tied = false;
+  for (var i = 0; i < _TYPE_CATS.length; i++) {
+    if (counts[_TYPE_CATS[i]] > bestCount) {
+      bestCount = counts[_TYPE_CATS[i]]; best = _TYPE_CATS[i]; tied = false;
+    } else if (counts[_TYPE_CATS[i]] === bestCount && bestCount > 0) {
+      tied = true;
+    }
+  }
+  if (!tied && best) return best;
+  return firstCat || 'POLICY';
+}
+window.argusClassifyType = classifyType;
 
 // ── Severity classifier — humanitarian signals weighted before economics ──────
 var SEVERITY_RULES = [
@@ -4489,13 +4540,13 @@ function scorePlotPriority(ev) {
 }
 
 // Kinetic keywords that MUST classify as CONFLICT regardless of other signals.
-// Weighted above all TYPE_RULES — policy/diplomatic language never overrides these.
+// Applied inside classifyType before counting — policy/diplomatic language never overrides these.
 var KINETIC_OVERRIDE_RE = /\bwar\b|genocide|massacre|violence|airstrike|bombing|missile.strike|troops|shelling|offensive|coup|terror.attack|chemical.weapon|ethnic.cleansing|war.crime|atrocity|armed.conflict|civilian.death|military.operation|killed.in|casualties.reported/i;
 
 // ── Sentiment scoring — keyword-weighted, title-boosted ───────────────────────
 // Returns -100 (maximally hostile) to +100 (maximally de-escalatory).
 // Negative scores map to higher severity; positive scores suppress false escalation.
-// These keywords are a SEPARATE concern from TYPE_RULES / SEVERITY_RULES regexes.
+// These keywords are a SEPARATE concern from TYPE_KEYWORDS / SEVERITY_RULES.
 var _SENT_THREAT = [
   { w: -15, t: 'killed'             },
   { w: -15, t: 'casualties'         },
@@ -4581,18 +4632,9 @@ function classifyArticle(article, idx) {
   var tags   = Array.isArray(article.ai_tag) ? article.ai_tag.join(' ') : (article.ai_tag || '');
   var full   = title + ' ' + desc + ' ' + tags;
 
-  // Tier 1 — Kinetic hard-override: if any kinetic keyword is present,
-  // classify as CONFLICT unconditionally (higher weight than any policy signal)
-  var type;
-  if (KINETIC_OVERRIDE_RE.test(full)) {
-    type = 'CONFLICT';
-  } else {
-    // Tier 2 — ordered TYPE_RULES (CONFLICT still first, but not reached if override fired)
-    type = 'POLICY';
-    for (var i = 0; i < TYPE_RULES.length; i++) {
-      if (TYPE_RULES[i].re.test(full)) { type = TYPE_RULES[i].type; break; }
-    }
-  }
+  // Count-based classification: most matching keywords wins; ties broken by first match.
+  // KINETIC_OVERRIDE_RE hard-override is applied inside classifyType before counting.
+  var type = classifyType(full);
 
   var sev = 'LOW';
   for (var j = 0; j < SEVERITY_RULES.length; j++) {
@@ -5394,11 +5436,7 @@ window.ArgusEvents = (function() {
   // ── Classify event from text ──────────────────────────────────────────────
   function classify(text) {
     var t = text.toLowerCase();
-    var type = 'POLICY';
-    if (/attack|war|military|strike|bomb|conflict|coup|terror|militia|houthi/i.test(t)) type = 'CONFLICT';
-    else if (/flood|quake|earthquake|hurricane|typhoon|drought|disaster|wildfire/i.test(t)) type = 'DISASTER';
-    else if (/hack|cyber|ransomware|breach/i.test(t)) type = 'CYBER';
-    else if (/recession|inflation|crash|default|debt/i.test(t)) type = 'ECONOMIC';
+    var type = window.argusClassifyType ? window.argusClassifyType(t) : 'POLICY';
     var sev = 'WATCH';
     if (/critical|emergency|crisis|catastrophic|imminent|escalat/i.test(t)) sev = 'CRITICAL';
     else if (/major|severe|warning|significant|offensive/i.test(t)) sev = 'WARNING';
@@ -5796,11 +5834,7 @@ function classifyArticle(article, idx) {
     sev = window.deriveSeverity(sev, _gdeltSent, _gdeltSrcB);
   }
 
-  var type  = 'POLICY';
-  if (/attack|conflict|war|military|missile|strike|bomb|casualties|killed|coup|terror|siege|airstrike|shelling|civilian/.test(low)) type = 'CONFLICT';
-  else if (/flood|quake|drought|hurricane|typhoon|disaster|famine|epidemic|outbreak/.test(low)) type = 'DISASTER';
-  else if (/hack|cyber|ransom|breach/.test(low)) type = 'CYBER';
-  else if (/inflation|recession|gdp|debt/.test(low)) type = 'ECONOMIC';
+  var type = window.argusClassifyType ? window.argusClassifyType(low) : 'POLICY';
   // seendate format from GDELT: "20250314T083200Z"
   var seendate = '';
   if (article.seendate) {

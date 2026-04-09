@@ -331,7 +331,7 @@
       min-width: 110px;
       transition: bottom 0.35s cubic-bezier(0.22, 1, 0.36, 1);
     }
-    #cb-trigger.is-open { bottom: 480px; }
+    #cb-trigger.is-open { bottom: var(--cb-h, 480px); }
     #cb-trigger-arrow {
       width: 0; height: 0;
       border-left: 35px solid transparent;
@@ -360,7 +360,7 @@
       display: none;
       position: fixed;
       inset: 0;
-      bottom: 480px;
+      bottom: var(--cb-h, 480px);
       z-index: 9997;
       background: rgba(2, 8, 18, 0.5);
       cursor: not-allowed;
@@ -370,11 +370,11 @@
     /* ── Main drawer panel ── */
     #panel-cases {
       position: fixed;
-      bottom: -490px;
+      bottom: calc(-1 * var(--cb-h, 480px) - 10px);
       left: 50%;
       transform: translateX(-50%);
       width: clamp(520px, 58vw, 800px);
-      height: 480px;
+      height: var(--cb-h, 480px);
       z-index: 9998;
       display: flex;
       flex-direction: column;
@@ -5642,7 +5642,28 @@ function scorePlotPriority(ev) {
 
 // ── Article classifier ────────────────────────────────────────────────────────
 function classifyArticle(article, idx) {
-  var tone  = parseFloat(article.tone || 0);
+  // V2Tone: GKG format is comma-separated "Tone,Positive,Negative,Polarity,ActivityDensity,SelfGroupDensity"
+  // DOC API returns a plain float; handle both forms.
+  var rawTone = article.tone;
+  var tone = (typeof rawTone === 'string' && rawTone.indexOf(',') !== -1)
+    ? (parseFloat(rawTone.split(',')[0]) || 0)
+    : parseFloat(rawTone || 0);
+
+  // GCAM: extract v19.1 (ANEW Valence) and c8.3 (RID Anxiety) when present
+  var valence = null, anxiety = null;
+  if (article.gcam) {
+    String(article.gcam).split(',').forEach(function(part) {
+      var kv = part.split(':');
+      if (kv.length === 2) {
+        var k = kv[0].trim(), v = parseFloat(kv[1]);
+        if (k === 'v19.1') valence = isNaN(v) ? null : v;
+        else if (k === 'c8.3') anxiety = isNaN(v) ? null : v;
+      }
+    });
+  }
+  // Combined Stability Score: weighted blend of raw tone and ANEW valence
+  var stabilityScore = valence !== null ? (tone * 0.7) + (valence * 0.3) : null;
+
   var title = (article.title || '').slice(0, 80);
   var low   = title.toLowerCase();
   var sev   = tone < -8 ? 'CRITICAL' : tone < -4 ? 'WARNING' : tone < -1 ? 'WATCH' : 'LOW';
@@ -5664,6 +5685,7 @@ function classifyArticle(article, idx) {
   }
 
   var ev = { id: 2000 + idx, type: type, severity: sev, title: title, tone: tone,
+             valence: valence, anxiety: anxiety, stabilityScore: stabilityScore,
              url: article.url || '', seendate: seendate,
              country: (article.sourcecountry || '').toUpperCase(),
              domain:  article.domain || '' };
@@ -8604,10 +8626,22 @@ window.ArgusCaseBuilder = (function () {
     _cases.forEach(function (c) {
       var idCol = c.pinned ? '#ff9933' : '#b464ff';
       html += '<div class="case-card'+(c.pinned?' pinned':'')+'" data-cid="'+c.id+'">';
+
+      // Aggregate tone across all pillar events for this case
+      var _toneVals = [];
+      [(c.kineticEvts||[]).concat(c.disasterEvents||[]), c.economicEvts||[], c.humanitarianEv||[], c.strategicEvts||[]].forEach(function(arr){
+        arr.forEach(function(item){ var ev=item.ev||item; if(ev&&typeof ev.tone==='number'&&!isNaN(ev.tone)) _toneVals.push(ev.tone); });
+      });
+      var _avgTone = _toneVals.length ? _toneVals.reduce(function(s,v){return s+v;},0)/_toneVals.length : null;
+      var _toneCol = _avgTone==null ? '#4a7da8' : _avgTone>1 ? '#00ff88' : _avgTone>-2 ? '#ffcc00' : '#ff0044';
+      var _toneBadge = _avgTone!=null
+        ? ' <span style="font-size:7px;padding:1px 4px;border:1px solid '+_toneCol+'55;color:'+_toneCol+';letter-spacing:0.5px;border-radius:2px">T:'+_avgTone.toFixed(1)+'</span>'
+        : '';
+
       // Header
       html += '<div style="display:flex;justify-content:space-between;align-items:flex-start">';
       html += '<span style="font-size:8px;letter-spacing:1.5px;color:'+idCol+';font-weight:700">'+c.id+(c.pinned?' ◈':'')+'</span>';
-      html += '<span style="font-size:8px;color:#ff9933">SCORE '+c.score+'</span></div>';
+      html += '<span style="font-size:8px;color:#ff9933">SCORE '+c.score+_toneBadge+'</span></div>';
       html += '<div style="font-size:10px;color:#ddeeff;margin:3px 0 5px">'+hlKw(esc(c.title),_activeKw)+'</div>';
       if (c.hits&&c.hits.length) { c.hits.slice(0,6).forEach(function(k){ html+='<span class="kw-badge">⬡ '+k+'</span>'; }); html+='<br style="margin-bottom:4px">'; }
 
@@ -8717,11 +8751,19 @@ window.ArgusCaseBuilder = (function () {
         var src  = e.source ? ' <span style="color:#2a4a6a">[' + esc(e.source) + ']</span>' : '';
         var reg  = e.region ? ' <span style="color:#1a3a5a">' + esc(e.region.slice(0,18)) + '</span>' : '';
 
+        // Tone badge: green > 1.0 (stable), yellow 0 to -2.0 (tense), red < -2.0 (volatile)
+        var tBadge = '';
+        if (typeof e.tone === 'number' && !isNaN(e.tone)) {
+          var tc = e.tone > 1 ? '#00ff88' : e.tone > -2 ? '#ffcc00' : '#ff0044';
+          tBadge = '<span style="flex-shrink:0;font-size:7px;color:' + tc + ';letter-spacing:0.5px">T:' + e.tone.toFixed(1) + '</span>';
+        }
+
         var row = document.createElement('div');
         row.style.cssText = 'padding:2px 0;border-bottom:1px solid #0a1a2a;font-size:8px;' +
                             'line-height:1.45;color:' + col + ';display:flex;gap:5px;align-items:baseline';
         row.innerHTML = '<span style="flex-shrink:0;color:' + col + '">' + icon + '</span>' +
                         '<span style="flex:1;color:#c5d7e880">' + esc((e.title||'').slice(0,72)) + src + reg + '</span>' +
+                        tBadge +
                         (e.pubDate ? '<span style="flex-shrink:0;color:#1a3a5a;font-size:7px">' + esc(e.pubDate.slice(0,12)) + '</span>' : '');
         frag.appendChild(row);
       });
@@ -9027,7 +9069,16 @@ window.ArgusCaseBuilder = (function () {
     var panel    = document.getElementById('panel-cases');
     var trigger  = document.getElementById('cb-trigger');
     var backdrop = document.getElementById('cb-backdrop');
-    if (panel)    { panel.classList.toggle('is-visible', _open); panel.setAttribute('aria-hidden', String(!_open)); }
+    if (panel) {
+      if (_open) {
+        panel.style.bottom = '';   // let CSS .is-visible { bottom:0 } take over
+      } else {
+        var h = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--cb-h')) || 480;
+        panel.style.bottom = (-h - 10) + 'px';
+      }
+      panel.classList.toggle('is-visible', _open);
+      panel.setAttribute('aria-hidden', String(!_open));
+    }
     if (trigger)  { trigger.classList.toggle('is-open', _open); }
     if (backdrop) { backdrop.classList.toggle('is-visible', _open); }
     if (_open) whenResolved(showContent);
@@ -9118,6 +9169,33 @@ window.ArgusCaseBuilder = (function () {
       if (ta) ta.value = '';
     });
   }
+
+  // ── Responsive panel height (aspect-ratio aware, min 50vh) ─────────────────
+  function applyCbHeight() {
+    var sw = window.screen.width  || window.innerWidth;
+    var sh = window.screen.height || window.innerHeight;
+    var ar = sw / sh;           // e.g. 1.78 for 16:9, 1.33 for 4:3, 2.39 for ultrawide
+
+    // Base height: 50 % of viewport height is the floor.
+    // Wider screens get a proportionally taller panel (more real estate → more panel).
+    // Clamp between 50 vh and 75 vh so it never dominates the screen.
+    var minH = Math.round(window.innerHeight * 0.50);
+    var maxH = Math.round(window.innerHeight * 0.75);
+    // Scale factor: 16:9 (ar≈1.78) → neutral (55vh); narrower → closer to 50vh; wider → up to 75vh
+    var scaled = Math.round(window.innerHeight * Math.min(0.50 + (ar - 1.0) * 0.10, 0.75));
+    var h = Math.max(minH, Math.min(maxH, scaled));
+
+    document.documentElement.style.setProperty('--cb-h', h + 'px');
+
+    // Keep closed panel off-screen
+    var panel = document.getElementById('panel-cases');
+    if (panel && !panel.classList.contains('is-visible')) {
+      panel.style.bottom = (-h - 10) + 'px';
+    }
+  }
+
+  applyCbHeight();
+  window.addEventListener('resize', applyCbHeight);
 
   // Wire on DOM ready
   if (document.readyState === 'loading') {

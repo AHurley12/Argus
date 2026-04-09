@@ -3311,6 +3311,20 @@ window.ArgusData = (function() {
   // Brent/WTI: EIA petroleum spot price series (daily, 1–2 day lag acceptable)
   // Inventories: weekly US crude stock (WCESTUS1)
   // TTL 24h — stale data is acceptable for these slowly-moving series
+  // ── Brent-WTI spread fallback: Brent - WTI from whichever source populated the values ──
+  function updateBrentWTISpread() {
+    var bEl = document.getElementById('brent-val');
+    var wEl = document.getElementById('wti-val');
+    var sEl = document.getElementById('contango-val');
+    if (!sEl || !bEl || !wEl) return;
+    var brent = parseFloat(bEl.textContent.replace('$', ''));
+    var wti   = parseFloat(wEl.textContent.replace('$', ''));
+    if (isNaN(brent) || isNaN(wti)) return;
+    var spread = brent - wti;
+    sEl.textContent = (spread >= 0 ? '+' : '') + '$' + spread.toFixed(2);
+    sEl.style.color = spread > 3 ? '#ff9933' : spread < 0 ? '#00ff88' : '#ffcc00';
+  }
+
   function renderEIATicker() {
     var d = window._eiaData;
     if (!d) return;
@@ -3327,6 +3341,7 @@ window.ArgusData = (function() {
       invEl.textContent = inv.toFixed(1) + ' Mb';
       invEl.style.color = inv > 450 ? '#ff0044' : inv < 350 ? '#00ff88' : '#ffcc00';
     }
+    updateBrentWTISpread();
   }
 
   function fetchEIA() {
@@ -3745,6 +3760,7 @@ window.ArgusData = (function() {
         window._eiaData.wtiDate = new Date().toISOString().slice(0, 10);
       }
     });
+    updateBrentWTISpread();
   }
 
   function toggleExchanges() {

@@ -4463,12 +4463,100 @@ function scorePlotPriority(ev) {
   // CONFLICT / DISASTER types carry an inherent humanitarian uplift (+20)
   var typeBonus   = (ev.type === 'CONFLICT' || ev.type === 'DISASTER') ? 20 : 0;
   var sourceBoost = getSourceBoost(ev.source);
-  return Math.round(humScore + ecoScore + typeBonus + sourceBoost);
+  var raw = Math.round(humScore + ecoScore + typeBonus + sourceBoost);
+  // Sentiment adjustment: hostile signal boosts globe visibility; positive news suppresses it
+  if (typeof ev._sentiment === 'number') {
+    if (ev._sentiment < -50) raw += 10;
+    if (ev._sentiment >  40) raw -= 8;
+  }
+  return Math.max(0, Math.min(120, raw));
 }
 
 // Kinetic keywords that MUST classify as CONFLICT regardless of other signals.
 // Weighted above all TYPE_RULES — policy/diplomatic language never overrides these.
 var KINETIC_OVERRIDE_RE = /\bwar\b|genocide|massacre|violence|airstrike|bombing|missile.strike|troops|shelling|offensive|coup|terror.attack|chemical.weapon|ethnic.cleansing|war.crime|atrocity|armed.conflict|civilian.death|military.operation|killed.in|casualties.reported/i;
+
+// ── Sentiment scoring — keyword-weighted, title-boosted ───────────────────────
+// Returns -100 (maximally hostile) to +100 (maximally de-escalatory).
+// Negative scores map to higher severity; positive scores suppress false escalation.
+// These keywords are a SEPARATE concern from TYPE_RULES / SEVERITY_RULES regexes.
+var _SENT_THREAT = [
+  { w: -15, t: 'killed'             },
+  { w: -15, t: 'casualties'         },
+  { w: -20, t: 'airstrike'          },
+  { w: -20, t: 'bombed'             },
+  { w: -20, t: 'invaded'            },
+  { w: -10, t: 'sanctions imposed'  },
+  { w: -15, t: 'blockade'           },
+  { w: -20, t: 'coup'               },
+  { w: -15, t: 'collapsed'          },
+  { w: -20, t: 'famine'             },
+  { w: -25, t: 'massacre'           },
+  { w: -15, t: 'seized'             },
+  { w: -15, t: 'fired upon'         },
+  { w: -25, t: 'declared war'       },
+  { w: -15, t: 'emergency declared' },
+  { w: -10, t: 'shutdown'           },
+  { w: -15, t: 'explosion'          },
+  { w: -20, t: 'hostages'           },
+];
+var _SENT_DEESC = [
+  { w: +20, t: 'ceasefire'          },
+  { w: +15, t: 'peace talks'        },
+  { w: +15, t: 'agreement signed'   },
+  { w: +10, t: 'diplomatic'         },
+  { w: +15, t: 'treaty'             },
+  { w: +15, t: 'aid delivered'      },
+  { w: +10, t: 'withdrawal'         },
+  { w: +10, t: 'negotiations'       },
+  { w: +10, t: 'released'           },
+  { w: +15, t: 'resolved'           },
+];
+
+function calcSentimentScore(title, description) {
+  var tLow  = (title       || '').toLowerCase();
+  var dLow  = (description || '').toLowerCase();
+  var full  = tLow + ' ' + dLow;
+  var score = 0;
+  var all   = _SENT_THREAT.concat(_SENT_DEESC);
+  for (var k = 0; k < all.length; k++) {
+    if (full.indexOf(all[k].t) !== -1) {
+      // Title hit: 1.5× weight; description-only hit: 1× weight
+      score += tLow.indexOf(all[k].t) !== -1
+        ? Math.round(all[k].w * 1.5)
+        : all[k].w;
+    }
+  }
+  return Math.max(-100, Math.min(100, score));
+}
+
+// ── Severity override — adjusts regex-derived severity using sentiment score ──
+// SEV order (ascending): LOW=0, WATCH=1, WARNING=2, CRITICAL=3
+var _SEV_ORDER = ['LOW', 'WATCH', 'WARNING', 'CRITICAL'];
+
+function deriveSeverity(baseRegexSev, sentimentScore, sourceBoost) {
+  var idx = _SEV_ORDER.indexOf(baseRegexSev);
+  if (idx === -1) idx = 0;
+
+  // Absolute: strong hostile signal + credible (tier-1/2) source
+  if (sentimentScore < -60 && sourceBoost >= 8) return 'CRITICAL';
+
+  // Unknown source + neutral sentiment → suppress to LOW (avoids noise pollution)
+  if (sourceBoost === 0 && sentimentScore >= -20 && sentimentScore <= 20) return 'LOW';
+
+  // Upgrade floors based on negative sentiment
+  if      (sentimentScore < -40 && idx < 2) idx = 2; // at minimum WARNING
+  else if (sentimentScore < -20 && idx < 1) idx = 1; // at minimum WATCH
+
+  // Downgrade ceilings based on positive sentiment
+  if      (sentimentScore > 60 && idx > 1) idx = 1; // cap at WATCH (positive = not crisis)
+  else if (sentimentScore > 30 && idx > 0) idx--;   // downgrade one level
+
+  return _SEV_ORDER[idx];
+}
+
+window.calcSentimentScore = calcSentimentScore;
+window.deriveSeverity     = deriveSeverity;
 
 function classifyArticle(article, idx) {
   var title  = (article.title || '').slice(0, 80);
@@ -4494,6 +4582,11 @@ function classifyArticle(article, idx) {
   for (var j = 0; j < SEVERITY_RULES.length; j++) {
     if (SEVERITY_RULES[j].re.test(full)) { sev = SEVERITY_RULES[j].sev; break; }
   }
+
+  // ── Sentiment second-pass: correct false escalations and under-classifications ──
+  var _artSrc       = article.source_name || article.source_id || '';
+  var _sentScore    = calcSentimentScore(title, desc);
+  sev               = deriveSeverity(sev, _sentScore, getSourceBoost(_artSrc));
 
   var impact = desc.length > 40 ? desc.slice(0, 160) + (desc.length > 160 ? '…' : '') : IMPACT_MAP[type];
 
@@ -4527,6 +4620,7 @@ function classifyArticle(article, idx) {
     link: article.link || '',
     source: article.source_name || article.source_id || '',
     lat: null, lon: null,
+    _sentiment: _sentScore,
   };
   ev.plotPriority = scorePlotPriority(ev);
 
@@ -4609,6 +4703,10 @@ async function fetchAndClassify() {
   var classified = filtered.map(classifyArticle);
   // Sort: highest humanitarian-weighted priority first
   classified.sort(function(a, b) { return b.plotPriority - a.plotPriority; });
+  // ── Sentiment distribution log ────────────────────────────────────────────
+  var _sd = { CRITICAL: 0, WARNING: 0, WATCH: 0, LOW: 0 }, _ss = 0;
+  classified.forEach(function(e) { if (_sd[e.severity] !== undefined) _sd[e.severity]++; if (typeof e._sentiment === 'number') _ss += e._sentiment; });
+  console.log('GDELT sentiment: CRITICAL=' + _sd.CRITICAL + ' WARNING=' + _sd.WARNING + ' WATCH=' + _sd.WATCH + ' LOW=' + _sd.LOW + ' avg=' + (classified.length ? Math.round(_ss / classified.length) : 0));
   return classified;
 }
 
@@ -5637,7 +5735,13 @@ function scorePlotPriority(ev) {
   var sevScore    = GDELT_SEV_W[ev.severity] || 10;
   var typeBonus   = (ev.type === 'CONFLICT' || ev.type === 'DISASTER') ? 20 : 0;
   var sourceBoost = (window.getSourceBoost || function(){return 0;})(ev.source || ev.domain || '');
-  return Math.round((humHit * 0.50 + ecoHit * 0.50) * sevScore + typeBonus + sourceBoost);
+  var raw = Math.round((humHit * 0.50 + ecoHit * 0.50) * sevScore + typeBonus + sourceBoost);
+  // Sentiment adjustment: hostile signal boosts globe visibility; positive news suppresses it
+  if (typeof ev._sentiment === 'number') {
+    if (ev._sentiment < -50) raw += 10;
+    if (ev._sentiment >  40) raw -= 8;
+  }
+  return Math.max(0, Math.min(120, raw));
 }
 
 // ── Article classifier ────────────────────────────────────────────────────────
@@ -5667,6 +5771,15 @@ function classifyArticle(article, idx) {
   var title = (article.title || '').slice(0, 80);
   var low   = title.toLowerCase();
   var sev   = tone < -8 ? 'CRITICAL' : tone < -4 ? 'WARNING' : tone < -1 ? 'WATCH' : 'LOW';
+
+  // ── Sentiment second-pass: keyword cross-check against GDELT V2Tone baseline ──
+  var _gdeltSent = null;
+  if (window.calcSentimentScore && window.deriveSeverity) {
+    _gdeltSent = window.calcSentimentScore(title, title); // GDELT DOC often lacks description
+    var _gdeltSrcB = (window.getSourceBoost || function(){return 0;})(article.domain || '');
+    sev = window.deriveSeverity(sev, _gdeltSent, _gdeltSrcB);
+  }
+
   var type  = 'POLICY';
   if (/attack|conflict|war|military|missile|strike|bomb|casualties|killed|coup|terror|siege|airstrike|shelling|civilian/.test(low)) type = 'CONFLICT';
   else if (/flood|quake|drought|hurricane|typhoon|disaster|famine|epidemic|outbreak/.test(low)) type = 'DISASTER';
@@ -5688,7 +5801,8 @@ function classifyArticle(article, idx) {
              valence: valence, anxiety: anxiety, stabilityScore: stabilityScore,
              url: article.url || '', seendate: seendate,
              country: (article.sourcecountry || '').toUpperCase(),
-             domain:  article.domain || '' };
+             domain:  article.domain || '',
+             _sentiment: _gdeltSent };
   ev.plotPriority = scorePlotPriority(ev);
   return ev;
 }

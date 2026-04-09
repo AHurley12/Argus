@@ -8279,13 +8279,11 @@ window.ArgusCaseBuilder = (function () {
     }).slice(0, 4);
   }
 
-  // ── Relational mapping: news articles geographically/semantically linked to a chokepoint ──
-  // Used in renderBrief to pull GDELT context when a chokepoint is selected in a case.
+  // ── Relational mapping: news articles linked to a chokepoint via scoreText() ──
   function getRelatedNews(cp, events) {
-    var cpWords = (cp.label + ' ' + (cp.id || '')).toLowerCase().split(/[\s\-_]+/).filter(function(w){ return w.length > 3; });
+    var cpTerms = (cp.label + ' ' + (cp.id || '')).toLowerCase().split(/[\s\-_]+/).filter(function(w){ return w.length > 3; });
     return (events || []).filter(function(e) {
-      var eText = ((e.title || '') + ' ' + (e.region || '') + ' ' + (e.impact || '')).toLowerCase();
-      return cpWords.some(function(k) { return eText.indexOf(k) !== -1; });
+      return scoreText([e.title, e.region, e.impact].join(' '), cpTerms) > 0;
     }).slice(0, 3);
   }
 
@@ -8295,7 +8293,6 @@ window.ArgusCaseBuilder = (function () {
   // Uses DocumentFragment when the list exceeds 100 entries for performance.
   // ════════════════════════════════════════════════════════════════════════════
   function generateIntelligenceBrief() {
-    var SEV_RANK = { CRITICAL: 4, WARNING: 3, WATCH: 2, LOW: 1 };
     var all = [], seen = {};
 
     // 1. Collect from every named event feed
@@ -8329,12 +8326,12 @@ window.ArgusCaseBuilder = (function () {
       });
     });
 
-    // 3. Sort: CRITICAL first, then by severity tier, then by recency (pubDate desc)
+    // Sort by severity tier (SEV_W), then by plotPriority as recency proxy.
+    // pubDate strings are mixed-format across sources and don't sort lexicographically.
     all.sort(function(a, b) {
-      var sa = SEV_RANK[a.severity] || 0, sb = SEV_RANK[b.severity] || 0;
+      var sa = SEV_W[a.severity] || 0, sb = SEV_W[b.severity] || 0;
       if (sb !== sa) return sb - sa;
-      var da = a.pubDate || '', db = b.pubDate || '';
-      return db > da ? 1 : db < da ? -1 : 0;
+      return (b.plotPriority || 0) - (a.plotPriority || 0);
     });
 
     _globalBrief = all;
@@ -8389,7 +8386,7 @@ window.ArgusCaseBuilder = (function () {
   // SCAN — async, non-blocking, full-spectrum with pillar grouping + synergy
   // ════════════════════════════════════════════════════════════════════════════
   function scan(customKw) {
-    _clusters = []; _cases = [];
+    _clusters = []; _cases = []; _globalBrief = [];
     var rawKws = Array.isArray(customKw) ? customKw : parseKw();
     var terms  = rawKws.length ? expandTerms(rawKws) : [];
     _activeKw  = rawKws;
@@ -8494,7 +8491,7 @@ window.ArgusCaseBuilder = (function () {
               };
             });
 
-            generateIntelligenceBrief(); // build _globalBrief before render so renderBrief can use it
+            generateIntelligenceBrief();
             render(); setStatus();
             console.log('ArgusCaseBuilder: '+_cases.length+' cases | '+terms.length+' terms | '+_globalBrief.length+' brief items | query=['+rawKws.join(',')+']');
           });
@@ -8686,24 +8683,23 @@ window.ArgusCaseBuilder = (function () {
       var SEV_COL_MAP = { CRITICAL:'#ff0044', WARNING:'#ff9933', WATCH:'#ffcc00', LOW:'#00ff88' };
       var SEV_ICON    = { CRITICAL:'⚠', WARNING:'▲', WATCH:'▸', LOW:'·' };
 
-      // Header div
+      // Header div — cipherDecode animates it; no need to pre-set textContent
       var hdr = document.createElement('div');
       hdr.style.cssText = 'margin-top:12px;padding:5px 0 4px;border-top:1px solid #0f274422;' +
                           'font-size:8px;letter-spacing:2px;color:#4a7da8;flex-shrink:0';
-      hdr.textContent = '◉ GLOBAL BRIEFING FEED — ' + _globalBrief.length + ' ACTIVE INCIDENTS';
       if (window.ArgusAnim) window.ArgusAnim.cipherDecode(hdr, '◉ GLOBAL BRIEFING FEED — ' + _globalBrief.length + ' ACTIVE INCIDENTS', 600);
+      else hdr.textContent = '◉ GLOBAL BRIEFING FEED — ' + _globalBrief.length + ' ACTIVE INCIDENTS';
       el.appendChild(hdr);
 
-      // Build rows via DocumentFragment (performance: avoids per-append reflow)
-      var frag     = document.createDocumentFragment();
-      var LIMIT    = 120; // cap at 120 rows for panel performance
-      var briefSlice = _globalBrief.slice(0, LIMIT);
+      // Build rows via DocumentFragment — single DOM insertion avoids per-row reflow
+      var frag  = document.createDocumentFragment();
+      var LIMIT = 120;
 
-      briefSlice.forEach(function(e) {
+      _globalBrief.slice(0, LIMIT).forEach(function(e) {
         var sev  = e.severity || 'LOW';
         var col  = SEV_COL_MAP[sev] || '#4a7da8';
         var icon = SEV_ICON[sev]    || '·';
-        var src  = e.source ? ' <span style="color:#2a4a6a">[' + e.source + ']</span>' : '';
+        var src  = e.source ? ' <span style="color:#2a4a6a">[' + esc(e.source) + ']</span>' : '';
         var reg  = e.region ? ' <span style="color:#1a3a5a">' + esc(e.region.slice(0,18)) + '</span>' : '';
 
         var row = document.createElement('div');

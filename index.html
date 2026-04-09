@@ -4203,6 +4203,14 @@ var FEED_CACHE_KEY = 'argus_live_events_v2';
 var FEED_CACHE_TS  = 'argus_live_events_ts_v2';
 var FEED_TTL       = 30 * 60 * 1000;
 
+// ── Claude AI classification layer (optional — leave blank to use keyword-only) ─
+// Set via window.ARGUS_CLAUDE_KEY = 'sk-ant-...' before the script runs,
+// or call window.argusSetClaudeKey('sk-ant-...') at runtime.
+var _CLAUDE_KEY = (typeof window !== 'undefined' && window.ARGUS_CLAUDE_KEY) || '';
+window.argusSetClaudeKey = function(k) { _CLAUDE_KEY = k || ''; };
+var _AI_CLASS_CACHE_KEY = 'argus_ai_class_v1';
+var _AI_CLASS_CACHE_TTL = 2 * 60 * 60 * 1000; // 2 hours
+
 var FALLBACK_EVENTS = [
   { id:1, type:'CONFLICT',  severity:'CRITICAL', title:'Red Sea — Houthi Maritime Attacks',     impact:'Suez diversions up 400%. ~$1B/day trade disruption. 60% of container traffic rerouted.' },
   { id:2, type:'POLICY',    severity:'WARNING',  title:'US-China Tariff Escalation Phase 2',    impact:'Electronics, EVs, semiconductors facing 25–60% new duties. $380B in affected trade.' },
@@ -4625,6 +4633,136 @@ function deriveSeverity(baseRegexSev, sentimentScore, sourceBoost) {
 window.calcSentimentScore = calcSentimentScore;
 window.deriveSeverity     = deriveSeverity;
 
+// ── Claude AI batch classifier ────────────────────────────────────────────────
+// Sends up to 20 article titles per call → receives JSON array of {id, risk_level, category}.
+// Results are cached in localStorage for 2 hours keyed by title fingerprint.
+// Degrades silently — keyword classifications are always the baseline.
+
+var _CLAUDE_SYS = [
+  'You are a geopolitical risk classification engine. Classify each numbered news article title.',
+  '',
+  'Return ONLY a valid JSON array — no extra text, no markdown fences:',
+  '[{"id":0,"risk_level":"low|watch|warning|critical","category":"conflict|cyber|disaster|economic|policy"},...]',
+  '',
+  'CATEGORIES:',
+  '- conflict: War, military action, terrorism, civil unrest, geopolitical confrontation',
+  '- cyber: Hacking, ransomware, data breaches, cyberattacks, digital security incidents',
+  '- disaster: Natural or man-made catastrophes (earthquakes, floods, industrial accidents, pandemics)',
+  '- economic: Market movements, recession, inflation, financial crises, trade data, employment',
+  '- policy: Government decisions, legislation, regulations, diplomacy, international agreements',
+  '',
+  'RISK LEVELS:',
+  '- low: No immediate risk. Routine or background developments.',
+  '- watch: Potential emerging risk. Requires monitoring but no immediate impact.',
+  '- warning: Clear escalation or credible threat. Likely to impact stability or markets.',
+  '- critical: Immediate, severe, or large-scale impact. Active crises, major violence, or systemic shocks.',
+  '',
+  'RULES:',
+  '- Active military strikes or large-scale violence → at minimum "warning", usually "critical".',
+  '- Threats without confirmed action → "watch" or "warning" depending on credibility.',
+  '- Protests without violence → "watch" + "conflict".',
+  '- Major disasters with casualties → "critical".',
+  '- Sanctions or significant legislation → "policy" with risk based on scale.',
+  '- When uncertain on severity, default to the lower level.',
+].join('\n');
+
+var _AI_CLASS_BUCKET = (function() {
+  try { return JSON.parse(localStorage.getItem(_AI_CLASS_CACHE_KEY) || '{}'); } catch(e) { return {}; }
+}());
+
+function _saveAIBucket() {
+  try { localStorage.setItem(_AI_CLASS_CACHE_KEY, JSON.stringify(_AI_CLASS_BUCKET)); } catch(e) {}
+}
+
+// Map Claude's lowercase taxonomy → Argus uppercase taxonomy
+var _AI_CAT_MAP  = { conflict:'CONFLICT', cyber:'CYBER', disaster:'DISASTER', economic:'ECONOMIC', policy:'POLICY' };
+var _AI_SEV_MAP  = { low:'LOW', watch:'WATCH', warning:'WARNING', critical:'CRITICAL' };
+
+async function applyAIClassifications(classified) {
+  if (!_CLAUDE_KEY) return classified;
+
+  // Determine which articles need AI classification (not in cache or cache expired)
+  var now = Date.now();
+  var toClassify = [];
+  classified.forEach(function(ev, i) {
+    var key = (ev.title || '').slice(0, 80);
+    var cached = _AI_CLASS_BUCKET[key];
+    if (!cached || (now - cached.ts) > _AI_CLASS_CACHE_TTL) {
+      toClassify.push({ idx: i, id: toClassify.length, key: key, title: ev.title || '' });
+    }
+  });
+
+  if (!toClassify.length) {
+    // All hits from cache — apply them
+    classified.forEach(function(ev) {
+      var key = (ev.title || '').slice(0, 80);
+      var c = _AI_CLASS_BUCKET[key];
+      if (c) { ev.type = c.cat; ev.severity = c.sev; ev._aiClassified = true; }
+    });
+    return classified;
+  }
+
+  // Batch into groups of 20
+  var batches = [];
+  for (var b = 0; b < toClassify.length; b += 20) batches.push(toClassify.slice(b, b + 20));
+
+  for (var bi = 0; bi < batches.length; bi++) {
+    var batch = batches[bi];
+    var userMsg = batch.map(function(a) { return a.id + ': ' + a.title.slice(0, 120); }).join('\n');
+    try {
+      var resp = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': _CLAUDE_KEY,
+          'anthropic-version': '2023-06-01',
+          'anthropic-dangerous-direct-browser-access': 'true'
+        },
+        body: JSON.stringify({
+          model: 'claude-haiku-4-5-20251001',
+          max_tokens: 800,
+          system: _CLAUDE_SYS,
+          messages: [{ role: 'user', content: userMsg }]
+        })
+      });
+      if (!resp.ok) { console.warn('Argus AI classify: HTTP ' + resp.status); continue; }
+      var rdata = await resp.json();
+      var raw = (rdata.content && rdata.content[0] && rdata.content[0].text) || '[]';
+      // Strip markdown fences if model wraps anyway
+      raw = raw.replace(/^```[a-z]*\n?/,'').replace(/\n?```$/,'').trim();
+      var results = JSON.parse(raw);
+      results.forEach(function(r) {
+        var item = batch[r.id];
+        if (!item) return;
+        var cat = _AI_CAT_MAP[r.category] || null;
+        var sev = _AI_SEV_MAP[r.risk_level] || null;
+        if (cat || sev) {
+          _AI_CLASS_BUCKET[item.key] = { cat: cat, sev: sev, ts: now };
+          var ev = classified[item.idx];
+          if (cat) ev.type     = cat;
+          if (sev) ev.severity = sev;
+          ev._aiClassified = true;
+        }
+      });
+      _saveAIBucket();
+    } catch(err) {
+      console.warn('Argus AI classify batch failed:', err.message);
+    }
+  }
+
+  // Apply cached hits for articles that didn't need a fresh call
+  classified.forEach(function(ev) {
+    if (ev._aiClassified) return;
+    var key = (ev.title || '').slice(0, 80);
+    var c = _AI_CLASS_BUCKET[key];
+    if (c) { if (c.cat) ev.type = c.cat; if (c.sev) ev.severity = c.sev; ev._aiClassified = true; }
+  });
+
+  var aiCount = classified.filter(function(e) { return e._aiClassified; }).length;
+  console.log('ARGUS AI classify: ' + aiCount + '/' + classified.length + ' articles AI-classified');
+  return classified;
+}
+
 function classifyArticle(article, idx) {
   var title  = (article.title || '').slice(0, 80);
   var desc   = (article.description || article.content || '').slice(0, 200);
@@ -4759,6 +4897,8 @@ async function fetchAndClassify() {
 
   console.log('ARGUS NewsData: ' + articles.length + ' fetched, ' + filtered.length + ' after filter');
   var classified = filtered.map(classifyArticle);
+  // AI second-pass: refine type + severity using Claude Haiku (no-op if key not set)
+  classified = await applyAIClassifications(classified);
   // Sort: highest humanitarian-weighted priority first
   classified.sort(function(a, b) { return b.plotPriority - a.plotPriority; });
   // ── Sentiment distribution log ────────────────────────────────────────────

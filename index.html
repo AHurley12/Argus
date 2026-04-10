@@ -4090,6 +4090,7 @@ window.ArgusData = (function() {
     fetchAlphaVantage();
     fetchFRED();
     fetchTDData();
+    fetchYFinance();
     fetchFinnhubCommodities();
     fetchBondYields();
     fetchBDI();
@@ -4190,6 +4191,101 @@ window.ArgusData = (function() {
       });
       console.log("Stooq via Netlify: " + Object.keys(d.stooq).length + " symbols");
     }
+  }
+
+  // ── Yahoo Finance via Netlify — real-time quotes (SPY, QQQ, GLD, VIX, TNX…) ─
+  // Only fires when hosted on Netlify or localhost. Falls back silently on error.
+  function fetchYFinance() {
+    var CACHE_K = 'argus_yf_v1', CACHE_T = 'argus_yf_ts_v1', TTL = 5 * 60 * 1000;
+    var host = window.location.hostname;
+    if (host.indexOf('netlify') === -1 && host !== 'localhost') return;
+
+    try {
+      var cached = localStorage.getItem(CACHE_K);
+      var ts = parseInt(localStorage.getItem(CACHE_T) || '0');
+      if (cached && Date.now() - ts < TTL) { applyYFData(JSON.parse(cached)); return; }
+    } catch(e) {}
+
+    fetch('/.netlify/functions/fetch-yfinance')
+      .then(function(r) { return r.ok ? r.json() : null; })
+      .then(function(res) {
+        if (!res || !res.data) return;
+        try {
+          localStorage.setItem(CACHE_K, JSON.stringify(res.data));
+          localStorage.setItem(CACHE_T, String(Date.now()));
+        } catch(e) {}
+        applyYFData(res.data);
+        console.log('YFinance: loaded', Object.keys(res.data).length, 'symbols');
+      })
+      .catch(function(e) { console.warn('fetchYFinance failed (silent):', e.message); });
+  }
+
+  function applyYFData(data) {
+    function setEl(id, text, color) {
+      var el = document.getElementById(id);
+      if (!el) return;
+      if (text != null) el.textContent = text;
+      if (color) el.style.color = color;
+    }
+    function setChg(id, pct) {
+      if (pct == null) return;
+      var el = document.getElementById(id);
+      if (!el) return;
+      el.textContent = (pct >= 0 ? '+' : '') + pct.toFixed(2) + '%';
+      el.style.color = pct >= 0 ? '#00ff88' : '#ff0044';
+    }
+
+    // SPY → spy-val / spy-change  +  idx-nyse / idx-nyse-chg
+    if (data.SPY && data.SPY.price != null) {
+      var spy = data.SPY;
+      var spyColor = (spy.changePercent || 0) >= 0 ? '#00ff88' : '#ff0044';
+      setEl('spy-val', '$' + spy.price.toFixed(2), spyColor);
+      setChg('spy-change', spy.changePercent);
+      setEl('idx-nyse', spy.price.toLocaleString('en-US', { maximumFractionDigits: 2 }), (spy.changePercent || 0) >= 0 ? '#00cc66' : '#ff4422');
+      setChg('idx-nyse-chg', spy.changePercent);
+      // Expose to buildSnapshot / Neural Case Builder
+      window._avData = window._avData || {};
+      window._avData.spy = spy.price;
+      window._avData.spyChange = spy.changePercent != null
+        ? (spy.changePercent >= 0 ? '+' : '') + spy.changePercent.toFixed(2) + '%' : '';
+    }
+
+    // GLD → gold-val / gold-chg
+    if (data.GLD && data.GLD.price != null) {
+      setEl('gold-val', '$' + data.GLD.price.toFixed(2));
+      setChg('gold-chg', data.GLD.changePercent);
+    }
+
+    // ^VIX → idx-vix (no chg element; color-coded by level)
+    if (data['^VIX'] && data['^VIX'].price != null) {
+      var vix = data['^VIX'].price;
+      var vixColor = vix > 30 ? '#ff0044' : vix > 20 ? '#ff9933' : vix > 15 ? '#ffcc00' : '#00ff88';
+      setEl('idx-vix', vix.toFixed(2), vixColor);
+    }
+
+    // ^TNX → us10y-val (Yahoo regularMarketPrice for ^TNX = yield in %, e.g. 4.235)
+    if (data['^TNX'] && data['^TNX'].price != null) {
+      setEl('us10y-val', data['^TNX'].price.toFixed(2) + '%', '#00ccff');
+    }
+
+    // USDX → usd-val (Dollar Index; FRED is daily, YF is intraday)
+    if (data['USDX'] && data['USDX'].price != null) {
+      setEl('usd-val', data['USDX'].price.toFixed(2), '#00ccff');
+    }
+
+    // BTC-USD → btc-val / btc-chg
+    if (data['BTC-USD'] && data['BTC-USD'].price != null) {
+      setEl('btc-val', '$' + Math.round(data['BTC-USD'].price).toLocaleString('en-US'));
+      setChg('btc-chg', data['BTC-USD'].changePercent);
+    }
+
+    // ETH-USD → eth-val / eth-chg
+    if (data['ETH-USD'] && data['ETH-USD'].price != null) {
+      setEl('eth-val', '$' + Math.round(data['ETH-USD'].price).toLocaleString('en-US'));
+      setChg('eth-chg', data['ETH-USD'].changePercent);
+    }
+
+    // QQQ and ^TYX: fetched and cached, no dedicated DOM element in current UI
   }
 
   return { init: init, buildSnapshot: buildSnapshot, downloadSnapshot: downloadSnapshot, toggleExchanges: toggleExchanges, selectExchange: selectExchange };

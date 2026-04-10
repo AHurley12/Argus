@@ -3,8 +3,13 @@
 //   GET /?symbols=SPY,AAPL   — batch real-time quotes (default symbol set + extras)
 //   GET /?search=AAPL        — deep-dive quoteSummary with fundamentals + profile
 
-const { YahooFinance } = require('yahoo-finance2');
-const yahooFinance = new YahooFinance(); // This is the missing step!
+// 1. You import the "Blueprint" (the Class)
+const { YahooFinance } = require('yahoo-finance2'); 
+
+// 2. You build the actual "Engine" (the Instance)
+const yahooFinance = new YahooFinance(); 
+
+// ... rest of your code ... // This is the missing step!
 
 const ALIAS_TO_TICKER = { 'USDX': 'DX-Y.NYB' };
 const TICKER_TO_ALIAS = { 'DX-Y.NYB': 'USDX' };

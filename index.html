@@ -4505,6 +4505,12 @@ var ArgusMarket = (function() {
     var deep = document.getElementById('mkt-deep-dive');
     if (!deep) return;
 
+    // Not available on GitHub Pages — Netlify functions only exist on Netlify deployments
+    if (window.location.hostname.indexOf('github.io') !== -1) {
+      deep.innerHTML = '<div class="mkt-card__empty">MARKET INTELLIGENCE UNAVAILABLE<br><span style="font-size:6px;color:#1a3050">Live queries require Netlify deployment</span></div>';
+      return;
+    }
+
     // Loading state
     deep.innerHTML = '<div class="mkt-card__empty mkt-loading">QUERYING ' + sym + '…</div>';
 

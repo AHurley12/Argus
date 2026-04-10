@@ -1,17 +1,19 @@
+// STEP 1: Import the instructions (The Blueprint)
 const { YahooFinance } = require('yahoo-finance2');
+
+// STEP 2: Create the engine (The Instance) - This is what the error is asking for!
 const yahooFinance = new YahooFinance();
 
-const ALIAS_TO_TICKER = { 'USDX': 'DX-Y.NYB' };
-const TICKER_TO_ALIAS = { 'DX-Y.NYB': 'USDX' };
-
-const QUOTE_OPTS = { 
-  validateResult: false,
-  fetchOptions: {
-    headers: {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+// STEP 3: Configure the engine (The Bot-Proofing)
+yahooFinance.setGlobalConfig({
+    fetchOptions: {
+        headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        }
     }
-  }
-};
+});
+
+// ... Now the rest of your ALIAS maps and DEFAULT_SYMBOLS can follow ...
 
 const DEFAULT_SYMBOLS = [
   // Big Three indices (pinned ticker tape)

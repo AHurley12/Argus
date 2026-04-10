@@ -3,7 +3,7 @@
 //   GET /?symbols=SPY,AAPL   — batch real-time quotes (default symbol set + extras)
 //   GET /?search=AAPL        — deep-dive quoteSummary with fundamentals + profile
 const yahooFinance = require('yahoo-finance2').default;
-
+const yahooFinance = new YahooFinance();
 // DELETE the setGlobalConfig section entirely. 
 // In V2, we pass the options directly into the call.
 

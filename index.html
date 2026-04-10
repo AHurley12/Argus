@@ -4114,7 +4114,7 @@ window.ArgusData = (function() {
       if (cached && Date.now() - ts < TTL) return;
     } catch(e) {}
 
-    fetch('https://api.allorigins.win/raw?url=' + encodeURIComponent('https://stooq.com/q/d/l/?s=bdi&i=d'))
+    fetch('https://corsproxy.io/?url=' + encodeURIComponent('https://stooq.com/q/d/l/?s=bdi&i=d'))
     .then(function(r) { return r.ok ? r.text() : null; })
     .then(function(csv) {
       if (!csv) throw new Error('No data');
@@ -4197,8 +4197,9 @@ window.ArgusData = (function() {
   // Only fires when hosted on Netlify or localhost. Falls back silently on error.
   function fetchYFinance() {
     var CACHE_K = 'argus_yf_v1', CACHE_T = 'argus_yf_ts_v1', TTL = 5 * 60 * 1000;
-    // No hostname guard — /.netlify/functions/ resolves on any Netlify deploy (including
-    // custom domains and GitHub Pages if proxied). If unavailable, .catch() handles silently.
+    // Netlify functions only exist on Netlify-hosted deployments, not GitHub Pages.
+    // Skip entirely on github.io to avoid a noisy 404 in the console.
+    if (window.location.hostname.indexOf('github.io') !== -1) return;
 
     try {
       var cached = localStorage.getItem(CACHE_K);
@@ -9730,6 +9731,7 @@ var shipBuffer    = [];     // accumulated AIS position reports (array for rende
 var vesselMap     = new Map(); // keyed by MMSI — spec-required Map for external access
 var lastFetch     = 0;      // timestamp of last successful aircraft fetch
 var cachedStates  = null;   // cached aircraft response
+var _acFailedAt   = 0;      // timestamp of last all-sources failure (backoff marker)
 var renderPending = false;  // throttle flag for AIS re-render
 var refreshTimer  = null;   // setInterval handle for aircraft auto-refresh
 var lastShipRestFetch = 0;  // timestamp of last successful REST ship fetch
@@ -9874,6 +9876,11 @@ function placeShip(lat, lon, name) {
 
 // ── Aircraft fetch — waterfall through AC_SOURCES ─────────────────────────────
 function fetchAndRenderAircraft() {
+  // 0. Back off for 5 minutes after a complete waterfall failure (all sources blocked/down).
+  //    Prevents hammering CORS-blocked endpoints on every 60 s refresh tick.
+  var _AC_BACKOFF_MS = 5 * 60 * 1000;
+  if (_acFailedAt && (Date.now() - _acFailedAt) < _AC_BACKOFF_MS) return;
+
   // 1. Try in-memory cache (fastest)
   if (cachedStates && (Date.now() - lastFetch) < AC_CACHE_MS) {
     renderAircraft(cachedStates);
@@ -9894,8 +9901,9 @@ function fetchAndRenderAircraft() {
   var idx = 0;
   function tryNext() {
     if (idx >= AC_SOURCES.length) {
-      console.warn('[ArgusTracking] All aircraft sources failed');
+      console.warn('[ArgusTracking] All aircraft sources failed — backing off 5 min');
       updateStatus('AIRCRAFT: UNAVAILABLE');
+      _acFailedAt = Date.now(); // suppress retries for 5 minutes
       return;
     }
     var url = AC_SOURCES[idx++];
@@ -9903,6 +9911,7 @@ function fetchAndRenderAircraft() {
       .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
       .then(function (json) {
         lastFetch    = Date.now();
+        _acFailedAt  = 0;       // clear backoff on success
         cachedStates = json;
         // Persist to localStorage so 60s cache survives page reload
         try {

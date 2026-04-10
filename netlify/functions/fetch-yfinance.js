@@ -6,7 +6,13 @@
 // 1. You import the "Blueprint" (the Class)
 const yahooFinance = require('yahoo-finance2').default;
 
-
+yahooFinance.setGlobalConfig({
+    fetchOptions: {
+        headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        }
+    }
+});
 // The '.default' at the end of the require handles the "constructor" 
 // logic automatically in the background.
 
@@ -55,7 +61,7 @@ exports.handler = async function (event) {
     try {
       const summary = await yahooFinance.quoteSummary(ticker, {
         modules: ['price', 'summaryDetail', 'defaultKeyStatistics', 'assetProfile'],
-      }, QUOTE_OPTS);
+      });
 
       const pr = summary.price            || {};
       const sd = summary.summaryDetail    || {};

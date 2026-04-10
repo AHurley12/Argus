@@ -1938,27 +1938,27 @@
       <div class="dp-section">CURRENCY &amp; ENERGY</div>
 
       <div class="dp-row">
-        <div class="dp-label">EUR / USD<span>Euro · European Central Bank</span></div>
+        <div class="dp-label">EUR / USD<span>Euro · Yahoo Finance</span></div>
         <div class="dp-value" id="fx-eurusd" style="color:#00ccff">—</div>
       </div>
       <div class="dp-row">
-        <div class="dp-label">GBP / USD<span>Pound Sterling · Bank of England</span></div>
+        <div class="dp-label">GBP / USD<span>Pound Sterling · Yahoo Finance</span></div>
         <div class="dp-value" id="fx-gbpusd" style="color:#00ccff">—</div>
       </div>
       <div class="dp-row">
-        <div class="dp-label">USD / JPY<span>Japanese Yen · Bank of Japan</span></div>
+        <div class="dp-label">USD / JPY<span>Japanese Yen · Yahoo Finance</span></div>
         <div class="dp-value" id="fx-usdjpy" style="color:#00ccff">—</div>
       </div>
       <div class="dp-row">
-        <div class="dp-label">USD TRADE INDEX<span>vs broad basket · FRED</span></div>
+        <div class="dp-label">USD TRADE INDEX<span>vs broad basket · Yahoo Finance</span></div>
         <div class="dp-value" id="usd-val" style="color:#00ccff">—</div>
       </div>
       <div class="dp-row">
-        <div class="dp-label">BRENT CRUDE<span>USD/bbl · Twelve Data</span></div>
+        <div class="dp-label">BRENT CRUDE<span>BZ=F futures · Yahoo Finance</span></div>
         <div class="dp-value" id="brent-val" style="color:#ffcc00">—</div>
       </div>
       <div class="dp-row">
-        <div class="dp-label">WTI CRUDE<span>USD/bbl · Twelve Data</span></div>
+        <div class="dp-label">WTI CRUDE<span>CL=F futures · Yahoo Finance</span></div>
         <div class="dp-value" id="wti-val" style="color:#ffcc00">—</div>
       </div>
       <div class="dp-row">
@@ -1982,7 +1982,7 @@
         <div class="dp-value" id="yield-val" style="color:#00ff88">—</div>
       </div>
       <div class="dp-row">
-        <div class="dp-label">S&amp;P 500 (SPY)<span>US equity benchmark · Alpha Vantage</span></div>
+        <div class="dp-label">S&amp;P 500 (SPY)<span>US equity benchmark · Yahoo Finance</span></div>
         <div style="text-align:right">
           <div class="dp-value" id="spy-val" style="color:#c5d7e8">—</div>
           <div class="dp-value--sub" id="spy-change"></div>
@@ -1996,28 +1996,28 @@
       <div class="dp-section dp-section--spaced">COMMODITIES</div>
 
       <div class="dp-row">
-        <div class="dp-label">GOLD<span>XAU/USD · Twelve Data</span></div>
+        <div class="dp-label">GOLD<span>GLD ETF · Yahoo Finance</span></div>
         <div style="text-align:right">
           <div class="dp-value" id="gold-val" style="color:#ffcc00">—</div>
           <div class="dp-value--sub" id="gold-chg"></div>
         </div>
       </div>
       <div class="dp-row">
-        <div class="dp-label">SILVER<span>XAG/USD · Twelve Data</span></div>
+        <div class="dp-label">SILVER<span>SI=F futures · Yahoo Finance</span></div>
         <div style="text-align:right">
           <div class="dp-value" id="silver-val" style="color:#c5d7e8">—</div>
           <div class="dp-value--sub" id="silver-chg"></div>
         </div>
       </div>
       <div class="dp-row">
-        <div class="dp-label">COPPER<span>CPER ETF proxy · TD</span></div>
+        <div class="dp-label">COPPER<span>HG=F futures · Yahoo Finance</span></div>
         <div style="text-align:right">
           <div class="dp-value" id="copper-val" style="color:#ff9933">—</div>
           <div class="dp-value--sub" id="copper-chg"></div>
         </div>
       </div>
       <div class="dp-row">
-        <div class="dp-label">WHEAT<span>WEAT ETF proxy · TD</span></div>
+        <div class="dp-label">WHEAT<span>ZW=F futures · Yahoo Finance</span></div>
         <div style="text-align:right">
           <div class="dp-value" id="wheat-val" style="color:#ffcc00">—</div>
           <div class="dp-value--sub" id="wheat-chg"></div>
@@ -2031,7 +2031,7 @@
       <div class="dp-section dp-section--spaced">BOND YIELDS</div>
 
       <div class="dp-row">
-        <div class="dp-label">US 10Y TREASURY<span>Risk-free rate · FRED</span></div>
+        <div class="dp-label">US 10Y TREASURY<span>Risk-free rate · Yahoo Finance</span></div>
         <div class="dp-value" id="us10y-val" style="color:#00ccff">—</div>
       </div>
       <div class="dp-row">
@@ -2046,14 +2046,14 @@
       <div class="dp-section dp-section--spaced">CRYPTO RISK</div>
 
       <div class="dp-row">
-        <div class="dp-label">BITCOIN<span>BTC/USD · Finnhub / Binance</span></div>
+        <div class="dp-label">BITCOIN<span>BTC/USD · Yahoo Finance</span></div>
         <div style="text-align:right">
           <div class="dp-value" id="btc-val" style="color:#ff9933">—</div>
           <div class="dp-value--sub" id="btc-chg"></div>
         </div>
       </div>
       <div class="dp-row">
-        <div class="dp-label">ETHEREUM<span>ETH/USD · Finnhub / Binance</span></div>
+        <div class="dp-label">ETHEREUM<span>ETH/USD · Yahoo Finance</span></div>
         <div style="text-align:right">
           <div class="dp-value" id="eth-val" style="color:#c5d7e8">—</div>
           <div class="dp-value--sub" id="eth-chg"></div>
@@ -4234,58 +4234,119 @@ window.ArgusData = (function() {
       el.textContent = (pct >= 0 ? '+' : '') + pct.toFixed(2) + '%';
       el.style.color = pct >= 0 ? '#00ff88' : '#ff0044';
     }
+    function upDown(pct) { return (pct || 0) >= 0 ? '#00cc66' : '#ff4422'; }
 
-    // SPY → spy-val / spy-change  +  idx-nyse / idx-nyse-chg
+    // ── US equity benchmark ───────────────────────────────────────────────────
     if (data.SPY && data.SPY.price != null) {
       var spy = data.SPY;
-      var spyColor = (spy.changePercent || 0) >= 0 ? '#00ff88' : '#ff0044';
-      setEl('spy-val', '$' + spy.price.toFixed(2), spyColor);
+      setEl('spy-val', '$' + spy.price.toFixed(2), (spy.changePercent || 0) >= 0 ? '#00ff88' : '#ff0044');
       setChg('spy-change', spy.changePercent);
-      setEl('idx-nyse', spy.price.toLocaleString('en-US', { maximumFractionDigits: 2 }), (spy.changePercent || 0) >= 0 ? '#00cc66' : '#ff4422');
+      setEl('idx-nyse', spy.price.toLocaleString('en-US', { maximumFractionDigits: 2 }), upDown(spy.changePercent));
       setChg('idx-nyse-chg', spy.changePercent);
-      // Expose to buildSnapshot / Neural Case Builder
       window._avData = window._avData || {};
       window._avData.spy = spy.price;
       window._avData.spyChange = spy.changePercent != null
         ? (spy.changePercent >= 0 ? '+' : '') + spy.changePercent.toFixed(2) + '%' : '';
     }
 
-    // GLD → gold-val / gold-chg
-    if (data.GLD && data.GLD.price != null) {
-      setEl('gold-val', '$' + data.GLD.price.toFixed(2));
-      setChg('gold-chg', data.GLD.changePercent);
-    }
+    // ── Global indexes (real index values, not ETF proxies) ───────────────────
+    var IDX_MAP = {
+      '^FTSE':  { valId: 'idx-ftse',   chgId: 'idx-ftse-chg',   dec: 0 },
+      '^GDAXI': { valId: 'idx-dax',    chgId: 'idx-dax-chg',    dec: 0 },
+      '^N225':  { valId: 'idx-nikkei', chgId: 'idx-nikkei-chg', dec: 0 },
+      '^HSI':   { valId: 'idx-hsi',    chgId: 'idx-hsi-chg',    dec: 0 },
+    };
+    Object.keys(IDX_MAP).forEach(function(sym) {
+      var q = data[sym]; if (!q || q.price == null) return;
+      var cfg = IDX_MAP[sym];
+      setEl(cfg.valId, q.price.toLocaleString('en-US', { maximumFractionDigits: cfg.dec }), upDown(q.changePercent));
+      setChg(cfg.chgId, q.changePercent);
+    });
 
-    // ^VIX → idx-vix (no chg element; color-coded by level)
+    // ── VIX (color-coded by level) ────────────────────────────────────────────
     if (data['^VIX'] && data['^VIX'].price != null) {
       var vix = data['^VIX'].price;
-      var vixColor = vix > 30 ? '#ff0044' : vix > 20 ? '#ff9933' : vix > 15 ? '#ffcc00' : '#00ff88';
-      setEl('idx-vix', vix.toFixed(2), vixColor);
+      setEl('idx-vix', vix.toFixed(2),
+        vix > 30 ? '#ff0044' : vix > 20 ? '#ff9933' : vix > 15 ? '#ffcc00' : '#00ff88');
     }
 
-    // ^TNX → us10y-val (Yahoo regularMarketPrice for ^TNX = yield in %, e.g. 4.235)
+    // ── FX rates ──────────────────────────────────────────────────────────────
+    // Yahoo EURUSD=X → 1 EUR in USD (e.g. 1.0847), GBPUSD=X → 1 GBP in USD,
+    // JPY=X → USD/JPY (JPY per 1 USD, e.g. 149.5)
+    var FX_MAP = {
+      'EURUSD=X': { id: 'fx-eurusd', dec: 4, avKey: 'fx-eurusd' },
+      'GBPUSD=X': { id: 'fx-gbpusd', dec: 4, avKey: 'fx-gbpusd' },
+      'JPY=X':    { id: 'fx-usdjpy', dec: 2, avKey: 'fx-usdjpy' },
+    };
+    Object.keys(FX_MAP).forEach(function(sym) {
+      var q = data[sym]; if (!q || q.price == null) return;
+      var cfg = FX_MAP[sym];
+      setEl(cfg.id, q.price.toFixed(cfg.dec));
+      // Propagate to _avData so buildSnapshot / Neural Case Builder see updated values
+      window._avData = window._avData || {};
+      window._avData[cfg.avKey] = q.price;
+    });
+
+    // ── Bond yields ───────────────────────────────────────────────────────────
     if (data['^TNX'] && data['^TNX'].price != null) {
-      setEl('us10y-val', data['^TNX'].price.toFixed(2) + '%', '#00ccff');
+      var tnx = data['^TNX'].price;
+      setEl('us10y-val', tnx.toFixed(2) + '%', '#00ccff');
+      // Sync into bond cache so buildSnapshot reads intraday yield
+      try {
+        var bc = JSON.parse(localStorage.getItem('argus_bonds_v1') || '{}');
+        bc.us10y = tnx;
+        localStorage.setItem('argus_bonds_v1', JSON.stringify(bc));
+      } catch(e) {}
     }
 
-    // USDX → usd-val (Dollar Index; FRED is daily, YF is intraday)
+    // ── USD Dollar Index ──────────────────────────────────────────────────────
     if (data['USDX'] && data['USDX'].price != null) {
       setEl('usd-val', data['USDX'].price.toFixed(2), '#00ccff');
     }
 
-    // BTC-USD → btc-val / btc-chg
+    // ── Commodities ───────────────────────────────────────────────────────────
+    if (data.GLD && data.GLD.price != null) {
+      setEl('gold-val', '$' + data.GLD.price.toFixed(2));
+      setChg('gold-chg', data.GLD.changePercent);
+    }
+    if (data['SI=F'] && data['SI=F'].price != null) {
+      setEl('silver-val', '$' + data['SI=F'].price.toFixed(2));
+      setChg('silver-chg', data['SI=F'].changePercent);
+    }
+    if (data['HG=F'] && data['HG=F'].price != null) {
+      setEl('copper-val', '$' + data['HG=F'].price.toFixed(3));
+      setChg('copper-chg', data['HG=F'].changePercent);
+    }
+    if (data['ZW=F'] && data['ZW=F'].price != null) {
+      setEl('wheat-val', '$' + data['ZW=F'].price.toFixed(2));
+      setChg('wheat-chg', data['ZW=F'].changePercent);
+    }
+    // Crude — fill as YF fallback; EIA/TD values override if loaded after
+    if (data['BZ=F'] && data['BZ=F'].price != null) {
+      var brent = data['BZ=F'].price;
+      setEl('brent-val', '$' + brent.toFixed(2));
+      window._eiaData = window._eiaData || {};
+      if (!window._eiaData.brent) { window._eiaData.brent = brent; window._eiaData.brentDate = new Date().toISOString().slice(0,10); }
+    }
+    if (data['CL=F'] && data['CL=F'].price != null) {
+      var wti = data['CL=F'].price;
+      setEl('wti-val', '$' + wti.toFixed(2));
+      window._eiaData = window._eiaData || {};
+      if (!window._eiaData.wti) { window._eiaData.wti = wti; window._eiaData.wtiDate = new Date().toISOString().slice(0,10); }
+    }
+    if (data['BZ=F'] || data['CL=F']) { if (typeof updateBrentWTISpread === 'function') updateBrentWTISpread(); }
+
+    // ── Crypto ────────────────────────────────────────────────────────────────
     if (data['BTC-USD'] && data['BTC-USD'].price != null) {
       setEl('btc-val', '$' + Math.round(data['BTC-USD'].price).toLocaleString('en-US'));
       setChg('btc-chg', data['BTC-USD'].changePercent);
     }
-
-    // ETH-USD → eth-val / eth-chg
     if (data['ETH-USD'] && data['ETH-USD'].price != null) {
       setEl('eth-val', '$' + Math.round(data['ETH-USD'].price).toLocaleString('en-US'));
       setChg('eth-chg', data['ETH-USD'].changePercent);
     }
 
-    // QQQ and ^TYX: fetched and cached, no dedicated DOM element in current UI
+    // QQQ and ^TYX are fetched + cached; no dedicated DOM element in current UI
   }
 
   return { init: init, buildSnapshot: buildSnapshot, downloadSnapshot: downloadSnapshot, toggleExchanges: toggleExchanges, selectExchange: selectExchange };
@@ -7073,23 +7134,23 @@ return { getCountryData: getCountryData, getDisasters: getDisasters, init: init 
     </div>
     <div class="exchanges-popup__body">
       <div class="exchanges-popup__row" onclick="ArgusData.selectExchange('VIX','VIX')" style="cursor:pointer" id="ex-row-VIX">
-        <div><div class="exchanges-popup__label">VIX</div><div class="exchanges-popup__sub">Volatility Index · VIXY ETF proxy</div></div>
+        <div><div class="exchanges-popup__label">VIX</div><div class="exchanges-popup__sub">Volatility Index · Yahoo Finance</div></div>
         <div><div class="exchanges-popup__val" id="idx-vix" style="color:#ff9933">—</div></div>
       </div>
       <div class="exchanges-popup__row" onclick="ArgusData.selectExchange('FTSE','FTSE 100')" style="cursor:pointer" id="ex-row-FTSE">
-        <div><div class="exchanges-popup__label">FTSE 100</div><div class="exchanges-popup__sub">London Stock Exchange · EWU</div></div>
+        <div><div class="exchanges-popup__label">FTSE 100</div><div class="exchanges-popup__sub">London Stock Exchange · Yahoo Finance</div></div>
         <div><div class="exchanges-popup__val" id="idx-ftse" style="color:#c5d7e8">—</div><div class="exchanges-popup__chg" id="idx-ftse-chg"></div></div>
       </div>
       <div class="exchanges-popup__row" onclick="ArgusData.selectExchange('DAX','DAX')" style="cursor:pointer" id="ex-row-DAX">
-        <div><div class="exchanges-popup__label">DAX</div><div class="exchanges-popup__sub">Frankfurt · EWG</div></div>
+        <div><div class="exchanges-popup__label">DAX</div><div class="exchanges-popup__sub">Frankfurt · Yahoo Finance</div></div>
         <div><div class="exchanges-popup__val" id="idx-dax" style="color:#c5d7e8">—</div><div class="exchanges-popup__chg" id="idx-dax-chg"></div></div>
       </div>
       <div class="exchanges-popup__row" onclick="ArgusData.selectExchange('N225','NIKKEI 225')" style="cursor:pointer" id="ex-row-N225">
-        <div><div class="exchanges-popup__label">NIKKEI 225</div><div class="exchanges-popup__sub">Tokyo · EWJ</div></div>
+        <div><div class="exchanges-popup__label">NIKKEI 225</div><div class="exchanges-popup__sub">Tokyo · Yahoo Finance</div></div>
         <div><div class="exchanges-popup__val" id="idx-nikkei" style="color:#c5d7e8">—</div><div class="exchanges-popup__chg" id="idx-nikkei-chg"></div></div>
       </div>
       <div class="exchanges-popup__row" onclick="ArgusData.selectExchange('HSI','HANG SENG')" style="cursor:pointer" id="ex-row-HSI">
-        <div><div class="exchanges-popup__label">HANG SENG</div><div class="exchanges-popup__sub">Hong Kong · EWH</div></div>
+        <div><div class="exchanges-popup__label">HANG SENG</div><div class="exchanges-popup__sub">Hong Kong · Yahoo Finance</div></div>
         <div><div class="exchanges-popup__val" id="idx-hsi" style="color:#c5d7e8">—</div><div class="exchanges-popup__chg" id="idx-hsi-chg"></div></div>
       </div>
       <div class="exchanges-popup__row" onclick="ArgusData.selectExchange('KSA','SAUDI / GULF')" style="cursor:pointer" id="ex-row-KSA">
@@ -7101,7 +7162,7 @@ return { getCountryData: getCountryData, getDisasters: getDisasters, init: init 
         <div><div class="exchanges-popup__val" id="idx-nyse" style="color:#c5d7e8">—</div><div class="exchanges-popup__chg" id="idx-nyse-chg"></div></div>
       </div>
     </div>
-    <div class="exchanges-popup__footer">DATA · ALPHA VANTAGE · ETF PROXIES · CLICK ROW FOR 30-DAY CHART</div>
+    <div class="exchanges-popup__footer">DATA · YAHOO FINANCE · NETLIFY FUNCTION · CLICK ROW FOR 30-DAY CHART</div>
   </div>
 
 

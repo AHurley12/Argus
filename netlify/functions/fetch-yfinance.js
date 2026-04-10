@@ -11,13 +11,32 @@ const ALIAS_TO_TICKER  = { 'USDX': 'DX-Y.NYB' };
 const TICKER_TO_ALIAS  = { 'DX-Y.NYB': 'USDX' };
 
 const DEFAULT_SYMBOLS = [
+  // US equities / benchmarks
   'SPY',      // S&P 500 ETF
   'QQQ',      // NASDAQ-100 ETF
-  'GLD',      // Gold ETF
+  // Global indexes (real values, not ETF proxies)
+  '^FTSE',    // FTSE 100
+  '^GDAXI',   // DAX
+  '^N225',    // Nikkei 225
+  '^HSI',     // Hang Seng
+  // Volatility & rates
   '^VIX',     // CBOE Volatility Index
-  '^TNX',     // US 10-Year Treasury Yield (× 0.1 = %, but Yahoo gives it as-is in %)
+  '^TNX',     // US 10-Year Treasury Yield (Yahoo returns as %, e.g. 4.235)
   '^TYX',     // US 30-Year Treasury Yield
+  // Dollar index
   'DX-Y.NYB', // US Dollar Index (returned as USDX)
+  // FX
+  'EURUSD=X', // EUR/USD (1 EUR in USD, e.g. 1.0847)
+  'GBPUSD=X', // GBP/USD
+  'JPY=X',    // USD/JPY
+  // Commodities
+  'GLD',      // Gold ETF (proxy for XAU/USD)
+  'SI=F',     // Silver futures
+  'HG=F',     // Copper futures
+  'ZW=F',     // Wheat futures
+  'CL=F',     // WTI Crude Oil futures
+  'BZ=F',     // Brent Crude futures
+  // Crypto
   'BTC-USD',  // Bitcoin / USD
   'ETH-USD',  // Ethereum / USD
 ];

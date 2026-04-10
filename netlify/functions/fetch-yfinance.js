@@ -4,10 +4,11 @@
 //   GET /?search=AAPL        — deep-dive quoteSummary with fundamentals + profile
 
 // 1. You import the "Blueprint" (the Class)
-let yahooFinance = require('yahoo-finance2');
-if (yahooFinance.default) {
-  yahooFinance = yahooFinance.default;
-}
+const yahooFinance = require('yahoo-finance2').default;
+
+
+// The '.default' at the end of the require handles the "constructor" 
+// logic automatically in the background.
 
 const ALIAS_TO_TICKER = { 'USDX': 'DX-Y.NYB' };
 const TICKER_TO_ALIAS = { 'DX-Y.NYB': 'USDX' };

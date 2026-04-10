@@ -2,25 +2,23 @@
 // Two modes:
 //   GET /?symbols=SPY,AAPL   — batch real-time quotes (default symbol set + extras)
 //   GET /?search=AAPL        — deep-dive quoteSummary with fundamentals + profile
-
-// 1. You import the "Blueprint" (the Class)
 const yahooFinance = require('yahoo-finance2').default;
 
-yahooFinance.setGlobalConfig({
-    fetchOptions: {
-        headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-        }
-    }
-});
-// The '.default' at the end of the require handles the "constructor" 
-// logic automatically in the background.
+// DELETE the setGlobalConfig section entirely. 
+// In V2, we pass the options directly into the call.
 
 const ALIAS_TO_TICKER = { 'USDX': 'DX-Y.NYB' };
 const TICKER_TO_ALIAS = { 'DX-Y.NYB': 'USDX' };
 
-const QUOTE_OPTS = { validateResult: false };
-// Default batch — always fetched for the market panel ticker tape + existing DOM
+const QUOTE_OPTS = { 
+  validateResult: false,
+  fetchOptions: {
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    }
+  }
+};
+
 const DEFAULT_SYMBOLS = [
   // Big Three indices (pinned ticker tape)
   '^GSPC',    // S&P 500

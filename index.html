@@ -4197,8 +4197,8 @@ window.ArgusData = (function() {
   // Only fires when hosted on Netlify or localhost. Falls back silently on error.
   function fetchYFinance() {
     var CACHE_K = 'argus_yf_v1', CACHE_T = 'argus_yf_ts_v1', TTL = 5 * 60 * 1000;
-    var host = window.location.hostname;
-    if (host.indexOf('netlify') === -1 && host !== 'localhost') return;
+    // No hostname guard — /.netlify/functions/ resolves on any Netlify deploy (including
+    // custom domains and GitHub Pages if proxied). If unavailable, .catch() handles silently.
 
     try {
       var cached = localStorage.getItem(CACHE_K);

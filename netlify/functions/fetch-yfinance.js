@@ -3,7 +3,8 @@
 //   GET /?symbols=SPY,AAPL   — batch real-time quotes (default symbol set + extras)
 //   GET /?search=AAPL        — deep-dive quoteSummary with fundamentals + profile
 
-const yahooFinance = require('yahoo-finance2').default;
+const { YahooFinance } = require('yahoo-finance2');
+const yahooFinance = new YahooFinance(); // This is the missing step!
 
 const ALIAS_TO_TICKER = { 'USDX': 'DX-Y.NYB' };
 const TICKER_TO_ALIAS = { 'DX-Y.NYB': 'USDX' };
@@ -65,29 +66,29 @@ exports.handler = async function (event) {
         : null;
 
       const result = {
-        symbol:              ticker,
-        name:                pr.longName || pr.shortName || ticker,
-        quoteType:           pr.quoteType   || null,
-        currency:            pr.currency    || 'USD',
+        symbol:        ticker,
+        name:          pr.longName || pr.shortName || ticker,
+        quoteType:     pr.quoteType   || null,
+        currency:      pr.currency    || 'USD',
         // Price & change
-        price:               pr.regularMarketPrice            ?? null,
-        change:              pr.regularMarketChange           ?? null,
-        changePercent:       chgPct,
-        volume:              pr.regularMarketVolume           ?? null,
-        // Fundamentals
-        trailingPE:          sd.trailingPE  ?? ks.trailingPE  ?? null,
-        forwardPE:           sd.forwardPE                     ?? null,
-        marketCap:           pr.marketCap                     ?? null,
-        trailingEps:         ks.trailingEps                   ?? null,
+        price:         pr.regularMarketPrice            ?? sd.regularMarketPrice ?? null,
+        change:        pr.regularMarketChange           ?? sd.regularMarketChange ?? null,
+        changePercent: chgPct,
+        volume:        pr.regularMarketVolume           ?? sd.regularMarketVolume ?? null,
+        // Fundamentals - checking multiple modules for the same data
+        trailingPE:    sd.trailingPE  ?? ks.trailingPE  ?? pr.trailingPE ?? null,
+        forwardPE:     sd.forwardPE   ?? ks.forwardPE   ?? null,
+        marketCap:     pr.marketCap   ?? sd.marketCap   ?? null,
+        trailingEps:   ks.trailingEps                   ?? null,
         // Performance / moving averages
-        fiftyDayAverage:     sd.fiftyDayAverage               ?? null,
-        twoHundredDayAverage: sd.twoHundredDayAverage         ?? null,
-        averageVolume:       sd.averageVolume                  ?? null,
+        fiftyDayAverage:     sd.fiftyDayAverage         ?? pr.fiftyDayAverage    ?? null,
+        twoHundredDayAverage: sd.twoHundredDayAverage    ?? pr.twoHundredDayAverage ?? null,
+        averageVolume:       sd.averageVolume           ?? pr.averageVolume      ?? null,
         // Company profile
-        country:             ap.country                       ?? null,
-        industry:            ap.industry                      ?? null,
-        sector:              ap.sector                        ?? null,
-        fullTimeEmployees:   ap.fullTimeEmployees             ?? null,
+        country:             ap.country                 ?? null,
+        industry:            ap.industry                ?? null,
+        sector:              ap.sector                  ?? null,
+        fullTimeEmployees:   ap.fullTimeEmployees       ?? null,
       };
 
       return {

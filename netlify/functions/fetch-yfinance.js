@@ -13,6 +13,7 @@ const yahooFinance = require('yahoo-finance2').default;
 const ALIAS_TO_TICKER = { 'USDX': 'DX-Y.NYB' };
 const TICKER_TO_ALIAS = { 'DX-Y.NYB': 'USDX' };
 
+const QUOTE_OPTS = { validateResult: false };
 // Default batch — always fetched for the market panel ticker tape + existing DOM
 const DEFAULT_SYMBOLS = [
   // Big Three indices (pinned ticker tape)
@@ -35,7 +36,6 @@ const DEFAULT_SYMBOLS = [
   'BTC-USD', 'ETH-USD',
 ];
 
-const QUOTE_OPTS = { validateResult: false };
 
 exports.handler = async function (event) {
   const headers = {

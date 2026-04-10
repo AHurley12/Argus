@@ -133,7 +133,7 @@ exports.handler = async function (event) {
       if (!q || q.regularMarketPrice == null) return;
       const key    = TICKER_TO_ALIAS[q.symbol] || q.symbol;
       const chgPct = q.regularMarketChangePercent != null
-        ? parseFloat(q.regularMarketChangePercent.toFixed(4))
+        ? parseFloat((q.regularMarketChangePercent * 100).toFixed(4))
         : null;
       data[key] = {
         price:         q.regularMarketPrice,

@@ -4313,7 +4313,7 @@ window.ArgusData = (function() {
     fetch('/.netlify/functions/fetch-yfinance')
       .then(function(r) { return r.ok ? r.json() : null; })
       .then(function(res) {
-        if (!res || !res.data) return;
+        if (!res || !res.data) { console.warn('fetchYFinance: no data in response', res); return; }
         try {
           localStorage.setItem(CACHE_K, JSON.stringify(res.data));
           localStorage.setItem(CACHE_T, String(Date.now()));

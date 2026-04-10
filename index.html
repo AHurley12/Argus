@@ -1459,6 +1459,83 @@
     /* ── Cipher decode placeholder — keeps layout stable while decoding ──────── */
     .cipher-decoding { letter-spacing: 0.04em; }
 
+    /* ── Market Intelligence Engine ─────────────────────────────────────────── */
+    #mkt-ticker-tape {
+      display: flex; gap: 0; margin: -9px -11px 8px;
+      border-bottom: 1px solid #0a1e35; overflow: hidden;
+    }
+    .mkt-tick {
+      flex: 1; display: flex; flex-direction: column; align-items: center;
+      padding: 7px 3px 6px; border-right: 1px solid #0a1e35; min-width: 0;
+    }
+    .mkt-tick:last-child { border-right: none; }
+    .mkt-tick__sym { font-size: 6px; letter-spacing: 1.5px; color: #2a4a6a; font-weight: 700; text-transform: uppercase; }
+    .mkt-tick__val { font-size: 11px; font-weight: 700; font-family: var(--font-display); color: #c5d7e8; margin: 2px 0 1px; white-space: nowrap; }
+    .mkt-tick__chg { font-size: 7px; letter-spacing: 0.3px; }
+
+    /* Search bar */
+    #mkt-search-wrap { display: flex; gap: 4px; margin-bottom: 6px; }
+    #mkt-search-input {
+      flex: 1; background: rgba(2,8,18,0.7); border: 1px solid #1a3050; border-radius: 1px;
+      color: #c5d7e8; font-family: var(--font-mono); font-size: 8px; letter-spacing: 1px;
+      padding: 5px 8px; outline: none; text-transform: uppercase; min-width: 0;
+    }
+    #mkt-search-input:focus { border-color: #00ccff55; }
+    #mkt-search-input::placeholder { color: #2a4a6a; }
+    #mkt-search-btn {
+      background: rgba(0,204,255,0.06); border: 1px solid #1a3050; border-radius: 1px;
+      color: #00ccff; font-size: 11px; padding: 0 10px; cursor: pointer;
+      transition: background 0.15s; flex-shrink: 0; font-family: var(--font-mono);
+    }
+    #mkt-search-btn:hover { background: rgba(0,204,255,0.14); }
+    #mkt-search-btn.mkt-loading { color: #2a4a6a; pointer-events: none; }
+
+    /* Deep dive card */
+    .mkt-card {
+      border: 1px solid #0f2744; border-radius: 2px;
+      background: rgba(2,8,18,0.55); margin-bottom: 4px; overflow: hidden;
+    }
+    .mkt-card__hdr {
+      padding: 7px 9px 5px; border-bottom: 1px solid #0a1e35;
+    }
+    .mkt-card__ticker { font-size: 14px; font-weight: 700; font-family: var(--font-display); color: #00ccff; letter-spacing: 1px; }
+    .mkt-card__cname  { font-size: 8px; color: #c5d7e8; letter-spacing: 0.3px; margin: 2px 0 1px; }
+    .mkt-card__badge  { font-size: 7px; color: #4a7da8; letter-spacing: 1px; }
+    .mkt-card__tech {
+      padding: 6px 9px; border-bottom: 1px solid #0a1e35;
+    }
+    .mkt-card__price { font-size: 15px; font-weight: 700; font-family: var(--font-display); color: #c5d7e8; }
+    .mkt-card__price .c-pos { color: #00ff88; font-size: 9px; font-weight: 400; margin-left: 4px; }
+    .mkt-card__price .c-neg { color: #ff0044; font-size: 9px; font-weight: 400; margin-left: 4px; }
+    .mkt-card__ma { font-size: 7px; letter-spacing: 0.3px; margin-top: 3px; line-height: 1.8; }
+    .mkt-card__grid {
+      display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0;
+      border-bottom: 1px solid #0a1e35;
+    }
+    .mkt-card__cell {
+      padding: 5px 9px; border-right: 1px solid #0a1e35; display: flex; flex-direction: column; gap: 2px;
+    }
+    .mkt-card__cell:nth-child(3n) { border-right: none; }
+    .mkt-card__cell-lbl { font-size: 6px; letter-spacing: 1px; color: #2a4a6a; font-weight: 700; text-transform: uppercase; }
+    .mkt-card__cell-val { font-size: 10px; font-weight: 700; font-family: var(--font-display); color: #c5d7e8; }
+    .mkt-card__acts { padding: 6px 9px; display: flex; gap: 4px; }
+    .mkt-brief-btn {
+      flex: 1; background: rgba(180,100,255,0.06); border: 1px solid #b464ff44;
+      border-radius: 1px; color: #b464ff; font-family: var(--font-mono); font-size: 7px;
+      letter-spacing: 1px; padding: 5px 8px; cursor: pointer; text-align: center;
+      transition: background 0.15s;
+    }
+    .mkt-brief-btn:hover { background: rgba(180,100,255,0.14); }
+    .mkt-card__empty {
+      padding: 14px 9px; font-size: 8px; color: #2a4a6a; letter-spacing: 1px; text-align: center;
+    }
+    .mkt-card__hdr { display: flex; justify-content: space-between; align-items: flex-start; }
+    .mkt-card__price-block { text-align: right; flex-shrink: 0; margin-left: 8px; }
+    .mkt-card__chg  { font-size: 9px; font-weight: 600; font-family: var(--font-mono); margin-top: 2px; }
+    .mkt-card__meta { font-size: 7px; color: #3a5a78; letter-spacing: 0.3px; margin-top: 1px; }
+    .mkt-card__ma-lbl { color: #2a4a6a; min-width: 50px; display: inline-block; }
+    .mkt-card__employees { font-size: 7px; color: #2a4a6a; letter-spacing: 0.5px; align-self: center; }
+
   /* ══════════════════════════════════════════════════════════════════════════
      ARGUS ADMIN DASHBOARD
      ══════════════════════════════════════════════════════════════════════════ */
@@ -1934,6 +2011,32 @@
       <button class="panel-min-btn" id="min-btn-market" aria-label="Minimize market panel">—</button>
     </div>
     <div class="dp-body">
+
+      <!-- ── Big Three Ticker Tape ─────────────────────────────────────────── -->
+      <div id="mkt-ticker-tape">
+        <div class="mkt-tick">
+          <span class="mkt-tick__sym">S&amp;P 500</span>
+          <span class="mkt-tick__val" id="tick-gspc-val">—</span>
+          <span class="mkt-tick__chg" id="tick-gspc-chg"></span>
+        </div>
+        <div class="mkt-tick">
+          <span class="mkt-tick__sym">NASDAQ</span>
+          <span class="mkt-tick__val" id="tick-ixic-val">—</span>
+          <span class="mkt-tick__chg" id="tick-ixic-chg"></span>
+        </div>
+        <div class="mkt-tick">
+          <span class="mkt-tick__sym">DOW</span>
+          <span class="mkt-tick__val" id="tick-dji-val">—</span>
+          <span class="mkt-tick__chg" id="tick-dji-chg"></span>
+        </div>
+      </div>
+
+      <!-- ── Market Intelligence Search ───────────────────────────────────── -->
+      <div id="mkt-search-wrap">
+        <input id="mkt-search-input" type="text" placeholder="TICKER: AAPL, ^GSPC, BTC-USD…" autocomplete="off" spellcheck="false" />
+        <button id="mkt-search-btn" aria-label="Search ticker">↵</button>
+      </div>
+      <div id="mkt-deep-dive"></div>
 
       <div class="dp-section">CURRENCY &amp; ENERGY</div>
 
@@ -4237,6 +4340,19 @@ window.ArgusData = (function() {
     }
     function upDown(pct) { return (pct || 0) >= 0 ? '#00cc66' : '#ff4422'; }
 
+    // ── Big Three pinned ticker tape (^GSPC, ^IXIC, ^DJI) ───────────────────
+    var BIG3 = {
+      '^GSPC': { valId: 'tick-gspc-val', chgId: 'tick-gspc-chg', dec: 0 },
+      '^IXIC': { valId: 'tick-ixic-val', chgId: 'tick-ixic-chg', dec: 0 },
+      '^DJI':  { valId: 'tick-dji-val',  chgId: 'tick-dji-chg',  dec: 0 },
+    };
+    Object.keys(BIG3).forEach(function(sym) {
+      var q = data[sym]; if (!q || q.price == null) return;
+      var cfg = BIG3[sym];
+      setEl(cfg.valId, q.price.toLocaleString('en-US', { maximumFractionDigits: cfg.dec }), upDown(q.changePercent));
+      setChg(cfg.chgId, q.changePercent);
+    });
+
     // ── US equity benchmark ───────────────────────────────────────────────────
     if (data.SPY && data.SPY.price != null) {
       var spy = data.SPY;
@@ -4353,6 +4469,205 @@ window.ArgusData = (function() {
   return { init: init, buildSnapshot: buildSnapshot, downloadSnapshot: downloadSnapshot, toggleExchanges: toggleExchanges, selectExchange: selectExchange };
 
 })(); // end ArgusData
+
+// ════════════════════════════════════════════════════════════════════════════
+// ArgusMarket — Market Intelligence Engine
+// Deep-dive ticker search via /.netlify/functions/fetch-yfinance?search=SYM
+// ════════════════════════════════════════════════════════════════════════════
+var ArgusMarket = (function() {
+
+  // ── Helpers ────────────────────────────────────────────────────────────────
+  function fmt(n, dec, prefix) {
+    if (n == null || isNaN(n)) return '—';
+    var s = n.toLocaleString('en-US', { minimumFractionDigits: dec || 0, maximumFractionDigits: dec || 0 });
+    return (prefix || '') + s;
+  }
+  function fmtPct(n) {
+    if (n == null || isNaN(n)) return '—';
+    return (n >= 0 ? '+' : '') + n.toFixed(2) + '%';
+  }
+  function fmtBig(n) {
+    if (n == null || isNaN(n)) return '—';
+    if (n >= 1e12) return '$' + (n / 1e12).toFixed(2) + 'T';
+    if (n >= 1e9)  return '$' + (n / 1e9).toFixed(2)  + 'B';
+    if (n >= 1e6)  return '$' + (n / 1e6).toFixed(2)  + 'M';
+    return '$' + n.toFixed(0);
+  }
+  function pctColor(n) { return (n == null || n >= 0) ? '#00ff88' : '#ff0044'; }
+
+  var _lastResult = null;
+
+  // ── Fetch deep-dive from backend ──────────────────────────────────────────
+  function search(rawTicker) {
+    var sym = (rawTicker || '').trim().toUpperCase().replace(/^\$/, '');
+    if (!sym) return;
+
+    var deep = document.getElementById('mkt-deep-dive');
+    if (!deep) return;
+
+    // Loading state
+    deep.innerHTML = '<div class="mkt-card__empty mkt-loading">QUERYING ' + sym + '…</div>';
+
+    fetch('/.netlify/functions/fetch-yfinance?search=' + encodeURIComponent(sym))
+      .then(function(r) { return r.json(); })
+      .then(function(res) {
+        if (!res.search) {
+          deep.innerHTML = '<div class="mkt-card__empty">TICKER NOT FOUND: ' + sym + '</div>';
+          return;
+        }
+        _lastResult = res.search;
+        deep.innerHTML = renderCard(res.search);
+        // Wire briefing button
+        var btn = deep.querySelector('.mkt-brief-btn');
+        if (btn) btn.addEventListener('click', function() { sendToBriefing(res.search); });
+      })
+      .catch(function(e) {
+        deep.innerHTML = '<div class="mkt-card__empty">ERROR: ' + e.message + '</div>';
+      });
+  }
+
+  // ── Render deep-dive card ─────────────────────────────────────────────────
+  function renderCard(d) {
+    var chgColor = pctColor(d.changePercent);
+    var typeLabel = d.quoteType || 'EQUITY';
+
+    // Country flag emoji
+    var FLAG_MAP = {
+      'United States': '🇺🇸', 'United Kingdom': '🇬🇧', 'China': '🇨🇳',
+      'Japan': '🇯🇵', 'Germany': '🇩🇪', 'France': '🇫🇷', 'Canada': '🇨🇦',
+      'Australia': '🇦🇺', 'South Korea': '🇰🇷', 'India': '🇮🇳',
+      'Brazil': '🇧🇷', 'Singapore': '🇸🇬', 'Netherlands': '🇳🇱',
+      'Switzerland': '🇨🇭', 'Taiwan': '🇹🇼', 'Hong Kong': '🇭🇰',
+      'Israel': '🇮🇱', 'Saudi Arabia': '🇸🇦', 'Ireland': '🇮🇪',
+      'Sweden': '🇸🇪', 'Norway': '🇳🇴', 'Denmark': '🇩🇰',
+    };
+    var flag = d.country ? (FLAG_MAP[d.country] || '') : '';
+
+    // Technical: 50DMA / 200DMA deviation
+    var ma50txt = '—', ma200txt = '—';
+    if (d.price && d.fiftyDayAverage) {
+      var dev50 = ((d.price - d.fiftyDayAverage) / d.fiftyDayAverage * 100);
+      ma50txt = fmt(d.fiftyDayAverage, 2) + ' <span style="color:' + pctColor(dev50) + '">(' + (dev50 >= 0 ? '+' : '') + dev50.toFixed(1) + '%)</span>';
+    }
+    if (d.price && d.twoHundredDayAverage) {
+      var dev200 = ((d.price - d.twoHundredDayAverage) / d.twoHundredDayAverage * 100);
+      ma200txt = fmt(d.twoHundredDayAverage, 2) + ' <span style="color:' + pctColor(dev200) + '">(' + (dev200 >= 0 ? '+' : '') + dev200.toFixed(1) + '%)</span>';
+    }
+
+    var cells = [
+      { lbl: 'Market Cap',   val: fmtBig(d.marketCap) },
+      { lbl: 'P/E (TTM)',    val: d.trailingPE  != null ? d.trailingPE.toFixed(2)  : '—' },
+      { lbl: 'P/E (Fwd)',    val: d.forwardPE   != null ? d.forwardPE.toFixed(2)   : '—' },
+      { lbl: 'EPS (TTM)',    val: d.trailingEps != null ? '$' + d.trailingEps.toFixed(2) : '—' },
+      { lbl: 'Volume',       val: d.volume      != null ? Math.round(d.volume).toLocaleString('en-US') : '—' },
+      { lbl: 'Avg Volume',   val: d.averageVolume != null ? Math.round(d.averageVolume).toLocaleString('en-US') : '—' },
+    ];
+
+    var gridHTML = cells.map(function(c) {
+      return '<div class="mkt-card__cell"><div class="mkt-card__cell-lbl">' + c.lbl + '</div><div class="mkt-card__cell-val">' + c.val + '</div></div>';
+    }).join('');
+
+    var sectorLine = [d.sector, d.industry].filter(Boolean).join(' · ');
+    var countryLine = [flag, d.country].filter(Boolean).join(' ');
+
+    return [
+      '<div class="mkt-card">',
+      '  <div class="mkt-card__hdr">',
+      '    <div>',
+      '      <div class="mkt-card__ticker">' + d.symbol + ' <span class="mkt-card__badge">' + typeLabel + '</span></div>',
+      '      <div class="mkt-card__cname">' + (d.name || d.symbol) + '</div>',
+      '      ' + (sectorLine  ? '<div class="mkt-card__meta">' + sectorLine  + '</div>' : ''),
+      '      ' + (countryLine ? '<div class="mkt-card__meta">' + countryLine + '</div>' : ''),
+      '    </div>',
+      '    <div class="mkt-card__price-block">',
+      '      <div class="mkt-card__price" style="color:' + chgColor + '">' + fmt(d.price, 2, (d.currency === 'USD' ? '$' : '')) + '</div>',
+      '      <div class="mkt-card__chg"  style="color:' + chgColor + '">' + fmtPct(d.changePercent) + '</div>',
+      '    </div>',
+      '  </div>',
+      '  <div class="mkt-card__tech">',
+      '    <div class="mkt-card__ma"><span class="mkt-card__ma-lbl">50 DMA</span> <span>' + ma50txt + '</span></div>',
+      '    <div class="mkt-card__ma"><span class="mkt-card__ma-lbl">200 DMA</span><span>' + ma200txt + '</span></div>',
+      '  </div>',
+      '  <div class="mkt-card__grid">' + gridHTML + '</div>',
+      '  <div class="mkt-card__acts">',
+      '    <button class="mkt-brief-btn">SEND TO BRIEFING</button>',
+      '    <span class="mkt-card__employees">' + (d.fullTimeEmployees != null ? d.fullTimeEmployees.toLocaleString('en-US') + ' employees' : '') + '</span>',
+      '  </div>',
+      '</div>',
+    ].join('\n');
+  }
+
+  // ── Send deep-dive data to Case Builder ───────────────────────────────────
+  function sendToBriefing(d) {
+    var lines = [
+      '## Market Intelligence Brief: ' + d.symbol,
+      '',
+      '**' + (d.name || d.symbol) + '**' + (d.country ? '  ·  ' + d.country : ''),
+      (d.sector ? 'Sector: ' + d.sector : '') + (d.industry ? '  |  Industry: ' + d.industry : ''),
+      '',
+      '### Price & Performance',
+      '- Price: ' + fmt(d.price, 2, '$') + '  |  Change: ' + fmtPct(d.changePercent),
+      '- 50-Day MA: ' + fmt(d.fiftyDayAverage, 2, '$') + '  |  200-Day MA: ' + fmt(d.twoHundredDayAverage, 2, '$'),
+      '',
+      '### Fundamentals',
+      '- Market Cap: ' + fmtBig(d.marketCap),
+      '- P/E (TTM): ' + (d.trailingPE != null ? d.trailingPE.toFixed(2) : '—') + '  |  P/E (Fwd): ' + (d.forwardPE != null ? d.forwardPE.toFixed(2) : '—'),
+      '- EPS (TTM): ' + (d.trailingEps != null ? '$' + d.trailingEps.toFixed(2) : '—'),
+      '- Volume: ' + (d.volume != null ? Math.round(d.volume).toLocaleString() : '—') + '  |  Avg Volume: ' + (d.averageVolume != null ? Math.round(d.averageVolume).toLocaleString() : '—'),
+    ].join('\n');
+
+    // Switch to Case Builder tab and inject
+    var tab = document.querySelector('[data-tab="case"]');
+    if (tab) tab.click();
+    setTimeout(function() {
+      var ta = document.getElementById('case-input');
+      if (!ta) return;
+      ta.value = (ta.value ? ta.value + '\n\n' : '') + lines;
+      ta.dispatchEvent(new Event('input'));
+    }, 150);
+  }
+
+  // ── Wire search bar ───────────────────────────────────────────────────────
+  function wireSearchBar() {
+    var inp = document.getElementById('mkt-search-input');
+    var btn = document.getElementById('mkt-search-btn');
+    if (!inp || !btn) return;
+
+    btn.addEventListener('click', function() { search(inp.value); });
+    inp.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') search(inp.value);
+    });
+  }
+
+  // ── Neural Web $TICKER detection ──────────────────────────────────────────
+  function wireNeuralWeb() {
+    // Listen for clicks on Neural Web nodes that contain $TICKER pattern
+    document.addEventListener('click', function(e) {
+      var el = e.target.closest('.nw-node');
+      if (!el) return;
+      var label = el.dataset.label || el.textContent || '';
+      var m = label.match(/\$([A-Z\^][A-Z0-9\-\.\^]{0,9})/);
+      if (!m) return;
+      // Switch to market tab and trigger search
+      var mktTab = document.querySelector('[data-tab="market"]');
+      if (mktTab) mktTab.click();
+      setTimeout(function() {
+        var inp = document.getElementById('mkt-search-input');
+        if (inp) inp.value = m[1];
+        search(m[1]);
+      }, 200);
+    });
+  }
+
+  // ── Init ──────────────────────────────────────────────────────────────────
+  function init() {
+    wireSearchBar();
+    wireNeuralWeb();
+  }
+
+  return { init: init, search: search };
+
+})(); // end ArgusMarket
 
 // ════════════════════════════════════════════════════════════════════════════
 // Event Feed — NewsData.io headlines → Claude structuring → live event cards
@@ -6031,6 +6346,7 @@ setTimeout(function() {
 
 // ── Boot all data feeds ───────────────────────────────────────────────────────
 ArgusData.init();
+ArgusMarket.init();
 
 })(); // end IIFE
 </script>

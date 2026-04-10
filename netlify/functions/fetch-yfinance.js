@@ -1,88 +1,135 @@
 // netlify/functions/fetch-yfinance.js
-// Real-time quotes via yahoo-finance2 (server-side only — no CORS issues).
-// Default symbols: SPY, QQQ, GLD, ^VIX, ^TNX, ^TYX, USDX, BTC-USD, ETH-USD
-// Extra symbols: append via ?symbols=AAPL,TSLA
-// Return format: { data: { SYM: { price, change, changePercent, volume, marketCap } }, ts }
+// Two modes:
+//   GET /?symbols=SPY,AAPL   — batch real-time quotes (default symbol set + extras)
+//   GET /?search=AAPL        — deep-dive quoteSummary with fundamentals + profile
 
 const yahooFinance = require('yahoo-finance2').default;
 
-// 'USDX' is a user-friendly alias for the ICE Dollar Index on Yahoo Finance
-const ALIAS_TO_TICKER  = { 'USDX': 'DX-Y.NYB' };
-const TICKER_TO_ALIAS  = { 'DX-Y.NYB': 'USDX' };
+const ALIAS_TO_TICKER = { 'USDX': 'DX-Y.NYB' };
+const TICKER_TO_ALIAS = { 'DX-Y.NYB': 'USDX' };
 
+// Default batch — always fetched for the market panel ticker tape + existing DOM
 const DEFAULT_SYMBOLS = [
+  // Big Three indices (pinned ticker tape)
+  '^GSPC',    // S&P 500
+  '^IXIC',    // NASDAQ Composite
+  '^DJI',     // Dow Jones Industrial Average
   // US equities / benchmarks
-  'SPY',      // S&P 500 ETF
-  'QQQ',      // NASDAQ-100 ETF
-  // Global indexes (real values, not ETF proxies)
-  '^FTSE',    // FTSE 100
-  '^GDAXI',   // DAX
-  '^N225',    // Nikkei 225
-  '^HSI',     // Hang Seng
+  'SPY', 'QQQ',
+  // Global indexes
+  '^FTSE', '^GDAXI', '^N225', '^HSI',
   // Volatility & rates
-  '^VIX',     // CBOE Volatility Index
-  '^TNX',     // US 10-Year Treasury Yield (Yahoo returns as %, e.g. 4.235)
-  '^TYX',     // US 30-Year Treasury Yield
+  '^VIX', '^TNX', '^TYX',
   // Dollar index
-  'DX-Y.NYB', // US Dollar Index (returned as USDX)
+  'DX-Y.NYB',
   // FX
-  'EURUSD=X', // EUR/USD (1 EUR in USD, e.g. 1.0847)
-  'GBPUSD=X', // GBP/USD
-  'JPY=X',    // USD/JPY
+  'EURUSD=X', 'GBPUSD=X', 'JPY=X',
   // Commodities
-  'GLD',      // Gold ETF (proxy for XAU/USD)
-  'SI=F',     // Silver futures
-  'HG=F',     // Copper futures
-  'ZW=F',     // Wheat futures
-  'CL=F',     // WTI Crude Oil futures
-  'BZ=F',     // Brent Crude futures
+  'GLD', 'SI=F', 'HG=F', 'ZW=F', 'CL=F', 'BZ=F',
   // Crypto
-  'BTC-USD',  // Bitcoin / USD
-  'ETH-USD',  // Ethereum / USD
+  'BTC-USD', 'ETH-USD',
 ];
 
-exports.handler = async function(event) {
+const QUOTE_OPTS = { validateResult: false };
+
+exports.handler = async function (event) {
   const headers = {
-    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Origin':  '*',
     'Access-Control-Allow-Headers': 'Content-Type',
     'Content-Type': 'application/json',
   };
+  if (event.httpMethod === 'OPTIONS') return { statusCode: 204, headers, body: '' };
 
-  if (event.httpMethod === 'OPTIONS') {
-    return { statusCode: 204, headers, body: '' };
+  const params = event.queryStringParameters || {};
+
+  // ── Mode: deep-dive quoteSummary ──────────────────────────────────────────
+  if (params.search) {
+    const raw    = params.search.trim().toUpperCase().replace(/^\$/, '');
+    const ticker = ALIAS_TO_TICKER[raw] || raw;
+
+    try {
+      const summary = await yahooFinance.quoteSummary(ticker, {
+        modules: ['price', 'summaryDetail', 'defaultKeyStatistics', 'assetProfile'],
+      }, QUOTE_OPTS);
+
+      const pr = summary.price            || {};
+      const sd = summary.summaryDetail    || {};
+      const ks = summary.defaultKeyStatistics || {};
+      const ap = summary.assetProfile     || {};
+
+      // yahoo-finance2 v2 returns parsed values directly (no .raw wrapper).
+      // regularMarketChangePercent from the price module is a fraction (0.0123 = 1.23%).
+      const chgPctRaw = pr.regularMarketChangePercent;
+      const chgPct    = chgPctRaw != null
+        ? parseFloat((chgPctRaw * 100).toFixed(4))
+        : null;
+
+      const result = {
+        symbol:              ticker,
+        name:                pr.longName || pr.shortName || ticker,
+        quoteType:           pr.quoteType   || null,
+        currency:            pr.currency    || 'USD',
+        // Price & change
+        price:               pr.regularMarketPrice            ?? null,
+        change:              pr.regularMarketChange           ?? null,
+        changePercent:       chgPct,
+        volume:              pr.regularMarketVolume           ?? null,
+        // Fundamentals
+        trailingPE:          sd.trailingPE  ?? ks.trailingPE  ?? null,
+        forwardPE:           sd.forwardPE                     ?? null,
+        marketCap:           pr.marketCap                     ?? null,
+        trailingEps:         ks.trailingEps                   ?? null,
+        // Performance / moving averages
+        fiftyDayAverage:     sd.fiftyDayAverage               ?? null,
+        twoHundredDayAverage: sd.twoHundredDayAverage         ?? null,
+        averageVolume:       sd.averageVolume                  ?? null,
+        // Company profile
+        country:             ap.country                       ?? null,
+        industry:            ap.industry                      ?? null,
+        sector:              ap.sector                        ?? null,
+        fullTimeEmployees:   ap.fullTimeEmployees             ?? null,
+      };
+
+      return {
+        statusCode: 200, headers,
+        body: JSON.stringify({ search: result, ts: new Date().toISOString() }),
+      };
+
+    } catch (err) {
+      console.error('fetch-yfinance search error:', ticker, err.message);
+      // Return 200 with null so the frontend degrades gracefully instead of seeing 500
+      return {
+        statusCode: 200, headers,
+        body: JSON.stringify({ search: null, error: err.message, ts: new Date().toISOString() }),
+      };
+    }
   }
 
-  // Parse optional extra symbols from query string; resolve any aliases
-  const params = event.queryStringParameters || {};
+  // ── Mode: batch quote ─────────────────────────────────────────────────────
   const extra = params.symbols
-    ? params.symbols.split(',').map(function(s) { return (ALIAS_TO_TICKER[s.trim().toUpperCase()] || s.trim().toUpperCase()); }).filter(Boolean)
+    ? params.symbols.split(',')
+        .map(function (s) { return ALIAS_TO_TICKER[s.trim().toUpperCase()] || s.trim().toUpperCase(); })
+        .filter(Boolean)
     : [];
 
-  // Merge defaults + extras, deduplicate
   const seen = {};
-  const symbols = DEFAULT_SYMBOLS.concat(extra).filter(function(s) {
+  const symbols = DEFAULT_SYMBOLS.concat(extra).filter(function (s) {
     if (seen[s]) return false;
     seen[s] = true;
     return true;
   });
 
   try {
-    // yahoo-finance2 accepts an array → returns an array in the same order
-    const rawQuotes = await yahooFinance.quote(symbols, {}, { validateResult: false });
+    const rawQuotes = await yahooFinance.quote(symbols, {}, QUOTE_OPTS);
     const quotesArr = Array.isArray(rawQuotes) ? rawQuotes : (rawQuotes ? [rawQuotes] : []);
 
     const data = {};
-    quotesArr.forEach(function(q) {
+    quotesArr.forEach(function (q) {
       if (!q || q.regularMarketPrice == null) return;
-
-      // Use friendly alias as key if one exists (DX-Y.NYB → USDX)
-      const key = TICKER_TO_ALIAS[q.symbol] || q.symbol;
-
-      // changePercent: yahoo-finance2 returns e.g. 1.23 meaning 1.23% (not 0.0123)
+      const key    = TICKER_TO_ALIAS[q.symbol] || q.symbol;
       const chgPct = q.regularMarketChangePercent != null
         ? parseFloat(q.regularMarketChangePercent.toFixed(4))
         : null;
-
       data[key] = {
         price:         q.regularMarketPrice,
         change:        q.regularMarketChange    != null ? parseFloat(q.regularMarketChange.toFixed(4))    : null,
@@ -93,16 +140,14 @@ exports.handler = async function(event) {
     });
 
     return {
-      statusCode: 200,
-      headers,
+      statusCode: 200, headers,
       body: JSON.stringify({ data: data, ts: new Date().toISOString() }),
     };
 
   } catch (err) {
-    console.error('fetch-yfinance error:', err);
+    console.error('fetch-yfinance batch error:', err);
     return {
-      statusCode: 500,
-      headers,
+      statusCode: 500, headers,
       body: JSON.stringify({ error: err.message }),
     };
   }

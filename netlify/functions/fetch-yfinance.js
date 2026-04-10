@@ -1,4 +1,4 @@
-const { YahooFinance } = require('yahoo-finance2');
+const YahooFinance = require('yahoo-finance2').default;
 const yahooFinance = new YahooFinance();
 
 const ALIAS_TO_TICKER = { 'USDX': 'DX-Y.NYB' };
@@ -55,13 +55,12 @@ exports.handler = async function (event) {
 
     try {
       const summary = await yahooFinance.quoteSummary(ticker, {
-        modules: ['price', 'summaryDetail', 'defaultKeyStatistics', 'assetProfile'],
-      });
+        modules: ['price', 'summaryDetail', 'assetProfile'],
+      }, QUOTE_OPTS);
 
-      const pr = summary.price            || {};
-      const sd = summary.summaryDetail    || {};
-      const ks = summary.defaultKeyStatistics || {};
-      const ap = summary.assetProfile     || {};
+      const pr = summary.price         || {};
+      const sd = summary.summaryDetail || {};
+      const ap = summary.assetProfile  || {};
 
       // yahoo-finance2 v2 returns parsed values directly (no .raw wrapper).
       // regularMarketChangePercent from the price module is a fraction (0.0123 = 1.23%).
@@ -81,10 +80,10 @@ exports.handler = async function (event) {
         changePercent: chgPct,
         volume:        pr.regularMarketVolume           ?? sd.regularMarketVolume ?? null,
         // Fundamentals - checking multiple modules for the same data
-        trailingPE:    sd.trailingPE  ?? ks.trailingPE  ?? pr.trailingPE ?? null,
-        forwardPE:     sd.forwardPE   ?? ks.forwardPE   ?? null,
-        marketCap:     pr.marketCap   ?? sd.marketCap   ?? null,
-        trailingEps:   ks.trailingEps                   ?? null,
+        trailingPE:    sd.trailingPE  ?? pr.trailingPE ?? null,
+        forwardPE:     sd.forwardPE   ?? null,
+        marketCap:     pr.marketCap   ?? sd.marketCap  ?? null,
+        trailingEps:   null,
         // Performance / moving averages
         fiftyDayAverage:     sd.fiftyDayAverage         ?? pr.fiftyDayAverage    ?? null,
         twoHundredDayAverage: sd.twoHundredDayAverage    ?? pr.twoHundredDayAverage ?? null,

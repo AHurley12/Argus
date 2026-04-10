@@ -4253,7 +4253,7 @@ window.ArgusData = (function() {
   // ── Netlify market data — EIA + FRED + Stooq indexes server-side ───────────
   function fetchMarketData() {
     var CACHE_K = 'argus_netlify_mkt_v1', CACHE_T = 'argus_netlify_mkt_ts_v1';
-    var TTL = 60 * 60 * 1000;
+    var TTL = 12 * 60 * 60 * 1000;
     try {
       var cached = localStorage.getItem(CACHE_K);
       var ts = parseInt(localStorage.getItem(CACHE_T) || "0");
@@ -4299,7 +4299,7 @@ window.ArgusData = (function() {
   // ── Yahoo Finance via Netlify — real-time quotes (SPY, QQQ, GLD, VIX, TNX…) ─
   // Only fires when hosted on Netlify or localhost. Falls back silently on error.
   function fetchYFinance() {
-    var CACHE_K = 'argus_yf_v1', CACHE_T = 'argus_yf_ts_v1', TTL = 5 * 60 * 1000;
+    var CACHE_K = 'argus_yf_v1', CACHE_T = 'argus_yf_ts_v1', TTL = 15 * 60 * 1000;
     // Netlify functions only exist on Netlify-hosted deployments, not GitHub Pages.
     // Skip entirely on github.io to avoid a noisy 404 in the console.
     if (window.location.hostname.indexOf('github.io') !== -1) return;
@@ -4511,6 +4511,23 @@ var ArgusMarket = (function() {
       return;
     }
 
+    // Search cache — 5 min TTL per ticker, prevents hammering on repeat enters
+    var SEARCH_TTL  = 5 * 60 * 1000;
+    var sCacheKey   = 'argus_yf_srch_' + sym;
+    var sCacheTsKey = 'argus_yf_srch_ts_' + sym;
+    try {
+      var sCached = localStorage.getItem(sCacheKey);
+      var sCacheTs = parseInt(localStorage.getItem(sCacheTsKey) || '0');
+      if (sCached && Date.now() - sCacheTs < SEARCH_TTL) {
+        var d = JSON.parse(sCached);
+        _lastResult = d;
+        deep.innerHTML = renderCard(d);
+        var btn = deep.querySelector('.mkt-brief-btn');
+        if (btn) btn.addEventListener('click', function() { sendToBriefing(d); });
+        return;
+      }
+    } catch(e) {}
+
     // Loading state
     deep.innerHTML = '<div class="mkt-card__empty mkt-loading">QUERYING ' + sym + '…</div>';
 
@@ -4521,6 +4538,10 @@ var ArgusMarket = (function() {
           deep.innerHTML = '<div class="mkt-card__empty">TICKER NOT FOUND: ' + sym + '</div>';
           return;
         }
+        try {
+          localStorage.setItem(sCacheKey, JSON.stringify(res.search));
+          localStorage.setItem(sCacheTsKey, String(Date.now()));
+        } catch(e) {}
         _lastResult = res.search;
         deep.innerHTML = renderCard(res.search);
         // Wire briefing button

@@ -7,6 +7,9 @@
 
 [functions]
   node_bundler = "esbuild"
+
+# This is the correct way to set a global timeout now
+[functions."*"]
   timeout = 26
 
 [[headers]]

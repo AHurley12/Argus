@@ -1891,8 +1891,8 @@
     <div class="header__brand">
       <div id="logo" aria-label="ARGUS">ARGUS</div>
       <div class="header__tagline">
-        <div class="header__tagline-sub">SUPPLY CHAIN INTELLIGENCE</div>
-        <div class="header__tagline-version">ARGUS v7 — READ THE WORLD</div>
+        <div class="header__tagline-sub">FORTUNE FAVORS THE INFORMED</div>
+        <div class="header__tagline-version">v.beta</div>
       </div>
     </div>
     <div class="header__controls">
@@ -3892,42 +3892,37 @@ window.ArgusData = (function() {
   var chartCache = {};
   var chartDebounceTimer = null;
 
-  // ── Inline SVG sparkline chart ────────────────────────────────────────────
+  // ── Inline SVG sparkline chart with Y/X axis markers ─────────────────────
   function drawChart(prices, sym) {
     var svg = document.getElementById('exchanges-chart');
     if (!svg || !prices || !prices.length) return;
 
-    // Clear previous paths but keep the empty-state text node structure
     while (svg.firstChild) svg.removeChild(svg.firstChild);
 
-    var W = 292, H = 70, PAD = 4;
+    var W = 292, H = 70;
+    var PL = 36, PR = 4, PT = 5, PB = 4; // left pad wider for Y-axis labels
+    var CW = W - PL - PR, CH = H - PT - PB;
+
     var min = Math.min.apply(null, prices);
     var max = Math.max.apply(null, prices);
     if (min === max) { min -= 1; max += 1; }
-
-    var xStep = (W - PAD * 2) / (prices.length - 1);
     var yRange = max - min;
+    var xStep = CW / (prices.length - 1);
 
-    // Build polyline points
-    var pts = prices.map(function(p, i) {
-      var x = PAD + i * xStep;
-      var y = PAD + (1 - (p - min) / yRange) * (H - PAD * 2);
-      return x.toFixed(1) + ',' + y.toFixed(1);
-    }).join(' ');
+    function px(i) { return PL + i * xStep; }
+    function py(p)  { return PT + (1 - (p - min) / yRange) * CH; }
 
-    // Gradient fill area
-    var areaClose = 'M' + (PAD) + ',' + (H - PAD) + ' ';
-    areaClose += prices.map(function(p, i) {
-      var x = PAD + i * xStep;
-      var y = PAD + (1 - (p - min) / yRange) * (H - PAD * 2);
-      return (i === 0 ? 'L' : '') + x.toFixed(1) + ',' + y.toFixed(1) + ' ';
-    }).join('');
-    areaClose += 'L' + (PAD + (prices.length - 1) * xStep).toFixed(1) + ',' + (H - PAD) + ' Z';
+    // Compact number format for Y labels: 21300 → "21.3k", 8500 → "8.5k"
+    function fmtY(n) {
+      if (n >= 10000) return (n / 1000).toFixed(0) + 'k';
+      if (n >= 1000)  return (n / 1000).toFixed(1) + 'k';
+      return n.toFixed(0);
+    }
 
     var isUp = prices[prices.length - 1] >= prices[0];
     var lineCol = isUp ? '#00ff88' : '#ff0044';
-    var fillCol = isUp ? 'rgba(0,255,136,0.08)' : 'rgba(255,0,68,0.08)';
 
+    // Gradient defs
     var defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
     defs.innerHTML = '<linearGradient id="cg-' + sym + '" x1="0" y1="0" x2="0" y2="1">' +
       '<stop offset="0%" stop-color="' + lineCol + '" stop-opacity="0.18"/>' +
@@ -3935,20 +3930,80 @@ window.ArgusData = (function() {
       '</linearGradient>';
     svg.appendChild(defs);
 
-    // Fill area
+    // Gradient fill area
+    var areaPath = 'M' + PL + ',' + (PT + CH) + ' ';
+    areaPath += prices.map(function(p, i) {
+      return (i === 0 ? 'L' : '') + px(i).toFixed(1) + ',' + py(p).toFixed(1) + ' ';
+    }).join('');
+    areaPath += 'L' + px(prices.length - 1).toFixed(1) + ',' + (PT + CH) + ' Z';
     var area = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-    area.setAttribute('d', areaClose);
+    area.setAttribute('d', areaPath);
     area.setAttribute('fill', 'url(#cg-' + sym + ')');
     svg.appendChild(area);
 
-    // Baseline
+    // Y-axis spine
+    var ySpine = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    ySpine.setAttribute('x1', PL); ySpine.setAttribute('y1', PT);
+    ySpine.setAttribute('x2', PL); ySpine.setAttribute('y2', PT + CH);
+    ySpine.setAttribute('stroke', '#1a3a5a'); ySpine.setAttribute('stroke-width', '0.5');
+    svg.appendChild(ySpine);
+
+    // X-axis (baseline)
     var base = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-    base.setAttribute('x1', PAD); base.setAttribute('y1', H - PAD);
-    base.setAttribute('x2', W - PAD); base.setAttribute('y2', H - PAD);
-    base.setAttribute('stroke', '#0f2744'); base.setAttribute('stroke-width', '0.5');
+    base.setAttribute('x1', PL);     base.setAttribute('y1', PT + CH);
+    base.setAttribute('x2', W - PR); base.setAttribute('y2', PT + CH);
+    base.setAttribute('stroke', '#1a3a5a'); base.setAttribute('stroke-width', '0.5');
     svg.appendChild(base);
 
-    // Line
+    // Y-axis markers: max / mid / min
+    var mid = (min + max) / 2;
+    [{ val: max, y: py(max) }, { val: mid, y: py(mid) }, { val: min, y: py(min) }]
+      .forEach(function(lbl) {
+        var tick = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+        tick.setAttribute('x1', PL - 3); tick.setAttribute('y1', lbl.y.toFixed(1));
+        tick.setAttribute('x2', PL);     tick.setAttribute('y2', lbl.y.toFixed(1));
+        tick.setAttribute('stroke', '#2a4a6a'); tick.setAttribute('stroke-width', '0.5');
+        svg.appendChild(tick);
+
+        var t = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        t.setAttribute('x', (PL - 5).toString());
+        t.setAttribute('y', (lbl.y + 1.8).toFixed(1));
+        t.setAttribute('text-anchor', 'end');
+        t.setAttribute('style', 'font-size:5.5px;fill:#4a7da8;font-family:monospace');
+        t.textContent = fmtY(lbl.val);
+        svg.appendChild(t);
+      });
+
+    // X-axis date markers: start / mid / end — sourced from chartCache
+    var dates = (chartCache[sym] && chartCache[sym].dates) || [];
+    if (dates.length >= 2) {
+      var midIdx = Math.floor(dates.length / 2);
+      [
+        { label: dates[0],           idx: 0,          anchor: 'start'  },
+        { label: dates[midIdx],      idx: midIdx,      anchor: 'middle' },
+        { label: dates[dates.length - 1], idx: dates.length - 1, anchor: 'end' },
+      ].forEach(function(m) {
+        var tx = px(m.idx).toFixed(1);
+        var tick = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+        tick.setAttribute('x1', tx); tick.setAttribute('y1', (PT + CH).toString());
+        tick.setAttribute('x2', tx); tick.setAttribute('y2', (PT + CH + 3).toString());
+        tick.setAttribute('stroke', '#2a4a6a'); tick.setAttribute('stroke-width', '0.5');
+        svg.appendChild(tick);
+
+        var t = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        t.setAttribute('x', tx);
+        t.setAttribute('y', (PT + CH + 9).toString());
+        t.setAttribute('text-anchor', m.anchor);
+        t.setAttribute('style', 'font-size:5px;fill:#4a7da8;font-family:monospace');
+        t.textContent = m.label;
+        svg.appendChild(t);
+      });
+    }
+
+    // Sparkline (drawn on top of axes)
+    var pts = prices.map(function(p, i) {
+      return px(i).toFixed(1) + ',' + py(p).toFixed(1);
+    }).join(' ');
     var poly = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
     poly.setAttribute('points', pts);
     poly.setAttribute('fill', 'none');
@@ -3958,11 +4013,11 @@ window.ArgusData = (function() {
     svg.appendChild(poly);
 
     // Last price dot
-    var lastX = PAD + (prices.length - 1) * xStep;
-    var lastY = PAD + (1 - (prices[prices.length - 1] - min) / yRange) * (H - PAD * 2);
     var dot = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-    dot.setAttribute('cx', lastX.toFixed(1)); dot.setAttribute('cy', lastY.toFixed(1));
-    dot.setAttribute('r', '2.5'); dot.setAttribute('fill', lineCol);
+    dot.setAttribute('cx', px(prices.length - 1).toFixed(1));
+    dot.setAttribute('cy', py(prices[prices.length - 1]).toFixed(1));
+    dot.setAttribute('r', '2.5');
+    dot.setAttribute('fill', lineCol);
     svg.appendChild(dot);
   }
 

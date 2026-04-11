@@ -12,6 +12,18 @@
 [functions."*"]
   timeout = 26
 
+[functions."fetch-firms"]
+  timeout = 26
+
+[functions."fetch-gdacs"]
+  timeout = 26
+
+[functions."fetch-gdelt"]
+  timeout = 26
+
+[functions."fetch-bdi"]
+  timeout = 26
+
 [[headers]]
   for = "/*"
   [headers.values]

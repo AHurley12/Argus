@@ -4254,10 +4254,10 @@ window.ArgusData = (function() {
     fetchBDI();
   }
 
-  // ── Baltic Dry Index — Stooq CSV, no key, CORS-open ──────────────────────
+  // ── Baltic Dry Index — Stooq CSV, no key ────────────────────────────────
   function fetchBDI() {
-    var CACHE_K = 'argus_bdi_v1';
-    var CACHE_T = 'argus_bdi_ts_v1';
+    var CACHE_K = 'argus_bdi_v2';
+    var CACHE_T = 'argus_bdi_ts_v2';
     var TTL     = 4 * 60 * 60 * 1000; // 4 hours — BDI updates once daily
     var el      = document.getElementById('bdi-val');
 
@@ -4272,12 +4272,13 @@ window.ArgusData = (function() {
       if (cached && Date.now() - ts < TTL) return;
     } catch(e) {}
 
-    fetch('https://corsproxy.io/?url=' + encodeURIComponent('https://stooq.com/q/d/l/?s=bdi&i=d'))
-    .then(function(r) { return r.ok ? r.text() : null; })
-    .then(function(csv) {
-      if (!csv) throw new Error('No data');
-      // CSV: Date,Open,High,Low,Close,Volume — take last non-empty row
-      var rows = csv.trim().split('\n').filter(function(r) { return r && !r.startsWith('Date'); });
+    var canUseBackend = (
+      window.location.hostname.indexOf('netlify') !== -1 ||
+      window.location.hostname === 'localhost' ||
+      window.location.hostname === '127.0.0.1'
+    );
+
+    function applyBDIRows(rows) {
       if (!rows.length) throw new Error('Empty');
       var last   = rows[rows.length - 1].split(',');
       var close  = parseFloat(last[4]);
@@ -4297,11 +4298,33 @@ window.ArgusData = (function() {
         localStorage.setItem(CACHE_K, display);
         localStorage.setItem(CACHE_T, String(Date.now()));
       } catch(e) {}
-    })
-    .catch(function(e) {
-      console.warn('BDI fetch failed:', e.message);
-      if (el && el.textContent === 'N/A') el.textContent = '—';
-    });
+    }
+
+    if (canUseBackend) {
+      fetch('/.netlify/functions/fetch-bdi')
+      .then(function(r) { return r.ok ? r.json() : null; })
+      .then(function(res) {
+        if (!res || !res.data || !res.data.length) throw new Error('No data from fetch-bdi');
+        // res.data = [{date, close}, ...]
+        var rows = res.data.map(function(d) { return d.date + ',0,0,0,' + d.close + ',0'; });
+        applyBDIRows(rows);
+        console.log('BDI via Netlify: close=' + res.data[res.data.length - 1].close);
+      })
+      .catch(function(e) { console.warn('BDI Netlify fetch failed:', e.message); if (el && el.textContent === 'N/A') el.textContent = '—'; });
+    } else {
+      fetch('https://corsproxy.io/?url=' + encodeURIComponent('https://stooq.com/q/d/l/?s=bdi&i=d'))
+      .then(function(r) { return r.ok ? r.text() : null; })
+      .then(function(csv) {
+        if (!csv) throw new Error('No data');
+        // CSV: Date,Open,High,Low,Close,Volume — take last non-empty row
+        var rows = csv.trim().split('\n').filter(function(r) { return r && !r.startsWith('Date'); });
+        applyBDIRows(rows);
+      })
+      .catch(function(e) {
+        console.warn('BDI fetch failed:', e.message);
+        if (el && el.textContent === 'N/A') el.textContent = '—';
+      });
+    }
   }
 
 
@@ -7014,10 +7037,10 @@ setInterval(fetchAll, TTL);
 })();
 
 
-// ── NASA FIRMS — Active Wildfire Data — free, no key ─────────────────────────
+// ── NASA FIRMS — Active Wildfire Data ────────────────────────────────────────
 // MODIS/VIIRS active fire detections updated every 24h, global coverage
 (function loadWildfires() {
-  var CACHE_K = 'argus_firms_v1', CACHE_T = 'argus_firms_ts_v1';
+  var CACHE_K = 'argus_firms_v2', CACHE_T = 'argus_firms_ts_v2';
   var TTL = 60 * 60 * 1000; // 1 hour
   try {
     var cached = localStorage.getItem(CACHE_K);
@@ -7029,6 +7052,46 @@ setInterval(fetchAll, TTL);
     }
   } catch(e) {}
 
+  var canUseBackend = (
+    window.location.hostname.indexOf('netlify') !== -1 ||
+    window.location.hostname === 'localhost' ||
+    window.location.hostname === '127.0.0.1'
+  );
+
+  if (canUseBackend) {
+    // Use Netlify function — server-side, no CORS issues, uses FIRMS_MAP_KEY env var
+    fetch('/.netlify/functions/fetch-firms')
+    .then(function(r) { return r.ok ? r.json() : null; })
+    .then(function(res) {
+      if (!res || !res.data || !res.data.length) throw new Error('No data from fetch-firms');
+      // Translate clusters into event format expected by downstream consumers
+      var events = res.data.slice(0, 20).map(function(g, i) {
+        var sev = g.count > 50 ? 'CRITICAL' : g.count > 15 ? 'WARNING' : 'WATCH';
+        return {
+          id: 9850 + i,
+          type: 'WILDFIRE',
+          severity: sev,
+          title: 'Active Fire Cluster — ' + g.count + ' detections (' + g.lat.toFixed(1) + '\u00b0, ' + g.lon.toFixed(1) + '\u00b0)',
+          impact: 'NASA VIIRS satellite fire detections in past 24h. ' + g.count + ' hotspots in cluster.',
+          region: '',
+          pubDate: res.ts ? res.ts.slice(0, 10) : '',
+          source: 'NASA FIRMS',
+          link: 'https://firms.modaps.eosdis.nasa.gov/map/',
+          lat: g.lat, lon: g.lon,
+          plotPriority: sev === 'CRITICAL' ? 82 : sev === 'WARNING' ? 52 : 28,
+        };
+      }).sort(function(a, b) { return b.plotPriority - a.plotPriority; });
+
+      window._fireEvents = events;
+      try { localStorage.setItem(CACHE_K, JSON.stringify(events)); localStorage.setItem(CACHE_T, String(Date.now())); } catch(e) {}
+      console.log('NASA FIRMS via Netlify: ' + events.length + ' fire clusters loaded');
+      if (typeof activeTab !== 'undefined' && activeTab === 'disaster') renderDisasterTab();
+    })
+    .catch(function(e) { console.warn('FIRMS Netlify fetch failed:', e.message); });
+    return;
+  }
+
+  // Fallback: third-party proxy chain (GitHub Pages / non-Netlify environments)
   // NASA FIRMS CSV — VIIRS SNPP last 24h, world
   // Direct fetch is CORS-blocked on desktop. Use proxy chain.
   var firmsUrl = 'https://firms.modaps.eosdis.nasa.gov/data/active_fire/suomi-npp-viirs-c2/csv/SUOMI_VIIRS_C2_Global_24h.csv';
@@ -7286,11 +7349,13 @@ function iso2to3(code) {
 }
 
 // ── 1. GDACS — active disasters GeoJSON ───────────────────────────────────────
-// api.gdacs.org blocks GitHub Pages. Route through corsproxy.io; allorigins fallback.
+// api.gdacs.org blocks GitHub Pages. On Netlify: use fetch-gdacs.js function.
+// Fallback: corsproxy.io then allorigins.
 var GDACS_URL = 'https://www.gdacs.org/gdacsapi/api/events/geteventlist/MAP?eventtypes=EQ,TC,FL,VO,DR,WF&alertlevel=Green,Orange,Red&limit=50';
 function fetchGDACS() {
   function parseGDACS(json) {
-    var features = (json && json.features) || [];
+    // Accept both {data:[...features]} from fetch-gdacs.js and raw GeoJSON
+    var features = (json && json.data) || (json && json.features) || [];
     var count = 0;
     features.forEach(function(f) {
       var p   = f.properties || {};
@@ -7321,7 +7386,29 @@ function fetchGDACS() {
     console.log('GDACS: ' + count + ' active disasters indexed across ' + Object.keys(window._rwData).length + ' countries');
   }
 
-  // Primary: corsproxy.io; fallback: allorigins
+  var canUseBackend = (
+    window.location.hostname.indexOf('netlify') !== -1 ||
+    window.location.hostname === 'localhost' ||
+    window.location.hostname === '127.0.0.1'
+  );
+
+  if (canUseBackend) {
+    // Use Netlify function — server-side, no CORS issues
+    return fetch('/.netlify/functions/fetch-gdacs')
+      .then(function(r) {
+        if (!r.ok) throw new Error('fetch-gdacs HTTP ' + r.status);
+        return r.json();
+      })
+      .then(parseGDACS)
+      .catch(function(e) {
+        console.warn('GDACS Netlify fetch failed, trying proxies:', e.message);
+        return fetch('https://corsproxy.io/?url=' + encodeURIComponent(GDACS_URL))
+          .then(function(r) { return r.ok ? r.json() : null; })
+          .then(function(json) { if (json) parseGDACS(json); });
+      });
+  }
+
+  // Fallback for non-Netlify environments: corsproxy.io then allorigins
   return fetch('https://corsproxy.io/?url=' + encodeURIComponent(GDACS_URL))
     .then(function(r) {
       if (!r.ok) throw new Error('GDACS corsproxy HTTP ' + r.status);

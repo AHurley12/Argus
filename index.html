@@ -1926,10 +1926,22 @@
      NEURAL WEB — CSS
      All selectors prefixed #nw- or .nw-. Zero interference with existing UI.
   ══════════════════════════════════════════════════════════════════════════ */
+  /* Neural Web purple accent palette */
+  :root {
+    --nw-purple:       #b464ff;
+    --nw-purple-dim:   #7a3aaa;
+    --nw-purple-faint: #3a1a55;
+    --nw-purple-glow:  rgba(180,100,255,0.25);
+    --nw-bg:           rgba(5,2,18,0.97);
+    --nw-bg-panel:     rgba(8,3,24,0.96);
+    --nw-border:       rgba(60,20,90,0.55);
+    --nw-border-s:     #2a1040;
+  }
+
   #btn-neural-web {
-    background: linear-gradient(135deg, #0a1a30 0%, #0d2040 100%);
-    border: 1px solid #1a3a60;
-    color: #7ab8d4;
+    background: linear-gradient(135deg, #0e0520 0%, #1a0835 100%);
+    border: 1px solid #3a1060;
+    color: var(--nw-purple-dim);
     padding: 8px 18px;
     cursor: pointer;
     letter-spacing: 2px;
@@ -1939,8 +1951,8 @@
     border-radius: 2px;
     transition: all 0.3s cubic-bezier(0.4,0,0.2,1);
   }
-  #btn-neural-web:hover  { background: linear-gradient(135deg, #0d2040 0%, #103060 100%); border-color: #2a6a90; color: var(--color-accent); }
-  #btn-neural-web.is-active { background: linear-gradient(135deg, #003366 0%, #004488 100%); border-color: #2a7aaa; color: var(--color-white); box-shadow: 0 0 16px rgba(0,120,200,0.35); }
+  #btn-neural-web:hover  { border-color: var(--nw-purple-dim); color: var(--nw-purple); }
+  #btn-neural-web.is-active { background: linear-gradient(135deg, #1a0840 0%, #250a55 100%); border-color: var(--nw-purple); color: var(--nw-purple); box-shadow: 0 0 16px var(--nw-purple-glow); }
 
   #nw-overlay {
     position: fixed;
@@ -1948,7 +1960,7 @@
     z-index: 9990;
     display: none;
     flex-direction: row;
-    background: rgba(2,8,18,0.97);
+    background: var(--nw-bg);
     backdrop-filter: blur(4px);
     font-family: var(--font-mono);
   }
@@ -2123,84 +2135,154 @@
   #nw-empty-icon { font-size: 40px; opacity: 0.18; }
   #nw-empty-text { font-size: 9px; letter-spacing: 3px; color: var(--color-text-faint); }
 
-  /* Right inspector */
-  #nw-inspector {
-    width: 264px;
+  /* ── Neural Web: topbar action buttons ─── */
+  .nw-action-btn {
+    background: none;
+    border: 1px solid var(--nw-border-s);
+    color: var(--nw-purple-dim);
+    font-family: var(--font-mono);
+    font-size: 8px;
+    letter-spacing: 2px;
+    padding: 4px 10px;
+    cursor: pointer;
+    transition: color 0.15s, border-color 0.15s, box-shadow 0.15s;
+    white-space: nowrap;
+  }
+  .nw-action-btn:hover { color: var(--nw-purple); border-color: var(--nw-purple-dim); box-shadow: 0 0 8px var(--nw-purple-glow); }
+  .nw-action-btn.is-scanning { color: var(--nw-purple); border-color: var(--nw-purple); animation: nwPulse 1s ease-in-out infinite; }
+  @keyframes nwPulse { 0%,100%{box-shadow:0 0 6px var(--nw-purple-glow)} 50%{box-shadow:0 0 18px rgba(180,100,255,0.5)} }
+
+  /* ── Intelligence panel (right side: tabs) ─── */
+  #nw-intel-panel {
+    width: 272px;
     flex-shrink: 0;
     display: flex;
     flex-direction: column;
-    background: rgba(4,12,24,0.95);
-    border-left: 1px solid #0f2744;
+    background: var(--nw-bg-panel);
+    border-left: 1px solid var(--nw-border-s);
     overflow: hidden;
   }
-  #nw-insp-head {
-    padding: 10px 14px 8px;
-    border-bottom: 1px solid #0f2744;
+  #nw-intel-tabs {
+    display: flex;
     flex-shrink: 0;
+    border-bottom: 1px solid var(--nw-border-s);
   }
-  #nw-insp-title {
-    font-size: 8px;
-    letter-spacing: 3px;
-    color: var(--color-text-faint);
+  .nw-tab-btn {
+    flex: 1;
+    padding: 8px 4px;
+    font-family: var(--font-mono);
+    font-size: 7px;
+    letter-spacing: 1.5px;
     font-weight: 700;
+    color: var(--color-text-faint);
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    cursor: pointer;
+    transition: color 0.15s, border-color 0.15s;
   }
+  .nw-tab-btn:hover { color: var(--nw-purple-dim); }
+  .nw-tab-btn.is-active { color: var(--nw-purple); border-bottom-color: var(--nw-purple); }
+
+  .nw-tab-pane {
+    display: none;
+    flex: 1;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: var(--nw-purple-faint) transparent;
+  }
+  .nw-tab-pane.is-active { display: flex; flex-direction: column; }
+
+  /* Inspector pane */
   #nw-insp-body {
     flex: 1;
     overflow-y: auto;
     padding: 12px 14px;
     scrollbar-width: thin;
-    scrollbar-color: #1a4a70 transparent;
     font-size: 10px;
     line-height: 1.7;
     color: var(--color-text-dim);
   }
   .nw-insp-field { margin-bottom: 10px; }
-  .nw-insp-key {
-    font-size: 7px;
-    letter-spacing: 2px;
-    color: var(--color-text-faint);
-    font-weight: 700;
-    margin-bottom: 2px;
-  }
-  .nw-insp-val {
-    font-size: 10px;
-    color: var(--color-text);
-    line-height: 1.5;
-  }
-  .nw-risk-badge {
-    display: inline-block;
-    font-size: 7px;
-    letter-spacing: 2px;
-    font-weight: 700;
-    padding: 2px 6px;
-    border-radius: 1px;
-  }
+  .nw-insp-key { font-size: 7px; letter-spacing: 2px; color: var(--color-text-faint); font-weight: 700; margin-bottom: 2px; }
+  .nw-insp-val { font-size: 10px; color: var(--color-text); line-height: 1.5; }
+  .nw-risk-badge { display: inline-block; font-size: 7px; letter-spacing: 2px; font-weight: 700; padding: 2px 6px; border-radius: 1px; }
   .nw-kw-wrap { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
-  .nw-kw {
-    font-size: 7px;
+  .nw-kw { font-size: 7px; letter-spacing: 1px; padding: 2px 5px; background: rgba(0,100,180,0.12); border: 1px solid #1a3a55; color: #4a7da8; border-radius: 1px; }
+  #nw-insp-placeholder { text-align: center; padding-top: 40px; font-size: 8px; letter-spacing: 2px; color: var(--color-text-faint); line-height: 2; }
+
+  /* Edge-type badges in inspector */
+  .nw-edge-badge {
+    display: inline-block;
+    font-size: 6px;
     letter-spacing: 1px;
-    padding: 2px 5px;
-    background: rgba(0,100,180,0.12);
-    border: 1px solid #1a3a55;
-    color: #4a7da8;
+    font-weight: 700;
+    padding: 1px 5px;
     border-radius: 1px;
+    margin-right: 4px;
   }
-  #nw-insp-placeholder {
-    text-align: center;
-    padding-top: 40px;
+  .nw-edge-cause  { background: rgba(255,60,100,0.15); border: 1px solid #aa1133; color: #ff3355; }
+  .nw-edge-corr   { background: rgba(0,180,255,0.12);  border: 1px solid #005588; color: #00aaff; }
+  .nw-edge-dep    { background: rgba(255,200,0,0.12);   border: 1px solid #886600; color: #ffcc00; }
+
+  /* Timeline pane */
+  #nw-timeline-body { padding: 8px 0; }
+  .nw-tl-row {
+    display: grid;
+    grid-template-columns: 60px 10px 1fr;
+    gap: 0 8px;
+    align-items: start;
+    padding: 5px 12px;
+    border-bottom: 1px solid rgba(30,10,50,0.6);
+  }
+  .nw-tl-row:last-child { border-bottom: none; }
+  .nw-tl-ts { font-size: 7px; color: var(--color-text-faint); letter-spacing: 0.5px; padding-top: 1px; }
+  .nw-tl-dot { width: 7px; height: 7px; border-radius: 50%; margin-top: 3px; flex-shrink: 0; }
+  .nw-tl-title { font-size: 9px; color: var(--color-text-dim); line-height: 1.4; }
+  .nw-tl-meta  { font-size: 7px; color: var(--color-text-faint); margin-top: 2px; letter-spacing: 0.5px; }
+
+  /* Notes pane */
+  #nw-notes-body { padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; }
+  #nw-notes-input {
+    flex: 1;
+    min-height: 200px;
+    background: rgba(10,4,28,0.8);
+    border: 1px solid var(--nw-border-s);
+    color: var(--color-text);
+    font-family: var(--font-mono);
+    font-size: 10px;
+    line-height: 1.7;
+    padding: 10px;
+    resize: vertical;
+    outline: none;
+    transition: border-color 0.15s;
+  }
+  #nw-notes-input:focus { border-color: var(--nw-purple-dim); }
+  .nw-notes-actions { display: flex; gap: 6px; flex-shrink: 0; }
+  .nw-export-btn {
+    flex: 1;
+    background: none;
+    border: 1px solid var(--nw-border-s);
+    color: var(--nw-purple-dim);
+    font-family: var(--font-mono);
     font-size: 8px;
     letter-spacing: 2px;
-    color: var(--color-text-faint);
-    line-height: 2;
+    padding: 6px 4px;
+    cursor: pointer;
+    transition: color 0.15s, border-color 0.15s, background 0.15s;
+    text-align: center;
   }
+  .nw-export-btn:hover { color: var(--nw-purple); border-color: var(--nw-purple-dim); background: rgba(180,100,255,0.08); }
+  .nw-export-btn.primary { border-color: var(--nw-purple-dim); color: var(--nw-purple); }
+  .nw-export-btn.primary:hover { background: rgba(180,100,255,0.16); }
 
   /* Node tooltip */
   #nw-tooltip {
     position: fixed;
     pointer-events: none;
     z-index: 9995;
-    background: rgba(4,12,28,0.96);
-    border: 1px solid #1a4a70;
+    background: rgba(6,2,22,0.97);
+    border: 1px solid var(--nw-purple-faint);
     padding: 6px 10px;
     font-family: var(--font-mono);
     font-size: 9px;
@@ -11188,7 +11270,9 @@ document.addEventListener('visibilitychange', function () {
     <div id="nw-topbar">
       <span id="nw-country-title">SELECT A COUNTRY</span>
       <span id="nw-subtitle"></span>
-      <button id="btn-nw-close" onclick="ArgusNeuralWeb.close()">✕ CLOSE</button>
+      <button id="btn-nw-scan"   class="nw-action-btn">⬡ SCAN RELATIONS</button>
+      <button id="btn-nw-export" class="nw-action-btn">↓ EXPORT</button>
+      <button id="btn-nw-close"  class="nw-action-btn" onclick="ArgusNeuralWeb.close()" style="color:var(--color-text-faint)">✕ CLOSE</button>
     </div>
     <div id="nw-canvas-wrap">
       <canvas id="nw-canvas"></canvas>
@@ -11199,13 +11283,36 @@ document.addEventListener('visibilitychange', function () {
     </div>
   </div>
 
-  <!-- Right inspector -->
-  <aside id="nw-inspector">
-    <div id="nw-insp-head">
-      <div id="nw-insp-title">NODE INSPECTOR</div>
+  <!-- Right intelligence panel: Inspector | Timeline | Notes -->
+  <aside id="nw-intel-panel">
+    <div id="nw-intel-tabs">
+      <button class="nw-tab-btn is-active" data-tab="inspect">INSPECT</button>
+      <button class="nw-tab-btn"           data-tab="timeline">TIMELINE</button>
+      <button class="nw-tab-btn"           data-tab="notes">NOTES</button>
     </div>
-    <div id="nw-insp-body">
-      <div id="nw-insp-placeholder">CLICK A NODE<br>TO INSPECT</div>
+
+    <!-- Inspector pane -->
+    <div id="nw-pane-inspect" class="nw-tab-pane is-active">
+      <div id="nw-insp-body">
+        <div id="nw-insp-placeholder">CLICK A NODE<br>TO INSPECT</div>
+      </div>
+    </div>
+
+    <!-- Timeline pane -->
+    <div id="nw-pane-timeline" class="nw-tab-pane">
+      <div id="nw-timeline-body"></div>
+    </div>
+
+    <!-- Notes pane -->
+    <div id="nw-pane-notes" class="nw-tab-pane">
+      <div id="nw-notes-body">
+        <textarea id="nw-notes-input" placeholder="Analyst notes — observations, hypotheses, follow-up actions…"></textarea>
+        <div class="nw-notes-actions">
+          <button class="nw-export-btn primary" id="btn-nw-export-json">↓ JSON</button>
+          <button class="nw-export-btn primary" id="btn-nw-export-md">↓ MARKDOWN</button>
+          <button class="nw-export-btn"         id="btn-nw-notes-clear">✕ CLEAR</button>
+        </div>
+      </div>
     </div>
   </aside>
 
@@ -11219,6 +11326,15 @@ document.addEventListener('visibilitychange', function () {
      3-layer architecture: Data → State → View. Non-destructive.
 ══════════════════════════════════════════════════════════════════════════════ -->
 <script>
+/* ── ArgusNeuralWeb v2 ───────────────────────────────────────────────────────
+   3-layer architecture preserved. New in v2:
+   • Trigger-verb Relationship Scanner (causality / correlation / dependency)
+   • Entity nodes (Country, Company, Person) + Signal nodes (Market, Supply)
+   • Typed edges rendered with distinct colors/dash patterns
+   • Intelligence panel: tabbed Inspector | Timeline | Notes
+   • Export engine: JSON graph + Markdown for Obsidian
+   • Purple aesthetic throughout; visibility-saving logic unchanged.
+────────────────────────────────────────────────────────────────────────────── */
 window.ArgusNeuralWeb = (function () {
 'use strict';
 
@@ -11454,27 +11570,191 @@ function buildNodes(events) {
   return limitNodes(nodes, MAX_NODES);
 }
 
-// --- 3.4 Edge construction ---
+// --- 3.4 Edge construction (typed) ---
 function buildEdges(nodes, events) {
   var edges = [];
   var nodeIds = new Set(nodes.map(function(n){ return n.id; }));
   var countryId = 'country:' + state.selectedCountry;
 
   nodes.forEach(function(n) {
-    if (n.type === 'event') {
-      // Country → Event
-      edges.push({ source: countryId, target: n.id, weight: RISK_WEIGHTS[n.risk] || 1 });
-      // Event → Topic (if shared keyword topic node exists)
+    if (n.type === 'event' || n.type === 'entity' || n.type === 'signal') {
+      // Country → node (structural edge)
+      edges.push({ source: countryId, target: n.id, weight: RISK_WEIGHTS[n.risk] || 1, edgeType: 'country' });
+      // Event → Topic
       (n.topics || []).forEach(function(kw) {
         var tid = 'topic:' + kw;
-        if (nodeIds.has(tid)) {
-          edges.push({ source: n.id, target: tid, weight: 0.5 });
-        }
+        if (nodeIds.has(tid)) edges.push({ source: n.id, target: tid, weight: 0.5, edgeType: 'topic' });
       });
     }
   });
 
+  // Relationship edges are added by scanRelationships() and stored in state.relEdges
+  (state.relEdges || []).forEach(function(e) {
+    if (nodeIds.has(e.source) && nodeIds.has(e.target)) edges.push(e);
+  });
+
   return edges;
+}
+
+// ── RELATIONSHIP SCANNER ──────────────────────────────────────────────────────
+// Detects causality / correlation / dependency between event nodes using
+// trigger-verb matching. Also extracts entity and signal nodes.
+function scanRelationships() {
+  var btn = document.getElementById('btn-nw-scan');
+  if (btn) btn.classList.add('is-scanning');
+
+  var evNodes = state.graph.nodes.filter(function(n){ return n.type === 'event'; });
+  var relEdges = [];
+  var newNodes = [];
+  var newNodeIds = new Set(state.graph.nodes.map(function(n){ return n.id; }));
+
+  function textOf(n) { return ((n.label || '') + ' ' + (n.impact || '')).toLowerCase(); }
+
+  // 1. Event ↔ Event relationship detection
+  for (var i = 0; i < evNodes.length; i++) {
+    var a = evNodes[i];
+    var ta = textOf(a);
+    for (var j = i + 1; j < evNodes.length; j++) {
+      var b = evNodes[j];
+      var tb = textOf(b);
+
+      var edgeType = null;
+      // Causality: A's text contains trigger verbs alongside B's keywords
+      var aKws = (b.keywords || []).filter(function(k){ return ta.indexOf(k) !== -1; });
+      if (aKws.length) {
+        if (CAUSALITY_VERBS.some(function(v){ return ta.indexOf(v) !== -1; }))   edgeType = 'causality';
+        else if (CORRELATION_VERBS.some(function(v){ return ta.indexOf(v) !== -1; })) edgeType = 'correlation';
+        else if (DEPENDENCY_VERBS.some(function(v){ return ta.indexOf(v) !== -1; })) edgeType = 'dependency';
+      }
+      // Same check from B → A
+      if (!edgeType) {
+        var bKws = (a.keywords || []).filter(function(k){ return tb.indexOf(k) !== -1; });
+        if (bKws.length) {
+          if (CAUSALITY_VERBS.some(function(v){ return tb.indexOf(v) !== -1; }))   edgeType = 'causality';
+          else if (CORRELATION_VERBS.some(function(v){ return tb.indexOf(v) !== -1; })) edgeType = 'correlation';
+          else if (DEPENDENCY_VERBS.some(function(v){ return tb.indexOf(v) !== -1; })) edgeType = 'dependency';
+        }
+      }
+
+      if (edgeType) {
+        relEdges.push({ source: a.id, target: b.id, weight: 2, edgeType: edgeType, detected: true });
+      }
+    }
+  }
+
+  // 2. Entity extraction from all event text
+  var allText = evNodes.map(function(n){ return n.label + ' ' + (n.impact || ''); }).join(' ');
+  var allTextL = allText.toLowerCase();
+
+  // Companies
+  KNOWN_COMPANIES.forEach(function(co) {
+    if (allTextL.indexOf(co) !== -1) {
+      var nid = 'entity:co:' + co;
+      if (!newNodeIds.has(nid)) {
+        newNodes.push({ id: nid, type: 'entity', entityType: 'company', label: co.charAt(0).toUpperCase() + co.slice(1), risk: 'LOW' });
+        newNodeIds.add(nid);
+        // Link to events that mention the company
+        evNodes.forEach(function(en) {
+          if ((en.label + ' ' + (en.impact||'')).toLowerCase().indexOf(co) !== -1) {
+            relEdges.push({ source: en.id, target: nid, weight: 1, edgeType: 'dependency', detected: true });
+          }
+        });
+      }
+    }
+  });
+
+  // Country entities (countries mentioned in event text but ≠ selected country)
+  (window.COUNTRIES_DATA || []).forEach(function(cd) {
+    var lbl = cd.label.toLowerCase();
+    if (lbl === state.selectedCountry.toLowerCase()) return;
+    if (allTextL.indexOf(lbl) !== -1) {
+      var nid = 'entity:country:' + cd.code;
+      if (!newNodeIds.has(nid)) {
+        newNodes.push({ id: nid, type: 'entity', entityType: 'country', label: cd.label, risk: cd.risk || 'LOW' });
+        newNodeIds.add(nid);
+        evNodes.forEach(function(en) {
+          if ((en.label + ' ' + (en.impact||'')).toLowerCase().indexOf(lbl) !== -1) {
+            relEdges.push({ source: en.id, target: nid, weight: 1.5, edgeType: 'correlation', detected: true });
+          }
+        });
+      }
+    }
+  });
+
+  // 3. Signal node extraction
+  var mktHits = MARKET_SIGNALS.filter(function(s){ return allTextL.indexOf(s) !== -1; });
+  if (mktHits.length) {
+    var mnid = 'signal:market';
+    if (!newNodeIds.has(mnid)) {
+      newNodes.push({ id: mnid, type: 'signal', signalType: 'market', label: 'MARKET SIGNAL', keywords: mktHits.slice(0,4), risk: 'WATCH' });
+      newNodeIds.add(mnid);
+      evNodes.forEach(function(en) {
+        var etl = (en.label + ' ' + (en.impact||'')).toLowerCase();
+        if (mktHits.some(function(s){ return etl.indexOf(s) !== -1; })) {
+          relEdges.push({ source: en.id, target: mnid, weight: 2, edgeType: 'correlation', detected: true });
+        }
+      });
+    }
+  }
+
+  var supHits = SUPPLY_SIGNALS.filter(function(s){ return allTextL.indexOf(s) !== -1; });
+  if (supHits.length) {
+    var snid = 'signal:supply';
+    if (!newNodeIds.has(snid)) {
+      newNodes.push({ id: snid, type: 'signal', signalType: 'supply', label: 'SUPPLY SHOCK', keywords: supHits.slice(0,4), risk: 'WARNING' });
+      newNodeIds.add(snid);
+      evNodes.forEach(function(en) {
+        var etl = (en.label + ' ' + (en.impact||'')).toLowerCase();
+        if (supHits.some(function(s){ return etl.indexOf(s) !== -1; })) {
+          relEdges.push({ source: en.id, target: snid, weight: 2.5, edgeType: 'dependency', detected: true });
+        }
+      });
+    }
+  }
+
+  // Commit results to state
+  state.relEdges = relEdges;
+  if (newNodes.length) {
+    // Merge into graph without full rebuild — just append + extend layout
+    var merged = state.graph.nodes.concat(newNodes);
+    var edges   = buildEdges(merged, []);
+    state.graph = { nodes: merged, edges: edges };
+    extendLayout(newNodes);
+  } else {
+    state.graph.edges = buildEdges(state.graph.nodes, []);
+  }
+
+  renderGraph();
+  renderTimeline();
+
+  // Show rel-edge summary in inspector
+  var relCount = relEdges.filter(function(e){ return e.detected; }).length;
+  var insp = document.getElementById('nw-insp-body');
+  if (insp && insp.querySelector('#nw-insp-placeholder')) {
+    insp.innerHTML = field('SCAN COMPLETE',
+      '<span style="color:var(--nw-purple)">' + relCount + ' relationships detected</span>'
+    ) +
+    field('NEW NODES', newNodes.length + ' entities/signals added') +
+    field('EDGE TYPES',
+      '<span class="nw-edge-badge nw-edge-cause">CAUSALITY</span>' +
+      '<span class="nw-edge-badge nw-edge-corr">CORRELATION</span>' +
+      '<span class="nw-edge-badge nw-edge-dep">DEPENDENCY</span>'
+    );
+  }
+
+  if (btn) setTimeout(function(){ btn.classList.remove('is-scanning'); }, 600);
+}
+
+// Extend layout to position newly added nodes in an outer shell
+function extendLayout(newNodes) {
+  var canvas = document.getElementById('nw-canvas');
+  if (!canvas) return;
+  var cx = canvas.width / 2, cy = canvas.height / 2;
+  var shellR = Math.min(cx, cy) * 0.82;
+  newNodes.forEach(function(n, i) {
+    var angle = (2 * Math.PI * i / Math.max(newNodes.length, 1)) + Math.PI / 4;
+    layout[n.id] = { x: cx + Math.cos(angle) * shellR, y: cy + Math.sin(angle) * shellR, vx: 0, vy: 0, r: getNodeRadius(n) };
+  });
 }
 
 // --- 3.5 Density control ---
@@ -11513,6 +11793,10 @@ function rebuildGraph() {
 
   renderGraph();
   updateStats(events);
+
+  // Keep timeline in sync if that tab is currently visible
+  var tlPane = document.getElementById('nw-pane-timeline');
+  if (tlPane && tlPane.classList.contains('is-active')) renderTimeline();
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -11525,9 +11809,31 @@ var animFrame = null;
 var RISK_COLORS = { CRITICAL:'#ff0044', WARNING:'#ff9933', WATCH:'#ffcc00', LOW:'#00ff88' };
 var TYPE_COLORS = { CONFLICT:'#ff3355', POLICY:'#0099ff', DISASTER:'#ff9933', ECONOMIC:'#ffcc00', HUMANITARIAN:'#ff6699', SUPPLY_CHAIN:'#00ccff', HUMAN_RIGHTS:'#ff99cc', TENSION:'#aaaaff' };
 
+// ── Relationship Scanner constants ───────────────────────────────────────────
+var CAUSALITY_VERBS   = ['triggered','caused','led to','prompted','resulted in','sparked','drove','forced','escalated','disrupted','destabilised','collapsed','pushed','enabled'];
+var CORRELATION_VERBS = ['coincided','following','alongside','amid','linked','parallel','concurrent','compounded','reinforced','aggravated','worsened'];
+var DEPENDENCY_VERBS  = ['relies on','depends on','tied to','contingent','vulnerable','exposed to','impacted by','at risk','threatened by','relies upon','dependent on'];
+
+var EDGE_TYPES = {
+  causality:   { color:'#ff3355', dash:[4,3],  label:'LED TO',     badge:'nw-edge-cause' },
+  correlation: { color:'#00aaff', dash:[2,4],  label:'MOVED WITH', badge:'nw-edge-corr'  },
+  dependency:  { color:'#ffcc00', dash:[6,2],  label:'RELIES ON',  badge:'nw-edge-dep'   },
+  country:     { color:'#0099ff', dash:[],     label:'',           badge:''               },
+  topic:       { color:'#3a1a7a', dash:[1,3],  label:'',           badge:''               },
+};
+
+// Well-known companies in supply-chain / trade context
+var KNOWN_COMPANIES = ['maersk','cosco','evergreen','hapag','msc','fedex','ups','dhl','shell','bp','exxon','aramco','toyota','apple','tsmc','samsung','intel','nvidia','boeing','airbus','caterpillar'];
+
+// Market/supply signal keywords
+var MARKET_SIGNALS   = ['oil price','brent','wti','s&p','spy','yield','dollar','usd','gold','treasury','nasdaq','dow','inflation','gdp','fed','rate hike','rate cut'];
+var SUPPLY_SIGNALS   = ['shortage','embargo','sanctions','blockade','disruption','supply chain','port closure','canal blocked','semiconductor','chip','fertilizer','wheat','grain'];
+
 function getNodeRadius(n) {
   if (n.type === 'country') return 26;
   if (n.type === 'topic')   return 10;
+  if (n.type === 'entity')  return 13 + (RISK_WEIGHTS[n.risk] || 1);
+  if (n.type === 'signal')  return 15;
   return 14 + (RISK_WEIGHTS[n.risk] || 1) * 2;
 }
 
@@ -11604,17 +11910,21 @@ function renderGraph() {
   ctx.translate(cam.x, cam.y);
   ctx.scale(cam.scale, cam.scale);
 
-  // Draw edges first
+  // Draw edges first — typed with color + dash pattern
   edges.forEach(function(e) {
     var a = layout[e.source], b = layout[e.target];
     if (!a || !b) return;
-    var alpha = e.weight > 1 ? 0.35 : 0.15;
+    var et     = EDGE_TYPES[e.edgeType] || EDGE_TYPES.country;
+    var alpha  = e.detected ? 0.55 : (e.weight > 1 ? 0.28 : 0.12);
+    var lw     = e.detected ? (e.weight > 2 ? 1.8 : 1.2) : (e.weight > 2 ? 1.4 : 0.7);
     ctx.beginPath();
+    ctx.setLineDash(et.dash);
     ctx.moveTo(a.x, a.y);
     ctx.lineTo(b.x, b.y);
-    ctx.strokeStyle = 'rgba(30,80,140,' + alpha + ')';
-    ctx.lineWidth = e.weight > 2 ? 1.5 : 0.8;
+    ctx.strokeStyle = hexToRgba(et.color, alpha);
+    ctx.lineWidth   = lw;
     ctx.stroke();
+    ctx.setLineDash([]);
   });
 
   // Draw nodes
@@ -11635,45 +11945,85 @@ function drawNode(ctx, n, pos, hovered, selected) {
   var r     = pos.r;
   var color = nodeColor(n);
 
-  // Glow ring on hover/select
+  // Purple glow ring on hover/select for new node types; blue for existing
   if (hovered || selected) {
     ctx.beginPath();
     ctx.arc(pos.x, pos.y, r + 6, 0, Math.PI * 2);
-    ctx.strokeStyle = color;
+    ctx.strokeStyle = (n.type === 'entity' || n.type === 'signal') ? '#b464ff' : color;
     ctx.lineWidth = 1.2;
-    ctx.globalAlpha = selected ? 0.6 : 0.35;
+    ctx.globalAlpha = selected ? 0.65 : 0.35;
     ctx.stroke();
     ctx.globalAlpha = 1;
   }
 
   if (n.type === 'country') {
-    // Large circle — neutral dark fill with accent ring
+    // Large circle — purple-tinted fill
     ctx.beginPath();
     ctx.arc(pos.x, pos.y, r, 0, Math.PI * 2);
-    ctx.fillStyle = 'rgba(0,80,160,0.25)';
+    ctx.fillStyle = 'rgba(20,5,50,0.45)';
     ctx.fill();
-    ctx.strokeStyle = '#0099ff';
+    ctx.strokeStyle = '#b464ff';
     ctx.lineWidth = 2;
     ctx.stroke();
-
     // Inner dot
     ctx.beginPath();
     ctx.arc(pos.x, pos.y, 5, 0, Math.PI * 2);
-    ctx.fillStyle = '#0099ff';
+    ctx.fillStyle = '#b464ff';
     ctx.fill();
 
   } else if (n.type === 'topic') {
-    // Small muted hexagon-ish (drawn as circle for perf)
+    // Small muted circle
     ctx.beginPath();
     ctx.arc(pos.x, pos.y, r, 0, Math.PI * 2);
-    ctx.fillStyle = 'rgba(30,60,100,0.5)';
+    ctx.fillStyle = 'rgba(30,10,60,0.5)';
     ctx.fill();
-    ctx.strokeStyle = '#2a5a8a';
+    ctx.strokeStyle = '#5a2a8a';
     ctx.lineWidth = 1;
     ctx.stroke();
 
+  } else if (n.type === 'entity') {
+    // Diamond shape (rotated square) — distinguishes entities from events
+    ctx.save();
+    ctx.translate(pos.x, pos.y);
+    ctx.rotate(Math.PI / 4);
+    ctx.beginPath();
+    ctx.rect(-r * 0.75, -r * 0.75, r * 1.5, r * 1.5);
+    ctx.fillStyle = hexToRgba(color, 0.16);
+    ctx.fill();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = hovered ? 2 : 1.2;
+    ctx.stroke();
+    ctx.restore();
+    // Inner type dot
+    var entColor = n.entityType === 'country' ? '#0099ff' : (n.entityType === 'company' ? '#b464ff' : '#ffcc00');
+    ctx.beginPath();
+    ctx.arc(pos.x, pos.y, r * 0.32, 0, Math.PI * 2);
+    ctx.fillStyle = entColor;
+    ctx.fill();
+
+  } else if (n.type === 'signal') {
+    // Hexagon shape — signals are distinct from events and entities
+    ctx.beginPath();
+    for (var k = 0; k < 6; k++) {
+      var a = (Math.PI / 3) * k - Math.PI / 6;
+      if (k === 0) ctx.moveTo(pos.x + r * Math.cos(a), pos.y + r * Math.sin(a));
+      else         ctx.lineTo(pos.x + r * Math.cos(a), pos.y + r * Math.sin(a));
+    }
+    ctx.closePath();
+    var sigColor = n.signalType === 'market' ? '#ff9933' : '#ff4488';
+    ctx.fillStyle = hexToRgba(sigColor, 0.16);
+    ctx.fill();
+    ctx.strokeStyle = sigColor;
+    ctx.lineWidth = hovered ? 2 : 1.4;
+    ctx.stroke();
+    // Inner indicator
+    ctx.beginPath();
+    ctx.arc(pos.x, pos.y, r * 0.3, 0, Math.PI * 2);
+    ctx.fillStyle = hexToRgba(sigColor, 0.7);
+    ctx.fill();
+
   } else {
-    // Event node — colored circle
+    // Event node — colored circle with type-color inner dot
     ctx.beginPath();
     ctx.arc(pos.x, pos.y, r, 0, Math.PI * 2);
     ctx.fillStyle = hexToRgba(color, 0.18);
@@ -11681,8 +12031,6 @@ function drawNode(ctx, n, pos, hovered, selected) {
     ctx.strokeStyle = color;
     ctx.lineWidth = hovered ? 2 : 1.2;
     ctx.stroke();
-
-    // Type indicator — small filled arc at top
     var typeColor = TYPE_COLORS[n.eventType] || '#4a7da8';
     ctx.beginPath();
     ctx.arc(pos.x, pos.y, r * 0.38, 0, Math.PI * 2);
@@ -11710,8 +12058,10 @@ function drawNodeLabel(ctx, n, pos) {
 }
 
 function nodeColor(n) {
-  if (n.type === 'country') return '#0099ff';
-  if (n.type === 'topic')   return '#2a5a8a';
+  if (n.type === 'country') return '#b464ff';
+  if (n.type === 'topic')   return '#5a2a8a';
+  if (n.type === 'entity')  return n.entityType === 'country' ? '#0099ff' : (n.entityType === 'company' ? '#b464ff' : '#ffcc00');
+  if (n.type === 'signal')  return n.signalType === 'market' ? '#ff9933' : '#ff4488';
   return RISK_COLORS[n.risk] || '#4a7da8';
 }
 
@@ -11819,36 +12169,65 @@ function showTooltip(node, e) {
 // ── Inspector panel ─────────────────────────────────────────────────────────────
 function showInspector(node) {
   var body = document.getElementById('nw-insp-body');
+  if (!body) return;
   if (!node) {
     body.innerHTML = '<div id="nw-insp-placeholder">CLICK A NODE<br>TO INSPECT</div>';
     return;
   }
+  switchTab('inspect');
 
   if (node.type === 'country') {
     var cd = node.data;
     body.innerHTML = [
+      '<div style="font-size:8px;letter-spacing:2px;color:var(--nw-purple);margin-bottom:8px">◈ COUNTRY NODE</div>',
       field('COUNTRY', node.label),
       cd ? field('RISK SCORE', '<span class="nw-risk-badge" style="background:' + hexToRgba(RISK_COLORS[cd.risk]||'#4a7da8',0.18) + ';color:' + (RISK_COLORS[cd.risk]||'#4a7da8') + ';border:1px solid ' + (RISK_COLORS[cd.risk]||'#4a7da8') + '">' + cd.risk + ' · ' + (cd.score||'—') + '</span>') : '',
       cd ? field('GDP', cd.gdp || '—') : '',
       cd ? field('TOP EXPORTS', (cd.topE||[]).join(', ') || '—') : '',
       cd ? field('TOP IMPORTS', (cd.topI||[]).join(', ') || '—') : '',
-      field('EVENTS LOADED', (store.byCountry.get(node.label) || []).length + ' indexed'),
+      field('EVENTS INDEXED', (store.byCountry.get(node.label) || []).length + ' events'),
     ].join('');
 
   } else if (node.type === 'topic') {
     var evList = (state.graph.nodes || []).filter(function(n){ return n.type==='event' && (n.topics||[]).indexOf(node.label) !== -1; });
     body.innerHTML = [
-      field('TOPIC CLUSTER', node.label),
+      '<div style="font-size:8px;letter-spacing:2px;color:#5a2a8a;margin-bottom:8px">⬡ TOPIC CLUSTER</div>',
+      field('KEYWORD', node.label),
       field('EVENT COUNT', node.count),
-      field('LINKED EVENTS', evList.map(function(e){ return '<div style="margin-bottom:4px;color:#8899bb;font-size:9px">· ' + e.label.slice(0,50) + '</div>'; }).join('')),
+      field('LINKED EVENTS', evList.map(function(e){ return '<div style="margin-bottom:4px;color:#8899bb;font-size:9px">· ' + e.label.slice(0,52) + '</div>'; }).join('')),
+    ].join('');
+
+  } else if (node.type === 'entity') {
+    var relEdgeCount = (state.relEdges || []).filter(function(e){ return e.source === node.id || e.target === node.id; }).length;
+    body.innerHTML = [
+      '<div style="font-size:8px;letter-spacing:2px;color:#b464ff;margin-bottom:8px">◆ ENTITY — ' + (node.entityType || '').toUpperCase() + '</div>',
+      field('NAME', node.label),
+      field('TYPE', node.entityType || '—'),
+      field('RELATIONSHIPS', relEdgeCount + ' detected edges'),
+    ].join('');
+
+  } else if (node.type === 'signal') {
+    body.innerHTML = [
+      '<div style="font-size:8px;letter-spacing:2px;color:' + (node.signalType==='market'?'#ff9933':'#ff4488') + ';margin-bottom:8px">⬡ ' + (node.signalType||'').toUpperCase() + ' SIGNAL</div>',
+      field('LABEL', node.label),
+      field('TRIGGERED BY', (node.keywords || []).join(', ') || '—'),
     ].join('');
 
   } else {
-    // Event node
+    // Event node — show relationship edges
     var ev = node._ev || {};
     var ts = ev.timestamp ? new Date(ev.timestamp).toISOString().replace('T',' ').slice(0,16) + ' UTC' : '—';
+    var relEdges = (state.relEdges || []).filter(function(e){ return e.source === node.id || e.target === node.id; });
+    var relHtml = relEdges.map(function(e) {
+      var et = EDGE_TYPES[e.edgeType] || {};
+      var other = e.source === node.id ? e.target : e.source;
+      var otherN = state.graph.nodes.find(function(n){ return n.id === other; });
+      var otherLabel = otherN ? otherN.label : other;
+      return '<div style="margin-bottom:3px;font-size:8px"><span class="nw-edge-badge ' + (et.badge||'') + '">' + (et.label||e.edgeType) + '</span><span style="color:#8899bb">' + otherLabel.slice(0,36) + '</span></div>';
+    }).join('');
+
     body.innerHTML = [
-      '<div style="font-size:8px;letter-spacing:2px;color:' + (RISK_COLORS[node.risk]||'#4a7da8') + ';margin-bottom:8px">' + node.risk + ' · ' + node.eventType + '</div>',
+      '<div style="font-size:8px;letter-spacing:2px;color:' + (RISK_COLORS[node.risk]||'#4a7da8') + ';margin-bottom:8px">' + node.risk + ' · ' + (node.eventType||'') + '</div>',
       field('TITLE', '<span style="color:#c0ddf8;line-height:1.5">' + node.label + '</span>'),
       field('DATE', ts),
       ev.impact ? field('IMPACT', '<span style="line-height:1.5">' + ev.impact + '</span>') : '',
@@ -11856,6 +12235,7 @@ function showInspector(node) {
       node.keywords && node.keywords.length ? field('KEYWORDS',
         '<div class="nw-kw-wrap">' + node.keywords.map(function(k){ return '<span class="nw-kw">' + k + '</span>'; }).join('') + '</div>'
       ) : '',
+      relEdges.length ? field('RELATIONSHIPS', relHtml) : '',
     ].join('');
   }
 }
@@ -11863,6 +12243,166 @@ function showInspector(node) {
 function field(label, value) {
   if (!value && value !== 0) return '';
   return '<div class="nw-insp-field"><div class="nw-insp-key">' + label + '</div><div class="nw-insp-val">' + value + '</div></div>';
+}
+
+// ── Timeline renderer — sorted by timestamp DESC ──────────────────────────────
+var MONTHS = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
+
+function renderTimeline() {
+  var el = document.getElementById('nw-timeline-body');
+  if (!el) return;
+
+  // Collect all event + entity nodes with a timestamp, sorted newest first
+  var items = state.graph.nodes
+    .filter(function(n){ return n.type === 'event' && n.timestamp; })
+    .slice()
+    .sort(function(a, b){ return b.timestamp - a.timestamp; });
+
+  if (!items.length) {
+    el.innerHTML = '<div style="padding:20px;text-align:center;font-size:8px;letter-spacing:2px;color:var(--color-text-faint)">NO EVENTS — SELECT COUNTRY</div>';
+    return;
+  }
+
+  var html = items.map(function(n) {
+    var d   = new Date(n.timestamp);
+    var ts  = isNaN(d) ? '—' : d.getUTCDate() + ' ' + MONTHS[d.getUTCMonth()] + ' ' + String(d.getUTCHours()).padStart(2,'0') + ':' + String(d.getUTCMinutes()).padStart(2,'0');
+    var col = RISK_COLORS[n.risk] || '#4a7da8';
+    return '<div class="nw-tl-row">' +
+      '<div class="nw-tl-ts">' + ts + '</div>' +
+      '<div class="nw-tl-dot" style="background:' + hexToRgba(col,0.5) + ';border:1px solid ' + col + '"></div>' +
+      '<div><div class="nw-tl-title">' + (n.label.length > 48 ? n.label.slice(0,46) + '…' : n.label) + '</div>' +
+      '<div class="nw-tl-meta">' + (n.eventType || '') + ' · ' + n.risk + '</div></div>' +
+      '</div>';
+  }).join('');
+
+  el.innerHTML = html;
+}
+
+// ── Notes persistence (localStorage, keyed by country + date) ────────────────
+function notesKey() {
+  return 'argus_nw_notes_' + (state.selectedCountry || 'global').toLowerCase().replace(/\s+/g,'_') + '_' + new Date().toISOString().slice(0,10);
+}
+function saveNotes(text) {
+  try { localStorage.setItem(notesKey(), text); } catch(_){}
+}
+function loadNotes() {
+  try { return localStorage.getItem(notesKey()) || ''; } catch(_){ return ''; }
+}
+
+// ── Export engine ─────────────────────────────────────────────────────────────
+function exportGraph(fmt) {
+  var nodes   = state.graph.nodes;
+  var edges   = state.graph.edges;
+  var relEdges = state.relEdges || [];
+  var notes   = (document.getElementById('nw-notes-input') || {}).value || '';
+  var ts      = new Date().toISOString().replace('T',' ').slice(0,16) + ' UTC';
+  var country = state.selectedCountry || 'Unknown';
+
+  // Timeline sorted for export
+  var timeline = nodes
+    .filter(function(n){ return n.type==='event' && n.timestamp; })
+    .sort(function(a,b){ return b.timestamp - a.timestamp; })
+    .map(function(n){
+      return { timestamp: new Date(n.timestamp).toISOString(), title: n.label, type: n.eventType, risk: n.risk };
+    });
+
+  if (fmt === 'json') {
+    var exportObj = {
+      meta: { generated: ts, country: country, version: 'ArgusNeuralWeb-v2' },
+      nodes: nodes.map(function(n){
+        return { id: n.id, type: n.type, label: n.label, risk: n.risk || null,
+                 eventType: n.eventType || null, entityType: n.entityType || null,
+                 signalType: n.signalType || null, keywords: n.keywords || [] };
+      }),
+      edges: relEdges.map(function(e){
+        return { source: e.source, target: e.target, type: e.edgeType, weight: e.weight };
+      }),
+      timeline: timeline,
+      notes: notes,
+    };
+    downloadFile('argus-graph-' + country.replace(/\s+/g,'-').toLowerCase() + '-' + new Date().toISOString().slice(0,10) + '.json',
+      JSON.stringify(exportObj, null, 2), 'application/json');
+
+  } else {
+    // Markdown — Obsidian-compatible
+    var lines = [
+      '# ARGUS Neural Web — ' + country,
+      '**Generated:** ' + ts + '  ',
+      '**Nodes:** ' + nodes.length + '  **Relationships:** ' + relEdges.length,
+      '',
+      '---',
+      '',
+      '## Graph Nodes',
+    ];
+
+    var nodesByType = {};
+    nodes.forEach(function(n){ (nodesByType[n.type] = nodesByType[n.type]||[]).push(n); });
+
+    Object.keys(nodesByType).forEach(function(t) {
+      lines.push('\n### ' + t.toUpperCase() + 'S');
+      nodesByType[t].forEach(function(n) {
+        var meta = n.risk ? ' `' + n.risk + '`' : '';
+        var sub  = n.eventType || n.entityType || n.signalType || '';
+        lines.push('- **' + n.label + '**' + meta + (sub ? ' — ' + sub : ''));
+        if (n.keywords && n.keywords.length) lines.push('  - Keywords: ' + n.keywords.join(', '));
+      });
+    });
+
+    if (relEdges.length) {
+      lines.push('\n## Relationships\n');
+      var edgeGroups = { causality: [], correlation: [], dependency: [] };
+      relEdges.forEach(function(e){ if (edgeGroups[e.edgeType]) edgeGroups[e.edgeType].push(e); });
+
+      ['causality','correlation','dependency'].forEach(function(et) {
+        if (!edgeGroups[et].length) return;
+        lines.push('### ' + et.toUpperCase());
+        edgeGroups[et].forEach(function(e) {
+          var srcN = nodes.find(function(n){ return n.id === e.source; });
+          var tgtN = nodes.find(function(n){ return n.id === e.target; });
+          if (srcN && tgtN) lines.push('- [[' + srcN.label + ']] → [[' + tgtN.label + ']]');
+        });
+      });
+    }
+
+    if (timeline.length) {
+      lines.push('\n## Timeline\n');
+      timeline.slice(0, 30).forEach(function(e) {
+        lines.push('- **' + e.timestamp.slice(0,10) + '** `' + e.risk + '` ' + e.title + ' (' + e.type + ')');
+      });
+    }
+
+    if (notes.trim()) {
+      lines.push('\n## Analyst Notes\n');
+      lines.push(notes.trim());
+    }
+
+    lines.push('\n---\n*Generated by [[ARGUS Intelligence Terminal]]*');
+    downloadFile('argus-' + country.replace(/\s+/g,'-').toLowerCase() + '-' + new Date().toISOString().slice(0,10) + '.md',
+      lines.join('\n'), 'text/markdown');
+  }
+}
+
+function downloadFile(filename, content, mime) {
+  var a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([content], { type: mime }));
+  a.download = filename;
+  a.click();
+  setTimeout(function(){ URL.revokeObjectURL(a.href); }, 1000);
+}
+
+// ── Tab switching ─────────────────────────────────────────────────────────────
+function switchTab(tab) {
+  document.querySelectorAll('#nw-intel-tabs .nw-tab-btn').forEach(function(btn) {
+    btn.classList.toggle('is-active', btn.dataset.tab === tab);
+  });
+  document.querySelectorAll('#nw-intel-panel .nw-tab-pane').forEach(function(pane) {
+    pane.classList.toggle('is-active', pane.id === 'nw-pane-' + tab);
+  });
+  if (tab === 'timeline') renderTimeline();
+  if (tab === 'notes') {
+    var ta = document.getElementById('nw-notes-input');
+    if (ta && !ta.value) ta.value = loadNotes();
+  }
 }
 
 // ── Country selector ──────────────────────────────────────────────────────────
@@ -11949,6 +12489,34 @@ function wireFilters() {
 
   document.getElementById('nw-country-search').addEventListener('input', function() {
     buildCountryList(this.value);
+  });
+
+  // ── Relationship Scanner ────────────────────────────────────────────────────
+  var scanBtn = document.getElementById('btn-nw-scan');
+  if (scanBtn) scanBtn.addEventListener('click', scanRelationships);
+
+  // ── Export buttons ──────────────────────────────────────────────────────────
+  var expJson = document.getElementById('btn-nw-export-json');
+  var expMd   = document.getElementById('btn-nw-export-md');
+  if (expJson) expJson.addEventListener('click', function() { exportGraph('json'); });
+  if (expMd)   expMd.addEventListener('click',   function() { exportGraph('md');   });
+
+  // Top-bar export button (shows JSON by default)
+  var expTop = document.getElementById('btn-nw-export');
+  if (expTop) expTop.addEventListener('click', function() { exportGraph('json'); });
+
+  // ── Notes persistence ───────────────────────────────────────────────────────
+  var notesIn = document.getElementById('nw-notes-input');
+  var notesCl = document.getElementById('btn-nw-notes-clear');
+  if (notesIn) notesIn.addEventListener('input', function() { saveNotes(notesIn.value); });
+  if (notesCl) notesCl.addEventListener('click', function() {
+    var ta = document.getElementById('nw-notes-input');
+    if (ta) { ta.value = ''; saveNotes(''); }
+  });
+
+  // ── Intelligence panel tab buttons ─────────────────────────────────────────
+  document.querySelectorAll('#nw-intel-tabs .nw-tab-btn').forEach(function(btn) {
+    btn.addEventListener('click', function() { switchTab(btn.dataset.tab); });
   });
 }
 
@@ -12044,10 +12612,12 @@ return {
   close:         close,
   toggle:        toggle,
   setCountry:    function(c){ setCountry(c); buildCountryList(); updateTopbar(); },
-  updateFilters: updateFilters,
-  rebuildGraph:  rebuildGraph,
-  getState:      function(){ return state; },
-  getStore:      function(){ return store; },
+  updateFilters:    updateFilters,
+  rebuildGraph:     rebuildGraph,
+  scanRelationships: scanRelationships,
+  exportGraph:      exportGraph,
+  getState:         function(){ return state; },
+  getStore:         function(){ return store; },
 };
 
 }());

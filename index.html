@@ -785,32 +785,7 @@
     #btn-detail-close:hover { color: #999; }
 
     /* ── Legend ──────────────────────────────────────────────────────────────── */
-    #panel-legend {
-      bottom: 18px;
-      right: 18px;
-      padding: 12px 16px;
-      font-size: 10px;
-    }
-
-    .legend__title {
-      color: var(--color-text-dim);
-      letter-spacing: 2px;
-      margin-bottom: 10px;
-      font-size: 9px;
-      font-weight: 700;
-    }
-    .legend__row { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
-    .legend__dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
-    .legend__label { font-size: 10px; font-weight: 600; }
-    .legend__note {
-      border-top: 1px solid var(--color-border);
-      margin-top: 10px;
-      padding-top: 10px;
-      color: var(--color-text-dim);
-      font-size: 9px;
-      line-height: 2;
-      font-weight: 300;
-    }
+    /* #panel-legend and #kbd-legend consolidated into #hud-legend below */
 
     /* ── Market Intelligence Panel (right) ───────────────────────────────────── */
     #panel-market {
@@ -1144,20 +1119,71 @@
     }
 
     /* ── Keyboard Shortcut Legend ────────────────────────────────────────────── */
-    #kbd-legend {
+    /* ── HUD Legend Tab (bottom-left) ───────────────────────────────────────── */
+    #hud-legend {
       position: absolute;
       bottom: 18px;
       left: 18px;
       z-index: var(--z-panels);
-      pointer-events: none;
       display: flex;
       flex-direction: column;
-      gap: 3px;
+      align-items: flex-start;
+      gap: 0;
     }
+
+    #hud-legend-body {
+      background: linear-gradient(135deg, rgba(5,15,30,0.94) 0%, rgba(8,20,40,0.94) 100%);
+      border: 1px solid var(--color-border-solid);
+      backdrop-filter: blur(12px);
+      border-radius: 2px 2px 0 0;
+      padding: 10px 13px 10px;
+      min-width: 148px;
+      overflow: hidden;
+      max-height: 0;
+      opacity: 0;
+      pointer-events: none;
+      transition: max-height 0.22s cubic-bezier(0.22,1,0.36,1), opacity 0.18s ease;
+    }
+    #hud-legend.is-open #hud-legend-body {
+      max-height: 340px;
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    #hud-legend-toggle {
+      background: linear-gradient(135deg, rgba(5,15,30,0.90) 0%, rgba(10,25,48,0.90) 100%);
+      border: 1px solid var(--color-border-solid);
+      border-radius: 0 0 2px 2px;
+      color: var(--color-text-dim);
+      font-family: var(--font-mono);
+      font-size: 8px;
+      font-weight: 700;
+      letter-spacing: 2px;
+      padding: 5px 10px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      transition: color 0.15s, border-color 0.15s;
+      white-space: nowrap;
+    }
+    #hud-legend-toggle:hover { color: var(--color-accent); border-color: #1a4a70; }
+    #hud-legend.is-open #hud-legend-toggle { color: var(--color-accent); border-top-color: transparent; }
+
+    .hud-section {
+      font-size: 7px;
+      letter-spacing: 2.5px;
+      font-weight: 700;
+      color: var(--color-text-faint);
+      margin: 9px 0 5px;
+    }
+    .hud-section:first-child { margin-top: 0; }
+
     .kbd-row {
       display: flex;
       align-items: center;
       gap: 5px;
+      margin-bottom: 3px;
     }
     .kbd-key {
       display: inline-flex;
@@ -1165,14 +1191,13 @@
       justify-content: center;
       width: 13px;
       height: 13px;
-      background: rgba(5, 15, 30, 0.7);
-      border: 1px solid rgba(15, 39, 68, 0.8);
+      background: rgba(5,15,30,0.7);
+      border: 1px solid rgba(15,39,68,0.8);
       border-radius: 2px;
       font-size: 7px;
       font-weight: 700;
       font-family: var(--font-mono);
       color: var(--color-accent);
-      letter-spacing: 0;
       flex-shrink: 0;
     }
     .kbd-label {
@@ -1180,7 +1205,26 @@
       letter-spacing: 1px;
       color: var(--color-text-faint);
       font-weight: 400;
-      font-family: var(--font-mono);
+    }
+
+    .legend__row { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+    .legend__dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+    .legend__label { font-size: 9px; font-weight: 600; }
+
+    .marker-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 4px;
+      font-size: 8px;
+      color: var(--color-text-dim);
+      letter-spacing: 1px;
+    }
+    .marker-icon {
+      font-size: 10px;
+      width: 14px;
+      text-align: center;
+      flex-shrink: 0;
     }
 
     /* ── Event Command Strip ─────────────────────────────────────────────────── */
@@ -1980,28 +2024,7 @@
   </aside>
 
   <!-- ── Risk Legend ─────────────────────────────────────────────────────────── -->
-  <div id="panel-legend" class="panel" aria-label="Risk colour legend" role="complementary">
-    <div class="legend__title">RISK LEGEND</div>
-    <div class="legend__row">
-      <div class="legend__dot" style="background:#00ff88; box-shadow: 0 0 6px #00ff88"></div>
-      <span class="legend__label" style="color:#00ff88">LOW</span>
-    </div>
-    <div class="legend__row">
-      <div class="legend__dot" style="background:#ffcc00; box-shadow: 0 0 6px #ffcc00"></div>
-      <span class="legend__label" style="color:#ffcc00">WATCH</span>
-    </div>
-    <div class="legend__row">
-      <div class="legend__dot" style="background:#ff9933; box-shadow: 0 0 6px #ff9933"></div>
-      <span class="legend__label" style="color:#ff9933">WARNING</span>
-    </div>
-    <div class="legend__row">
-      <div class="legend__dot" style="background:#ff0044; box-shadow: 0 0 6px #ff0044"></div>
-      <span class="legend__label" style="color:#ff0044">CRITICAL</span>
-    </div>
-    <div class="legend__note" aria-label="Marker types">
-      ⚡ EVENT MARKER<br>● COUNTRY NODE<br>◆ CHOKEPOINT<br>── TRADE ROUTE
-    </div>
-  </div>
+  <!-- #panel-legend removed — consolidated into #hud-legend below -->
 
   <!-- ── Market Intelligence Panel ──────────────────────────────────────────── -->
   <aside id="panel-market" class="panel panel--scrollable" aria-label="Market intelligence data">
@@ -2278,15 +2301,48 @@
   <div id="hint" aria-hidden="true">
     DRAG TO ROTATE GLOBE · CLICK EVENTS FOR DETAILS · ◈ AI QUERY FOR ANALYSIS
   </div>
-  <!-- ── Keyboard Shortcut Legend ──────────────────────────────────────────── -->
-  <div id="kbd-legend" aria-hidden="true">
-    <div class="kbd-row"><span class="kbd-key">G</span><span class="kbd-label">GRID</span></div>
-    <div class="kbd-row"><span class="kbd-key">T</span><span class="kbd-label">TRADE ROUTES</span></div>
-    <div class="kbd-row"><span class="kbd-key">C</span><span class="kbd-label">COUNTRIES</span></div>
-    <div class="kbd-row"><span class="kbd-key">V</span><span class="kbd-label">CITIES</span></div>
-    <div class="kbd-row"><span class="kbd-key">E</span><span class="kbd-label">EVENTS</span></div>
-    <div class="kbd-row"><span class="kbd-key">A</span><span class="kbd-label">AIRCRAFT</span></div>
-    <div class="kbd-row"><span class="kbd-key">S</span><span class="kbd-label">SHIPS</span></div>
+  <!-- ── HUD Legend Tab — keyboard shortcuts + risk legend + marker types ──── -->
+  <div id="hud-legend" role="complementary" aria-label="HUD legend">
+    <div id="hud-legend-body">
+      <div class="hud-section">HOTKEYS</div>
+      <div class="kbd-row"><span class="kbd-key">G</span><span class="kbd-label">GRID</span></div>
+      <div class="kbd-row"><span class="kbd-key">T</span><span class="kbd-label">TRADE ROUTES</span></div>
+      <div class="kbd-row"><span class="kbd-key">C</span><span class="kbd-label">COUNTRIES</span></div>
+      <div class="kbd-row"><span class="kbd-key">V</span><span class="kbd-label">CITIES</span></div>
+      <div class="kbd-row"><span class="kbd-key">E</span><span class="kbd-label">EVENTS</span></div>
+      <div class="kbd-row"><span class="kbd-key">A</span><span class="kbd-label">AIRCRAFT</span></div>
+      <div class="kbd-row"><span class="kbd-key">S</span><span class="kbd-label">SHIPS</span></div>
+
+      <div class="hud-section">RISK LEVEL</div>
+      <div class="legend__row">
+        <div class="legend__dot" style="background:#00ff88;box-shadow:0 0 5px #00ff88"></div>
+        <span class="legend__label" style="color:#00ff88">LOW</span>
+      </div>
+      <div class="legend__row">
+        <div class="legend__dot" style="background:#ffcc00;box-shadow:0 0 5px #ffcc00"></div>
+        <span class="legend__label" style="color:#ffcc00">WATCH</span>
+      </div>
+      <div class="legend__row">
+        <div class="legend__dot" style="background:#ff9933;box-shadow:0 0 5px #ff9933"></div>
+        <span class="legend__label" style="color:#ff9933">WARNING</span>
+      </div>
+      <div class="legend__row">
+        <div class="legend__dot" style="background:#ff0044;box-shadow:0 0 5px #ff0044"></div>
+        <span class="legend__label" style="color:#ff0044">CRITICAL</span>
+      </div>
+
+      <div class="hud-section">MARKERS</div>
+      <div class="marker-row"><span class="marker-icon" style="color:#c0ddff">△</span>CITY / CAPITAL</div>
+      <div class="marker-row"><span class="marker-icon" style="color:#c0ddff">●</span>COUNTRY NODE</div>
+      <div class="marker-row"><span class="marker-icon" style="color:#ffaa44">◈</span>CHOKEPOINT</div>
+      <div class="marker-row"><span class="marker-icon" style="color:#ff9933">⊙</span>VESSEL</div>
+      <div class="marker-row"><span class="marker-icon" style="color:#00ccff">▲</span>AIRCRAFT</div>
+      <div class="marker-row"><span class="marker-icon" style="color:#aaaaaa">⚡</span>EVENT</div>
+      <div class="marker-row"><span class="marker-icon" style="color:#4a7da8">──</span>TRADE ROUTE</div>
+    </div>
+    <button id="hud-legend-toggle" onclick="this.parentElement.classList.toggle('is-open')" aria-label="Toggle legend">
+      <span>⊞</span> LEGEND
+    </button>
   </div>
 
   <!-- ── Live Tracking Toggle Buttons ───────────────────────────────────────── -->
@@ -5513,7 +5569,7 @@ async function loadLiveEvents() {
 }
 
 loadLiveEvents();
-setInterval(loadLiveEvents, FEED_TTL);
+setInterval(function () { if (!document.hidden) loadLiveEvents(); }, FEED_TTL);
 
 // ════════════════════════════════════════════════════════════════════════════
 // USGS Earthquake Feed — free, no key, real-time GeoJSON
@@ -5707,11 +5763,9 @@ window.ArgusUI = (function() {
     panel.classList.remove('is-visible');
     panel.setAttribute('aria-hidden', 'true');
     document.getElementById('hint').style.display = 'block';
-    // Restore legends
-    var kbdLegend   = document.getElementById('kbd-legend');
-    var panelLegend = document.getElementById('panel-legend');
-    if (kbdLegend)   kbdLegend.style.visibility   = '';
-    if (panelLegend) panelLegend.style.visibility  = '';
+    // Restore HUD legend
+    var hudLegend = document.getElementById('hud-legend');
+    if (hudLegend) hudLegend.style.visibility = '';
   }
 
   function openDetail(col) {
@@ -5720,11 +5774,9 @@ window.ArgusUI = (function() {
     panel.classList.add('is-visible');
     panel.setAttribute('aria-hidden', 'false');
     document.getElementById('hint').style.display = 'none';
-    // Suppress legends so detail panel is never obscured
-    var kbdLegend   = document.getElementById('kbd-legend');
-    var panelLegend = document.getElementById('panel-legend');
-    if (kbdLegend)   kbdLegend.style.visibility   = 'hidden';
-    if (panelLegend) panelLegend.style.visibility  = 'hidden';
+    // Suppress HUD legend so detail panel is never obscured
+    var hudLegend = document.getElementById('hud-legend');
+    if (hudLegend) hudLegend.style.visibility = 'hidden';
   }
 
   function showEventDetail(d) {
@@ -6995,7 +7047,7 @@ function switchTab(tab) {
 
 // Boot: 4s delay then refresh every 15 min
 setTimeout(fetchAll, 4000);
-setInterval(fetchAll, TTL);
+setInterval(function () { if (!document.hidden) fetchAll(); }, TTL);
 
 // ── DISASTER tab — NOAA severe weather fetch ──────────────────────────────────
 (function loadNOAA() {
@@ -10180,22 +10232,24 @@ window.ArgusTracking = (function () {
 var AISSTREAM_KEY  = 'PASTE_KEY_HERE'; // Free key — sign up at aisstream.io to enable ships
 var AIRCRAFT_LIMIT = 300;   // Max aircraft markers on globe at once
 var SHIP_LIMIT     = 500;   // Max ship markers (highest SOG first)
-var AC_CACHE_MS    = 60 * 1000;        // Aircraft cache/re-fetch interval: 60 seconds
+var AC_CACHE_MS    = 15 * 60 * 1000;  // Aircraft cache/re-fetch interval: 15 minutes (spec)
 var SHIP_CACHE_MS  = 15 * 60 * 1000;  // Ship REST cache interval: 15 minutes
-var AC_CACHE_KEY   = 'argus_opensky_v1';
-var AC_CACHE_TS    = 'argus_opensky_v1_ts';
+var AC_CACHE_KEY   = 'argus_traffic_v2';
+var AC_CACHE_TS    = 'argus_traffic_ts_v2';
 
-// Aircraft source URLs — tried in order, first success wins
-// adsb.fi / adsb.lol / adsb.one / airplanes.live are community ADS-B networks with CORS enabled (no key, no proxy)
-// OpenSky is kept as a proxy fallback; codetabs replaced with corsproxy.io (more reliable)
+// Primary source: Netlify function — fetches 4 strategic corridors server-side,
+// applies 10% sampling + FDX/UPS/DHL/PAC priority, caches 10 min in Supabase.
+// Fallback chain: community ADS-B feeds (CORS-open, no key needed).
+var TRAFFIC_FN  = '/.netlify/functions/fetch-traffic';
 var OPENSKY_URL = 'https://opensky-network.org/api/states/all';
 var AC_SOURCES  = [
-  'https://opendata.adsb.fi/api/v2/all',                                              // 1. adsb.fi      — CORS open, very stable
-  'https://api.adsb.lol/v2/all',                                                      // 2. adsb.lol     — CORS open, community feed
-  'https://api.adsb.one/v2/all',                                                      // 3. adsb.one     — CORS open, community feed
-  'https://api.airplanes.live/v2/all',                                                // 4. airplanes.live — CORS open, community feed
-  'https://api.allorigins.win/raw?url=' + encodeURIComponent(OPENSKY_URL),            // 5. OpenSky via allorigins
-  'https://corsproxy.io/?url=' + encodeURIComponent(OPENSKY_URL)                      // 6. OpenSky via corsproxy.io
+  TRAFFIC_FN,                                                                         // 1. Netlify fn   — 4-corridor, pre-sampled
+  'https://opendata.adsb.fi/api/v2/all',                                              // 2. adsb.fi      — CORS open, very stable
+  'https://api.adsb.lol/v2/all',                                                      // 3. adsb.lol     — CORS open, community feed
+  'https://api.adsb.one/v2/all',                                                      // 4. adsb.one     — CORS open, community feed
+  'https://api.airplanes.live/v2/all',                                                // 5. airplanes.live — CORS open, community feed
+  'https://api.allorigins.win/raw?url=' + encodeURIComponent(OPENSKY_URL),            // 6. OpenSky via allorigins
+  'https://corsproxy.io/?url=' + encodeURIComponent(OPENSKY_URL)                      // 7. OpenSky via corsproxy.io
 ];
 
 // Ship REST sources — used when AISSTREAM_KEY is absent (no WebSocket needed)
@@ -10359,19 +10413,18 @@ function placeShip(lat, lon, name) {
   shipGroup.add(outline);
 }
 
-// ── Aircraft fetch — waterfall through AC_SOURCES ─────────────────────────────
+// ── Aircraft fetch — Netlify function (primary) → community fallbacks ─────────
 function fetchAndRenderAircraft() {
-  // 0. Back off for 5 minutes after a complete waterfall failure (all sources blocked/down).
-  //    Prevents hammering CORS-blocked endpoints on every 60 s refresh tick.
+  // Back off 5 min after complete waterfall failure
   var _AC_BACKOFF_MS = 5 * 60 * 1000;
   if (_acFailedAt && (Date.now() - _acFailedAt) < _AC_BACKOFF_MS) return;
 
-  // 1. Try in-memory cache (fastest)
+  // In-memory cache
   if (cachedStates && (Date.now() - lastFetch) < AC_CACHE_MS) {
     renderAircraft(cachedStates);
     return;
   }
-  // 2. Try localStorage cache (survives page reload)
+  // localStorage cache (survives reload)
   try {
     var _lsTs  = parseInt(localStorage.getItem(AC_CACHE_TS) || '0');
     var _lsRaw = localStorage.getItem(AC_CACHE_KEY);
@@ -10388,7 +10441,7 @@ function fetchAndRenderAircraft() {
     if (idx >= AC_SOURCES.length) {
       console.warn('[ArgusTracking] All aircraft sources failed — backing off 5 min');
       updateStatus('AIRCRAFT: UNAVAILABLE');
-      _acFailedAt = Date.now(); // suppress retries for 5 minutes
+      _acFailedAt = Date.now();
       return;
     }
     var url = AC_SOURCES[idx++];
@@ -10396,9 +10449,13 @@ function fetchAndRenderAircraft() {
       .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
       .then(function (json) {
         lastFetch    = Date.now();
-        _acFailedAt  = 0;       // clear backoff on success
+        _acFailedAt  = 0;
+        // Netlify fn returns { aircraft: [...] } — lift into a unified shape
+        // so renderAircraft sees the same object regardless of source.
+        if (Array.isArray(json.aircraft) && url === TRAFFIC_FN) {
+          json = { _corridorData: true, aircraft: json.aircraft };
+        }
         cachedStates = json;
-        // Persist to localStorage so 60s cache survives page reload
         try {
           localStorage.setItem(AC_CACHE_KEY, JSON.stringify(json));
           localStorage.setItem(AC_CACHE_TS,  String(lastFetch));
@@ -10415,31 +10472,46 @@ function renderAircraft(json) {
   clearGroup(aircraftGroup, aircraftHits);
   if (!json) { updateStatus(); return; }
 
-  // Normalise three possible response shapes into {lat, lon, track, cs, country}
-  // adsb.fi  → { aircraft: [...] }   fields: lat, lon, track, flight, alt_baro
-  // adsb.lol / adsb.one → { ac: [...] }   same fields as above
-  // OpenSky  → { states:   [[...]] } indices: 5=lon 6=lat 8=on_ground 10=true_track
-  var raw = json.aircraft || json.ac || null;
+  // Normalise four possible response shapes into {lat, lon, track, cs, country}
+  // Netlify fn  → { _corridorData: true, aircraft: [{cs,lat,lon,track,country}] } — pre-sampled
+  // adsb.fi     → { aircraft: [...] }   fields: lat, lon, track, flight, alt_baro
+  // adsb.lol / adsb.one → { ac: [...] } same fields as adsb.fi
+  // OpenSky     → { states: [[...]] }   indices: 5=lon 6=lat 8=on_ground 10=true_track
   var states = [];
 
-  if (Array.isArray(raw)) {
-    states = raw
-      .filter(function (a) { return a.lat != null && a.lon != null && a.alt_baro !== 'ground'; })
-      .map(function (a) {
-        return { lat: a.lat, lon: a.lon, track: a.track, cs: (a.flight || '').trim(), country: '' };
-      });
-  } else if (Array.isArray(json.states)) {
-    // OpenSky fields: [icao24, callsign, country, time_pos, last_contact,
-    //   lon(5), lat(6), baro_alt(7), on_ground(8), velocity(9), true_track(10), ...]
-    states = json.states
-      .filter(function (s) {
-        return s[5] != null && s[6] != null   // lon/lat present
-          && s[8] === false                    // not on ground
-          && (s[7] == null || s[7] >= 1000);  // altitude ≥ 1000 m (or unreported)
-      })
-      .map(function (s) {
-        return { lat: s[6], lon: s[5], track: s[10], cs: (s[1] || '').trim(), country: s[2] || '' };
-      });
+  if (json._corridorData && Array.isArray(json.aircraft)) {
+    // Already normalised and sampled by the Netlify function — use directly
+    states = json.aircraft;
+  } else {
+    var raw = json.aircraft || json.ac || null;
+    if (Array.isArray(raw)) {
+      // adsb.fi / adsb.lol shape — apply 10% browser-side sample to keep GPU light
+      states = raw
+        .filter(function (a) { return a.lat != null && a.lon != null && a.alt_baro !== 'ground'; })
+        .filter(function (a) {
+          var cs = (a.flight || '').trim();
+          return /^(FDX|UPS|DHL|PAC)/i.test(cs) || Math.random() < 0.10;
+        })
+        .map(function (a) {
+          return { lat: a.lat, lon: a.lon, track: a.track, cs: (a.flight || '').trim(), country: '' };
+        });
+    } else if (Array.isArray(json.states)) {
+      // OpenSky fields: [icao24, callsign, country, time_pos, last_contact,
+      //   lon(5), lat(6), baro_alt(7), on_ground(8), velocity(9), true_track(10), ...]
+      states = json.states
+        .filter(function (s) {
+          return s[5] != null && s[6] != null   // lon/lat present
+            && s[8] === false                    // not on ground
+            && (s[7] == null || s[7] >= 1000);  // altitude ≥ 1000 m (or unreported)
+        })
+        .filter(function (s) {
+          var cs = (s[1] || '').trim();
+          return /^(FDX|UPS|DHL|PAC)/i.test(cs) || Math.random() < 0.10;
+        })
+        .map(function (s) {
+          return { lat: s[6], lon: s[5], track: s[10], cs: (s[1] || '').trim(), country: s[2] || '' };
+        });
+    }
   }
 
   if (!states.length) { updateStatus(); return; }
@@ -10449,7 +10521,7 @@ function renderAircraft(json) {
     var s = states[i];
     placeAircraft(s.lat, s.lon, s.track, s.cs, s.country);
   }
-  window._aircraftMarkers = aircraftHits; // keep spec-required reference in sync
+  window._aircraftMarkers = aircraftHits;
   updateStatus();
 }
 
@@ -10622,10 +10694,10 @@ function toggleAircraft() {
 
   if (aircraftOn) {
     fetchAndRenderAircraft();
-    // Auto-refresh every 60 s (AC_CACHE_MS) while active
+    // Auto-refresh every AC_CACHE_MS while active
     if (!refreshTimer) {
       refreshTimer = setInterval(function () {
-        if (aircraftOn) { lastFetch = 0; fetchAndRenderAircraft(); }
+        if (aircraftOn && !document.hidden) { lastFetch = 0; fetchAndRenderAircraft(); }
       }, AC_CACHE_MS);
     }
   } else {
@@ -10700,8 +10772,9 @@ window.addEventListener('keydown', function (e) {
         prefetched = true;
         fetchAndRenderAircraft();                        // prime the cache
         refreshTimer = setInterval(function () {
+          if (document.hidden) return;                   // Visibility API — skip when tab hidden
           lastFetch = 0;
-          fetchAndRenderAircraft();                      // keep cache fresh every 60 s
+          fetchAndRenderAircraft();                      // keep cache fresh every 15 min
         }, AC_CACHE_MS);
       }
     } else if (++attempts > 60) {
@@ -10725,6 +10798,58 @@ return {
 }());
 // Spec alias — HTML buttons already use ArgusTracking; ArgusTraffic exposed for console access
 window.ArgusTraffic = window.ArgusTracking;
+</script>
+
+<!-- ══════════════════════════════════════════════════════════════════════════════
+     SCRIPT 5 — Visibility API: pause all refresh timers when tab is hidden
+     Spec: Aircraft 15m | News 30m | GDELT 20m | FIRMS 2h
+══════════════════════════════════════════════════════════════════════════════ -->
+<script>
+(function () {
+'use strict';
+
+// Collect every module that exposes a pausable refresh timer via window
+// Each entry: { name, getTimer, setTimer, fn, interval }
+// We store the timer IDs in module closures, so we use a signal approach:
+// on hidden → clear timers; on visible → re-fire immediately + restart timers.
+
+// Modules that expose their refresh controls on window
+var MANAGED = [
+  {
+    // Aircraft — ArgusTracking bootstrap already manages refreshTimer internally.
+    // We hook visibilitychange to force a stale-cache re-fetch on resume.
+    onResume: function () {
+      if (window.ArgusTracking) window.ArgusTracking.refreshAircraft();
+    }
+  }
+];
+
+// For the top-level setInterval calls (loadLiveEvents, fetchAll etc.) we cannot
+// reach their interval IDs from here. Instead, we wrap fetch calls with a
+// document.hidden guard — but those functions are already defined.
+// Simplest approach: register a global visibility flag every module can check.
+
+var _tabVisible = !document.hidden;
+Object.defineProperty(window, '_argusTabVisible', {
+  get: function () { return _tabVisible; },
+  configurable: true,
+});
+
+document.addEventListener('visibilitychange', function () {
+  _tabVisible = !document.hidden;
+
+  if (!document.hidden) {
+    // Tab became visible — tell each managed module to resume
+    MANAGED.forEach(function (m) {
+      try { if (m.onResume) m.onResume(); } catch (_) {}
+    });
+    console.log('[ArgusVisibility] Tab visible — refreshes resumed');
+  } else {
+    console.log('[ArgusVisibility] Tab hidden — fetches suppressed');
+  }
+});
+
+}());
 </script>
 </body>
 </html>

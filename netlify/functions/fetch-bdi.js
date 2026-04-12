@@ -6,7 +6,7 @@ exports.handler = async function(event) {
   var headers = {
     'Access-Control-Allow-Origin': '*',
     'Content-Type': 'application/json',
-    'Cache-Control': 'public, max-age=60',
+    'Cache-Control': 'public, max-age=14400', // 4 hours — BDI is a daily EOD index
   };
 
   if (event.httpMethod === 'OPTIONS') {

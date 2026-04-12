@@ -835,6 +835,21 @@
 
     .dp-body { padding: 9px 11px; }
 
+    /* ── Stale-While-Revalidate data age badges ─────────────────────────────── */
+    .data-age {
+      font-size: 7px; letter-spacing: 0.5px; color: #444;
+      white-space: nowrap; transition: color 0.4s; flex-shrink: 0;
+    }
+    /* In flex-gap containers (events-header), push the badge right */
+    .events-header .data-age { margin-left: auto; }
+    .data-age.is-fresh { color: var(--color-accent, #00ccff); }
+    .data-age.is-stale { color: #444; }
+    @keyframes argus-pulse-fresh {
+      0%   { color: #00ffcc; text-shadow: 0 0 6px #00ffcc; }
+      100% { color: var(--color-accent, #00ccff); text-shadow: none; }
+    }
+    .data-age.is-fresh { animation: argus-pulse-fresh 1.2s ease-out forwards; }
+
     .dp-section {
       font-size: 10px;
       letter-spacing: 3px;
@@ -2375,6 +2390,7 @@
     <div class="events-header" onclick="ArgusUI.togglePanel('events')">
       <span class="events-header__pulse" aria-hidden="true"></span>
       LIVE EVENTS — <span id="ev-feed-count"></span> ACTIVE
+      <span class="data-age is-stale" id="data-age-events" title="Last events refresh">—</span>
       <button class="panel-min-btn" id="min-btn-events" aria-label="Minimize events panel">—</button>
     </div>
     <div id="ev-list" role="list"></div>
@@ -2403,6 +2419,7 @@
     <div class="dp-header" onclick="ArgusUI.togglePanel('market')">
       <span class="dp-title">MARKET INTELLIGENCE</span>
       <span class="dp-source">AV · EIA · FRED</span>
+      <span class="data-age is-stale" id="data-age-market" title="Last data refresh">—</span>
       <button class="panel-min-btn" id="min-btn-market" aria-label="Minimize market panel">—</button>
     </div>
     <div class="dp-body">
@@ -4159,7 +4176,7 @@ window.ArgusData = (function() {
 
   // ── Single unified TD fetch — all 14 symbols in one /quote call ───────────────
   function fetchTDData() {
-    var CACHE_K = 'argus_td_v3', CACHE_T = 'argus_td_ts_v3', TTL = 15 * 60 * 1000;
+    var CACHE_K = 'argus_td_v3', CACHE_T = 'argus_td_ts_v3', TTL = 10 * 60 * 1000; // 10 min
     try {
       var cached = localStorage.getItem(CACHE_K);
       var ts = parseInt(localStorage.getItem(CACHE_T) || '0');
@@ -4493,7 +4510,7 @@ window.ArgusData = (function() {
   // /quote returns: c=current, pc=prev close, d=change, dp=change%, h=high, l=low
   // 60 req/min free tier, direct CORS, real prices (not ETF proxies for metals/crypto)
   function fetchFinnhubCommodities() {
-    var CACHE_K = 'argus_fh_comm_v1', CACHE_T = 'argus_fh_comm_ts_v1', TTL = 15 * 60 * 1000;
+    var CACHE_K = 'argus_fh_comm_v1', CACHE_T = 'argus_fh_comm_ts_v1', TTL = 20 * 60 * 1000; // 20 min — forex/commodity strategic view
     try {
       var cached = localStorage.getItem(CACHE_K);
       var ts = parseInt(localStorage.getItem(CACHE_T) || '0');
@@ -4610,7 +4627,7 @@ window.ArgusData = (function() {
   // ── Polygon.io — /v2/aggs/ticker/{ticker}/prev ───────────────────────────────
   // KSA and IYY confirmed working on free tier. I:VIX 403s on index prefix.
   function fetchPolygonExchanges() {
-    var CACHE_K = 'argus_pg_ex_v1', CACHE_T = 'argus_pg_ex_ts_v1', TTL = 15 * 60 * 1000;
+    var CACHE_K = 'argus_pg_ex_v1', CACHE_T = 'argus_pg_ex_ts_v1', TTL = 10 * 60 * 1000; // 10 min
     try {
       var cached = localStorage.getItem(CACHE_K);
       var ts     = parseInt(localStorage.getItem(CACHE_T) || '0');
@@ -4760,7 +4777,7 @@ window.ArgusData = (function() {
   // ── Netlify market data — EIA + FRED + Stooq indexes server-side ───────────
   function fetchMarketData() {
     var CACHE_K = 'argus_netlify_mkt_v1', CACHE_T = 'argus_netlify_mkt_ts_v1';
-    var TTL = 12 * 60 * 60 * 1000;
+    var TTL = 10 * 60 * 1000; // 10 min — matches server-side cache
     try {
       var cached = localStorage.getItem(CACHE_K);
       var ts = parseInt(localStorage.getItem(CACHE_T) || "0");
@@ -4780,6 +4797,7 @@ window.ArgusData = (function() {
   }
 
   function applyMarketPayload(d) {
+    if (window.ArgusDataAge) ArgusDataAge.mark('data-age-market', d.ts);
     if (d.eia) { window._eiaData = Object.assign(window._eiaData || {}, d.eia); renderEIATicker(); }
     if (d.fred) { window._fredData = Object.assign(window._fredData || {}, d.fred); renderFREDTicker(); }
     if (d.stooq) {
@@ -4806,7 +4824,7 @@ window.ArgusData = (function() {
   // ── Yahoo Finance via Netlify — real-time quotes (SPY, QQQ, GLD, VIX, TNX…) ─
   // Only fires when hosted on Netlify or localhost. Falls back silently on error.
   function fetchYFinance() {
-    var CACHE_K = 'argus_yf_v1', CACHE_T = 'argus_yf_ts_v1', TTL = 15 * 60 * 1000;
+    var CACHE_K = 'argus_yf_v1', CACHE_T = 'argus_yf_ts_v1', TTL = 10 * 60 * 1000; // 10 min — macro trend
     // Netlify functions only exist on Netlify-hosted deployments, not GitHub Pages.
     // Skip entirely on github.io to avoid a noisy 404 in the console.
     if (window.location.hostname.indexOf('github.io') !== -1) return;
@@ -4825,13 +4843,14 @@ window.ArgusData = (function() {
           localStorage.setItem(CACHE_K, JSON.stringify(res.data));
           localStorage.setItem(CACHE_T, String(Date.now()));
         } catch(e) {}
-        applyYFData(res.data);
+        applyYFData(res.data, res.ts);
         console.log('YFinance: loaded', Object.keys(res.data).length, 'symbols');
       })
       .catch(function(e) { console.warn('fetchYFinance failed (silent):', e.message); });
   }
 
-  function applyYFData(data) {
+  function applyYFData(data, ts) {
+    if (window.ArgusDataAge) ArgusDataAge.mark('data-age-market', ts || null);
     function setEl(id, text, color) {
       var el = document.getElementById(id);
       if (!el) return;
@@ -5018,8 +5037,8 @@ var ArgusMarket = (function() {
       return;
     }
 
-    // Search cache — 5 min TTL per ticker, prevents hammering on repeat enters
-    var SEARCH_TTL  = 5 * 60 * 1000;
+    // Search cache — 24h TTL per ticker (cold storage: company profiles change at most daily)
+    var SEARCH_TTL  = 24 * 60 * 60 * 1000;
     var sCacheKey   = 'argus_yf_srch_' + sym;
     var sCacheTsKey = 'argus_yf_srch_ts_' + sym;
     try {
@@ -5342,6 +5361,7 @@ function commodityTags(ev) {
 }
 
 function renderEvents(events, isLive) {
+  if (window.ArgusDataAge) ArgusDataAge.mark('data-age-events');
   var evList = document.getElementById('ev-list');
   if (!evList) return;
   evList.innerHTML = '';
@@ -6892,7 +6912,7 @@ window.gdelt = (function() {
 
 var CACHE_KEY = 'argus_gdelt_v3';    // bumped — clears any failed-fetch cache
 var CACHE_TS  = 'argus_gdelt_ts_v3';
-var TTL       = 6 * 60 * 60 * 1000; // 6 hours — reduces fetch frequency significantly
+var TTL       = 25 * 60 * 1000; // 25 min — GDELT sweet spot (15 min update + ~10 min propagation)
 var activeTab = 'news';
 var data      = { events: [], tones: {}, chokeScores: {}, context: '' };
 
@@ -7327,6 +7347,7 @@ function applyToGlobe() {
 
 // ── Render GDELT tab ──────────────────────────────────────────────────────────
 function renderGdeltTab() {
+  if (window.ArgusDataAge) ArgusDataAge.mark('data-age-events');
   var evList = document.getElementById('ev-list');
   if (!evList) return;
   evList.innerHTML = '';
@@ -7427,7 +7448,7 @@ setInterval(function () { if (!document.hidden) fetchAll(); }, TTL);
   var URL      = 'https://api.weather.gov/alerts/active?status=actual&message_type=alert&limit=50';
   var CACHE_K  = 'argus_noaa_v2';
   var CACHE_T  = 'argus_noaa_ts_v2';
-  var TTL_MS   = 15 * 60 * 1000;
+  var TTL_MS   = 30 * 60 * 1000; // 30 min — weather events stable enough for strategic view
   try {
     var cached = localStorage.getItem(CACHE_K);
     var ts     = parseInt(localStorage.getItem(CACHE_T) || '0');
@@ -7466,7 +7487,7 @@ setInterval(function () { if (!document.hidden) fetchAll(); }, TTL);
 // MODIS/VIIRS active fire detections updated every 24h, global coverage
 (function loadWildfires() {
   var CACHE_K = 'argus_firms_v2', CACHE_T = 'argus_firms_ts_v2';
-  var TTL = 60 * 60 * 1000; // 1 hour
+  var TTL = 4 * 60 * 60 * 1000; // 4 hours — MODIS/VIIRS revisit cadence
   try {
     var cached = localStorage.getItem(CACHE_K);
     var ts = parseInt(localStorage.getItem(CACHE_T) || '0');
@@ -10605,8 +10626,8 @@ window.ArgusTracking = (function () {
 var AISSTREAM_KEY  = 'PASTE_KEY_HERE'; // Free key — sign up at aisstream.io to enable ships
 var AIRCRAFT_LIMIT = 300;   // Max aircraft markers on globe at once
 var SHIP_LIMIT     = 500;   // Max ship markers (highest SOG first)
-var AC_CACHE_MS    = 15 * 60 * 1000;  // Aircraft cache/re-fetch interval: 15 minutes (spec)
-var SHIP_CACHE_MS  = 15 * 60 * 1000;  // Ship REST cache interval: 15 minutes
+var AC_CACHE_MS    = 10 * 60 * 1000;  // 10 min — cargo flux / CEO movement snapshot
+var SHIP_CACHE_MS  = 30 * 60 * 1000;  // 30 min — tanker at 20 knots barely moves in 30 min
 var AC_CACHE_KEY   = 'argus_traffic_v2';
 var AC_CACHE_TS    = 'argus_traffic_ts_v2';
 
@@ -12620,6 +12641,46 @@ return {
   getStore:         function(){ return store; },
 };
 
+}());
+</script>
+
+<!-- ── ArgusDataAge: Stale-While-Revalidate badge helper ────────────────── -->
+<script>
+(function() {
+'use strict';
+
+// Format a Date as HH:MMZ
+function fmtZ(d) {
+  var h = d.getUTCHours().toString().padStart(2, '0');
+  var m = d.getUTCMinutes().toString().padStart(2, '0');
+  return h + ':' + m + 'Z';
+}
+
+// Mark a data-age badge as fresh, then decay to normal after 8s
+function mark(badgeId, isoTs) {
+  var el = document.getElementById(badgeId);
+  if (!el) return;
+  var ts   = isoTs ? new Date(isoTs) : new Date();
+  el.textContent = 'AS OF ' + fmtZ(ts);
+  el.classList.remove('is-stale');
+  el.classList.add('is-fresh');
+  // Re-trigger animation by forcing reflow
+  void el.offsetWidth;
+  clearTimeout(el._ageTimer);
+  el._ageTimer = setTimeout(function() {
+    el.classList.remove('is-fresh');
+  }, 8000);
+}
+
+// Mark a badge as stale (called when TTL exceeds threshold)
+function stale(badgeId) {
+  var el = document.getElementById(badgeId);
+  if (!el) return;
+  el.classList.remove('is-fresh');
+  el.classList.add('is-stale');
+}
+
+window.ArgusDataAge = { mark: mark, stale: stale };
 }());
 </script>
 </body>

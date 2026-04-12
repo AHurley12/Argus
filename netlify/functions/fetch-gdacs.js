@@ -6,7 +6,7 @@ exports.handler = async function(event) {
   var headers = {
     'Access-Control-Allow-Origin': '*',
     'Content-Type': 'application/json',
-    'Cache-Control': 'public, max-age=60',
+    'Cache-Control': 'public, max-age=1800', // 30 min — disaster events update infrequently
   };
 
   if (event.httpMethod === 'OPTIONS') {

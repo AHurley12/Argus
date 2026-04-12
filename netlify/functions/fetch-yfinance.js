@@ -1,5 +1,13 @@
 const YahooFinance = require('yahoo-finance2').default;
+const { createClient } = require('@supabase/supabase-js');
+
 const yahooFinance = new YahooFinance({ suppressNotices: ['yahooSurvey'] });
+
+const SUPABASE_URL = process.env.SUPABASE_URL;
+const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY;
+
+const TTL_BATCH_MS  = 10 * 60 * 1000;        // 10 min — macro indices, trend not tick
+const TTL_SEARCH_MS = 24 * 60 * 60 * 1000;   // 24h  — company profile / cold storage
 
 const ALIAS_TO_TICKER = { 'USDX': 'DX-Y.NYB' };
 const TICKER_TO_ALIAS = { 'DX-Y.NYB': 'USDX' };
@@ -48,10 +56,25 @@ exports.handler = async function (event) {
 
   const params = event.queryStringParameters || {};
 
+  const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+
   // ── Mode: deep-dive quoteSummary ──────────────────────────────────────────
   if (params.search) {
     const raw    = params.search.trim().toUpperCase().replace(/^\$/, '');
     const ticker = ALIAS_TO_TICKER[raw] || raw;
+    const cacheKey = 'yf_search_' + ticker;
+
+    // Cold storage — profile data changes at most daily
+    try {
+      const { data: cached } = await supabase
+        .from('market_intelligence')
+        .select('*')
+        .eq('key', cacheKey)
+        .single();
+      if (cached && Date.now() - new Date(cached.updated_at).getTime() < TTL_SEARCH_MS) {
+        return { statusCode: 200, headers, body: JSON.stringify({ search: cached.payload, ts: cached.updated_at, source: 'cache' }) };
+      }
+    } catch(_) {}
 
     try {
       const summary = await yahooFinance.quoteSummary(ticker, {
@@ -95,9 +118,18 @@ exports.handler = async function (event) {
         fullTimeEmployees:   ap.fullTimeEmployees       ?? null,
       };
 
+      const now = new Date().toISOString();
+      // Cache profile in Supabase for 24h (cold storage)
+      try {
+        await supabase.from('market_intelligence').upsert(
+          { key: cacheKey, payload: result, updated_at: now },
+          { onConflict: 'key' }
+        );
+      } catch(_) {}
+
       return {
         statusCode: 200, headers,
-        body: JSON.stringify({ search: result, ts: new Date().toISOString() }),
+        body: JSON.stringify({ search: result, ts: now, source: 'live' }),
       };
 
     } catch (err) {
@@ -111,6 +143,20 @@ exports.handler = async function (event) {
   }
 
   // ── Mode: batch quote ─────────────────────────────────────────────────────
+  // Check Supabase batch cache first (no extra symbols = default batch only)
+  if (!params.symbols) {
+    try {
+      const { data: cached } = await supabase
+        .from('market_intelligence')
+        .select('*')
+        .eq('key', 'yf_batch')
+        .single();
+      if (cached && Date.now() - new Date(cached.updated_at).getTime() < TTL_BATCH_MS) {
+        return { statusCode: 200, headers, body: JSON.stringify({ data: cached.payload, ts: cached.updated_at, source: 'cache' }) };
+      }
+    } catch(_) {}
+  }
+
   const extra = params.symbols
     ? params.symbols.split(',')
         .map(function (s) { return ALIAS_TO_TICKER[s.trim().toUpperCase()] || s.trim().toUpperCase(); })
@@ -144,9 +190,20 @@ exports.handler = async function (event) {
       };
     });
 
+    const now = new Date().toISOString();
+    // Cache default batch in Supabase for 10 min
+    if (!params.symbols) {
+      try {
+        await supabase.from('market_intelligence').upsert(
+          { key: 'yf_batch', payload: data, updated_at: now },
+          { onConflict: 'key' }
+        );
+      } catch(_) {}
+    }
+
     return {
       statusCode: 200, headers,
-      body: JSON.stringify({ data: data, ts: new Date().toISOString() }),
+      body: JSON.stringify({ data: data, ts: now, source: 'live' }),
     };
 
   } catch (err) {

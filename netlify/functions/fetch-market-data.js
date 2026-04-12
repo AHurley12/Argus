@@ -11,7 +11,7 @@ const SUPABASE_KEY  = process.env.SUPABASE_SERVICE_KEY;
 const EIA_KEY       = process.env.EIA_KEY;
 const FRED_KEY      = process.env.FRED_KEY;
 
-const CACHE_TTL_MS  = 60 * 60 * 1000;
+const CACHE_TTL_MS  = 10 * 60 * 1000; // 10 minutes — macro terminal needs trend, not tick data
 
 exports.handler = async function(event, context) {
   const headers = {

@@ -3,7 +3,9 @@
     "allow": [
       "Bash(python3:*)",
       "Bash(node --input-type=module)",
-      "Bash(node -e ':*)"
+      "Bash(node -e ':*)",
+      "Bash(git add:*)",
+      "Bash(git commit -m ':*)"
     ]
   }
 }

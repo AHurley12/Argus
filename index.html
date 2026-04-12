@@ -1921,6 +1921,295 @@
     min-height: 10px;
     font-family: var(--font-mono);
   }
+
+  /* ══════════════════════════════════════════════════════════════════════════
+     NEURAL WEB — CSS
+     All selectors prefixed #nw- or .nw-. Zero interference with existing UI.
+  ══════════════════════════════════════════════════════════════════════════ */
+  #btn-neural-web {
+    background: linear-gradient(135deg, #0a1a30 0%, #0d2040 100%);
+    border: 1px solid #1a3a60;
+    color: #7ab8d4;
+    padding: 8px 18px;
+    cursor: pointer;
+    letter-spacing: 2px;
+    font-size: 10px;
+    font-family: var(--font-mono);
+    font-weight: 600;
+    border-radius: 2px;
+    transition: all 0.3s cubic-bezier(0.4,0,0.2,1);
+  }
+  #btn-neural-web:hover  { background: linear-gradient(135deg, #0d2040 0%, #103060 100%); border-color: #2a6a90; color: var(--color-accent); }
+  #btn-neural-web.is-active { background: linear-gradient(135deg, #003366 0%, #004488 100%); border-color: #2a7aaa; color: var(--color-white); box-shadow: 0 0 16px rgba(0,120,200,0.35); }
+
+  #nw-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 9990;
+    display: none;
+    flex-direction: row;
+    background: rgba(2,8,18,0.97);
+    backdrop-filter: blur(4px);
+    font-family: var(--font-mono);
+  }
+  #nw-overlay.is-open { display: flex; }
+
+  /* Left sidebar */
+  #nw-sidebar {
+    width: 224px;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    background: rgba(4,12,24,0.95);
+    border-right: 1px solid #0f2744;
+    overflow: hidden;
+  }
+  #nw-sidebar-head {
+    padding: 14px 14px 10px;
+    border-bottom: 1px solid #0f2744;
+    flex-shrink: 0;
+  }
+  .nw-section-label {
+    font-size: 7px;
+    letter-spacing: 3px;
+    color: var(--color-text-faint);
+    font-weight: 700;
+    margin-bottom: 7px;
+  }
+  #nw-country-search {
+    width: 100%;
+    background: rgba(5,15,30,0.7);
+    border: 1px solid #0f2744;
+    color: var(--color-text);
+    font-family: var(--font-mono);
+    font-size: 10px;
+    padding: 6px 8px;
+    outline: none;
+    box-sizing: border-box;
+    transition: border-color 0.15s;
+  }
+  #nw-country-search:focus { border-color: #1a4a70; }
+  #nw-country-list {
+    flex: 1;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: #1a4a70 transparent;
+    padding: 6px 0;
+  }
+  .nw-country-item {
+    padding: 6px 14px;
+    cursor: pointer;
+    font-size: 10px;
+    color: var(--color-text-dim);
+    letter-spacing: 0.5px;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    transition: background 0.12s, color 0.12s;
+    white-space: nowrap;
+    overflow: hidden;
+  }
+  .nw-country-item:hover { background: rgba(0,100,180,0.10); color: var(--color-text); }
+  .nw-country-item.is-selected { background: rgba(0,120,220,0.18); color: var(--color-accent); border-left: 2px solid var(--color-accent); padding-left: 12px; }
+  .nw-risk-pip {
+    width: 5px; height: 5px; border-radius: 50%; flex-shrink: 0;
+  }
+  #nw-filter-section {
+    flex-shrink: 0;
+    padding: 10px 14px;
+    border-top: 1px solid #0f2744;
+  }
+  .nw-filter-row { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 5px; margin-bottom: 6px; }
+  .nw-chip {
+    font-size: 7px;
+    letter-spacing: 1.5px;
+    font-weight: 700;
+    padding: 3px 7px;
+    border: 1px solid #1a3a55;
+    color: #4a7da8;
+    cursor: pointer;
+    border-radius: 1px;
+    background: transparent;
+    font-family: var(--font-mono);
+    transition: all 0.15s;
+    white-space: nowrap;
+  }
+  .nw-chip.is-on { background: rgba(0,100,180,0.18); border-color: #2a6a90; color: var(--color-accent); }
+  .nw-chip.risk-critical.is-on  { background: rgba(255,0,68,0.14); border-color: #cc0033; color: #ff0044; }
+  .nw-chip.risk-warning.is-on   { background: rgba(255,153,51,0.14); border-color: #cc6600; color: #ff9933; }
+  .nw-chip.risk-watch.is-on     { background: rgba(255,204,0,0.14); border-color: #ccaa00; color: #ffcc00; }
+  .nw-chip.risk-low.is-on       { background: rgba(0,255,136,0.10); border-color: #00cc66; color: #00ff88; }
+  .nw-time-select {
+    width: 100%;
+    background: rgba(5,15,30,0.7);
+    border: 1px solid #0f2744;
+    color: var(--color-text-dim);
+    font-family: var(--font-mono);
+    font-size: 9px;
+    padding: 5px 6px;
+    outline: none;
+    margin-top: 5px;
+  }
+  #nw-stats {
+    font-size: 8px;
+    letter-spacing: 1px;
+    color: var(--color-text-faint);
+    padding: 8px 14px;
+    border-top: 1px solid #0f2744;
+    line-height: 1.8;
+    flex-shrink: 0;
+  }
+
+  /* Main canvas area */
+  #nw-main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    position: relative;
+  }
+  #nw-topbar {
+    height: 40px;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    padding: 0 16px;
+    border-bottom: 1px solid #0f2744;
+    gap: 12px;
+  }
+  #nw-country-title {
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 3px;
+    color: var(--color-accent);
+    font-family: 'Rajdhani', sans-serif;
+  }
+  #nw-subtitle {
+    font-size: 8px;
+    letter-spacing: 1.5px;
+    color: var(--color-text-faint);
+    flex: 1;
+  }
+  #btn-nw-close {
+    background: none;
+    border: 1px solid #1a3a55;
+    color: var(--color-text-faint);
+    font-family: var(--font-mono);
+    font-size: 9px;
+    letter-spacing: 2px;
+    padding: 4px 10px;
+    cursor: pointer;
+    transition: color 0.15s, border-color 0.15s;
+  }
+  #btn-nw-close:hover { color: var(--color-accent); border-color: #2a6a90; }
+  #nw-canvas-wrap {
+    flex: 1;
+    position: relative;
+    overflow: hidden;
+    cursor: grab;
+  }
+  #nw-canvas-wrap.is-dragging { cursor: grabbing; }
+  #nw-canvas { display: block; width: 100%; height: 100%; }
+  #nw-empty {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    pointer-events: none;
+  }
+  #nw-empty-icon { font-size: 40px; opacity: 0.18; }
+  #nw-empty-text { font-size: 9px; letter-spacing: 3px; color: var(--color-text-faint); }
+
+  /* Right inspector */
+  #nw-inspector {
+    width: 264px;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    background: rgba(4,12,24,0.95);
+    border-left: 1px solid #0f2744;
+    overflow: hidden;
+  }
+  #nw-insp-head {
+    padding: 10px 14px 8px;
+    border-bottom: 1px solid #0f2744;
+    flex-shrink: 0;
+  }
+  #nw-insp-title {
+    font-size: 8px;
+    letter-spacing: 3px;
+    color: var(--color-text-faint);
+    font-weight: 700;
+  }
+  #nw-insp-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 12px 14px;
+    scrollbar-width: thin;
+    scrollbar-color: #1a4a70 transparent;
+    font-size: 10px;
+    line-height: 1.7;
+    color: var(--color-text-dim);
+  }
+  .nw-insp-field { margin-bottom: 10px; }
+  .nw-insp-key {
+    font-size: 7px;
+    letter-spacing: 2px;
+    color: var(--color-text-faint);
+    font-weight: 700;
+    margin-bottom: 2px;
+  }
+  .nw-insp-val {
+    font-size: 10px;
+    color: var(--color-text);
+    line-height: 1.5;
+  }
+  .nw-risk-badge {
+    display: inline-block;
+    font-size: 7px;
+    letter-spacing: 2px;
+    font-weight: 700;
+    padding: 2px 6px;
+    border-radius: 1px;
+  }
+  .nw-kw-wrap { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+  .nw-kw {
+    font-size: 7px;
+    letter-spacing: 1px;
+    padding: 2px 5px;
+    background: rgba(0,100,180,0.12);
+    border: 1px solid #1a3a55;
+    color: #4a7da8;
+    border-radius: 1px;
+  }
+  #nw-insp-placeholder {
+    text-align: center;
+    padding-top: 40px;
+    font-size: 8px;
+    letter-spacing: 2px;
+    color: var(--color-text-faint);
+    line-height: 2;
+  }
+
+  /* Node tooltip */
+  #nw-tooltip {
+    position: fixed;
+    pointer-events: none;
+    z-index: 9995;
+    background: rgba(4,12,28,0.96);
+    border: 1px solid #1a4a70;
+    padding: 6px 10px;
+    font-family: var(--font-mono);
+    font-size: 9px;
+    color: var(--color-text);
+    max-width: 220px;
+    line-height: 1.5;
+    display: none;
+  }
+  #nw-tooltip.is-visible { display: block; }
   </style>
 </head>
 
@@ -1952,6 +2241,7 @@
         <div class="header__stat-label" id="tz-label">LOCAL</div>
         <div id="utc-display"></div>
       </div>
+      <button id="btn-neural-web" onclick="ArgusNeuralWeb.toggle()" aria-label="Open neural web intelligence builder">⬡ NEURAL WEB</button>
       <button id="btn-ai-query" onclick="ArgusUI.toggleAI()" aria-label="Open AI query panel">◈ AI QUERY</button>
       <button id="btn-analyst-request" onclick="ArgusAnalyst.openModal()" aria-label="Submit event request" style="display:none;">⊕ SUBMIT EVENT</button>
     </div>
@@ -2312,6 +2602,7 @@
       <div class="kbd-row"><span class="kbd-key">E</span><span class="kbd-label">EVENTS</span></div>
       <div class="kbd-row"><span class="kbd-key">A</span><span class="kbd-label">AIRCRAFT</span></div>
       <div class="kbd-row"><span class="kbd-key">S</span><span class="kbd-label">SHIPS</span></div>
+      <div class="kbd-row"><span class="kbd-key">N</span><span class="kbd-label">NEURAL WEB</span></div>
 
       <div class="hud-section">RISK LEVEL</div>
       <div class="legend__row">
@@ -10848,6 +11139,916 @@ document.addEventListener('visibilitychange', function () {
     console.log('[ArgusVisibility] Tab hidden — fetches suppressed');
   }
 });
+
+}());
+</script>
+
+<!-- ══════════════════════════════════════════════════════════════════════════════
+     NEURAL WEB — HTML
+     Full-screen overlay; positioned outside #app so it escapes overflow:hidden.
+══════════════════════════════════════════════════════════════════════════════ -->
+<div id="nw-overlay" aria-label="Neural Web intelligence builder" role="dialog" aria-modal="true">
+
+  <!-- Left sidebar: country selector + filters -->
+  <aside id="nw-sidebar">
+    <div id="nw-sidebar-head">
+      <div class="nw-section-label">SELECT COUNTRY</div>
+      <input id="nw-country-search" type="text" placeholder="Search countries…" autocomplete="off" spellcheck="false" />
+    </div>
+    <div id="nw-country-list" role="listbox" aria-label="Country list"></div>
+    <div id="nw-filter-section">
+      <div class="nw-section-label">EVENT TYPE</div>
+      <div class="nw-filter-row" id="nw-type-chips">
+        <button class="nw-chip is-on" data-filter="type" data-val="CONFLICT">CONFLICT</button>
+        <button class="nw-chip is-on" data-filter="type" data-val="POLICY">POLICY</button>
+        <button class="nw-chip is-on" data-filter="type" data-val="DISASTER">DISASTER</button>
+        <button class="nw-chip is-on" data-filter="type" data-val="ECONOMIC">ECONOMIC</button>
+        <button class="nw-chip is-on" data-filter="type" data-val="HUMANITARIAN">HUMANITARIAN</button>
+      </div>
+      <div class="nw-section-label" style="margin-top:8px">RISK LEVEL</div>
+      <div class="nw-filter-row" id="nw-risk-chips">
+        <button class="nw-chip risk-critical is-on" data-filter="risk" data-val="CRITICAL">CRITICAL</button>
+        <button class="nw-chip risk-warning is-on" data-filter="risk" data-val="WARNING">WARNING</button>
+        <button class="nw-chip risk-watch is-on"   data-filter="risk" data-val="WATCH">WATCH</button>
+        <button class="nw-chip risk-low is-on"     data-filter="risk" data-val="LOW">LOW</button>
+      </div>
+      <div class="nw-section-label" style="margin-top:8px">TIME RANGE</div>
+      <select id="nw-time-select" class="nw-time-select">
+        <option value="1d">LAST 24 HOURS</option>
+        <option value="7d" selected>LAST 7 DAYS</option>
+        <option value="30d">LAST 30 DAYS</option>
+        <option value="all">ALL TIME</option>
+      </select>
+    </div>
+    <div id="nw-stats"></div>
+  </aside>
+
+  <!-- Main graph area -->
+  <div id="nw-main">
+    <div id="nw-topbar">
+      <span id="nw-country-title">SELECT A COUNTRY</span>
+      <span id="nw-subtitle"></span>
+      <button id="btn-nw-close" onclick="ArgusNeuralWeb.close()">✕ CLOSE</button>
+    </div>
+    <div id="nw-canvas-wrap">
+      <canvas id="nw-canvas"></canvas>
+      <div id="nw-empty">
+        <div id="nw-empty-icon">⬡</div>
+        <div id="nw-empty-text">SELECT A COUNTRY TO BUILD GRAPH</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Right inspector -->
+  <aside id="nw-inspector">
+    <div id="nw-insp-head">
+      <div id="nw-insp-title">NODE INSPECTOR</div>
+    </div>
+    <div id="nw-insp-body">
+      <div id="nw-insp-placeholder">CLICK A NODE<br>TO INSPECT</div>
+    </div>
+  </aside>
+
+</div>
+
+<!-- Node hover tooltip -->
+<div id="nw-tooltip"></div>
+
+<!-- ══════════════════════════════════════════════════════════════════════════════
+     SCRIPT 6 — ArgusNeuralWeb: Country-Centric Intelligence Graph
+     3-layer architecture: Data → State → View. Non-destructive.
+══════════════════════════════════════════════════════════════════════════════ -->
+<script>
+window.ArgusNeuralWeb = (function () {
+'use strict';
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// LAYER 1 — DATA: Normalization + Indexed Store
+// ═══════════════════════════════════════════════════════════════════════════════
+
+var VALID_TYPES  = { CONFLICT:1, POLICY:1, DISASTER:1, ECONOMIC:1, HUMANITARIAN:1, SUPPLY_CHAIN:1, HUMAN_RIGHTS:1, TENSION:1 };
+var VALID_RISKS  = { CRITICAL:1, WARNING:1, WATCH:1, LOW:1 };
+var RISK_WEIGHTS = { CRITICAL:4, WARNING:3, WATCH:2, LOW:1 };
+
+// Normalised store — populated by ingestEvents()
+var store = {
+  events:      [],                    // all normalised events
+  byCountry:   new Map(),             // country → Event[]
+  byType:      new Map(),             // type    → Event[]
+  byRisk:      new Map(),             // risk    → Event[]
+  lastIngested: 0,
+};
+
+// --- 1.1 normalizeEvent ---
+function normalizeEvent(raw, idx) {
+  var title   = (raw.title  || '').slice(0, 120).trim();
+  if (!title) return null;
+
+  var type = (raw.type || '').toUpperCase().replace(/[-\s]/g, '_');
+  if (!VALID_TYPES[type]) type = 'POLICY';
+
+  var risk = (raw.severity || raw.risk || 'LOW').toUpperCase();
+  if (!VALID_RISKS[risk]) risk = 'LOW';
+
+  var country = '';
+  if (raw.region)      country = raw.region.trim();
+  else if (raw.country) country = String(raw.country).trim();
+  // Normalise to title-case
+  country = country.replace(/\b\w/g, function(c){ return c.toUpperCase(); });
+
+  var ts = 0;
+  if (raw.pubDate) {
+    try { ts = new Date(raw.pubDate.replace(' ','T') + 'Z').getTime(); } catch(_){}
+  }
+  if (!ts || isNaN(ts)) ts = Date.now() - (idx * 60000); // stagger fallback
+
+  // Extract keywords from title+impact text
+  var text  = title + ' ' + (raw.impact || '') + ' ' + (raw.description || '');
+  var keywords = extractKeywords(text);
+
+  return {
+    id:        'ev_' + (raw.id || idx),
+    country:   country,
+    type:      type,
+    risk:      risk,
+    timestamp: ts,
+    title:     title,
+    impact:    raw.impact || '',
+    source:    raw.source || '',
+    keywords:  keywords,
+    _raw:      raw,
+  };
+}
+
+var STOP_WORDS = /^(the|and|for|are|but|not|you|all|can|had|her|was|one|our|out|day|get|has|him|his|how|man|new|now|old|see|two|way|who|boy|did|its|let|put|say|she|too|use|with|that|this|from|they|will|been|have|more|when|than|what|were|also|into|over|such|then|thus|upon|very|just|each|much|both|some|yet|said|even|well|back|take|make|come|work|only|year|most|may|might|could|would|should|have|into)$/i;
+
+function extractKeywords(text) {
+  var words = text.toLowerCase()
+    .replace(/[^\w\s]/g, ' ')
+    .split(/\s+/)
+    .filter(function(w){ return w.length > 3 && !STOP_WORDS.test(w); });
+
+  // Deduplicate + take top 8 by frequency
+  var freq = {};
+  words.forEach(function(w){ freq[w] = (freq[w] || 0) + 1; });
+  return Object.keys(freq)
+    .sort(function(a,b){ return freq[b] - freq[a]; })
+    .slice(0, 8);
+}
+
+// --- 1.2 Index population (incremental) ---
+function addToIndex(map, key, event) {
+  if (!key) return;
+  var arr = map.get(key);
+  if (!arr) { arr = []; map.set(key, arr); }
+  arr.push(event);
+}
+
+function ingestEvents(rawEvents) {
+  if (!Array.isArray(rawEvents) || !rawEvents.length) return;
+
+  // Reset store on full ingest
+  store.events     = [];
+  store.byCountry  = new Map();
+  store.byType     = new Map();
+  store.byRisk     = new Map();
+
+  rawEvents.forEach(function(raw, i) {
+    var ev = normalizeEvent(raw, i);
+    if (!ev) return;
+    store.events.push(ev);
+    addToIndex(store.byCountry, ev.country, ev);
+    addToIndex(store.byType,    ev.type,    ev);
+    addToIndex(store.byRisk,    ev.risk,    ev);
+  });
+
+  store.lastIngested = Date.now();
+}
+
+// Pull latest events from the live window globals
+function refreshStore() {
+  var sources = [];
+  if (window._currentEvents && window._currentEvents.length) sources = sources.concat(window._currentEvents);
+  if (window._usgsEvents    && window._usgsEvents.length)    sources = sources.concat(window._usgsEvents);
+  if (window._noaaEvents    && window._noaaEvents.length)    sources = sources.concat(window._noaaEvents);
+  if (window._rwCrisisEvents&& window._rwCrisisEvents.length)sources = sources.concat(window._rwCrisisEvents);
+  if (window._fireEvents    && window._fireEvents.length)    sources = sources.concat(window._fireEvents);
+  if (!sources.length) sources = window.FALLBACK_EVENTS || [];
+  ingestEvents(sources);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// LAYER 2 — STATE: Reactive Store
+// ═══════════════════════════════════════════════════════════════════════════════
+
+var state = {
+  selectedCountry: null,
+  filters: {
+    types:     new Set(['CONFLICT','POLICY','DISASTER','ECONOMIC','HUMANITARIAN','SUPPLY_CHAIN','HUMAN_RIGHTS','TENSION']),
+    risks:     new Set(['CRITICAL','WARNING','WATCH','LOW']),
+    timeRange: '7d',
+  },
+  graph: { nodes: [], edges: [] },
+  _prevGraphKey: '',    // for diff detection
+};
+
+// --- 2.1 Controlled state mutations ---
+function setCountry(country) {
+  state.selectedCountry = country;
+  rebuildGraph();
+}
+
+function updateFilters(partial) {
+  if (partial.types)     state.filters.types     = new Set(partial.types);
+  if (partial.risks)     state.filters.risks      = new Set(partial.risks);
+  if (partial.timeRange) state.filters.timeRange  = partial.timeRange;
+  rebuildGraph();
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// LAYER 3A — GRAPH ENGINE
+// ═══════════════════════════════════════════════════════════════════════════════
+
+var TIME_MS = { '1d': 86400000, '7d': 604800000, '30d': 2592000000, 'all': Infinity };
+
+// --- 3.2 Filtered event retrieval (O(1) country index + O(k) filter) ---
+function getFilteredEvents() {
+  // If no country selected, return empty (graph is always country-centric)
+  if (!state.selectedCountry) return [];
+
+  // Step 1: pull by country index O(1)
+  var events = store.byCountry.get(state.selectedCountry) || [];
+
+  var cutoff  = Date.now() - (TIME_MS[state.filters.timeRange] || Infinity);
+  var types   = state.filters.types;
+  var risks   = state.filters.risks;
+
+  // Step 2+3: filter by type, risk, time — single pass
+  return events.filter(function(ev) {
+    return types.has(ev.type) && risks.has(ev.risk) && ev.timestamp >= cutoff;
+  });
+}
+
+var MAX_NODES = 40;
+
+// --- 3.3 Node construction ---
+function buildNodes(events) {
+  var nodes = [];
+
+  // ONE central country node
+  var countryData = (window.COUNTRIES_DATA || []).find(function(c){
+    return c.label === state.selectedCountry || c.code === state.selectedCountry;
+  });
+  nodes.push({
+    id:      'country:' + state.selectedCountry,
+    type:    'country',
+    label:   state.selectedCountry,
+    risk:    countryData ? countryData.risk : 'WATCH',
+    data:    countryData || null,
+  });
+
+  // Build topic clusters from shared keywords
+  var topicMap = {};
+  events.forEach(function(ev) {
+    (ev.keywords || []).forEach(function(kw) {
+      if (!topicMap[kw]) topicMap[kw] = { count: 0, events: [] };
+      topicMap[kw].count++;
+      topicMap[kw].events.push(ev.id);
+    });
+  });
+
+  // Top 5 keywords that appear in ≥2 events = topic nodes
+  var topTopics = Object.keys(topicMap)
+    .filter(function(k){ return topicMap[k].count >= 2; })
+    .sort(function(a,b){ return topicMap[b].count - topicMap[a].count; })
+    .slice(0, 5);
+
+  topTopics.forEach(function(kw) {
+    nodes.push({
+      id:     'topic:' + kw,
+      type:   'topic',
+      label:  kw,
+      count:  topicMap[kw].count,
+      evIds:  topicMap[kw].events,
+    });
+  });
+
+  // Event nodes
+  var topicSet = new Set(topTopics);
+  events.forEach(function(ev) {
+    nodes.push({
+      id:        ev.id,
+      type:      'event',
+      risk:      ev.risk,
+      eventType: ev.type,
+      label:     ev.title,
+      timestamp: ev.timestamp,
+      impact:    ev.impact,
+      source:    ev.source,
+      keywords:  ev.keywords,
+      topics:    (ev.keywords || []).filter(function(k){ return topicSet.has(k); }),
+      _ev:       ev,
+    });
+  });
+
+  return limitNodes(nodes, MAX_NODES);
+}
+
+// --- 3.4 Edge construction ---
+function buildEdges(nodes, events) {
+  var edges = [];
+  var nodeIds = new Set(nodes.map(function(n){ return n.id; }));
+  var countryId = 'country:' + state.selectedCountry;
+
+  nodes.forEach(function(n) {
+    if (n.type === 'event') {
+      // Country → Event
+      edges.push({ source: countryId, target: n.id, weight: RISK_WEIGHTS[n.risk] || 1 });
+      // Event → Topic (if shared keyword topic node exists)
+      (n.topics || []).forEach(function(kw) {
+        var tid = 'topic:' + kw;
+        if (nodeIds.has(tid)) {
+          edges.push({ source: n.id, target: tid, weight: 0.5 });
+        }
+      });
+    }
+  });
+
+  return edges;
+}
+
+// --- 3.5 Density control ---
+function limitNodes(nodes, maxNodes) {
+  if (nodes.length <= maxNodes) return nodes;
+
+  var country = nodes.filter(function(n){ return n.type === 'country'; });
+  var topics  = nodes.filter(function(n){ return n.type === 'topic'; });
+  var events  = nodes.filter(function(n){ return n.type === 'event'; });
+
+  // Sort events by risk weight DESC, then timestamp DESC
+  events.sort(function(a, b) {
+    var rDiff = (RISK_WEIGHTS[b.risk] || 0) - (RISK_WEIGHTS[a.risk] || 0);
+    return rDiff !== 0 ? rDiff : b.timestamp - a.timestamp;
+  });
+
+  var budget = maxNodes - country.length - topics.length;
+  return country.concat(topics).concat(events.slice(0, Math.max(budget, 0)));
+}
+
+// --- Graph rebuild pipeline ---
+function rebuildGraph() {
+  var events = getFilteredEvents();
+  var nodes  = buildNodes(events);
+  var edges  = buildEdges(nodes, events);
+
+  // Diff: only re-layout if structure changed
+  var key = nodes.map(function(n){ return n.id; }).join('|');
+  if (key !== state._prevGraphKey) {
+    state.graph = { nodes: nodes, edges: edges };
+    state._prevGraphKey = key;
+    computeLayout();   // recalculate positions only on structural change
+  } else {
+    state.graph = { nodes: nodes, edges: edges };
+  }
+
+  renderGraph();
+  updateStats(events);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// LAYER 3B — LAYOUT ENGINE (Radial + light force relaxation)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+var layout = {};   // nodeId → {x, y, vx, vy, r}  (canvas coordinates)
+var animFrame = null;
+
+var RISK_COLORS = { CRITICAL:'#ff0044', WARNING:'#ff9933', WATCH:'#ffcc00', LOW:'#00ff88' };
+var TYPE_COLORS = { CONFLICT:'#ff3355', POLICY:'#0099ff', DISASTER:'#ff9933', ECONOMIC:'#ffcc00', HUMANITARIAN:'#ff6699', SUPPLY_CHAIN:'#00ccff', HUMAN_RIGHTS:'#ff99cc', TENSION:'#aaaaff' };
+
+function getNodeRadius(n) {
+  if (n.type === 'country') return 26;
+  if (n.type === 'topic')   return 10;
+  return 14 + (RISK_WEIGHTS[n.risk] || 1) * 2;
+}
+
+function computeLayout() {
+  var canvas = document.getElementById('nw-canvas');
+  if (!canvas) return;
+  var cx = canvas.width  / 2;
+  var cy = canvas.height / 2;
+
+  var nodes = state.graph.nodes;
+  layout = {};
+
+  var countryNode = nodes.find(function(n){ return n.type === 'country'; });
+  var topicNodes  = nodes.filter(function(n){ return n.type === 'topic'; });
+  var eventNodes  = nodes.filter(function(n){ return n.type === 'event'; });
+
+  if (countryNode) {
+    layout[countryNode.id] = { x: cx, y: cy, vx: 0, vy: 0, r: getNodeRadius(countryNode) };
+  }
+
+  // Topic nodes — inner ring
+  var topicR = Math.min(cx, cy) * 0.32;
+  topicNodes.forEach(function(n, i) {
+    var angle = (2 * Math.PI * i / Math.max(topicNodes.length, 1)) - Math.PI / 2;
+    layout[n.id] = { x: cx + Math.cos(angle) * topicR, y: cy + Math.sin(angle) * topicR, vx: 0, vy: 0, r: getNodeRadius(n) };
+  });
+
+  // Event nodes — outer ring grouped by risk (CRITICAL innermost of outer ring)
+  var riskOrder = ['CRITICAL','WARNING','WATCH','LOW'];
+  var grouped = {};
+  riskOrder.forEach(function(r){ grouped[r] = []; });
+  eventNodes.forEach(function(n){ (grouped[n.risk] || (grouped['LOW'])).push(n); });
+
+  var totalEvents = eventNodes.length || 1;
+  var outerRBase  = Math.min(cx, cy) * 0.55;
+  var placed = 0;
+
+  riskOrder.forEach(function(risk) {
+    var rNodes = grouped[risk];
+    if (!rNodes.length) return;
+    var outerR = outerRBase + (3 - (RISK_WEIGHTS[risk] - 1)) * 28;
+    rNodes.forEach(function(n, i) {
+      // Spread across the full circle, offset per-risk to avoid overlap
+      var startAngle = -Math.PI / 2 + (placed / totalEvents) * 2 * Math.PI;
+      var angle = startAngle + (i / Math.max(rNodes.length, 1)) * 2 * Math.PI * (rNodes.length / totalEvents);
+      layout[n.id] = { x: cx + Math.cos(angle) * outerR, y: cy + Math.sin(angle) * outerR, vx: 0, vy: 0, r: getNodeRadius(n) };
+      placed++;
+    });
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// LAYER 4 — VIEW: Canvas Renderer
+// ═══════════════════════════════════════════════════════════════════════════════
+
+var cam = { x: 0, y: 0, scale: 1 };  // pan/zoom camera state
+var hoveredNode  = null;
+var selectedNode = null;
+
+var FONT_MONO = "'JetBrains Mono', monospace";
+
+function renderGraph() {
+  var canvas = document.getElementById('nw-canvas');
+  if (!canvas) return;
+  var ctx = canvas.getContext('2d');
+
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  var nodes = state.graph.nodes;
+  var edges = state.graph.edges;
+  if (!nodes.length) return;
+
+  ctx.save();
+  ctx.translate(cam.x, cam.y);
+  ctx.scale(cam.scale, cam.scale);
+
+  // Draw edges first
+  edges.forEach(function(e) {
+    var a = layout[e.source], b = layout[e.target];
+    if (!a || !b) return;
+    var alpha = e.weight > 1 ? 0.35 : 0.15;
+    ctx.beginPath();
+    ctx.moveTo(a.x, a.y);
+    ctx.lineTo(b.x, b.y);
+    ctx.strokeStyle = 'rgba(30,80,140,' + alpha + ')';
+    ctx.lineWidth = e.weight > 2 ? 1.5 : 0.8;
+    ctx.stroke();
+  });
+
+  // Draw nodes
+  nodes.forEach(function(n) {
+    var pos = layout[n.id];
+    if (!pos) return;
+    var isHovered  = hoveredNode  && hoveredNode.id  === n.id;
+    var isSelected = selectedNode && selectedNode.id === n.id;
+
+    drawNode(ctx, n, pos, isHovered, isSelected);
+    drawNodeLabel(ctx, n, pos);
+  });
+
+  ctx.restore();
+}
+
+function drawNode(ctx, n, pos, hovered, selected) {
+  var r     = pos.r;
+  var color = nodeColor(n);
+
+  // Glow ring on hover/select
+  if (hovered || selected) {
+    ctx.beginPath();
+    ctx.arc(pos.x, pos.y, r + 6, 0, Math.PI * 2);
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.2;
+    ctx.globalAlpha = selected ? 0.6 : 0.35;
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+  }
+
+  if (n.type === 'country') {
+    // Large circle — neutral dark fill with accent ring
+    ctx.beginPath();
+    ctx.arc(pos.x, pos.y, r, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(0,80,160,0.25)';
+    ctx.fill();
+    ctx.strokeStyle = '#0099ff';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    // Inner dot
+    ctx.beginPath();
+    ctx.arc(pos.x, pos.y, 5, 0, Math.PI * 2);
+    ctx.fillStyle = '#0099ff';
+    ctx.fill();
+
+  } else if (n.type === 'topic') {
+    // Small muted hexagon-ish (drawn as circle for perf)
+    ctx.beginPath();
+    ctx.arc(pos.x, pos.y, r, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(30,60,100,0.5)';
+    ctx.fill();
+    ctx.strokeStyle = '#2a5a8a';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+  } else {
+    // Event node — colored circle
+    ctx.beginPath();
+    ctx.arc(pos.x, pos.y, r, 0, Math.PI * 2);
+    ctx.fillStyle = hexToRgba(color, 0.18);
+    ctx.fill();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = hovered ? 2 : 1.2;
+    ctx.stroke();
+
+    // Type indicator — small filled arc at top
+    var typeColor = TYPE_COLORS[n.eventType] || '#4a7da8';
+    ctx.beginPath();
+    ctx.arc(pos.x, pos.y, r * 0.38, 0, Math.PI * 2);
+    ctx.fillStyle = hexToRgba(typeColor, 0.6);
+    ctx.fill();
+  }
+}
+
+function drawNodeLabel(ctx, n, pos) {
+  var label = '';
+  if (n.type === 'country') {
+    label = n.label.toUpperCase();
+  } else if (n.type === 'topic') {
+    label = n.label;
+  } else {
+    // Truncate event labels
+    label = n.label.length > 22 ? n.label.slice(0, 20) + '…' : n.label;
+  }
+
+  ctx.font = (n.type === 'country' ? 'bold 11px ' : '8px ') + FONT_MONO;
+  ctx.fillStyle = n.type === 'country' ? '#c0ddf8' : (n.type === 'topic' ? '#4a7da8' : '#8899bb');
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  ctx.fillText(label, pos.x, pos.y + pos.r + 4);
+}
+
+function nodeColor(n) {
+  if (n.type === 'country') return '#0099ff';
+  if (n.type === 'topic')   return '#2a5a8a';
+  return RISK_COLORS[n.risk] || '#4a7da8';
+}
+
+function hexToRgba(hex, alpha) {
+  var r = parseInt(hex.slice(1,3),16), g = parseInt(hex.slice(3,5),16), b = parseInt(hex.slice(5,7),16);
+  return 'rgba(' + r + ',' + g + ',' + b + ',' + alpha + ')';
+}
+
+// ── Pan / Zoom ─────────────────────────────────────────────────────────────────
+function setupCanvasInteraction() {
+  var canvas = document.getElementById('nw-canvas');
+  var wrap   = document.getElementById('nw-canvas-wrap');
+  if (!canvas) return;
+
+  var drag = { active: false, sx: 0, sy: 0, cx: 0, cy: 0 };
+
+  canvas.addEventListener('mousedown', function(e) {
+    if (e.button !== 0) return;
+    drag.active = true;
+    drag.sx = e.clientX; drag.sy = e.clientY;
+    drag.cx = cam.x;     drag.cy = cam.y;
+    wrap.classList.add('is-dragging');
+  });
+
+  window.addEventListener('mousemove', function(e) {
+    if (drag.active) {
+      cam.x = drag.cx + (e.clientX - drag.sx);
+      cam.y = drag.cy + (e.clientY - drag.sy);
+      renderGraph();
+    } else {
+      updateHover(e, canvas);
+    }
+  });
+
+  window.addEventListener('mouseup', function() {
+    drag.active = false;
+    wrap.classList.remove('is-dragging');
+  });
+
+  canvas.addEventListener('wheel', function(e) {
+    e.preventDefault();
+    var factor = e.deltaY > 0 ? 0.9 : 1.1;
+    var rect   = canvas.getBoundingClientRect();
+    var mx = e.clientX - rect.left;
+    var my = e.clientY - rect.top;
+    cam.x  = mx - (mx - cam.x) * factor;
+    cam.y  = my - (my - cam.y) * factor;
+    cam.scale = Math.max(0.25, Math.min(4, cam.scale * factor));
+    renderGraph();
+  }, { passive: false });
+
+  canvas.addEventListener('click', function(e) {
+    var n = pickNode(e, canvas);
+    if (n) {
+      selectedNode = n;
+      showInspector(n);
+    } else {
+      selectedNode = null;
+      showInspector(null);
+    }
+    renderGraph();
+  });
+}
+
+// Hit-test: returns node under cursor or null
+function pickNode(e, canvas) {
+  var rect = canvas.getBoundingClientRect();
+  var mx = (e.clientX - rect.left - cam.x) / cam.scale;
+  var my = (e.clientY - rect.top  - cam.y) / cam.scale;
+  var nodes = state.graph.nodes;
+  // Check in reverse paint order so topmost node wins
+  for (var i = nodes.length - 1; i >= 0; i--) {
+    var n   = nodes[i];
+    var pos = layout[n.id];
+    if (!pos) continue;
+    var dx = mx - pos.x, dy = my - pos.y;
+    if (Math.sqrt(dx*dx + dy*dy) <= pos.r + 4) return n;
+  }
+  return null;
+}
+
+function updateHover(e, canvas) {
+  var n = pickNode(e, canvas);
+  if (n !== hoveredNode) {
+    hoveredNode = n;
+    renderGraph();
+    showTooltip(n, e);
+  } else if (n) {
+    showTooltip(n, e);
+  }
+}
+
+function showTooltip(node, e) {
+  var tip = document.getElementById('nw-tooltip');
+  if (!node) { tip.classList.remove('is-visible'); return; }
+  var text = node.type === 'country' ? node.label
+    : node.type === 'topic' ? 'TOPIC: ' + node.label + ' (' + node.count + ' events)'
+    : '[' + node.risk + '] ' + node.label;
+  tip.textContent = text;
+  tip.style.left = (e.clientX + 14) + 'px';
+  tip.style.top  = (e.clientY - 10) + 'px';
+  tip.classList.add('is-visible');
+}
+
+// ── Inspector panel ─────────────────────────────────────────────────────────────
+function showInspector(node) {
+  var body = document.getElementById('nw-insp-body');
+  if (!node) {
+    body.innerHTML = '<div id="nw-insp-placeholder">CLICK A NODE<br>TO INSPECT</div>';
+    return;
+  }
+
+  if (node.type === 'country') {
+    var cd = node.data;
+    body.innerHTML = [
+      field('COUNTRY', node.label),
+      cd ? field('RISK SCORE', '<span class="nw-risk-badge" style="background:' + hexToRgba(RISK_COLORS[cd.risk]||'#4a7da8',0.18) + ';color:' + (RISK_COLORS[cd.risk]||'#4a7da8') + ';border:1px solid ' + (RISK_COLORS[cd.risk]||'#4a7da8') + '">' + cd.risk + ' · ' + (cd.score||'—') + '</span>') : '',
+      cd ? field('GDP', cd.gdp || '—') : '',
+      cd ? field('TOP EXPORTS', (cd.topE||[]).join(', ') || '—') : '',
+      cd ? field('TOP IMPORTS', (cd.topI||[]).join(', ') || '—') : '',
+      field('EVENTS LOADED', (store.byCountry.get(node.label) || []).length + ' indexed'),
+    ].join('');
+
+  } else if (node.type === 'topic') {
+    var evList = (state.graph.nodes || []).filter(function(n){ return n.type==='event' && (n.topics||[]).indexOf(node.label) !== -1; });
+    body.innerHTML = [
+      field('TOPIC CLUSTER', node.label),
+      field('EVENT COUNT', node.count),
+      field('LINKED EVENTS', evList.map(function(e){ return '<div style="margin-bottom:4px;color:#8899bb;font-size:9px">· ' + e.label.slice(0,50) + '</div>'; }).join('')),
+    ].join('');
+
+  } else {
+    // Event node
+    var ev = node._ev || {};
+    var ts = ev.timestamp ? new Date(ev.timestamp).toISOString().replace('T',' ').slice(0,16) + ' UTC' : '—';
+    body.innerHTML = [
+      '<div style="font-size:8px;letter-spacing:2px;color:' + (RISK_COLORS[node.risk]||'#4a7da8') + ';margin-bottom:8px">' + node.risk + ' · ' + node.eventType + '</div>',
+      field('TITLE', '<span style="color:#c0ddf8;line-height:1.5">' + node.label + '</span>'),
+      field('DATE', ts),
+      ev.impact ? field('IMPACT', '<span style="line-height:1.5">' + ev.impact + '</span>') : '',
+      ev.source ? field('SOURCE', ev.source) : '',
+      node.keywords && node.keywords.length ? field('KEYWORDS',
+        '<div class="nw-kw-wrap">' + node.keywords.map(function(k){ return '<span class="nw-kw">' + k + '</span>'; }).join('') + '</div>'
+      ) : '',
+    ].join('');
+  }
+}
+
+function field(label, value) {
+  if (!value && value !== 0) return '';
+  return '<div class="nw-insp-field"><div class="nw-insp-key">' + label + '</div><div class="nw-insp-val">' + value + '</div></div>';
+}
+
+// ── Country selector ──────────────────────────────────────────────────────────
+function buildCountryList(filter) {
+  var list  = document.getElementById('nw-country-list');
+  if (!list) return;
+  var countries = window.COUNTRIES_DATA || [];
+  filter = (filter || '').toLowerCase();
+
+  // Build a set of countries that appear in the store + all COUNTRIES_DATA entries
+  var storeKeys = Array.from(store.byCountry.keys());
+  var countrySet = {};
+  countries.forEach(function(c){ countrySet[c.label] = c; });
+  // Also include store keys not in COUNTRIES_DATA
+  storeKeys.forEach(function(k){ if (k && !countrySet[k]) countrySet[k] = { label: k, risk: 'LOW' }; });
+
+  var items = Object.keys(countrySet)
+    .filter(function(k){ return !filter || k.toLowerCase().indexOf(filter) !== -1; })
+    .sort(function(a,b){
+      // Sort: higher-risk countries first, then alphabetical
+      var rA = RISK_WEIGHTS[countrySet[a].risk] || 0;
+      var rB = RISK_WEIGHTS[countrySet[b].risk] || 0;
+      return rB - rA || a.localeCompare(b);
+    })
+    .slice(0, 60);
+
+  list.innerHTML = items.map(function(label) {
+    var cd = countrySet[label];
+    var pip = RISK_COLORS[cd.risk] || '#4a7da8';
+    var evCount = (store.byCountry.get(label) || []).length;
+    var selClass = state.selectedCountry === label ? ' is-selected' : '';
+    return '<div class="nw-country-item' + selClass + '" role="option" data-country="' + label + '">' +
+      '<span class="nw-risk-pip" style="background:' + pip + ';box-shadow:0 0 4px ' + pip + '"></span>' +
+      '<span style="flex:1;overflow:hidden;text-overflow:ellipsis">' + label + '</span>' +
+      (evCount ? '<span style="font-size:7px;color:#2a5a8a">' + evCount + '</span>' : '') +
+      '</div>';
+  }).join('');
+
+  // Delegate click
+  list.onclick = function(e) {
+    var item = e.target.closest('.nw-country-item');
+    if (!item) return;
+    var country = item.dataset.country;
+    if (country) { setCountry(country); buildCountryList(filter); }
+  };
+}
+
+function updateStats(events) {
+  var el = document.getElementById('nw-stats');
+  if (!el) return;
+  var counts = { CRITICAL:0, WARNING:0, WATCH:0, LOW:0 };
+  events.forEach(function(e){ counts[e.risk]  = (counts[e.risk]||0)+1; });
+  el.innerHTML =
+    '<span style="color:#ff0044">' + counts.CRITICAL + ' CRITICAL</span> · ' +
+    '<span style="color:#ff9933">' + counts.WARNING  + ' WARNING</span> · ' +
+    '<span style="color:#ffcc00">' + counts.WATCH    + ' WATCH</span> · ' +
+    '<span style="color:#00ff88">' + counts.LOW      + ' LOW</span><br>' +
+    events.length + ' events · ' + state.graph.nodes.length + ' nodes';
+}
+
+// ── Canvas resize ─────────────────────────────────────────────────────────────
+function resizeCanvas() {
+  var canvas = document.getElementById('nw-canvas');
+  var wrap   = document.getElementById('nw-canvas-wrap');
+  if (!canvas || !wrap) return;
+  canvas.width  = wrap.clientWidth  || 800;
+  canvas.height = wrap.clientHeight || 600;
+  if (state.selectedCountry) { computeLayout(); renderGraph(); }
+}
+
+// ── Filter chip wiring ────────────────────────────────────────────────────────
+function wireFilters() {
+  document.querySelectorAll('#nw-overlay .nw-chip').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      this.classList.toggle('is-on');
+      syncFilterState();
+    });
+  });
+
+  document.getElementById('nw-time-select').addEventListener('change', function() {
+    state.filters.timeRange = this.value;
+    rebuildGraph();
+  });
+
+  document.getElementById('nw-country-search').addEventListener('input', function() {
+    buildCountryList(this.value);
+  });
+}
+
+function syncFilterState() {
+  var types = [], risks = [];
+  document.querySelectorAll('#nw-type-chips .nw-chip.is-on').forEach(function(b){ types.push(b.dataset.val); });
+  document.querySelectorAll('#nw-risk-chips .nw-chip.is-on').forEach(function(b){ risks.push(b.dataset.val); });
+  state.filters.types = new Set(types);
+  state.filters.risks = new Set(risks);
+  rebuildGraph();
+}
+
+// ── Open / Close ──────────────────────────────────────────────────────────────
+var _initialized = false;
+
+function open() {
+  var overlay = document.getElementById('nw-overlay');
+  if (!overlay) return;
+  overlay.classList.add('is-open');
+  document.getElementById('btn-neural-web').classList.add('is-active');
+
+  if (!_initialized) {
+    _initialized = true;
+    wireFilters();
+    setupCanvasInteraction();
+    window.addEventListener('resize', resizeCanvas);
+  }
+
+  // Refresh data and rebuild
+  refreshStore();
+  resizeCanvas();
+  buildCountryList();
+
+  // Auto-select highest-risk country on first open
+  if (!state.selectedCountry) {
+    var top = (window.COUNTRIES_DATA || []).slice().sort(function(a,b){ return (b.score||0)-(a.score||0); })[0];
+    if (top) { setCountry(top.label); buildCountryList(); }
+  }
+
+  // Update topbar
+  updateTopbar();
+}
+
+function close() {
+  var overlay = document.getElementById('nw-overlay');
+  if (overlay) overlay.classList.remove('is-open');
+  document.getElementById('btn-neural-web').classList.remove('is-active');
+  hoveredNode = null;
+  document.getElementById('nw-tooltip').classList.remove('is-visible');
+}
+
+function toggle() {
+  var overlay = document.getElementById('nw-overlay');
+  if (overlay && overlay.classList.contains('is-open')) close();
+  else open();
+}
+
+function updateTopbar() {
+  var title = document.getElementById('nw-country-title');
+  var sub   = document.getElementById('nw-subtitle');
+  if (!title) return;
+  if (state.selectedCountry) {
+    title.textContent = state.selectedCountry.toUpperCase();
+    var n = state.graph.nodes.length;
+    var e = state.graph.edges.length;
+    if (sub) sub.textContent = n + ' NODES · ' + e + ' EDGES';
+  } else {
+    title.textContent = 'SELECT A COUNTRY';
+    if (sub) sub.textContent = '';
+  }
+  var empty = document.getElementById('nw-empty');
+  if (empty) empty.style.display = state.selectedCountry ? 'none' : 'flex';
+}
+
+// Override setCountry to also update topbar
+var _origSetCountry = setCountry;
+setCountry = function(country) {
+  _origSetCountry(country);
+  updateTopbar();
+};
+
+// Keyboard shortcut: N = toggle neural web
+window.addEventListener('keydown', function(e) {
+  var tag = document.activeElement && document.activeElement.tagName;
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+  if (document.activeElement && document.activeElement.isContentEditable) return;
+  if (e.key.toLowerCase() === 'n') toggle();
+});
+
+// ── Public API ────────────────────────────────────────────────────────────────
+return {
+  open:          open,
+  close:         close,
+  toggle:        toggle,
+  setCountry:    function(c){ setCountry(c); buildCountryList(); updateTopbar(); },
+  updateFilters: updateFilters,
+  rebuildGraph:  rebuildGraph,
+  getState:      function(){ return state; },
+  getStore:      function(){ return store; },
+};
 
 }());
 </script>

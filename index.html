@@ -3600,7 +3600,12 @@ document.addEventListener('DOMContentLoaded', function() {
   renderer.domElement.addEventListener('mouseleave', function() { isDragging = false; document.body.classList.remove('is-dragging'); });
   renderer.domElement.addEventListener('wheel', function(e) {
     e.preventDefault();
-    camera.position.z = Math.max(150, Math.min(400, camera.position.z + e.deltaY * 0.1));
+    // Scale zoom speed with distance so close-range scrolling stays granular
+    // and far-range scrolling covers ground quickly
+    var zoomSpeed = e.deltaY * 0.1 * (camera.position.z / 250);
+    // minDistance 113 = 75% of the previous 150 floor → ~25% closer to globe surface
+    // Globe radius = 100, so at z=113 the camera is 13 units above the surface — no clipping risk
+    camera.position.z = Math.max(113, Math.min(400, camera.position.z + zoomSpeed));
   }, { passive: false });
 
   // ── Hover Tooltip ────────────────────────────────────────────────────────────
@@ -3709,6 +3714,14 @@ document.addEventListener('DOMContentLoaded', function() {
     routeArcLines.forEach(function(line, i) {
       line.material.opacity = 0.28 + 0.14 * Math.sin(animT + i * 0.6);
     });
+
+    // Adaptive marker scale: closer zoom → smaller markers so they don't occlude the globe;
+    // farther zoom → larger markers so they remain legible. Clamped to [0.55, 1.5].
+    // At z=113 (max close): scale ≈ 0.58 — markers appear ~28% larger on screen despite being smaller world-space
+    // At z=250 (default):   scale = 1.0
+    // At z=400 (max far):   scale = 1.5  — markers stay visible at distance
+    var _markerScale = Math.max(0.55, Math.min(1.5, camera.position.z / 250));
+    if (eventMarkerGroup) eventMarkerGroup.scale.setScalar(_markerScale);
 
     renderer.render(scene, camera);
   }

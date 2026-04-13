@@ -6970,17 +6970,39 @@ window.ArgusEvents = (function() {
     if (label) label.textContent = '◈ GEOCODING…';
 
     geocode(location).then(function(geo) {
-      var data = {
-        type: type, severity: severity,
-        title: (title || location).slice(0, 60),
-        location: location,
-        lat: geo.lat, lon: geo.lon,
-        impact: impact || ('Event at ' + location + '.'),
-        source: 'MANUAL'
-      };
-      plotPin(geo.lat, geo.lon, data);
-      addToTray(data);
-      if (label) label.textContent = '◈ EVENT INTEL';
+      var evTitle = (title || location).slice(0, 60);
+      var sess = null;
+      try { sess = JSON.parse(localStorage.getItem('argus_session')); } catch(e) {}
+      var token = (sess && sess.access_token) || SUPA_ANON_GDELT;
+      fetch('https://wbvzlxtroewxrmonxodx.supabase.co/rest/v1/argus_event_queue', {
+        method: 'POST',
+        headers: {
+          'apikey': SUPA_ANON_GDELT,
+          'Authorization': 'Bearer ' + token,
+          'Content-Type': 'application/json',
+          'Prefer': 'return=minimal'
+        },
+        body: JSON.stringify({
+          source:    'MANUAL',
+          category:  type,
+          status:    'pending',
+          timestamp: new Date().toISOString(),
+          location:  { lat: geo.lat, lon: geo.lon, country: location },
+          data:      { title: evTitle, severity: severity, type: type,
+                       impact: impact || ('Event at ' + location + '.') }
+        })
+      })
+      .then(function(r) {
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        if (label) { label.textContent = '◈ PENDING REVIEW'; setTimeout(function() { label.textContent = '◈ EVENT INTEL'; }, 3500); }
+        var toast = document.getElementById('eq-submit-toast');
+        if (toast) { toast.classList.add('is-visible'); setTimeout(function() { toast.classList.remove('is-visible'); }, 4000); }
+        console.log('ArgusEvents: submitted to review queue —', evTitle, geo.lat.toFixed(4), geo.lon.toFixed(4));
+      })
+      .catch(function(e) {
+        if (label) { label.textContent = '◈ SUBMIT FAILED'; setTimeout(function() { label.textContent = '◈ EVENT INTEL'; }, 2500); }
+        console.warn('ArgusEvents: queue submit failed:', e.message);
+      });
 
       // Clear modal fields
       ['es-m-location','es-m-title','es-m-impact'].forEach(function(id) {
@@ -6989,8 +7011,6 @@ window.ArgusEvents = (function() {
       });
       document.getElementById('es-m-type').value = 'POLICY';
       document.getElementById('es-m-severity').value = 'WATCH';
-
-      console.log('ArgusEvents: created', data.title, geo.lat, geo.lon);
     }).catch(function(err) {
       if (label) label.textContent = '◈ NOT FOUND';
       setTimeout(function() { if (label) label.textContent = '◈ EVENT INTEL'; }, 2000);
@@ -8793,31 +8813,65 @@ window.ArgusAdmin = (function() {
       }
 
       list.innerHTML = rows.map(function(ev) {
-        var scores   = scoreEvent(ev);
-        var loc      = ev.location ? ((ev.location.country || '') + (ev.location.lat ? ' (' + parseFloat(ev.location.lat).toFixed(1) + ', ' + parseFloat(ev.location.lon).toFixed(1) + ')' : '')) : '—';
-        var kw       = (ev.data && ev.data.keywords) ? ev.data.keywords.slice(0,4).join(', ') : '—';
-        var ts       = ev.timestamp ? new Date(ev.timestamp).toUTCString().slice(0,22) : '—';
-        var isDue    = ev.status === 'approved' && ev.next_review && new Date(ev.next_review) <= now;
-        var nextRev  = ev.next_review ? ' · Review: ' + new Date(ev.next_review).toLocaleDateString() : '';
-        var statusCol = ev.status === 'approved' ? (isDue ? '#ff9900' : '#00cc66') : ev.status === 'held' ? '#ff9900' : '#3a6a8a';
-        var statusLbl = ev.status === 'approved' ? (isDue ? '⚠ REVIEW DUE' : '✓ ACTIVE') : ev.status === 'held' ? '⏸ HELD' : '● PENDING';
+        var scores    = scoreEvent(ev);
+        var loc       = ev.location ? ((ev.location.country || '') + (ev.location.lat ? ' (' + parseFloat(ev.location.lat).toFixed(1) + ', ' + parseFloat(ev.location.lon).toFixed(1) + ')' : '')) : '—';
+        var kw        = (ev.data && ev.data.keywords) ? ev.data.keywords.slice(0,4).join(', ') : '—';
+        var ts        = ev.timestamp ? new Date(ev.timestamp).toUTCString().slice(0,22) : '—';
+        var isDue     = ev.status === 'approved' && ev.next_review && new Date(ev.next_review) <= now;
+        var nextRev   = ev.next_review ? ' · Review: ' + new Date(ev.next_review).toLocaleDateString() : '';
+        var statusCol = ev.status === 'approved' ? (isDue ? '#ff9900' : '#00cc66') : ev.status === 'held' ? '#ff9900' : '#ff9933';
+        var statusLbl = ev.status === 'approved' ? (isDue ? '⚠ REVIEW DUE' : '✓ ACTIVE') : ev.status === 'held' ? '⏸ HELD' : '⏳ PENDING REVIEW';
+        var isPending = ev.status === 'pending';
 
-        return '<div class="eq-card" id="eq-' + ev.id + '">' +
+        // Edit fields — only shown for pending events so admin can verify/fix coordinates + risk
+        var editLat = ev.location && ev.location.lat  != null ? parseFloat(ev.location.lat).toFixed(4)  : '';
+        var editLon = ev.location && ev.location.lon  != null ? parseFloat(ev.location.lon).toFixed(4)  : '';
+        var editSev = (ev.data && ev.data.severity) || 'WATCH';
+        var editFields = isPending
+          ? '<div class="eq-edit-row">' +
+              '<div class="eq-edit-field">' +
+                '<div class="eq-edit-label">LAT</div>' +
+                '<input type="number" step="0.0001" id="eq-lat-' + ev.id + '" value="' + editLat + '" class="eq-coord-input" placeholder="e.g. 35.6892" />' +
+              '</div>' +
+              '<div class="eq-edit-field">' +
+                '<div class="eq-edit-label">LON</div>' +
+                '<input type="number" step="0.0001" id="eq-lon-' + ev.id + '" value="' + editLon + '" class="eq-coord-input" placeholder="e.g. 51.3890" />' +
+              '</div>' +
+              '<div class="eq-edit-field">' +
+                '<div class="eq-edit-label">RISK</div>' +
+                '<select id="eq-sev-' + ev.id + '" class="eq-sev-select">' +
+                  '<option value="CRITICAL"' + (editSev === 'CRITICAL' ? ' selected' : '') + '>CRITICAL</option>' +
+                  '<option value="WARNING"'  + (editSev === 'WARNING'  ? ' selected' : '') + '>WARNING</option>'  +
+                  '<option value="WATCH"'    + (editSev === 'WATCH'    ? ' selected' : '') + '>WATCH</option>'    +
+                  '<option value="LOW"'      + (editSev === 'LOW'      ? ' selected' : '') + '>LOW</option>'      +
+                '</select>' +
+              '</div>' +
+            '</div>' +
+            '<div class="eq-review-hint">✎ VERIFY COORDINATES &amp; RISK LEVEL BEFORE APPROVAL</div>'
+          : '';
+
+        var approveBtn = isPending
+          ? '<button class="eq-btn approve" onclick="ArgusAdmin.approveEvent(\'' + ev.id + '\')">✓ APPROVE → PUBLISH</button>'
+          : '<button class="eq-btn approve" onclick="ArgusAdmin.queueAction(\'' + ev.id + '\',\'approved\')">✓ +7 DAYS</button>';
+
+        return '<div class="eq-card" id="eq-' + ev.id + '" data-status="' + ev.status + '">' +
           '<div class="eq-card-head">' +
             '<span class="eq-src">' + (ev.source || '?') + '</span>' +
             '<span class="eq-cat">' + (ev.category || '—') + '</span>' +
             '<span class="eq-ts" style="color:' + statusCol + '">' + statusLbl + nextRev + '</span>' +
           '</div>' +
           '<div class="eq-title">' + ((ev.data && ev.data.title) || 'No title') + '</div>' +
+          (ev.data && ev.data.impact ? '<div class="eq-impact">' + (ev.data.impact + '').slice(0, 120) + '</div>' : '') +
           '<div class="eq-meta"><span>📍 ' + loc + '</span><span>🔑 ' + kw + '</span></div>' +
+          editFields +
           '<div class="eq-scores">' +
             '<div><div style="font-size:8px;letter-spacing:1px;color:#3a6a8a;margin-bottom:3px;">CONFIDENCE</div>' + scoreBar(scores.conf, false) + '</div>' +
             '<div><div style="font-size:8px;letter-spacing:1px;color:#3a6a8a;margin-bottom:3px;">BIAS RISK</div>' + scoreBar(scores.bias, true) + '</div>' +
           '</div>' +
           '<div class="eq-actions">' +
-            '<button class="eq-btn approve" onclick="ArgusAdmin.queueAction(\'' + ev.id + '\',\'approved\')">✓ ' + (ev.status === 'approved' ? '+7 DAYS' : 'APPROVE') + '</button>' +
-            '<button class="eq-btn deny"    onclick="ArgusAdmin.queueAction(\'' + ev.id + '\',\'denied\')">✕ DENY + REMOVE</button>' +
-            '<button class="eq-btn permanent" onclick="ArgusAdmin.permanentAction(\'' + ev.id + '\')"><span style="width:6px;height:6px;border-radius:50%;background:#ff9900;display:inline-block;margin-right:5px;"></span>UPDATE SITE</button>' +
+            approveBtn +
+            '<button class="eq-btn deny" onclick="ArgusAdmin.queueAction(\'' + ev.id + '\',\'denied\')">✕ REJECT</button>' +
+            (!isPending ? '<button class="eq-btn permanent" onclick="ArgusAdmin.permanentAction(\'' + ev.id + '\')"><span style="width:6px;height:6px;border-radius:50%;background:#ff9900;display:inline-block;margin-right:5px;"></span>UPDATE SITE</button>' : '') +
           '</div>' +
         '</div>';
       }).join('');
@@ -8844,15 +8898,87 @@ window.ArgusAdmin = (function() {
     .then(function(r) {
       if (!r.ok) throw new Error('HTTP ' + r.status);
       if (action === 'denied') {
-        // Denied — remove from queue AND remove from globe
+        var wasPending = card && card.dataset.status === 'pending';
         if (card) card.remove();
-        deletePermanentByTitle(id);
+        // Only attempt globe removal if this event was previously published (approved → denied)
+        if (!wasPending) deletePermanentByTitle(id);
+        loadQueue();
       } else {
-        // Approved — reload to show updated next_review date
+        // +7-day re-approval for already-active events — reload to show updated next_review
         loadQueue();
       }
     })
     .catch(function(e) { if (card) card.style.opacity = '1'; alert('Action failed: ' + e.message); });
+  }
+
+  // ── Approve pending event: read edited coords/risk, publish to globe ─────
+  function approveEvent(id) {
+    var card = document.getElementById('eq-' + id);
+    if (!card) return;
+
+    var latEl = document.getElementById('eq-lat-' + id);
+    var lonEl = document.getElementById('eq-lon-' + id);
+    var sevEl = document.getElementById('eq-sev-' + id);
+    var lat   = latEl ? parseFloat(latEl.value) : NaN;
+    var lon   = lonEl ? parseFloat(lonEl.value) : NaN;
+    var sev   = sevEl ? sevEl.value : 'WATCH';
+
+    if (isNaN(lat) || isNaN(lon) || lat < -90 || lat > 90 || lon < -180 || lon > 180) {
+      alert('Valid coordinates required before approval.\n\nEdit the Lat (−90 to 90) and Lon (−180 to 180) fields, then try again.');
+      return;
+    }
+
+    card.style.opacity = '0.4';
+
+    // Fetch the full queue record to get title/impact/source
+    sbFetch('/rest/v1/argus_event_queue?id=eq.' + id + '&select=*')
+    .then(function(r) { return r.json(); })
+    .then(function(rows) {
+      var ev = rows[0];
+      if (!ev) throw new Error('Event record not found in queue');
+
+      // Write admin-verified event to permanent_events → becomes visible on globe
+      return sbFetch('/rest/v1/argus_permanent_events', {
+        method: 'POST',
+        headers: { 'Prefer': 'return=minimal' },
+        body: JSON.stringify({
+          source:     ev.source || 'MANUAL',
+          category:   ev.category || 'EVENT',
+          timestamp:  ev.timestamp || new Date().toISOString(),
+          location:   { lat: lat, lon: lon, country: ev.location && ev.location.country },
+          data: {
+            title:    (ev.data && ev.data.title) || 'Event',
+            severity: sev,
+            type:     (ev.data && ev.data.type)  || (ev.category || 'POLICY').toUpperCase(),
+            impact:   (ev.data && ev.data.impact) || '',
+          },
+          created_by: window.ArgusSession ? window.ArgusSession.email : 'admin',
+        })
+      });
+    })
+    .then(function(r) {
+      if (!r.ok) return r.text().then(function(t) { throw new Error('Permanent events write failed: ' + t); });
+      // Mark the queue item approved + record reviewer
+      return sbFetch('/rest/v1/argus_event_queue?id=eq.' + id, {
+        method: 'PATCH',
+        headers: { 'Prefer': 'return=minimal' },
+        body: JSON.stringify({
+          status:      'approved',
+          reviewed_at: new Date().toISOString(),
+          next_review: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
+        })
+      });
+    })
+    .then(function() {
+      if (card) card.remove();
+      loadQueue();
+      // Reload globe so the newly-approved event appears immediately
+      _reloadPermanent();
+    })
+    .catch(function(e) {
+      if (card) card.style.opacity = '1';
+      alert('Approve failed: ' + e.message);
+    });
   }
 
   // ── User Management ────────────────────────────────────────────────────────
@@ -9388,7 +9514,7 @@ window.ArgusAdmin = (function() {
     .catch(function(e) { alert('Delete failed: ' + e.message); });
   }
 
-  return { toggle: toggle, switchTab: switchTab, loadUsers: loadUsers, loadQueue: loadQueue, queueAction: queueAction, setTier: setTier, loadRequests: loadRequests, requestAction: requestAction, permanentAction: permanentAction, _reloadPermanent: _reloadPermanent, _plotAnalystPin: _plotAnalystPin, removeAnalystPin: removeAnalystPin, loadHistory: loadHistory, clearHistory: clearHistory, deletePermanentEvent: deletePermanentEvent, deletePermanentByTitle: deletePermanentByTitle };
+  return { toggle: toggle, switchTab: switchTab, loadUsers: loadUsers, loadQueue: loadQueue, queueAction: queueAction, approveEvent: approveEvent, setTier: setTier, loadRequests: loadRequests, requestAction: requestAction, permanentAction: permanentAction, _reloadPermanent: _reloadPermanent, _plotAnalystPin: _plotAnalystPin, removeAnalystPin: removeAnalystPin, loadHistory: loadHistory, clearHistory: clearHistory, deletePermanentEvent: deletePermanentEvent, deletePermanentByTitle: deletePermanentByTitle };
 })();
 </script>
 

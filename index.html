@@ -1802,6 +1802,46 @@
     gap: 6px; margin-top: 6px;
   }
 
+  /* ── Event Review edit fields ── */
+  .eq-edit-row {
+    display: flex; gap: 8px; margin: 8px 0 4px; flex-wrap: wrap;
+  }
+  .eq-edit-field { display: flex; flex-direction: column; flex: 1; min-width: 70px; }
+  .eq-edit-label {
+    font-size: 8px; letter-spacing: 1px; color: #3a6a8a; margin-bottom: 3px; text-transform: uppercase;
+  }
+  .eq-coord-input {
+    background: #040d18; border: 1px solid #1a4a70; color: #7aafcc;
+    font-family: 'DM Mono', monospace; font-size: 10px; padding: 4px 6px;
+    width: 100%; box-sizing: border-box;
+  }
+  .eq-coord-input:focus { outline: none; border-color: #00aaff; }
+  .eq-sev-select {
+    background: #040d18; border: 1px solid #1a4a70; color: #7aafcc;
+    font-family: 'DM Mono', monospace; font-size: 9px; letter-spacing: 1px;
+    padding: 4px 6px; cursor: pointer; width: 100%;
+  }
+  .eq-sev-select:focus { outline: none; border-color: #00aaff; }
+  .eq-impact {
+    font-size: 9px; color: #3a6a8a; margin-bottom: 6px; line-height: 1.4;
+    border-left: 2px solid #0f2d48; padding-left: 8px;
+  }
+  .eq-review-hint {
+    font-size: 8px; color: #2a5a7a; margin: 2px 0 6px; letter-spacing: 1px;
+  }
+
+  /* ── Submit-to-queue toast ── */
+  #eq-submit-toast {
+    position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(20px);
+    background: #071525; border: 1px solid #00aa66; color: #00cc66;
+    font-family: 'DM Mono', monospace; font-size: 10px; letter-spacing: 2px;
+    padding: 10px 20px; z-index: 9999; pointer-events: none;
+    opacity: 0; transition: opacity 0.3s, transform 0.3s;
+  }
+  #eq-submit-toast.is-visible {
+    opacity: 1; transform: translateX(-50%) translateY(0);
+  }
+
   /* ── Analyst Request button ── */
   #btn-analyst-request {
     font-family: 'DM Mono', monospace;
@@ -2399,6 +2439,9 @@
       <button id="btn-analyst-request" onclick="ArgusAnalyst.openModal()" aria-label="Submit event request" style="display:none;">⊕ SUBMIT EVENT</button>
     </div>
   </header>
+
+  <!-- ── Event submit toast — shown after manual event sent to review queue ── -->
+  <div id="eq-submit-toast">◈ EVENT SUBMITTED — AWAITING ADMIN REVIEW</div>
 
   <!-- ── Admin Dashboard (owner/admin only — injected by ArgusAdmin) ──────── -->
   <div id="admin-bar" class="collapsed" style="display:none" aria-label="Admin dashboard">
@@ -6721,18 +6764,36 @@ window.ArgusEvents = (function() {
     geocode(locationPart)
       .then(function(geo) {
         var shortName = locationPart;
-        var data = {
-          type: cls.type, severity: cls.severity,
-          title: shortName.slice(0, 60),
-          location: shortName,
-          lat: geo.lat, lon: geo.lon,
-          impact: descPart || ('Event at ' + shortName + '. Type: ' + cls.type + '.'),
-          source: 'MANUAL'
-        };
-        plotPin(geo.lat, geo.lon, data);
-        addToTray(data);
-        if (label) label.textContent = '◈ EVENT INTEL';
-        console.log('ArgusEvents: plotted', shortName, geo.lat, geo.lon);
+        var evTitle   = shortName.slice(0, 60);
+        var sess = null;
+        try { sess = JSON.parse(localStorage.getItem('argus_session')); } catch(e) {}
+        var token = (sess && sess.access_token) || SUPA_ANON_GDELT;
+        fetch('https://wbvzlxtroewxrmonxodx.supabase.co/rest/v1/argus_event_queue', {
+          method: 'POST',
+          headers: {
+            'apikey': SUPA_ANON_GDELT,
+            'Authorization': 'Bearer ' + token,
+            'Content-Type': 'application/json',
+            'Prefer': 'return=minimal'
+          },
+          body: JSON.stringify({
+            source:    'MANUAL',
+            category:  cls.type,
+            status:    'pending',
+            timestamp: new Date().toISOString(),
+            location:  { lat: geo.lat, lon: geo.lon, country: shortName },
+            data:      { title: evTitle, severity: cls.severity, type: cls.type,
+                         impact: descPart || ('Event at ' + shortName + '. Type: ' + cls.type + '.') }
+          })
+        })
+        .then(function(r) {
+          if (label) label.textContent = r.ok ? '◈ PENDING REVIEW' : '◈ SUBMIT FAILED';
+          setTimeout(function() { if (label) label.textContent = '◈ EVENT INTEL'; }, 3500);
+          if (r.ok) console.log('ArgusEvents: submitted to review queue —', evTitle, geo.lat, geo.lon);
+        })
+        .catch(function() {
+          if (label) { label.textContent = '◈ SUBMIT FAILED'; setTimeout(function() { label.textContent = '◈ EVENT INTEL'; }, 2500); }
+        });
       })
       .catch(function(err) {
         if (label) label.textContent = '◈ NOT FOUND';

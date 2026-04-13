@@ -3715,14 +3715,6 @@ document.addEventListener('DOMContentLoaded', function() {
       line.material.opacity = 0.28 + 0.14 * Math.sin(animT + i * 0.6);
     });
 
-    // Adaptive marker scale: closer zoom → smaller markers so they don't occlude the globe;
-    // farther zoom → larger markers so they remain legible. Clamped to [0.55, 1.5].
-    // At z=113 (max close): scale ≈ 0.58 — markers appear ~28% larger on screen despite being smaller world-space
-    // At z=250 (default):   scale = 1.0
-    // At z=400 (max far):   scale = 1.5  — markers stay visible at distance
-    var _markerScale = Math.max(0.55, Math.min(1.5, camera.position.z / 250));
-    if (eventMarkerGroup) eventMarkerGroup.scale.setScalar(_markerScale);
-
     renderer.render(scene, camera);
   }
   animate();

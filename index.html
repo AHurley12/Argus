@@ -3856,7 +3856,6 @@ window.ArgusAnim = (function() {
 if (typeof window.updateNodeCounts !== 'function') window.updateNodeCounts = function() {};
 
 // ── API Keys & Endpoints ─────────────────────────────────────────────────────
-var NEWSDATA_API_KEY = 'pub_51e7f11528af42bb9e6a92b7030b0d17';
 var EIA_API_KEY      = 'qlxF62jdyiSElMCUx7clWH1rQY3RO0Ab5osLpbZj';
 var FRED_API_KEY     = '47800444e04800d76224f661749542d4';
 var AV_KEY           = '7597SBOWZDY1BZX2';
@@ -3864,16 +3863,16 @@ var AV_BASE          = 'https://www.alphavantage.co/query';
 var PG_KEY           = 'TZ8xt91B_6_wBMUyWEGl5GMVNa5e7WYz';
 var PG_BASE          = 'https://api.polygon.io';
 var FRED_BASE        = 'https://api.stlouisfed.org/fred/series/observations';
+// Supabase anon key — safe to expose, enforced by RLS on the server
+var SUPA_ANON_GDELT  = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndidnpseHRyb2V3eHJtb254b2R4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM3OTQzNzMsImV4cCI6MjA4OTM3MDM3M30.0zp-wQ3wKpYc0f7LqFCOEea_d9HJuWnUSWgF4BAW82w';
 
-// ── CORS proxies ─────────────────────────────────────────────────────────────
+// ── CORS proxy (codetabs — used for FRED/EIA direct calls) ───────────────────
 var PG = function(url) { return 'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(url); };
-var PP = function(url) { return 'https://corsproxy.io/?url=' + encodeURIComponent(url); };
 
 // ── Live data stores ─────────────────────────────────────────────────────────
 window._avData        = {};
 window._eiaData       = null;
 window._fredData      = null;
-window._portData      = {};
 
 // ════════════════════════════════════════════════════════════════════════════
 // ArgusData — all API fetches + intelligence snapshot
@@ -5539,12 +5538,10 @@ function renderEvents(events, isLive) {
   window.updateNodeCounts();
   document.getElementById('ev-feed-count').textContent = window.eventMarkers.length;
 }
-window.renderEvents = renderEvents;
-// Cache last rendered events for permanent event merging
-var _origRenderEvents = renderEvents;
+// Wrap renderEvents to cache the current event list for cross-module access
 window.renderEvents = function(events, isLive) {
   window._currentEvents = events;
-  _origRenderEvents(events, isLive);
+  renderEvents(events, isLive);
 };
 window.hcBadge = hcBadge;
 
@@ -7580,7 +7577,6 @@ function renderGdeltTab() {
 // ── Tab switch ────────────────────────────────────────────────────────────────
 function switchTab(tab) {
   activeTab = tab;
-  window._argusActiveTab = tab; // expose cross-scope for mergeAuxEvents
   var newsTab     = document.getElementById('tab-news');
   var gdeltTab    = document.getElementById('tab-gdelt');
   var disasterTab = document.getElementById('tab-disaster');

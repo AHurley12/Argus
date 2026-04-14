@@ -2236,6 +2236,38 @@
   .nw-action-btn.is-scanning { color: var(--nw-purple); border-color: var(--nw-purple); animation: nwPulse 1s ease-in-out infinite; }
   @keyframes nwPulse { 0%,100%{box-shadow:0 0 6px var(--nw-purple-glow)} 50%{box-shadow:0 0 18px rgba(180,100,255,0.5)} }
 
+  /* ── Sidebar mode toggle ─── */
+  #nw-sidebar-mode { display:flex; flex-shrink:0; border-bottom:1px solid #2a1040; }
+  .nw-sidebar-mode-btn { flex:1; padding:7px 4px; font-family:var(--font-mono); font-size:7px; letter-spacing:1.5px; font-weight:700; color:var(--nw-purple-dim); background:none; border:none; border-bottom:2px solid transparent; cursor:pointer; transition:color 0.15s,border-color 0.15s; }
+  .nw-sidebar-mode-btn.is-active { color:var(--nw-purple); border-bottom-color:var(--nw-purple); background:rgba(180,100,255,0.06); }
+  #nw-countries-section { display:flex; flex-direction:column; flex:1; overflow:hidden; }
+  #nw-countries-section.is-hidden { display:none; }
+  /* ── Node Builder panel ─── */
+  #nw-builder-section { display:none; flex-direction:column; flex:1; overflow:hidden; }
+  #nw-builder-section.is-visible { display:flex; }
+  #nw-builder-tabs { padding:8px 10px 6px; border-bottom:1px solid #2a1040; display:flex; gap:3px; flex-wrap:wrap; flex-shrink:0; }
+  #nw-builder-tabs .nw-chip { font-size:7px; padding:3px 6px; }
+  #nw-builder-head { padding:10px 14px 8px; border-bottom:1px solid #2a1040; flex-shrink:0; }
+  #nw-builder-search { width:100%; background:rgba(14,4,36,0.85); border:1px solid #2a1040; color:var(--color-text); font-family:var(--font-mono); font-size:10px; padding:6px 8px; outline:none; box-sizing:border-box; transition:border-color 0.15s; }
+  #nw-builder-search:focus { border-color:var(--nw-purple-dim); }
+  #nw-builder-search::placeholder { color:rgba(122,58,170,0.5); }
+  #nw-builder-results { flex:1; overflow-y:auto; scrollbar-width:thin; scrollbar-color:var(--nw-purple-faint) transparent; }
+  .nw-candidate { padding:6px 12px; cursor:grab; font-size:9px; color:rgba(180,140,210,0.75); display:flex; align-items:flex-start; gap:7px; border-left:2px solid transparent; user-select:none; transition:background 0.12s; }
+  .nw-candidate:hover { background:rgba(180,100,255,0.10); color:#d0aaf8; border-left-color:var(--nw-purple-dim); }
+  .nw-candidate-icon { flex-shrink:0; opacity:0.75; margin-top:1px; }
+  .nw-candidate-label { flex:1; line-height:1.4; overflow:hidden; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; }
+  .nw-candidate-meta { flex-shrink:0; font-size:7px; letter-spacing:1px; padding:1px 4px; border-radius:1px; white-space:nowrap; }
+  .nw-builder-footer { padding:8px 14px; border-top:1px solid #2a1040; flex-shrink:0; display:flex; flex-direction:column; gap:6px; }
+  .nw-builder-footer .nw-action-btn { width:100%; text-align:center; }
+  /* ── Link mode ─── */
+  #btn-nw-link-mode.is-active { color:#00ff88; border-color:#00cc66; background:rgba(0,255,136,0.08); box-shadow:0 0 8px rgba(0,255,136,0.12); }
+  #nw-canvas-wrap.link-mode { cursor:crosshair !important; }
+  #nw-link-indicator { display:none; position:absolute; top:10px; left:50%; transform:translateX(-50%); background:rgba(0,255,136,0.10); border:1px solid #00cc66; color:#00ff88; font-family:var(--font-mono); font-size:8px; letter-spacing:1.5px; padding:4px 16px; pointer-events:none; z-index:10; white-space:nowrap; border-radius:1px; }
+  #nw-link-indicator.is-visible { display:block; }
+  #nw-canvas-wrap.drop-target { outline:1px dashed var(--nw-purple-dim); outline-offset:-2px; }
+  /* ── New node type badge ─── */
+  .nw-edge-manual { background:rgba(0,255,136,0.12); border:1px solid #00cc66; color:#00ff88; }
+
   /* ── Intelligence panel (right side: tabs) ─── */
   #nw-intel-panel {
     width: 272px;
@@ -11578,38 +11610,68 @@ document.addEventListener('visibilitychange', function () {
 ══════════════════════════════════════════════════════════════════════════════ -->
 <div id="nw-overlay" aria-label="Neural Web intelligence builder" role="dialog" aria-modal="true">
 
-  <!-- Left sidebar: country selector + filters -->
+  <!-- Left sidebar: country selector + filters + node builder -->
   <aside id="nw-sidebar">
-    <div id="nw-sidebar-head">
-      <div class="nw-section-label">SELECT COUNTRY</div>
-      <input id="nw-country-search" type="text" placeholder="Search countries…" autocomplete="off" spellcheck="false" />
+
+    <!-- Sidebar mode toggle -->
+    <div id="nw-sidebar-mode">
+      <button class="nw-sidebar-mode-btn is-active" data-smode="countries">🌍 COUNTRIES</button>
+      <button class="nw-sidebar-mode-btn"            data-smode="build">⊕ ADD NODES</button>
     </div>
-    <div id="nw-country-list" role="listbox" aria-label="Country list"></div>
-    <div id="nw-filter-section">
-      <div class="nw-section-label">EVENT TYPE</div>
-      <div class="nw-filter-row" id="nw-type-chips">
-        <button class="nw-chip is-on" data-filter="type" data-val="CONFLICT">CONFLICT</button>
-        <button class="nw-chip is-on" data-filter="type" data-val="POLICY">POLICY</button>
-        <button class="nw-chip is-on" data-filter="type" data-val="DISASTER">DISASTER</button>
-        <button class="nw-chip is-on" data-filter="type" data-val="ECONOMIC">ECONOMIC</button>
-        <button class="nw-chip is-on" data-filter="type" data-val="HUMANITARIAN">HUMANITARIAN</button>
+
+    <!-- Countries section (original) -->
+    <div id="nw-countries-section">
+      <div id="nw-sidebar-head">
+        <div class="nw-section-label">SELECT COUNTRY</div>
+        <input id="nw-country-search" type="text" placeholder="Search countries…" autocomplete="off" spellcheck="false" />
       </div>
-      <div class="nw-section-label" style="margin-top:8px">RISK LEVEL</div>
-      <div class="nw-filter-row" id="nw-risk-chips">
-        <button class="nw-chip risk-critical is-on" data-filter="risk" data-val="CRITICAL">CRITICAL</button>
-        <button class="nw-chip risk-warning is-on" data-filter="risk" data-val="WARNING">WARNING</button>
-        <button class="nw-chip risk-watch is-on"   data-filter="risk" data-val="WATCH">WATCH</button>
-        <button class="nw-chip risk-low is-on"     data-filter="risk" data-val="LOW">LOW</button>
+      <div id="nw-country-list" role="listbox" aria-label="Country list"></div>
+      <div id="nw-filter-section">
+        <div class="nw-section-label">EVENT TYPE</div>
+        <div class="nw-filter-row" id="nw-type-chips">
+          <button class="nw-chip is-on" data-filter="type" data-val="CONFLICT">CONFLICT</button>
+          <button class="nw-chip is-on" data-filter="type" data-val="POLICY">POLICY</button>
+          <button class="nw-chip is-on" data-filter="type" data-val="DISASTER">DISASTER</button>
+          <button class="nw-chip is-on" data-filter="type" data-val="ECONOMIC">ECONOMIC</button>
+          <button class="nw-chip is-on" data-filter="type" data-val="HUMANITARIAN">HUMANITARIAN</button>
+        </div>
+        <div class="nw-section-label" style="margin-top:8px">RISK LEVEL</div>
+        <div class="nw-filter-row" id="nw-risk-chips">
+          <button class="nw-chip risk-critical is-on" data-filter="risk" data-val="CRITICAL">CRITICAL</button>
+          <button class="nw-chip risk-warning is-on" data-filter="risk" data-val="WARNING">WARNING</button>
+          <button class="nw-chip risk-watch is-on"   data-filter="risk" data-val="WATCH">WATCH</button>
+          <button class="nw-chip risk-low is-on"     data-filter="risk" data-val="LOW">LOW</button>
+        </div>
+        <div class="nw-section-label" style="margin-top:8px">TIME RANGE</div>
+        <select id="nw-time-select" class="nw-time-select">
+          <option value="1d">LAST 24 HOURS</option>
+          <option value="7d" selected>LAST 7 DAYS</option>
+          <option value="30d">LAST 30 DAYS</option>
+          <option value="all">ALL TIME</option>
+        </select>
       </div>
-      <div class="nw-section-label" style="margin-top:8px">TIME RANGE</div>
-      <select id="nw-time-select" class="nw-time-select">
-        <option value="1d">LAST 24 HOURS</option>
-        <option value="7d" selected>LAST 7 DAYS</option>
-        <option value="30d">LAST 30 DAYS</option>
-        <option value="all">ALL TIME</option>
-      </select>
+      <div id="nw-stats"></div>
     </div>
-    <div id="nw-stats"></div>
+
+    <!-- Node builder section (new) -->
+    <div id="nw-builder-section">
+      <div id="nw-builder-tabs">
+        <button class="nw-chip is-on" data-btype="events">🌍 EVT</button>
+        <button class="nw-chip" data-btype="disasters">🌪 DIS</button>
+        <button class="nw-chip" data-btype="news">📰 NEWS</button>
+        <button class="nw-chip" data-btype="companies">🏢 CO</button>
+        <button class="nw-chip" data-btype="vessels">🚢 VES</button>
+      </div>
+      <div id="nw-builder-head">
+        <input id="nw-builder-search" type="text" placeholder="Search nodes to add…" autocomplete="off" spellcheck="false" />
+      </div>
+      <div id="nw-builder-results" aria-label="Node candidates"></div>
+      <div class="nw-builder-footer">
+        <button class="nw-action-btn" id="btn-nw-add-note">📝 ADD NOTE NODE</button>
+        <button class="nw-action-btn" id="btn-nw-link-mode">⟷ LINK NODES</button>
+      </div>
+    </div>
+
   </aside>
 
   <!-- Main graph area -->
@@ -11623,6 +11685,7 @@ document.addEventListener('visibilitychange', function () {
     </div>
     <div id="nw-canvas-wrap">
       <canvas id="nw-canvas"></canvas>
+      <div id="nw-link-indicator">CLICK TARGET NODE TO LINK  ·  ESC TO CANCEL</div>
       <div id="nw-empty">
         <div id="nw-empty-icon">⬡</div>
         <div id="nw-empty-text">SELECT A COUNTRY TO BUILD GRAPH</div>
@@ -11671,6 +11734,9 @@ document.addEventListener('visibilitychange', function () {
   <div class="nw-ctx-item" id="nw-ctx-reclassify">⟳ RECLASSIFY TYPE</div>
   <div class="nw-ctx-sep"></div>
   <div class="nw-ctx-item" id="nw-ctx-note">📝 ADD TO NOTES</div>
+  <div class="nw-ctx-sep"></div>
+  <div class="nw-ctx-item" id="nw-ctx-link">⟷ CREATE LINK FROM HERE</div>
+  <div class="nw-ctx-item" id="nw-ctx-delete" style="color:#ff4466">✕ REMOVE NODE</div>
 </div>
 
 <!-- Node hover tooltip -->
@@ -11821,6 +11887,9 @@ var state = {
   },
   graph: { nodes: [], edges: [] },
   _prevGraphKey: '',    // for diff detection
+  linkMode:    { active: false, sourceNode: null },
+  manualEdges: [],      // user-created edges (persist across rebuilds)
+  builderType: 'events',
 };
 
 // --- 2.1 Controlled state mutations ---
@@ -11945,6 +12014,11 @@ function buildEdges(nodes, events) {
 
   // Relationship edges are added by scanRelationships() and stored in state.relEdges
   (state.relEdges || []).forEach(function(e) {
+    if (nodeIds.has(e.source) && nodeIds.has(e.target)) edges.push(e);
+  });
+
+  // Manual edges — user-created links (survive rebuildGraph)
+  (state.manualEdges || []).forEach(function(e) {
     if (nodeIds.has(e.source) && nodeIds.has(e.target)) edges.push(e);
   });
 
@@ -12149,6 +12223,78 @@ function scanRelationships() {
     }
   } catch(_){}
 
+  // ── 4. GEOPOLITICAL CONTEXT ENGINE ──────────────────────────────────────────
+  if (state.selectedCountry) {
+    var gcd = (window.COUNTRIES_DATA || []).find(function(c){ return c.label === state.selectedCountry; });
+    if (gcd) {
+      // 4a. Trade dependency: event keywords match country's known exports/imports
+      var tradeTerms = [].concat(gcd.topE || [], gcd.topI || []).map(function(t){ return t.toLowerCase().trim(); }).filter(function(t){ return t.length > 3; });
+      if (tradeTerms.length) {
+        evNodes.forEach(function(en) {
+          var etl = textOf(en);
+          var tradeHits = tradeTerms.filter(function(t){ return etl.indexOf(t) !== -1; });
+          if (tradeHits.length) {
+            var tnid = 'signal:trade';
+            if (!newNodeIds.has(tnid)) {
+              newNodes.push({ id: tnid, type: 'signal', signalType: 'supply', label: 'TRADE EXPOSURE', keywords: tradeHits.slice(0, 5), risk: 'WARNING' });
+              newNodeIds.add(tnid);
+            }
+            relEdges.push({ source: en.id, target: tnid, weight: 2, edgeType: 'dependency', detected: true });
+          }
+        });
+      }
+    }
+  }
+
+  // 4b. Sanctions / embargo signal
+  var SANCTION_TERMS = ['sanction','embargo','export ban','import ban','blacklist','asset freeze','tariff','trade restriction','blocked','banned'];
+  var sanctHits = SANCTION_TERMS.filter(function(s){ return allTextL.indexOf(s) !== -1; });
+  if (sanctHits.length) {
+    var sancNid = 'signal:sanctions';
+    if (!newNodeIds.has(sancNid)) {
+      newNodes.push({ id: sancNid, type: 'signal', signalType: 'supply', label: 'SANCTIONS / EMBARGO', keywords: sanctHits.slice(0, 5), risk: 'CRITICAL' });
+      newNodeIds.add(sancNid);
+    }
+    evNodes.forEach(function(en) {
+      var etl = textOf(en);
+      if (SANCTION_TERMS.some(function(s){ return etl.indexOf(s) !== -1; }))
+        relEdges.push({ source: en.id, target: sancNid, weight: 3, edgeType: 'causality', detected: true });
+    });
+  }
+
+  // 4c. Geopolitical / alliance keyword signals
+  var GEO_SIGNALS = [
+    { key: 'alliance', terms: ['nato','alliance','treaty','pact','multilateral','coalition'], label: 'ALLIANCE DYNAMICS', risk: 'WATCH' },
+    { key: 'conflict_escalation', terms: ['escalat','airstrike','missile','offensive','invaded','occupied','siege','blockade'], label: 'CONFLICT ESCALATION', risk: 'CRITICAL' },
+    { key: 'economic_warfare', terms: ['currency war','competitive deval','capital flight','default','debt crisis','yield spread','sovereign risk'], label: 'ECONOMIC WARFARE', risk: 'WARNING' },
+    { key: 'supply_chain', terms: ['supply chain','semiconductor','rare earth','lithium','cobalt','lng','pipeline','grain corridor'], label: 'SUPPLY CHAIN RISK', risk: 'WARNING' },
+  ];
+  GEO_SIGNALS.forEach(function(sig) {
+    var hits = sig.terms.filter(function(t){ return allTextL.indexOf(t) !== -1; });
+    if (!hits.length) return;
+    var gnid = 'signal:geo:' + sig.key;
+    if (!newNodeIds.has(gnid)) {
+      newNodes.push({ id: gnid, type: 'signal', signalType: 'market', label: sig.label, keywords: hits.slice(0, 4), risk: sig.risk });
+      newNodeIds.add(gnid);
+      evNodes.forEach(function(en) {
+        var etl = textOf(en);
+        if (sig.terms.some(function(t){ return etl.indexOf(t) !== -1; }))
+          relEdges.push({ source: en.id, target: gnid, weight: 2, edgeType: 'correlation', detected: true });
+      });
+    }
+  });
+
+  // 4d. Conflict escalation cascade: CRITICAL events → infer causality to WARNING events sharing ≥1 keyword
+  var critEvents = evNodes.filter(function(n){ return n.risk === 'CRITICAL'; });
+  var warnEvents2 = evNodes.filter(function(n){ return n.risk === 'WARNING'; });
+  critEvents.forEach(function(ce) {
+    warnEvents2.forEach(function(we) {
+      if (relEdges.some(function(e){ return (e.source === ce.id && e.target === we.id) || (e.source === we.id && e.target === ce.id); })) return;
+      var shared = (ce.keywords || []).filter(function(k){ return k.length > 4 && (we.keywords || []).indexOf(k) !== -1; });
+      if (shared.length) relEdges.push({ source: ce.id, target: we.id, weight: 2.5, edgeType: 'causality', detected: true });
+    });
+  });
+
   // Commit everything
   state.relEdges = relEdges;
   var allNew = newNodes;
@@ -12258,11 +12404,12 @@ var CORRELATION_VERBS = ['coincided','following','alongside','amid','linked','pa
 var DEPENDENCY_VERBS  = ['relies on','depends on','tied to','contingent','vulnerable','exposed to','impacted by','at risk','threatened by','relies upon','dependent on'];
 
 var EDGE_TYPES = {
-  causality:   { color:'#ff3355', dash:[4,3],  label:'LED TO',     badge:'nw-edge-cause' },
-  correlation: { color:'#00aaff', dash:[2,4],  label:'MOVED WITH', badge:'nw-edge-corr'  },
-  dependency:  { color:'#ffcc00', dash:[6,2],  label:'RELIES ON',  badge:'nw-edge-dep'   },
-  country:     { color:'#0099ff', dash:[],     label:'',           badge:''               },
-  topic:       { color:'#3a1a7a', dash:[1,3],  label:'',           badge:''               },
+  causality:   { color:'#ff3355', dash:[4,3],  label:'LED TO',     badge:'nw-edge-cause'   },
+  correlation: { color:'#00aaff', dash:[2,4],  label:'MOVED WITH', badge:'nw-edge-corr'    },
+  dependency:  { color:'#ffcc00', dash:[6,2],  label:'RELIES ON',  badge:'nw-edge-dep'     },
+  manual:      { color:'#00ff88', dash:[3,3],  label:'LINKED BY',  badge:'nw-edge-manual'  },
+  country:     { color:'#0099ff', dash:[],     label:'',           badge:''                 },
+  topic:       { color:'#3a1a7a', dash:[1,3],  label:'',           badge:''                 },
 };
 
 // Well-known companies in supply-chain / trade context
@@ -12273,10 +12420,15 @@ var MARKET_SIGNALS   = ['oil price','brent','wti','s&p','spy','yield','dollar','
 var SUPPLY_SIGNALS   = ['shortage','embargo','sanctions','blockade','disruption','supply chain','port closure','canal blocked','semiconductor','chip','fertilizer','wheat','grain'];
 
 function getNodeRadius(n) {
-  if (n.type === 'country') return 26;
-  if (n.type === 'topic')   return 10;
-  if (n.type === 'entity')  return 13 + (RISK_WEIGHTS[n.risk] || 1);
-  if (n.type === 'signal')  return 15;
+  if (n.type === 'country')  return 26;
+  if (n.type === 'topic')    return 10;
+  if (n.type === 'entity')   return 13 + (RISK_WEIGHTS[n.risk] || 1);
+  if (n.type === 'signal')   return 15;
+  if (n.type === 'note')     return 13;
+  if (n.type === 'vessel')   return 12 + (RISK_WEIGHTS[n.risk] || 1);
+  if (n.type === 'company')  return 13 + (RISK_WEIGHTS[n.risk] || 1);
+  if (n.type === 'news')     return 12 + (RISK_WEIGHTS[n.risk] || 1);
+  if (n.type === 'aircraft') return 11;
   return 14 + (RISK_WEIGHTS[n.risk] || 1) * 2;
 }
 
@@ -12465,6 +12617,78 @@ function drawNode(ctx, n, pos, hovered, selected) {
     ctx.fillStyle = hexToRgba(sigColor, 0.7);
     ctx.fill();
 
+  } else if (n.type === 'note') {
+    // Sticky note — square with fold corner
+    var ns = r * 1.7;
+    var nx = pos.x - ns / 2, ny = pos.y - ns / 2;
+    ctx.beginPath();
+    ctx.moveTo(nx + ns - 5, ny);
+    ctx.lineTo(nx, ny);
+    ctx.lineTo(nx, ny + ns);
+    ctx.lineTo(nx + ns, ny + ns);
+    ctx.lineTo(nx + ns, ny + 5);
+    ctx.closePath();
+    ctx.fillStyle = hexToRgba('#ffe066', 0.13);
+    ctx.fill();
+    ctx.strokeStyle = '#ffe066';
+    ctx.lineWidth = hovered ? 2 : 1.2;
+    ctx.stroke();
+    // Fold corner
+    ctx.beginPath();
+    ctx.moveTo(nx + ns - 5, ny);
+    ctx.lineTo(nx + ns - 5, ny + 5);
+    ctx.lineTo(nx + ns, ny + 5);
+    ctx.strokeStyle = hexToRgba('#ffe066', 0.5);
+    ctx.lineWidth = 0.8;
+    ctx.stroke();
+    // Pen dot
+    ctx.beginPath();
+    ctx.arc(pos.x, pos.y, 3, 0, Math.PI * 2);
+    ctx.fillStyle = '#ffe066';
+    ctx.fill();
+
+  } else if (n.type === 'vessel') {
+    // Triangle (ship prow pointing up)
+    ctx.beginPath();
+    ctx.moveTo(pos.x, pos.y - r);
+    ctx.lineTo(pos.x + r * 0.85, pos.y + r * 0.7);
+    ctx.lineTo(pos.x - r * 0.85, pos.y + r * 0.7);
+    ctx.closePath();
+    ctx.fillStyle = hexToRgba('#00ccff', 0.14);
+    ctx.fill();
+    ctx.strokeStyle = '#00ccff';
+    ctx.lineWidth = hovered ? 2 : 1.2;
+    ctx.stroke();
+
+  } else if (n.type === 'company') {
+    // Square with inner ring
+    ctx.beginPath();
+    ctx.rect(pos.x - r, pos.y - r, r * 2, r * 2);
+    ctx.fillStyle = hexToRgba('#ff99aa', 0.13);
+    ctx.fill();
+    ctx.strokeStyle = '#ff99aa';
+    ctx.lineWidth = hovered ? 2 : 1.2;
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(pos.x, pos.y, r * 0.36, 0, Math.PI * 2);
+    ctx.fillStyle = hexToRgba('#ff99aa', 0.55);
+    ctx.fill();
+
+  } else if (n.type === 'news') {
+    // Octagon — news burst shape
+    ctx.beginPath();
+    for (var k2 = 0; k2 < 8; k2++) {
+      var a2 = (Math.PI / 4) * k2 - Math.PI / 8;
+      if (k2 === 0) ctx.moveTo(pos.x + r * Math.cos(a2), pos.y + r * Math.sin(a2));
+      else          ctx.lineTo(pos.x + r * Math.cos(a2), pos.y + r * Math.sin(a2));
+    }
+    ctx.closePath();
+    ctx.fillStyle = hexToRgba('#cc88ff', 0.13);
+    ctx.fill();
+    ctx.strokeStyle = '#cc88ff';
+    ctx.lineWidth = hovered ? 2 : 1.2;
+    ctx.stroke();
+
   } else {
     // Event node — colored circle with type-color inner dot
     ctx.beginPath();
@@ -12494,17 +12718,28 @@ function drawNodeLabel(ctx, n, pos) {
   }
 
   ctx.font = (n.type === 'country' ? 'bold 11px ' : '8px ') + FONT_MONO;
-  ctx.fillStyle = n.type === 'country' ? '#c0ddf8' : (n.type === 'topic' ? '#4a7da8' : '#8899bb');
+  ctx.fillStyle = n.type === 'country' ? '#c0ddf8'
+    : n.type === 'topic'   ? '#4a7da8'
+    : n.type === 'note'    ? '#ffe066'
+    : n.type === 'vessel'  ? '#00ccff'
+    : n.type === 'company' ? '#ff99aa'
+    : n.type === 'news'    ? '#cc88ff'
+    : '#8899bb';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'top';
   ctx.fillText(label, pos.x, pos.y + pos.r + 4);
 }
 
 function nodeColor(n) {
-  if (n.type === 'country') return '#b464ff';
-  if (n.type === 'topic')   return '#5a2a8a';
-  if (n.type === 'entity')  return n.entityType === 'country' ? '#0099ff' : (n.entityType === 'company' ? '#b464ff' : '#ffcc00');
-  if (n.type === 'signal')  return n.signalType === 'market' ? '#ff9933' : '#ff4488';
+  if (n.type === 'country')  return '#b464ff';
+  if (n.type === 'topic')    return '#5a2a8a';
+  if (n.type === 'entity')   return n.entityType === 'country' ? '#0099ff' : (n.entityType === 'company' ? '#b464ff' : '#ffcc00');
+  if (n.type === 'signal')   return n.signalType === 'market' ? '#ff9933' : '#ff4488';
+  if (n.type === 'note')     return '#ffe066';
+  if (n.type === 'vessel')   return '#00ccff';
+  if (n.type === 'company')  return '#ff99aa';
+  if (n.type === 'news')     return '#cc88ff';
+  if (n.type === 'aircraft') return '#66ddff';
   return RISK_COLORS[n.risk] || '#4a7da8';
 }
 
@@ -12521,7 +12756,7 @@ function setupCanvasInteraction() {
   var wrap   = document.getElementById('nw-canvas-wrap');
   if (!canvas) return;
 
-  var DRAGGABLE = { event: 1, entity: 1, signal: 1 };
+  var DRAGGABLE = { event: 1, entity: 1, signal: 1, note: 1, vessel: 1, company: 1, news: 1, aircraft: 1 };
   var drag     = { active: false, sx: 0, sy: 0, cx: 0, cy: 0 }; // canvas pan
   var nodeDrag = { active: false, node: null };                   // node drag
   var _didMove = false;
@@ -12586,6 +12821,8 @@ function setupCanvasInteraction() {
   canvas.addEventListener('click', function(e) {
     if (_didMove) return; // suppress click after drag
     var n = pickNode(e, canvas);
+    // Link mode: first click sets source, second creates edge
+    if (state.linkMode.active && n && handleLinkClick(n)) return;
     if (n) {
       selectedNode = n;
       showInspector(n);
@@ -12594,6 +12831,27 @@ function setupCanvasInteraction() {
       showInspector(null);
     }
     renderGraph();
+  });
+
+  // Canvas as drag-and-drop target (receives nodes dragged from builder panel)
+  canvas.addEventListener('dragover', function(e) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+    wrap.classList.add('drop-target');
+  });
+  canvas.addEventListener('dragleave', function() { wrap.classList.remove('drop-target'); });
+  canvas.addEventListener('drop', function(e) {
+    e.preventDefault();
+    wrap.classList.remove('drop-target');
+    var dataStr = e.dataTransfer.getData('text/plain');
+    if (!dataStr) return;
+    try {
+      var nodeData = JSON.parse(dataStr);
+      var rect = canvas.getBoundingClientRect();
+      var cx2 = (e.clientX - rect.left - cam.x) / cam.scale;
+      var cy2 = (e.clientY - rect.top  - cam.y) / cam.scale;
+      addManualNode(nodeData, cx2, cy2);
+    } catch(_) {}
   });
 
   // Right-click context menu
@@ -12720,7 +12978,11 @@ function showTooltip(node, e) {
   var tip = document.getElementById('nw-tooltip');
   if (!node) { tip.classList.remove('is-visible'); return; }
   var text = node.type === 'country' ? node.label
-    : node.type === 'topic' ? 'TOPIC: ' + node.label + ' (' + node.count + ' events)'
+    : node.type === 'topic'   ? 'TOPIC: ' + node.label + ' (' + node.count + ' events)'
+    : node.type === 'note'    ? '📝 ' + node.label.slice(0, 60)
+    : node.type === 'vessel'  ? '🚢 ' + node.label
+    : node.type === 'company' ? '🏢 ' + node.label
+    : node.type === 'news'    ? '📰 ' + node.label.slice(0, 60)
     : '[' + node.risk + '] ' + node.label;
   tip.textContent = text;
   tip.style.left = (e.clientX + 14) + 'px';
@@ -12774,6 +13036,40 @@ function showInspector(node) {
       '<div style="font-size:8px;letter-spacing:2px;color:' + (node.signalType==='market'?'#ff9933':'#ff4488') + ';margin-bottom:8px">⬡ ' + (node.signalType||'').toUpperCase() + ' SIGNAL</div>',
       field('LABEL', node.label),
       field('TRIGGERED BY', (node.keywords || []).join(', ') || '—'),
+    ].join('');
+
+  } else if (node.type === 'note') {
+    var noteLinks = (state.manualEdges || []).filter(function(e){ return e.source === node.id || e.target === node.id; });
+    body.innerHTML = [
+      '<div style="font-size:8px;letter-spacing:2px;color:#ffe066;margin-bottom:8px">📝 NOTE NODE</div>',
+      field('TEXT', '<span style="color:#ffe066;line-height:1.6">' + (node.noteText || node.label) + '</span>'),
+      field('MANUAL LINKS', noteLinks.length ? noteLinks.length + ' connected node(s)' : '<span style="opacity:0.5">None — use LINK NODES to connect</span>'),
+    ].join('');
+
+  } else if (node.type === 'vessel') {
+    var vesLinks = (state.relEdges||[]).concat(state.manualEdges||[]).filter(function(e){ return e.source===node.id||e.target===node.id; });
+    body.innerHTML = [
+      '<div style="font-size:8px;letter-spacing:2px;color:#00ccff;margin-bottom:8px">🚢 VESSEL / ROUTE</div>',
+      field('NAME', node.label),
+      field('TYPE', node.badge || 'VESSEL'),
+      vesLinks.length ? field('RELATIONSHIPS', vesLinks.length + ' edges') : '',
+    ].join('');
+
+  } else if (node.type === 'company') {
+    var coLinks = (state.relEdges||[]).concat(state.manualEdges||[]).filter(function(e){ return e.source===node.id||e.target===node.id; });
+    body.innerHTML = [
+      '<div style="font-size:8px;letter-spacing:2px;color:#ff99aa;margin-bottom:8px">🏢 COMPANY</div>',
+      field('NAME', node.label),
+      field('SECTOR', node.entityType || 'CORPORATE'),
+      coLinks.length ? field('DETECTED EDGES', coLinks.length + ' relationships') : '',
+    ].join('');
+
+  } else if (node.type === 'news') {
+    body.innerHTML = [
+      '<div style="font-size:8px;letter-spacing:2px;color:#cc88ff;margin-bottom:8px">📰 NEWS ARTICLE</div>',
+      field('HEADLINE', '<span style="color:#c0ddf8;line-height:1.5">' + node.label + '</span>'),
+      node.source ? field('SOURCE', node.source) : '',
+      node.keywords && node.keywords.length ? field('KEYWORDS', '<div class="nw-kw-wrap">' + node.keywords.map(function(k){ return '<span class="nw-kw">' + k + '</span>'; }).join('') + '</div>') : '',
     ].join('');
 
   } else {
@@ -13091,7 +13387,8 @@ function resizeCanvas() {
 
 // ── Filter chip wiring ────────────────────────────────────────────────────────
 function wireFilters() {
-  document.querySelectorAll('#nw-overlay .nw-chip').forEach(function(btn) {
+  // Only wire event-type + risk chips (scoped to filter section, not builder tabs)
+  document.querySelectorAll('#nw-type-chips .nw-chip, #nw-risk-chips .nw-chip').forEach(function(btn) {
     btn.addEventListener('click', function() {
       this.classList.toggle('is-on');
       syncFilterState();
@@ -13139,15 +13436,64 @@ function wireFilters() {
   var ctxEdit    = document.getElementById('nw-ctx-edit');
   var ctxReclass = document.getElementById('nw-ctx-reclassify');
   var ctxNote    = document.getElementById('nw-ctx-note');
+  var ctxLink    = document.getElementById('nw-ctx-link');
+  var ctxDelete  = document.getElementById('nw-ctx-delete');
   if (ctxEdit)    ctxEdit.addEventListener('click', editNodeLabel);
   if (ctxReclass) ctxReclass.addEventListener('click', reclassifyNode);
   if (ctxNote)    ctxNote.addEventListener('click', function() {
     var n = _ctxMenuNode; hideContextMenu(); if (n) noteForNode(n);
   });
+  if (ctxLink) ctxLink.addEventListener('click', function() {
+    var n = _ctxMenuNode; hideContextMenu();
+    if (n) { state.linkMode.active = false; toggleLinkMode(); state.linkMode.sourceNode = n; var ind = document.getElementById('nw-link-indicator'); if (ind) ind.textContent = 'SOURCE: ' + n.label.slice(0,30) + '  ·  CLICK TARGET TO LINK'; }
+  });
+  if (ctxDelete) ctxDelete.addEventListener('click', deleteNode);
   // Dismiss context menu on outside mousedown
   document.addEventListener('mousedown', function(e) {
     if (_ctxMenuOpen && !e.target.closest('#nw-ctx-menu')) hideContextMenu();
   });
+
+  // ── Sidebar mode toggle ─────────────────────────────────────────────────────
+  document.querySelectorAll('#nw-sidebar-mode .nw-sidebar-mode-btn').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      document.querySelectorAll('#nw-sidebar-mode .nw-sidebar-mode-btn').forEach(function(b){ b.classList.remove('is-active'); });
+      this.classList.add('is-active');
+      var mode = this.dataset.smode;
+      var cs = document.getElementById('nw-countries-section');
+      var bs = document.getElementById('nw-builder-section');
+      if (mode === 'countries') {
+        if (cs) cs.classList.remove('is-hidden');
+        if (bs) bs.classList.remove('is-visible');
+      } else {
+        if (cs) cs.classList.add('is-hidden');
+        if (bs) bs.classList.add('is-visible');
+        renderNodeCandidates(state.builderType, '');
+      }
+    });
+  });
+
+  // ── Node builder type tabs ──────────────────────────────────────────────────
+  document.querySelectorAll('#nw-builder-tabs .nw-chip').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      document.querySelectorAll('#nw-builder-tabs .nw-chip').forEach(function(b){ b.classList.remove('is-on'); });
+      this.classList.add('is-on');
+      state.builderType = this.dataset.btype;
+      var q = (document.getElementById('nw-builder-search') || {}).value || '';
+      renderNodeCandidates(state.builderType, q);
+    });
+  });
+
+  // ── Node builder search ─────────────────────────────────────────────────────
+  var builderSearch = document.getElementById('nw-builder-search');
+  if (builderSearch) builderSearch.addEventListener('input', function() {
+    renderNodeCandidates(state.builderType, this.value);
+  });
+
+  // ── Add note node + link mode buttons ──────────────────────────────────────
+  var addNoteBtn = document.getElementById('btn-nw-add-note');
+  var linkModeBtn = document.getElementById('btn-nw-link-mode');
+  if (addNoteBtn)  addNoteBtn.addEventListener('click', addNoteNode);
+  if (linkModeBtn) linkModeBtn.addEventListener('click', toggleLinkMode);
 }
 
 function syncFilterState() {
@@ -13228,13 +13574,304 @@ setCountry = function(country) {
   updateTopbar();
 };
 
-// Keyboard shortcut: N = toggle neural web
+// Keyboard shortcut: N = toggle neural web, ESC = cancel link mode
 window.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape' && state.linkMode.active) { toggleLinkMode(); return; }
   var tag = document.activeElement && document.activeElement.tagName;
   if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
   if (document.activeElement && document.activeElement.isContentEditable) return;
   if (e.key.toLowerCase() === 'n') toggle();
 });
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// LAYER 5 — INTERACTIVE GRAPH BUILDER: Node candidates + Drag-drop + Link mode
+// ═══════════════════════════════════════════════════════════════════════════════
+
+var BUILDER_ICONS = { events:'🌍', disasters:'🌪', news:'📰', companies:'🏢', vessels:'🚢' };
+
+// ── Node candidate search by type ────────────────────────────────────────────
+function buildNodeCandidates(type, query) {
+  var ql = (query || '').toLowerCase().trim();
+  var results = [];
+
+  if (type === 'events') {
+    store.events.slice(0, 200).forEach(function(ev) {
+      if (ql && ev.title.toLowerCase().indexOf(ql) === -1) return;
+      if (state.graph.nodes.some(function(n){ return n.id === ev.id; })) return;
+      results.push({ id: ev.id, type: 'event', label: ev.title, badge: ev.risk, badgeColor: RISK_COLORS[ev.risk] || '#4a7da8', eventType: ev.type, risk: ev.risk, keywords: ev.keywords, timestamp: ev.timestamp, impact: ev.impact, source: ev.source, _ev: ev });
+    });
+
+  } else if (type === 'disasters') {
+    var disPool = [].concat(window._usgsEvents || [], window._noaaEvents || [], window._fireEvents || []);
+    disPool.slice(0, 150).forEach(function(ev, i) {
+      var t = ev.title || ev.name || '';
+      if (!t || (ql && t.toLowerCase().indexOf(ql) === -1)) return;
+      var nid = 'disaster_' + i + '_' + t.slice(0, 10).replace(/[^a-z0-9]/gi,'_');
+      if (state.graph.nodes.some(function(n){ return n.id === nid; })) return;
+      var rsk = ev.severity || ev.risk || 'WATCH';
+      results.push({ id: nid, type: 'event', label: t, badge: rsk, badgeColor: RISK_COLORS[rsk] || '#ffcc00', eventType: 'DISASTER', risk: rsk, keywords: extractKeywords(t + ' ' + (ev.description || '')), _ev: ev });
+    });
+
+  } else if (type === 'news') {
+    var newsPool = store.events.filter(function(ev){ return ev.type === 'POLICY' || ev.type === 'ECONOMIC'; }).slice(0, 80);
+    try {
+      var gc3 = localStorage.getItem('argus_gdelt_v3');
+      if (gc3) {
+        var gd3 = JSON.parse(gc3);
+        var arts3 = Array.isArray(gd3) ? gd3 : (gd3.events || gd3.articles || []);
+        (Array.isArray(arts3) ? arts3 : []).slice(0, 50).forEach(function(a, ii) {
+          var t2 = a.title || a.TITLE || a.name || '';
+          if (t2) newsPool.push({ id: 'gdelt_' + ii, type: 'POLICY', risk: 'WATCH', title: t2, timestamp: 0, keywords: extractKeywords(t2), impact: '', source: a.sourceurl || a.url || '' });
+        });
+      }
+    } catch(_) {}
+    newsPool.forEach(function(ev) {
+      var t3 = ev.title || '';
+      if (!t3 || (ql && t3.toLowerCase().indexOf(ql) === -1)) return;
+      var nid2 = 'news:' + ev.id;
+      if (state.graph.nodes.some(function(n){ return n.id === nid2; })) return;
+      results.push({ id: nid2, type: 'news', label: t3, badge: ev.risk || 'WATCH', badgeColor: RISK_COLORS[ev.risk] || '#ffcc00', eventType: 'POLICY', risk: ev.risk || 'WATCH', keywords: ev.keywords || [], source: ev.source || '', _ev: ev });
+    });
+
+  } else if (type === 'companies') {
+    var compPool = KNOWN_COMPANIES.concat([
+      'lockheed','raytheon','bae systems','thales','rheinmetall','hanwha','saab',
+      'pemex','gazprom','rosneft','petrobras','equinor','chevron','totalenergies',
+      'riotinto','bhp','glencore','vale','freeport','alcoa',
+      'walmart','amazon','alibaba','tencent','microsoft',
+    ]);
+    compPool.forEach(function(co) {
+      if (ql && co.indexOf(ql) === -1) return;
+      var cid = 'entity:co:' + co;
+      if (state.graph.nodes.some(function(n){ return n.id === cid; })) return;
+      results.push({ id: cid, type: 'company', label: co.charAt(0).toUpperCase() + co.slice(1), badge: 'CORP', badgeColor: '#ff99aa', entityType: 'company', risk: 'LOW', keywords: [co] });
+    });
+
+  } else if (type === 'vessels') {
+    var vesPool = [];
+    try {
+      var vc2 = localStorage.getItem('argus_vessels') || localStorage.getItem('argus_ais_v1');
+      if (vc2) vesPool = JSON.parse(vc2) || [];
+    } catch(_) {}
+    if (!Array.isArray(vesPool)) vesPool = [];
+    if (window._vesselData && Array.isArray(window._vesselData)) vesPool = vesPool.concat(window._vesselData);
+    if (!vesPool.length) {
+      vesPool = [
+        { id:'vessel_suez',      name:'SUEZ CANAL ROUTE',    type:'ROUTE' },
+        { id:'vessel_hormuz',    name:'STRAIT OF HORMUZ',     type:'ROUTE' },
+        { id:'vessel_malacca',   name:'STRAIT OF MALACCA',    type:'ROUTE' },
+        { id:'vessel_taiwan',    name:'TAIWAN STRAIT',        type:'ROUTE' },
+        { id:'vessel_bosphorus', name:'BOSPHORUS STRAIT',     type:'ROUTE' },
+        { id:'vessel_bab',       name:'BAB-EL-MANDEB STRAIT', type:'ROUTE' },
+        { id:'vessel_panama',    name:'PANAMA CANAL ROUTE',   type:'ROUTE' },
+      ];
+    }
+    vesPool.slice(0, 100).forEach(function(v) {
+      var vname = v.name || v.shipname || v.vessel || v.SHIPNAME || '';
+      if (!vname || (ql && vname.toLowerCase().indexOf(ql) === -1)) return;
+      var vid = v.id || ('vessel:' + vname.replace(/\s+/g,'_'));
+      if (state.graph.nodes.some(function(n){ return n.id === vid; })) return;
+      results.push({ id: vid, type: 'vessel', label: vname, badge: v.type || 'VESSEL', badgeColor: '#00ccff', risk: 'WATCH', keywords: [vname.toLowerCase()] });
+    });
+  }
+
+  return results.slice(0, 40);
+}
+
+// ── Render candidate list with draggable items ────────────────────────────────
+var _candidateCache = {};
+
+function renderNodeCandidates(type, query) {
+  var el = document.getElementById('nw-builder-results');
+  if (!el) return;
+  var results = buildNodeCandidates(type, query);
+  _candidateCache = {};
+  results.forEach(function(r){ _candidateCache[r.id] = r; });
+
+  if (!results.length) {
+    el.innerHTML = '<div style="padding:20px 14px;font-size:8px;letter-spacing:1.5px;color:var(--nw-purple-dim);opacity:0.5;text-align:center">' + (state.selectedCountry ? 'NO RESULTS' : 'SELECT A COUNTRY FIRST') + '</div>';
+    return;
+  }
+  var icon = BUILDER_ICONS[type] || '·';
+  el.innerHTML = results.map(function(r) {
+    var bc = r.badgeColor || '#4a7da8';
+    return '<div class="nw-candidate" draggable="true" data-nid="' + r.id + '" title="Drag to canvas or click to add">' +
+      '<span class="nw-candidate-icon">' + icon + '</span>' +
+      '<span class="nw-candidate-label">' + r.label.slice(0, 80) + '</span>' +
+      '<span class="nw-candidate-meta" style="background:' + hexToRgba(bc,0.15) + ';color:' + bc + ';border:1px solid ' + hexToRgba(bc,0.4) + '">' + r.badge + '</span>' +
+      '</div>';
+  }).join('');
+
+  el.querySelectorAll('.nw-candidate[draggable]').forEach(function(item) {
+    item.addEventListener('dragstart', function(e) {
+      var data = _candidateCache[this.dataset.nid];
+      if (data) { e.dataTransfer.setData('text/plain', JSON.stringify(data)); e.dataTransfer.effectAllowed = 'copy'; }
+    });
+    item.addEventListener('click', function() {
+      var data = _candidateCache[this.dataset.nid];
+      if (data) addManualNode(data, null, null);
+    });
+  });
+}
+
+// ── Add a node to the graph (from drag-drop or click) ────────────────────────
+function addManualNode(nodeData, canvasX, canvasY) {
+  if (!nodeData) return;
+  if (state.graph.nodes.some(function(n){ return n.id === nodeData.id; })) return;
+
+  var canvas = document.getElementById('nw-canvas');
+  if (!canvas) return;
+  var cx = canvas.width / 2, cy = canvas.height / 2;
+  var x = (canvasX !== null && canvasX !== undefined) ? canvasX : cx + (Math.random() - 0.5) * cx * 0.8;
+  var y = (canvasY !== null && canvasY !== undefined) ? canvasY : cy + (Math.random() - 0.5) * cy * 0.8;
+
+  // Deep-clone to avoid reference issues
+  var node = JSON.parse(JSON.stringify(nodeData));
+  layout[node.id] = { x: x, y: y, vx: 0, vy: 0, r: getNodeRadius(node) };
+  state.graph.nodes = state.graph.nodes.concat([node]);
+
+  autoCorrelateNode(node);
+  state.graph.edges = buildEdges(state.graph.nodes, []);
+  renderGraph();
+  updateTopbar();
+
+  // Refresh candidate list (item disappears once added)
+  var q = (document.getElementById('nw-builder-search') || {}).value || '';
+  renderNodeCandidates(state.builderType, q);
+}
+
+// ── Auto-correlation for newly dropped node ───────────────────────────────────
+function autoCorrelateNode(newNode) {
+  var newAuto = [], newManual = [];
+  var cid = state.selectedCountry ? 'country:' + state.selectedCountry : null;
+
+  // 1. Structural edge to country anchor
+  if (cid && newNode.type !== 'topic' && newNode.type !== 'country') {
+    newManual.push({ source: cid, target: newNode.id, weight: 1, edgeType: 'country', detected: false });
+  }
+
+  // 2. Keyword overlap with existing events/news
+  state.graph.nodes.filter(function(n){ return (n.type === 'event' || n.type === 'news') && n.id !== newNode.id; }).forEach(function(en) {
+    var shared = (newNode.keywords || []).filter(function(k){ return k.length > 4 && (en.keywords || []).indexOf(k) !== -1; });
+    if (!shared.length) return;
+    var et = 'correlation';
+    var combined = ((newNode.label||'') + ' ' + (en.label||'')).toLowerCase();
+    if (CAUSALITY_VERBS.some(function(v){ return combined.indexOf(v) !== -1; })) et = 'causality';
+    else if (DEPENDENCY_VERBS.some(function(v){ return combined.indexOf(v) !== -1; })) et = 'dependency';
+    newAuto.push({ source: newNode.id, target: en.id, weight: 2, edgeType: et, detected: true });
+  });
+
+  // 3. Company/vessel name match in event text
+  if (newNode.type === 'company' || newNode.type === 'vessel') {
+    var nameLow = (newNode.label || '').toLowerCase();
+    state.graph.nodes.filter(function(n){ return n.type === 'event'; }).forEach(function(en) {
+      if (((en.label||'') + ' ' + (en.impact||'')).toLowerCase().indexOf(nameLow) !== -1)
+        newAuto.push({ source: en.id, target: newNode.id, weight: 1.5, edgeType: 'dependency', detected: true });
+    });
+  }
+
+  // 4. Note auto-links to currently selected node
+  if (newNode.type === 'note' && selectedNode && selectedNode.id !== newNode.id) {
+    newManual.push({ source: selectedNode.id, target: newNode.id, weight: 1, edgeType: 'manual', detected: false, manual: true });
+  }
+
+  state.relEdges    = (state.relEdges    || []).concat(newAuto);
+  state.manualEdges = (state.manualEdges || []).concat(newManual);
+
+  // Inspector feedback
+  var insp = document.getElementById('nw-insp-body');
+  if (insp) {
+    var ac = newAuto.filter(function(e){ return e.detected; }).length;
+    insp.innerHTML =
+      field('NODE ADDED', '<span style="color:var(--nw-purple)">' + newNode.label.slice(0,55) + '</span>') +
+      field('AUTO-DETECTED', ac + ' relationship' + (ac === 1 ? '' : 's')) +
+      (ac === 0
+        ? field('SUGGESTION', '<span style="color:#ffe066">No correlation found — add a 📝 Note Node or use ⟷ LINK NODES</span>')
+        : field('STATUS', ac < 2 ? 'Weak signal — verify manually' : 'Edges drawn automatically'));
+    switchTab('inspect');
+  }
+}
+
+// ── Note Node creation ────────────────────────────────────────────────────────
+function addNoteNode() {
+  var text = prompt('Note text (will appear as a graph node):');
+  if (!text || !text.trim()) return;
+  addManualNode({
+    id:       'note:' + Date.now(),
+    type:     'note',
+    label:    text.trim().slice(0, 80),
+    noteText: text.trim(),
+    risk:     'LOW',
+    keywords: extractKeywords(text),
+  }, null, null);
+}
+
+// ── Manual link mode ──────────────────────────────────────────────────────────
+function toggleLinkMode() {
+  state.linkMode.active = !state.linkMode.active;
+  state.linkMode.sourceNode = null;
+  var btn  = document.getElementById('btn-nw-link-mode');
+  var ind  = document.getElementById('nw-link-indicator');
+  var wrap = document.getElementById('nw-canvas-wrap');
+  if (state.linkMode.active) {
+    if (btn)  btn.classList.add('is-active');
+    if (ind)  { ind.classList.add('is-visible'); ind.textContent = 'CLICK SOURCE NODE  ·  ESC TO CANCEL'; }
+    if (wrap) wrap.classList.add('link-mode');
+  } else {
+    if (btn)  btn.classList.remove('is-active');
+    if (ind)  ind.classList.remove('is-visible');
+    if (wrap) wrap.classList.remove('link-mode');
+    renderGraph();
+  }
+}
+
+function handleLinkClick(node) {
+  if (!state.linkMode.active) return false;
+  if (!state.linkMode.sourceNode) {
+    state.linkMode.sourceNode = node;
+    var ind = document.getElementById('nw-link-indicator');
+    if (ind) ind.textContent = 'FROM: ' + node.label.slice(0,28) + '  →  CLICK TARGET';
+    renderGraph();
+    return true;
+  }
+  var src = state.linkMode.sourceNode, tgt = node;
+  if (src.id !== tgt.id) {
+    var exists = (state.manualEdges || []).some(function(e){ return (e.source===src.id&&e.target===tgt.id)||(e.source===tgt.id&&e.target===src.id); });
+    if (!exists) {
+      state.manualEdges = (state.manualEdges || []).concat([{ source: src.id, target: tgt.id, weight: 2, edgeType: 'manual', detected: false, manual: true }]);
+      state.graph.edges = buildEdges(state.graph.nodes, []);
+      renderGraph();
+      updateTopbar();
+      var insp = document.getElementById('nw-insp-body');
+      if (insp) {
+        insp.innerHTML =
+          field('MANUAL LINK CREATED', '<span style="color:#00ff88">' + src.label.slice(0,30) + ' ⟷ ' + tgt.label.slice(0,30) + '</span>') +
+          field('TYPE', 'USER-DEFINED EDGE') +
+          field('TIP', '<span style="color:#ffe066">Add a 📝 Note Node to explain this relationship</span>');
+        switchTab('inspect');
+      }
+    }
+  }
+  state.linkMode.sourceNode = null;
+  var ind2 = document.getElementById('nw-link-indicator');
+  if (ind2) ind2.textContent = 'CLICK SOURCE NODE  ·  ESC TO CANCEL';
+  return true;
+}
+
+// ── Delete node ───────────────────────────────────────────────────────────────
+function deleteNode() {
+  var node = _ctxMenuNode;
+  hideContextMenu();
+  if (!node || node.type === 'country') return;
+  state.graph.nodes  = state.graph.nodes.filter(function(n){ return n.id !== node.id; });
+  state.relEdges     = (state.relEdges    || []).filter(function(e){ return e.source !== node.id && e.target !== node.id; });
+  state.manualEdges  = (state.manualEdges || []).filter(function(e){ return e.source !== node.id && e.target !== node.id; });
+  if (selectedNode && selectedNode.id === node.id) { selectedNode = null; showInspector(null); }
+  delete layout[node.id];
+  state.graph.edges = buildEdges(state.graph.nodes, []);
+  renderGraph();
+  updateTopbar();
+}
 
 // ── Public API ────────────────────────────────────────────────────────────────
 return {

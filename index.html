@@ -8952,7 +8952,7 @@ window.ArgusAdmin = (function() {
           var d = m.userData;
           return { src: 'STATIC', sev: (d.severity || 'WATCH').toUpperCase(),
             type: d.type || 'EVENT', title: d.title || '—',
-            loc: '', lat: d.lat || null, lon: d.lon || null };
+            loc: '', lat: d.lat || null, lon: d.lon || null, staticId: d.id };
         })
         .sort(function(a, b) { return (sevOrder[a.sev] || 2) - (sevOrder[b.sev] || 2); });
 
@@ -9002,7 +9002,23 @@ window.ArgusAdmin = (function() {
 
         if (staticItems.length) {
           liveHtml += '<div class="eq-live-hdr" style="margin-top:8px;color:#ffcc00">◈ STATIC FIXTURES — ' + staticItems.length + ' HARD-CODED</div>' +
-            staticItems.map(makeLiveRow).join('');
+            staticItems.map(function(item) {
+              var col = sevColor[item.sev] || '#ffcc00';
+              var title = (item.title + '').slice(0, 90);
+              var sid = item.staticId;
+              return '<div class="eq-live-row" id="sf-row-' + sid + '" style="flex-wrap:wrap;gap:4px;">' +
+                '<span class="eq-live-dot" style="background:' + col + '"></span>' +
+                '<span class="eq-live-src">STATIC</span>' +
+                '<span style="font-size:7px;letter-spacing:1px;color:#2a5a7a;white-space:nowrap">' + item.type + '</span>' +
+                '<span class="eq-live-title" style="flex:1">' + title + '</span>' +
+                '<span style="display:flex;gap:4px;margin-left:auto;flex-shrink:0;">' +
+                  '<button class="eq-btn" style="border-color:#00aa66;color:#00aa66;font-size:7px;padding:2px 6px;" ' +
+                    'onclick="ArgusAdmin.renewStaticFixture(\'' + sid + '\')">✓ +7 DAYS</button>' +
+                  '<button class="eq-btn deny" style="font-size:7px;padding:2px 6px;" ' +
+                    'onclick="ArgusAdmin.deleteStaticFixture(\'' + sid + '\')">✕ DELETE</button>' +
+                '</span>' +
+              '</div>';
+            }).join('');
         }
 
         if (gdacsItems.length) {
@@ -9624,7 +9640,55 @@ window.ArgusAdmin = (function() {
     .catch(function(e) { alert('Delete failed: ' + e.message); });
   }
 
-  return { toggle: toggle, switchTab: switchTab, loadUsers: loadUsers, loadQueue: loadQueue, queueAction: queueAction, approveEvent: approveEvent, setTier: setTier, loadRequests: loadRequests, requestAction: requestAction, permanentAction: permanentAction, _reloadPermanent: _reloadPermanent, _plotAnalystPin: _plotAnalystPin, removeAnalystPin: removeAnalystPin, loadHistory: loadHistory, clearHistory: clearHistory, deletePermanentEvent: deletePermanentEvent, deletePermanentByTitle: deletePermanentByTitle };
+  // ── Static fixture controls ────────────────────────────────────────────────
+  // Static fixtures are hard-coded in JS — no DB backing.
+  // Delete removes the mesh + ring from the globe for this session.
+  // Renew is a visual acknowledgment only (no DB — reload restores the fixture).
+  function deleteStaticFixture(staticId) {
+    var AG = window.ArgusGlobe;
+    if (!AG || !AG.eventMarkerGroup) return;
+
+    // Find the mesh by staticId
+    var mesh = null;
+    (window.eventMarkers || []).forEach(function(m) {
+      if (m.userData && m.userData.id === staticId) mesh = m;
+    });
+    if (!mesh) return;
+
+    // Remove companion pulse ring(s) at the same position
+    AG.eventMarkerGroup.children.slice().forEach(function(child) {
+      if (child.userData && child.userData.isPulseRing &&
+          !child.userData._gdeltMarker && !child.userData._unMarker && !child.userData._permanentPin) {
+        if (child.position.distanceTo(mesh.position) < 0.5) {
+          AG.eventMarkerGroup.remove(child);
+        }
+      }
+    });
+
+    // Remove the marker mesh
+    AG.eventMarkerGroup.remove(mesh);
+    window.eventMarkers = (window.eventMarkers || []).filter(function(m) { return m !== mesh; });
+
+    // Refresh queue live feed so row disappears
+    loadQueue();
+    if (typeof window.updateNodeCounts === 'function') window.updateNodeCounts();
+  }
+
+  function renewStaticFixture(staticId) {
+    // Static fixtures live only in JS — no DB expiry to extend.
+    // Acknowledge the review visually.
+    var row = document.getElementById('sf-row-' + staticId);
+    if (!row) return;
+    var btn = row.querySelector('.eq-btn');
+    if (btn) {
+      var orig = btn.textContent;
+      btn.textContent = '✓ REVIEWED';
+      btn.disabled = true;
+      setTimeout(function() { btn.textContent = orig; btn.disabled = false; }, 3000);
+    }
+  }
+
+  return { toggle: toggle, switchTab: switchTab, loadUsers: loadUsers, loadQueue: loadQueue, queueAction: queueAction, approveEvent: approveEvent, setTier: setTier, loadRequests: loadRequests, requestAction: requestAction, permanentAction: permanentAction, _reloadPermanent: _reloadPermanent, _plotAnalystPin: _plotAnalystPin, removeAnalystPin: removeAnalystPin, loadHistory: loadHistory, clearHistory: clearHistory, deletePermanentEvent: deletePermanentEvent, deletePermanentByTitle: deletePermanentByTitle, deleteStaticFixture: deleteStaticFixture, renewStaticFixture: renewStaticFixture };
 })();
 </script>
 

@@ -5656,7 +5656,181 @@ function classifyType(text) {
 }
 window.argusClassifyType = classifyType;
 
-// ── Severity classifier — humanitarian signals weighted before economics ──────
+// ═══════════════════════════════════════════════════════════════════════════════
+// MULTI-FACTOR RISK SCORING ENGINE v2
+// risk_score = severity(0-3) + certainty(0-2) + immediacy(0-2) + scope(0-3) + contextBoost(0-2)
+// Thresholds: >=9 CRITICAL | >=6 WARNING | >=2 WATCH | else LOW
+// Hard rules:  confirmed kinetic/closure events → floor at WARNING (score 6)
+//              only speculative language + low severity → cap at WATCH (score <6)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// ── Severity dimension keywords (highest severity wins) ───────────────────────
+var _SEV3_KW = [
+  // Kinetic / catastrophic
+  'massacre','genocide','declared war','nuclear strike','nuclear weapon','chemical weapon',
+  'biological weapon','nerve agent','mass casualties','mass casualty',
+  'hundreds killed','thousands killed','civilian deaths','airstrike kills',
+  'bombed hospital','hospital bombed','children killed','school bombed',
+  'famine declared','famine spreading','epidemic declared','pandemic declared',
+  'full blockade','total blockade','naval blockade','blockade imposed',
+  'coup successful','coup completed','government overthrown','capital seized',
+  'catastrophic','annihilate','annihilated',
+];
+var _SEV2_KW = [
+  // Active attacks / confirmed military
+  'airstrike','air raid','missile strike','drone strike','bombing raid',
+  'shelling','mortar fire','artillery barrage','gunfire','armed assault',
+  'offensive launched','military operation launched','attack launched',
+  'under attack','troops advancing','invasion','incursion','ground offensive',
+  'combat operations','armed conflict','armed clashes',
+  // Confirmed casualties
+  'casualties reported','killed','killed in','dead','fatalities','wounded',
+  'bomb exploded','blast kills','explosion kills',
+  // Closures / sanctions enacted
+  'port closed','port closure','airspace closed','airspace closure',
+  'border closed','border closure','sanctions imposed','sanctions enacted',
+  'embargo imposed','embargo enacted','trade halted','operations suspended',
+  // State actions
+  'state of emergency','emergency declared','martial law','martial law declared',
+  'evacuation ordered','mass evacuation','mass displacement',
+  // Natural disaster active
+  'earthquake','flooding','flood kills','flood sweeps','hurricane impact',
+  'typhoon landfall','wildfire spreading','volcano erupting','eruption',
+  'tsunami warning','levee breach',
+  // Infrastructure crisis
+  'pipeline shutdown','refinery fire','power outage','blackout',
+  'supply disruption','shipping halted','route closed',
+  'outbreak confirmed','disease outbreak',
+  // Political crisis
+  'seized','captured','occupied','coup attempt','clashes erupt',
+  'hostages taken','assassination','assassinated',
+];
+var _SEV1_KW = [
+  // Diplomatic / political signals
+  'tensions rising','rising tensions','strained relations','diplomatic row',
+  'talks ongoing','negotiations underway','under consideration','under discussion',
+  'policy review','concerns raised','dispute','friction','standoff','stand-off',
+  'recalled ambassador','ambassador expelled','diplomat expelled',
+  'diplomatic tensions','bilateral row','trade tensions',
+  // Military pre-action
+  'troop movement','military buildup','buildup of troops','mobilization','mobilising',
+  'deployment','troops deployed','military exercises','drills','heightened alert',
+  'surveillance flights','troops massing','naval patrol','warships dispatched',
+  // Economic / infrastructure warning
+  'delays','slowdown','reduced capacity','price pressure','market uncertainty',
+  'bottleneck','backlog','shortages expected','shortage warning',
+  'sanctions threatened','tariff threat','trade dispute','trade friction',
+  'fuel shortage','food shortage','water shortage',
+  // Disaster early stage
+  'weather warning','storm forming','storm approaching','drought conditions',
+  'wildfire risk','flood risk','seismic activity','volcanic activity',
+  'hurricane forming','typhoon forming','storm surge warning',
+  // Conflict early stage / unrest
+  'unrest','protests','violent protests','clashes reported','skirmish',
+  'escalation','escalating tensions','provocation','border incident',
+  'incursion attempt','incursion reported','gunshots reported',
+];
+
+// ── Certainty dimension ────────────────────────────────────────────────────────
+var _CERT_CONFIRMED_RE  = /\b(confirmed|verified|declared|announced|has struck|has launched|has attacked|in effect|implemented|enacted|imposed|has seized|has captured|has crossed|is attacking|are attacking|struck|launched|invaded|attacked|hit by|destroyed|detonated)\b/i;
+var _CERT_SPECULATIVE_RE = /\b(may|might|could|possible|possibly|potential|potentially|risk of|risk that|fears that|warns of|warning of|anticipated|concerns that|could become|might become|possible that|threat of|at risk of|in danger of)\b/i;
+var _CERT_REPORTED_RE   = /\b(reported|sources say|according to|officials say|officials confirm|media reports|witnesses say|officials said|local reports|government says|confirmed by|believed to)\b/i;
+// "forecast|expected to|likely|projected" are speculative only if NOT combined with confirmed terms
+var _CERT_FORECAST_RE   = /\b(forecast|expected to|likely to|projected|is expected|are expected)\b/i;
+
+// ── Immediacy dimension ────────────────────────────────────────────────────────
+var _IMM_ACTIVE_RE     = /\b(now|today|overnight|currently|breaking|just reported|at this moment|hours ago|this morning|this evening|this afternoon|is happening|has happened|just struck|just launched|just attacked)\b/i;
+var _IMM_DEVELOPING_RE = /\b(continues|unfolding|developing|underway|still|escalating|intensifying|spreading|worsening|accelerating|ongoing|in progress)\b/i;
+var _IMM_FUTURE_RE     = /\b(will|planning to|plans to|scheduled|next week|next month|upcoming|intends to|threatens to|could happen|may happen|is set to)\b/i;
+
+// ── Scope dimension ────────────────────────────────────────────────────────────
+var _SCOPE_GLOBAL_RE   = /\b(global|worldwide|international|world markets|nato|united nations|un security council|wto|imf|world bank|systemic risk|supply chain crisis|oil price|food price|global trade|global shipping|shipping lanes|international waters|world war|regional war|multilateral)\b/i;
+var _SCOPE_NATIONAL_RE = /\b(national|nationwide|entire country|whole country|capital city|capital falls|government collapse|federal government|ministry of|president|prime minister|parliament|congress|military forces|national army|state forces)\b/i;
+var _SCOPE_REGIONAL_RE = /\b(regional|province|multiple cities|cross-border|neighboring country|surrounding area|region-wide|cross-border|border region|several provinces)\b/i;
+
+// ── Context boost — strategic infrastructure amplifies any risk signal ─────────
+var _CTX_CHOKEPOINT_RE   = /suez canal|strait of hormuz|strait of malacca|taiwan strait|bosphorus strait|panama canal|bab.el.mandeb|strait of gibraltar|kerch strait|danish straits|red sea corridor/i;
+var _CTX_ENERGY_RE       = /\b(pipeline|lng terminal|oil field|gas field|refinery|power grid|nuclear plant|oil platform|gas pipeline|energy infrastructure|oil supply|gas supply)\b/i;
+var _CTX_MAJOR_ECON_RE   = /\b(united states|china|european union|russia|india|japan|south korea|germany|france|brazil|g7|g20|opec|saudi arabia|taiwan)\b/i;
+var _CTX_SUPPLY_CHAIN_RE = /\b(semiconductor|rare earth|lithium|cobalt|copper|wheat corridor|grain corridor|container port|logistics hub|critical mineral|chip supply|chip shortage)\b/i;
+
+// ── Hard rule: confirmed kinetic/closure events → floor at WARNING ─────────────
+var _HARD_WARN_TITLE_RE = /\b(attack|attacked|airstrike|airstrikes|missile|bomb|bombing|shelling|invasion|invaded|clashes|casualties|killed|killed in|dead|wounded|coup|blockade|sanctions imposed|port closed|airspace closed|border closed|military action|troops enter|seized|captured|occupied|explosion|blast|detonated|hostages|evacuated|displaced)\b/i;
+
+// ── Main multi-factor scoring function ────────────────────────────────────────
+function scoreArticleRisk(text, title) {
+  var tl   = (title || '').toLowerCase();
+  var full = (tl + ' ' + (text || '')).toLowerCase();
+
+  // — Severity component (0–3): highest bucket that fires wins —
+  var sevScore = 0;
+  if (_SEV3_KW.some(function(k){ return full.indexOf(k) !== -1; })) {
+    sevScore = 3;
+  } else if (_SEV2_KW.some(function(k){ return full.indexOf(k) !== -1; })) {
+    sevScore = 2;
+  } else if (_SEV1_KW.some(function(k){ return full.indexOf(k) !== -1; })) {
+    sevScore = 1;
+  }
+  // Title hit on SEV2+ keywords is a strong signal: bump +1 if not already max
+  if (sevScore === 2 && (_SEV2_KW.some(function(k){ return tl.indexOf(k) !== -1; }) || _SEV3_KW.some(function(k){ return tl.indexOf(k) !== -1; }))) {
+    sevScore = 3;
+  }
+
+  // — Certainty component (0–2) —
+  var certainty = 1; // default: reported/inferred
+  if (_CERT_CONFIRMED_RE.test(full)) {
+    certainty = 2;
+  } else if (_CERT_SPECULATIVE_RE.test(full) && !_CERT_REPORTED_RE.test(full)) {
+    // forecast-only language without confirmatory terms = 0
+    certainty = _CERT_FORECAST_RE.test(full) && !_CERT_CONFIRMED_RE.test(full) ? 0 : 0;
+  } else if (_CERT_REPORTED_RE.test(full)) {
+    certainty = 1;
+  }
+
+  // — Immediacy component (0–2) —
+  var immediacy = 1; // default: developing/ongoing
+  if (_IMM_ACTIVE_RE.test(full))  {
+    immediacy = 2;
+  } else if (_IMM_FUTURE_RE.test(full) && !_IMM_DEVELOPING_RE.test(full)) {
+    immediacy = 0;
+  }
+
+  // — Scope component (0–3) —
+  var scope = 0;
+  if      (_SCOPE_GLOBAL_RE.test(full))   scope = 3;
+  else if (_SCOPE_NATIONAL_RE.test(full)) scope = 2;
+  else if (_SCOPE_REGIONAL_RE.test(full)) scope = 1;
+
+  // — Context boost (+0–2): strategic nodes amplify any signal —
+  var ctxBoost = 0;
+  if (_CTX_CHOKEPOINT_RE.test(full))   ctxBoost = Math.min(ctxBoost + 2, 2);
+  else if (_CTX_ENERGY_RE.test(full))  ctxBoost = Math.min(ctxBoost + 1, 2);
+  if (_CTX_MAJOR_ECON_RE.test(full))   ctxBoost = Math.min(ctxBoost + 1, 2);
+  if (_CTX_SUPPLY_CHAIN_RE.test(full)) ctxBoost = Math.min(ctxBoost + 1, 2);
+
+  var total = sevScore + certainty + immediacy + scope + ctxBoost;
+
+  // — Hard rule: confirmed kinetic/closure event → floor at WARNING (6) —
+  // Title hit = high confidence; body hit + reported/confirmed = also qualifies
+  var hardWarn = _HARD_WARN_TITLE_RE.test(tl) ||
+    (_HARD_WARN_TITLE_RE.test(full) && certainty >= 1);
+  if (hardWarn && total < 6) total = Math.max(total, 6);
+
+  // — Speculative cap: if ONLY speculative language and severity < 2, cap at WATCH (<6) —
+  var onlySpeculative = certainty === 0 && sevScore < 2;
+  if (onlySpeculative && total >= 6) total = 5;
+
+  // — Threshold to risk level —
+  var sev = total >= 9 ? 'CRITICAL'
+          : total >= 6 ? 'WARNING'
+          : total >= 2 ? 'WATCH'
+          : 'LOW';
+
+  return { sev: sev, score: total, sevScore: sevScore, certainty: certainty, immediacy: immediacy, scope: scope, ctxBoost: ctxBoost, onlySpeculative: onlySpeculative };
+}
+
+// ── Legacy fallback — used by hcClassify path and external callers ────────────
+// (SEVERITY_RULES is kept as a safety net; classifyArticle now calls scoreArticleRisk)
 var SEVERITY_RULES = [
   { re: /critical|catastrophic|collapse|crisis|emergency|imminent|blockade|seized|nuclear|massacre|genocide|famine|mass.casualt|civilian.death|airstrike.kill|chemical.weapon|epidemic|outbreak/i, sev: 'CRITICAL' },
   { re: /escalat|surge|severe|major|significant|threat|attack|conflict|explosion|offensive|casualties|wounded|killed|displacement|bombing|humanitarian.crisis|refugee.crisis/i,                  sev: 'WARNING'  },
@@ -5737,24 +5911,64 @@ var KINETIC_OVERRIDE_RE = /\bwar\b|genocide|massacre|violence|airstrike|bombing|
 // Negative scores map to higher severity; positive scores suppress false escalation.
 // These keywords are a SEPARATE concern from TYPE_KEYWORDS / SEVERITY_RULES.
 var _SENT_THREAT = [
-  { w: -15, t: 'killed'             },
-  { w: -15, t: 'casualties'         },
-  { w: -20, t: 'airstrike'          },
-  { w: -20, t: 'bombed'             },
-  { w: -20, t: 'invaded'            },
-  { w: -10, t: 'sanctions imposed'  },
-  { w: -15, t: 'blockade'           },
-  { w: -20, t: 'coup'               },
-  { w: -15, t: 'collapsed'          },
-  { w: -20, t: 'famine'             },
-  { w: -25, t: 'massacre'           },
-  { w: -15, t: 'seized'             },
-  { w: -15, t: 'fired upon'         },
-  { w: -25, t: 'declared war'       },
-  { w: -15, t: 'emergency declared' },
-  { w: -10, t: 'shutdown'           },
-  { w: -15, t: 'explosion'          },
-  { w: -20, t: 'hostages'           },
+  // Original high-weight signals
+  { w: -25, t: 'declared war'          },
+  { w: -25, t: 'massacre'              },
+  { w: -20, t: 'airstrike'             },
+  { w: -20, t: 'bombed'                },
+  { w: -20, t: 'invaded'               },
+  { w: -20, t: 'coup'                  },
+  { w: -20, t: 'famine'                },
+  { w: -20, t: 'hostages'              },
+  { w: -15, t: 'killed'                },
+  { w: -15, t: 'casualties'            },
+  { w: -15, t: 'blockade'              },
+  { w: -15, t: 'collapsed'             },
+  { w: -15, t: 'seized'                },
+  { w: -15, t: 'fired upon'            },
+  { w: -15, t: 'emergency declared'    },
+  { w: -15, t: 'explosion'             },
+  { w: -10, t: 'sanctions imposed'     },
+  { w: -10, t: 'shutdown'              },
+  // Extended threat signals (previously undetected)
+  { w: -25, t: 'genocide'              },
+  { w: -25, t: 'chemical weapon'       },
+  { w: -20, t: 'missile strike'        },
+  { w: -20, t: 'drone strike'          },
+  { w: -20, t: 'air raid'              },
+  { w: -20, t: 'assassination'         },
+  { w: -20, t: 'assassinated'          },
+  { w: -18, t: 'port closed'           },
+  { w: -18, t: 'airspace closed'       },
+  { w: -18, t: 'border closed'         },
+  { w: -15, t: 'offensive launched'    },
+  { w: -15, t: 'troops advancing'      },
+  { w: -15, t: 'military operation'    },
+  { w: -15, t: 'clashes erupt'         },
+  { w: -15, t: 'civilians trapped'     },
+  { w: -15, t: 'mass displacement'     },
+  { w: -15, t: 'humanitarian crisis'   },
+  { w: -15, t: 'state of emergency'    },
+  { w: -15, t: 'martial law'           },
+  { w: -15, t: 'evacuation ordered'    },
+  { w: -12, t: 'sanctions enacted'     },
+  { w: -12, t: 'embargo imposed'       },
+  { w: -12, t: 'supply disruption'     },
+  { w: -12, t: 'pipeline shutdown'     },
+  { w: -12, t: 'power outage'          },
+  { w: -12, t: 'blackout'              },
+  { w: -10, t: 'currency collapse'     },
+  { w: -10, t: 'bank failure'          },
+  { w: -10, t: 'debt default'          },
+  { w: -10, t: 'financial crisis'      },
+  { w: -10, t: 'market crash'          },
+  { w: -10, t: 'trade halted'          },
+  { w: -8,  t: 'military buildup'      },
+  { w: -8,  t: 'troop movement'        },
+  { w: -8,  t: 'escalating tensions'   },
+  { w: -8,  t: 'sanctions threatened'  },
+  { w: -8,  t: 'protest crackdown'     },
+  { w: -8,  t: 'internet shutdown'     },
 ];
 var _SENT_DEESC = [
   { w: +20, t: 'ceasefire'          },
@@ -5794,25 +6008,29 @@ function deriveSeverity(baseRegexSev, sentimentScore, sourceBoost) {
   var idx = _SEV_ORDER.indexOf(baseRegexSev);
   if (idx === -1) idx = 0;
 
-  // Absolute: strong hostile signal + credible (tier-1/2) source
+  // Absolute: very strong hostile signal + credible source → always CRITICAL
   if (sentimentScore < -60 && sourceBoost >= 8) return 'CRITICAL';
 
-  // Unknown source + neutral sentiment → suppress to LOW (avoids noise pollution)
-  if (sourceBoost === 0 && sentimentScore >= -20 && sentimentScore <= 20) return 'LOW';
+  // Noise suppression: ONLY apply if the base score is already LOW (idx === 0)
+  // and the source is completely unknown and sentiment is positive/neutral.
+  // BUG FIX: the old rule suppressed to LOW even when base was WATCH/WARNING — that
+  // caused legitimate events from regional/unknown sources to be silently zeroed out.
+  if (sourceBoost === 0 && sentimentScore > 15 && idx === 0) return 'LOW';
 
-  // Upgrade floors based on negative sentiment
-  if      (sentimentScore < -40 && idx < 2) idx = 2; // at minimum WARNING
-  else if (sentimentScore < -20 && idx < 1) idx = 1; // at minimum WATCH
+  // Upgrade floors based on hostile sentiment
+  if      (sentimentScore < -40 && idx < 2) idx = 2; // floor at WARNING
+  else if (sentimentScore < -20 && idx < 1) idx = 1; // floor at WATCH
 
-  // Downgrade ceilings based on positive sentiment
-  if      (sentimentScore > 60 && idx > 1) idx = 1; // cap at WATCH (positive = not crisis)
-  else if (sentimentScore > 30 && idx > 0) idx--;   // downgrade one level
+  // Downgrade ceilings based on positive sentiment (never downgrade below current base)
+  if      (sentimentScore > 60 && idx > 1) idx = 1;  // very positive → cap at WATCH
+  else if (sentimentScore > 30 && idx > 0) idx--;    // mildly positive → one level down
 
   return _SEV_ORDER[idx];
 }
 
 window.calcSentimentScore = calcSentimentScore;
 window.deriveSeverity     = deriveSeverity;
+window.scoreArticleRisk   = scoreArticleRisk;
 
 // ── Claude AI batch classifier ────────────────────────────────────────────────
 // Sends up to 20 article titles per call → receives JSON array of {id, risk_level, category}.
@@ -5955,15 +6173,14 @@ function classifyArticle(article, idx) {
   // KINETIC_OVERRIDE_RE hard-override is applied inside classifyType before counting.
   var type = classifyType(full);
 
-  var sev = 'LOW';
-  for (var j = 0; j < SEVERITY_RULES.length; j++) {
-    if (SEVERITY_RULES[j].re.test(full)) { sev = SEVERITY_RULES[j].sev; break; }
-  }
+  // ── Multi-factor risk scoring (replaces single-regex SEVERITY_RULES loop) ────
+  var _riskResult = scoreArticleRisk(full, title);
+  var sev         = _riskResult.sev;
 
-  // ── Sentiment second-pass: correct false escalations and under-classifications ──
-  var _artSrc       = article.source_name || article.source_id || '';
-  var _sentScore    = calcSentimentScore(title, desc);
-  sev               = deriveSeverity(sev, _sentScore, getSourceBoost(_artSrc));
+  // ── Sentiment second-pass: fine-tune using tone + source credibility ─────────
+  var _artSrc    = article.source_name || article.source_id || '';
+  var _sentScore = calcSentimentScore(title, desc);
+  sev            = deriveSeverity(sev, _sentScore, getSourceBoost(_artSrc));
 
   var impact = desc.length > 40 ? desc.slice(0, 160) + (desc.length > 160 ? '…' : '') : IMPACT_MAP[type];
 
@@ -7180,12 +7397,23 @@ function classifyArticle(article, idx) {
 
   var title = (article.title || '').slice(0, 80);
   var low   = title.toLowerCase();
-  var sev   = tone < -8 ? 'CRITICAL' : tone < -4 ? 'WARNING' : tone < -1 ? 'WATCH' : 'LOW';
+
+  // Tone-based baseline (GDELT V2Tone: negative = more hostile)
+  var toneSev = tone < -8 ? 'CRITICAL' : tone < -4 ? 'WARNING' : tone < -1 ? 'WATCH' : 'LOW';
+
+  // Keyword-based baseline — supplements tone when tone is weak or absent
+  var _kwResult  = window.scoreArticleRisk ? window.scoreArticleRisk(title, title) : null;
+  var kwSev      = _kwResult ? _kwResult.sev : 'LOW';
+
+  // Take the higher of tone-based and keyword-based severity
+  var _SEV_NUM   = { LOW: 0, WATCH: 1, WARNING: 2, CRITICAL: 3 };
+  var _SEV_NAMES = ['LOW','WATCH','WARNING','CRITICAL'];
+  var sev = _SEV_NAMES[Math.max(_SEV_NUM[toneSev] || 0, _SEV_NUM[kwSev] || 0)];
 
   // ── Sentiment second-pass: keyword cross-check against GDELT V2Tone baseline ──
   var _gdeltSent = null;
   if (window.calcSentimentScore && window.deriveSeverity) {
-    _gdeltSent = window.calcSentimentScore(title, title); // GDELT DOC often lacks description
+    _gdeltSent = window.calcSentimentScore(title, title);
     var _gdeltSrcB = (window.getSourceBoost || function(){return 0;})(article.domain || '');
     sev = window.deriveSeverity(sev, _gdeltSent, _gdeltSrcB);
   }

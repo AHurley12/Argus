@@ -8929,6 +8929,33 @@ window.ArgusAdmin = (function() {
             loc: e.region || '', lat: e.lat, lon: e.lon };
         });
 
+      // 1b ── Published permanent events already on globe (_permanentPins in memory)
+      //       These are events in argus_permanent_events that may not have a queue entry
+      var publishedItems = (window._permanentPins || [])
+        .map(function(p) {
+          var d = p.mesh ? p.mesh.userData : {};
+          return { src: d.source || '★ ADMIN', sev: (d.severity || 'WARNING').toUpperCase(),
+            type: d.type || 'EVENT', title: d.title || p.title || '—',
+            loc: '', lat: null, lon: null, permId: p.permId };
+        })
+        .sort(function(a, b) { return (sevOrder[a.sev] || 2) - (sevOrder[b.sev] || 2); });
+
+      // 1c ── Hard-coded static fixture markers (Taiwan Strait, Panama Canal, Black Sea, etc.)
+      //       These are eventLocations[] plotted at globe init with no DB backing
+      var STATIC_IDS = { 'bab-mandeb':true, 'red-sea':true, 'panama':true, 'black-sea':true, 'taiwan':true };
+      var staticItems = (window.eventMarkers || [])
+        .filter(function(m) {
+          var d = m.userData;
+          return d && d.id && STATIC_IDS[d.id] && !d.isPulseRing;
+        })
+        .map(function(m) {
+          var d = m.userData;
+          return { src: 'STATIC', sev: (d.severity || 'WATCH').toUpperCase(),
+            type: d.type || 'EVENT', title: d.title || '—',
+            loc: '', lat: d.lat || null, lon: d.lon || null };
+        })
+        .sort(function(a, b) { return (sevOrder[a.sev] || 2) - (sevOrder[b.sev] || 2); });
+
       // 2 ── GDACS UN disaster globe markers (not pulse rings)
       var gdacsItems = (window.eventMarkers || [])
         .filter(function(m) { return m.userData && m.userData._unMarker && !m.userData.isPulseRing; })
@@ -8959,13 +8986,23 @@ window.ArgusAdmin = (function() {
         });
 
       var liveHtml = '';
-      var totalLive = newsItems.length + gdacsItems.length + rwItems.length;
+      var totalLive = newsItems.length + publishedItems.length + staticItems.length + gdacsItems.length + rwItems.length;
       if (totalLive || seismicItems.length) {
         liveHtml = '<div class="eq-live-section">';
 
         if (newsItems.length) {
           liveHtml += '<div class="eq-live-hdr" style="color:#0af">◈ NEWSDATA API — ' + newsItems.length + ' ARTICLES</div>' +
             newsItems.map(makeLiveRow).join('');
+        }
+
+        if (publishedItems.length) {
+          liveHtml += '<div class="eq-live-hdr" style="margin-top:8px;color:#00cc66">◈ PUBLISHED EVENTS — ' + publishedItems.length + ' ON GLOBE</div>' +
+            publishedItems.map(makeLiveRow).join('');
+        }
+
+        if (staticItems.length) {
+          liveHtml += '<div class="eq-live-hdr" style="margin-top:8px;color:#ffcc00">◈ STATIC FIXTURES — ' + staticItems.length + ' HARD-CODED</div>' +
+            staticItems.map(makeLiveRow).join('');
         }
 
         if (gdacsItems.length) {
@@ -9227,73 +9264,8 @@ window.ArgusAdmin = (function() {
     })
     .then(function(r) {
       if (!r.ok) throw new Error('HTTP ' + r.status);
-      // If approved — push into event queue AND geocode/plot on globe
-      if (action === 'approved') {
-        sbFetch('/rest/v1/argus_analyst_requests?id=eq.' + id + '&select=*')
-        .then(function(r2) { return r2.json(); })
-        .then(function(rows) {
-          if (!rows[0]) return;
-          var req = rows[0];
-          // Push to event queue
-          sbFetch('/rest/v1/argus_event_queue', {
-            method: 'POST',
-            headers: { 'Prefer': 'return=minimal' },
-            body: JSON.stringify({
-              source:       'ANALYST',
-              category:     req.category || 'general',
-              timestamp:    new Date().toISOString(),
-              location:     req.location ? { country: req.location } : null,
-              data:         { title: req.title, url: req.source_url, notes: req.notes, keywords: [] },
-              submitted_by: req.submitted_by,
-              status:       'pending',
-            })
-          });
-          // Geocode location then: (1) write to permanent_events for cross-device globe, (2) plot locally
-          var locQuery = req.location || req.title;
-          fetch('https://nominatim.openstreetmap.org/search?q=' +
-            encodeURIComponent(locQuery) + '&format=json&limit=1',
-            { headers: { 'Accept-Language': 'en', 'User-Agent': 'ArgusIntel/1.0' } }
-          )
-          .then(function(r3) { return r3.json(); })
-          .then(function(res) {
-            var lat = null, lon = null;
-            if (res && res[0]) {
-              lat = parseFloat(res[0].lat);
-              lon = parseFloat(res[0].lon);
-            }
-            // Write to argus_permanent_events — visible to ALL users on load
-            return sbFetch('/rest/v1/argus_permanent_events', {
-              method: 'POST',
-              headers: { 'Prefer': 'return=representation' },
-              body: JSON.stringify({
-                source:     'ANALYST',
-                category:   req.category || 'general',
-                timestamp:  new Date().toISOString(),
-                location:   lat ? { lat: lat, lon: lon, country: req.location } : { country: req.location },
-                data: {
-                  title:      req.title,
-                  severity:   'WARNING',
-                  type:       'POLICY',
-                  impact:     req.notes || '',
-                  url:        req.source_url || '',
-                  keywords:   [],
-                },
-                created_by: window.ArgusSession ? window.ArgusSession.email : 'admin',
-              })
-            })
-            .then(function(r4) { return r4.json(); })
-            .then(function(saved) {
-              // Also plot locally for immediate feedback
-              if (lat && lon) _plotAnalystPin(req, id, { lat: lat, lon: lon });
-              // Reload permanent events so current session sees it too
-              if (window.ArgusAdmin && window.ArgusAdmin._reloadPermanent) {
-                window.ArgusAdmin._reloadPermanent();
-              }
-            });
-          })
-          .catch(function(e) { console.warn('Analyst geocode failed:', e.message); });
-        });
-      }
+      // Analyst requests are noted only — admin must create events manually
+      // through the event queue (MANUAL source). No auto-submission to queue or globe.
       if (action === 'denied') {
         // Denied — move to history (remove from requests view)
         if (card) card.remove();
@@ -9401,7 +9373,32 @@ window.ArgusAdmin = (function() {
     .then(function(r) { return r.json(); })
     .then(function(rows) {
       if (!rows.length) return;
-      var classified = rows.map(function(ev) {
+
+      // ── Clear ALL existing permanent-pin markers before re-plotting ──────────
+      // Prevents duplicate dots when DB has >1 record for the same event.
+      var AG = window.ArgusGlobe;
+      if (AG && AG.eventMarkerGroup && window._permanentPins && window._permanentPins.length) {
+        window._permanentPins.forEach(function(p) {
+          if (p.mesh) {
+            AG.eventMarkerGroup.remove(p.mesh);
+            window.eventMarkers = (window.eventMarkers || []).filter(function(m) { return m !== p.mesh; });
+          }
+          if (p.ring) AG.eventMarkerGroup.remove(p.ring);
+        });
+        window._permanentPins = [];
+      }
+
+      // ── Dedup by title — keep only the most-recent record per unique title ──
+      // Handles duplicate DB rows created by multiple approval or UPDATE SITE clicks.
+      var seenTitles = {};
+      var deduped = rows.filter(function(ev) {
+        var key = ((ev.data && ev.data.title) || String(ev.id)).toLowerCase().trim();
+        if (seenTitles[key]) return false;
+        seenTitles[key] = true;
+        return true;
+      });
+
+      var classified = deduped.map(function(ev) {
         var d = ev.data || {};
         return {
           id:          ev.id,
@@ -9419,6 +9416,7 @@ window.ArgusAdmin = (function() {
           lon:         ev.location && ev.location.lon ? parseFloat(ev.location.lon) : null,
         };
       });
+
       // Refresh feed and globe markers
       var existing = window._currentEvents || [];
       var merged = classified.concat(existing.filter(function(e) { return !e.isPermanent; }));

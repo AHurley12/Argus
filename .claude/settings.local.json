@@ -6,7 +6,8 @@
       "Bash(node -e ':*)",
       "Bash(git add:*)",
       "Bash(git commit -m ':*)",
-      "Bash(ls -la /c/Users/aidan/Desktop/Argus/supabase/*.sql)"
+      "Bash(ls -la /c/Users/aidan/Desktop/Argus/supabase/*.sql)",
+      "mcp__claude_ai_Supabase__execute_sql"
     ]
   }
 }

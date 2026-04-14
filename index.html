@@ -9280,8 +9280,32 @@ window.ArgusAdmin = (function() {
     })
     .then(function(r) {
       if (!r.ok) throw new Error('HTTP ' + r.status);
-      // Analyst requests are noted only — admin must create events manually
-      // through the event queue (MANUAL source). No auto-submission to queue or globe.
+      // On approval: forward to event queue as pending for admin review/edit/approval.
+      // Does NOT write to argus_permanent_events or plot on globe — that only happens
+      // when admin approves the queue entry via approveEvent().
+      if (action === 'approved') {
+        sbFetch('/rest/v1/argus_analyst_requests?id=eq.' + id + '&select=*')
+        .then(function(r2) { return r2.json(); })
+        .then(function(rows) {
+          if (!rows[0]) return;
+          var req = rows[0];
+          sbFetch('/rest/v1/argus_event_queue', {
+            method: 'POST',
+            headers: { 'Prefer': 'return=minimal' },
+            body: JSON.stringify({
+              source:       'ANALYST',
+              category:     req.category || 'general',
+              timestamp:    new Date().toISOString(),
+              location:     req.location ? { country: req.location } : null,
+              data:         { title: req.title, url: req.source_url, notes: req.notes, keywords: [], severity: 'WARNING', type: 'CONFLICT' },
+              submitted_by: req.submitted_by,
+              status:       'pending',
+            })
+          })
+          .then(function() { loadQueue(); })
+          .catch(function(e) { console.warn('Queue forward failed:', e.message); });
+        });
+      }
       if (action === 'denied') {
         // Denied — move to history (remove from requests view)
         if (card) card.remove();

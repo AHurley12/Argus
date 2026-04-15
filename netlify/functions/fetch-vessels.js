@@ -7,7 +7,6 @@ const { createClient } = require('@supabase/supabase-js');
 
 const SUPABASE_URL  = process.env.SUPABASE_URL;
 const SUPABASE_KEY  = process.env.SUPABASE_SERVICE_KEY;
-const VESSELAPI_KEY = process.env.VESSELAPI_KEY;
 
 const CACHE_TTL_MS  = 30 * 60 * 1000;   // 30 min — tanker at 20 kn barely moves in 30 min
 const SAMPLE_RATE   = 0.10;              // 10% sampling — configurable
@@ -29,6 +28,9 @@ exports.handler = async function (event) {
   if (event.httpMethod === 'OPTIONS') {
     return { statusCode: 204, headers, body: '' };
   }
+
+  const VESSELAPI_KEY = process.env.VESSELAPI_KEY;
+  console.log('VESSELAPI_KEY exists:', !!VESSELAPI_KEY);
 
   if (!VESSELAPI_KEY) {
     return {

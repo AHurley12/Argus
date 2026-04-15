@@ -1,6 +1,7 @@
 // netlify/functions/fetch-vessels.js
 // Multi-region vessel ingestion via VesselAPI.
-// 5 maritime regions / 14 corridors with stratified sampling and per-region caching.
+// 5 maritime regions / 15 corridors with stratified sampling and per-region caching.
+// Per-region TTLs tuned to ~59 VesselAPI credits/day (1,500 credit budget over 24 days).
 // Env: VESSELAPI_KEY, SUPABASE_URL, SUPABASE_SERVICE_KEY
 
 const { createClient } = require('@supabase/supabase-js');
@@ -9,20 +10,32 @@ const SUPABASE_URL    = process.env.SUPABASE_URL;
 const SUPABASE_KEY    = process.env.SUPABASE_SERVICE_KEY;
 
 const CACHE_KEY       = 'vessel_positions_v2';
-const REGION_TTL_MS   = 30 * 60 * 1000;  // 30 min — tanker at 20 kn barely moves
 const GLOBAL_CAP      = 300;
 const TIMEOUT_MS      = 8000;
 
 const VESSEL_API_BASE = 'https://api.vesselapi.com/v1/location/vessels/bounding-box';
 const PRIORITY_RE     = /tanker|carrier|bulk|cargo|container/i;
 
+// ── Credit budget ──────────────────────────────────────────────────────────────
+// Each corridor fetch = 1 VesselAPI credit.
+// Per-region TTLs are set to consume ~59 credits/day total:
+//   MIDDLE_EAST  (2 corridors, 4h TTL)  → 12 credits/day  [highest tactical value]
+//   ASIA_PACIFIC (5 corridors, 6h TTL)  → 20 credits/day
+//   EUROPE_MED   (4 corridors, 6h TTL)  → 16 credits/day
+//   AMERICAS     (3 corridors, 8h TTL)  →  9 credits/day
+//   SOUTH_AFRICA (1 corridor,  12h TTL) →  2 credits/day
+//   ─────────────────────────────────────────────────────
+//   Total                               ~59 credits/day  (1,416 / 24-day window)
+
 // ── Region definitions ─────────────────────────────────────────────────────────
 // Each region contains named VesselAPI corridors (2°×2° bounding boxes).
 // target  = desired vessel count from this region after sampling
 // weight  = adaptive multiplier (> 1 overweights sparse regions)
+// ttl     = per-region cache TTL in ms (drives credit consumption rate)
 const REGIONS = [
   {
     name: 'ASIA_PACIFIC', target: 80, weight: 1.0,
+    ttl: 6 * 60 * 60 * 1000,   // 6h — 4 refreshes/day × 5 corridors = 20 credits/day
     corridors: [
       { name: 'Strait of Malacca',   latB: 1,    latT: 3,    lonL: 102,   lonR: 104  },
       { name: 'South China Sea',     latB: 14,   latT: 16,   lonL: 113,   lonR: 115  },
@@ -33,6 +46,7 @@ const REGIONS = [
   },
   {
     name: 'MIDDLE_EAST', target: 55, weight: 1.1,
+    ttl: 4 * 60 * 60 * 1000,   // 4h — 6 refreshes/day × 2 corridors = 12 credits/day
     corridors: [
       { name: 'Strait of Hormuz',    latB: 25,   latT: 27,   lonL: 55,    lonR: 57   },
       { name: 'Bab el-Mandeb',       latB: 11.5, latT: 13.5, lonL: 42.5,  lonR: 44.5 },
@@ -40,6 +54,7 @@ const REGIONS = [
   },
   {
     name: 'EUROPE_MED', target: 70, weight: 0.85, // suppress density bias
+    ttl: 6 * 60 * 60 * 1000,   // 6h — 4 refreshes/day × 4 corridors = 16 credits/day
     corridors: [
       { name: 'Suez Canal',          latB: 29,   latT: 31,   lonL: 31.5,  lonR: 33.5 },
       { name: 'English Channel',     latB: 50,   latT: 52,   lonL: 0,     lonR: 2    },
@@ -49,6 +64,7 @@ const REGIONS = [
   },
   {
     name: 'AMERICAS', target: 60, weight: 1.1,
+    ttl: 8 * 60 * 60 * 1000,   // 8h — 3 refreshes/day × 3 corridors = 9 credits/day
     corridors: [
       { name: 'Panama Canal',        latB: 8,    latT: 10,   lonL: -80.5, lonR: -78.5 },
       { name: 'US East Coast',       latB: 36,   latT: 38,   lonL: -76,   lonR: -74  },
@@ -57,6 +73,7 @@ const REGIONS = [
   },
   {
     name: 'SOUTH_AFRICA', target: 35, weight: 1.2, // overweight sparse region
+    ttl: 12 * 60 * 60 * 1000,  // 12h — 2 refreshes/day × 1 corridor = 2 credits/day
     corridors: [
       { name: 'Cape of Good Hope',   latB: -35,  latT: -33,  lonL: 17,    lonR: 19   },
     ],
@@ -230,15 +247,15 @@ exports.handler = async function (event) {
     if (data?.payload) regionCache = data.payload;
   } catch (_) {}
 
-  // ── Determine stale regions ──────────────────────────────────────────────────
+  // ── Determine stale regions (each region uses its own TTL) ──────────────────
   const stale  = REGIONS.filter(r => {
     const c = regionCache[r.name];
-    return !c || (now - c.ts) >= REGION_TTL_MS;
+    return !c || (now - c.ts) >= r.ttl;
   });
   const cached = REGIONS.filter(r => !stale.includes(r));
 
   console.log(
-    `Stale: [${stale.map(r => r.name).join(', ')}]`,
+    `Stale: [${stale.map(r => `${r.name}(${r.ttl / 3600000}h)`).join(', ')}]`,
     `| Cached: [${cached.map(r => r.name).join(', ')}]`
   );
 

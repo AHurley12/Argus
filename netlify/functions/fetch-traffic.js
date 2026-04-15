@@ -10,7 +10,7 @@ const SUPABASE_URL   = process.env.SUPABASE_URL;
 const SUPABASE_KEY   = process.env.SUPABASE_SERVICE_KEY;
 
 const CACHE_KEY      = 'air_traffic_v3';
-const REGION_TTL_MS  = 10 * 1000;   // 10 s per-region freshness window
+const REGION_TTL_MS  = 60 * 1000;   // 60 s per-region freshness window
 const GLOBAL_CAP     = 300;          // hard ceiling on returned aircraft
 const PRIORITY_RE    = /^(FDX|UPS|DHL|PAC|[A-Z]{2}\d)/i; // cargo + commercial callsigns
 

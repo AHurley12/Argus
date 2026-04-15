@@ -1,81 +1,64 @@
 // netlify/functions/fetch-traffic.js
-// Fetches live ADS-B aircraft across 4 strategic corridors in parallel.
+// Fetches live ADS-B aircraft via adsb.lol (free, no key, cloud-IP friendly).
+// Covers 4 strategic corridors via center+radius queries.
 // Sampling: 10% random, always keeps FDX / UPS / DHL / PAC callsigns.
 // Cache: Supabase global_events table, 10-minute TTL.
 
 const { createClient } = require('@supabase/supabase-js');
 
-const SUPABASE_URL = process.env.SUPABASE_URL;
-const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY;
+const SUPABASE_URL  = process.env.SUPABASE_URL;
+const SUPABASE_KEY  = process.env.SUPABASE_SERVICE_KEY;
 
-const CACHE_TTL_MS  = 10 * 60 * 1000;   // 10 minutes
-const SAMPLE_RATE   = 0.10;              // keep 10% of non-priority aircraft
-const PRIORITY_RE   = /^(FDX|UPS|DHL|PAC)/i; // always keep these callsigns
+const CACHE_TTL_MS  = 10 * 60 * 1000;
+const SAMPLE_RATE   = 0.10;
+const PRIORITY_RE   = /^(FDX|UPS|DHL|PAC)/i;
 
-// Strategic corridors — [lat_min, lon_min, lat_max, lon_max]
+// Strategic corridors — center lat/lon + radius in nautical miles
+// adsb.lol endpoint: /v2/lat/{lat}/lon/{lon}/dist/{nm}
 const CORRIDORS = {
-  US_NE:      [35, -80, 45, -65],
-  NORTH_SEA:  [50,  -4, 62,  12],
-  HORMUZ:     [22,  53, 28,  60],
-  CHINA_SEA:  [10, 100, 25, 125],
+  US_NE:     { lat: 40,    lon: -72.5, dist: 500 },
+  NORTH_SEA: { lat: 56,    lon: 4,     dist: 500 },
+  HORMUZ:    { lat: 25,    lon: 56.5,  dist: 300 },
+  CHINA_SEA: { lat: 17.5,  lon: 112.5, dist: 700 },
 };
 
-// OpenSky bounding-box endpoint — no CORS issue server-side
-function openskyUrl([lamin, lomin, lamax, lomax]) {
-  return `https://opensky-network.org/api/states/all?lamin=${lamin}&lomin=${lomin}&lamax=${lamax}&lomax=${lomax}`;
-}
-
-// Build Basic Auth header if credentials are configured
-function authHeaders() {
-  const user = process.env.OPENSKY_USER;
-  const pass = process.env.OPENSKY_PASS;
-  console.log("USER EXISTS:", !!user);
-  console.log("PASS EXISTS:", !!pass);
-  const base = { 'User-Agent': 'ArgusIntel/1.0' };
-  if (!user || !pass) return base;
-  const token = Buffer.from(`${user}:${pass}`).toString('base64');
-  return { ...base, Authorization: `Basic ${token}` };
-}
-
-// Fetch one corridor; returns normalised aircraft array
-async function fetchCorridor(name, bbox) {
-  const url = openskyUrl(bbox);
+async function fetchCorridor(name, { lat, lon, dist }) {
+  const url = `https://api.adsb.lol/v2/lat/${lat}/lon/${lon}/dist/${dist}`;
   console.log(`[${name}] fetching: ${url}`);
+
   const res = await fetch(url, {
-    headers: authHeaders(),
+    headers: { 'User-Agent': 'ArgusIntel/1.0' },
     signal: AbortSignal.timeout(12000),
   });
-  console.log(`[${name}] status: ${res.status}`);
 
+  console.log(`[${name}] status: ${res.status}`);
   if (!res.ok) {
     const body = await res.text().catch(() => '');
     console.error(`[${name}] error body: ${body.slice(0, 200)}`);
-    throw new Error(`OpenSky ${name} HTTP ${res.status}`);
+    throw new Error(`adsb.lol ${name} HTTP ${res.status}`);
   }
 
   const json = await res.json();
-  const states = Array.isArray(json.states) ? json.states : [];
+  const states = Array.isArray(json.ac) ? json.ac : [];
   console.log(`[${name}] raw states: ${states.length}`);
 
-  // Normalise OpenSky state vector:
-  // [0]=icao24 [1]=callsign [2]=country [5]=lon [6]=lat [8]=on_ground [10]=true_track [7]=baro_alt
+  // adsb.lol fields: hex, flight, lat, lon, track, alt_baro (ft or "ground"), gs
   const aircraft = states
     .filter(s =>
-      s[5] != null && s[6] != null &&   // lon/lat present
-      s[8] === false &&                  // airborne
-      (s[7] == null || s[7] >= 1000)    // altitude ≥ 1000 m or unreported
+      s.lat != null && s.lon != null &&
+      s.alt_baro !== 'ground' &&
+      (s.alt_baro == null || s.alt_baro >= 3000)   // ~1000 m in feet
     )
     .map(s => ({
       corridor: name,
-      cs:       (s[1] || '').trim(),
-      country:  s[2] || '',
-      lat:      s[6],
-      lon:      s[5],
-      track:    s[10],
-      alt:      s[7],
+      cs:       (s.flight || '').trim(),
+      country:  '',
+      lat:      s.lat,
+      lon:      s.lon,
+      track:    s.track ?? null,
+      alt:      s.alt_baro ?? null,
     }));
 
-  // 10% sampling — always keep priority callsigns
   return aircraft.filter(a =>
     PRIORITY_RE.test(a.cs) || Math.random() < SAMPLE_RATE
   );
@@ -94,7 +77,7 @@ exports.handler = async function (event) {
   try {
     const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
-    // ── Check Supabase cache ───────────────────────────────────────────────────
+    // ── Check Supabase cache ──────────────────────────────────────────────────
     const { data: cached } = await supabase
       .from('global_events')
       .select('*')
@@ -110,9 +93,9 @@ exports.handler = async function (event) {
       };
     }
 
-    // ── Fetch all 4 corridors in parallel ─────────────────────────────────────
+    // ── Fetch all corridors in parallel ───────────────────────────────────────
     const results = await Promise.allSettled(
-      Object.entries(CORRIDORS).map(([name, bbox]) => fetchCorridor(name, bbox))
+      Object.entries(CORRIDORS).map(([name, cfg]) => fetchCorridor(name, cfg))
     );
 
     const aircraft = results.flatMap(r =>
@@ -132,21 +115,19 @@ exports.handler = async function (event) {
 
     console.log('corridorStatus:', JSON.stringify(corridorStatus));
 
-    // ── Upsert to Supabase (only if we got data) ─────────────────────────────
-    if (aircraft.length) await supabase.from('global_events').upsert({
-      key:        'air_traffic_v2',
-      payload:    aircraft,
-      updated_at: new Date().toISOString(),
-    }, { onConflict: 'key' });
+    // ── Cache only if we got data ─────────────────────────────────────────────
+    if (aircraft.length) {
+      await supabase.from('global_events').upsert({
+        key:        'air_traffic_v2',
+        payload:    aircraft,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'key' });
+    }
 
     return {
       statusCode: 200,
       headers,
-      body: JSON.stringify({
-        source: 'live',
-        corridors: corridorStatus,
-        aircraft,
-      }),
+      body: JSON.stringify({ source: 'live', corridors: corridorStatus, aircraft }),
     };
 
   } catch (err) {

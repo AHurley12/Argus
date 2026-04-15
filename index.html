@@ -2255,7 +2255,7 @@
   .nw-candidate { padding:6px 12px; cursor:grab; font-size:9px; color:rgba(180,140,210,0.75); display:flex; align-items:flex-start; gap:7px; border-left:2px solid transparent; user-select:none; transition:background 0.12s; }
   .nw-candidate:hover { background:rgba(180,100,255,0.10); color:#d0aaf8; border-left-color:var(--nw-purple-dim); }
   .nw-candidate-icon { flex-shrink:0; opacity:0.75; margin-top:1px; }
-  .nw-candidate-label { flex:1; line-height:1.4; overflow:hidden; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; }
+  .nw-candidate-label { flex:1; line-height:1.4; overflow:hidden; display:-webkit-box; -webkit-line-clamp:2; line-clamp:2; -webkit-box-orient:vertical; }
   .nw-candidate-meta { flex-shrink:0; font-size:7px; letter-spacing:1px; padding:1px 4px; border-radius:1px; white-space:nowrap; }
   .nw-builder-footer { padding:8px 14px; border-top:1px solid #2a1040; flex-shrink:0; display:flex; flex-direction:column; gap:6px; }
   .nw-builder-footer .nw-action-btn { width:100%; text-align:center; }
@@ -3534,7 +3534,9 @@ document.addEventListener('DOMContentLoaded', function() {
 
   // Node counter — exposed on window for data script
   window.updateNodeCounts = function() {
-    var nodes    = window.eventMarkers.concat(window.chokepointMarkers);
+    var nodes    = window.eventMarkers
+      .filter(function(m) { return !m.userData.isAircraft && !m.userData.isShip; })
+      .concat(window.chokepointMarkers);
     var critical = nodes.filter(function(m) {
       return (m.userData.severity || m.userData.risk) === 'CRITICAL';
     }).length;
@@ -3686,6 +3688,8 @@ document.addEventListener('DOMContentLoaded', function() {
     var allHits = [
       raycasterHover.intersectObjects(window.eventMarkers),
       raycasterHover.intersectObjects(window.chokepointMarkers),
+      raycasterHover.intersectObjects(window._aircraftMarkers || []),
+      raycasterHover.intersectObjects(window._vesselMarkers   || []),
       countryHits,
       capitalHits,
     ].reduce(function(a, b) { return a.concat(b); }, [])
@@ -3734,7 +3738,8 @@ document.addEventListener('DOMContentLoaded', function() {
     mouseClick.y = -((e.clientY - rect.top)  / rect.height) * 2 + 1;
     raycasterClick.setFromCamera(mouseClick, camera);
 
-    var evHits = raycasterClick.intersectObjects(window.eventMarkers).filter(function(h) { return isFacingCamera(h.object); });
+    var _evTargets = window.eventMarkers.concat(window._aircraftMarkers || []).concat(window._vesselMarkers || []);
+    var evHits = raycasterClick.intersectObjects(_evTargets).filter(function(h) { return isFacingCamera(h.object); });
     if (evHits.length) { ArgusUI.showEventDetail(evHits[0].object.userData); return; }
 
     var cpHits = raycasterClick.intersectObjects(window.chokepointMarkers).filter(function(h) { return isFacingCamera(h.object); });
@@ -5568,7 +5573,7 @@ function renderEvents(events, isLive) {
     evList.appendChild(div);
   });
   window.updateNodeCounts();
-  document.getElementById('ev-feed-count').textContent = window.eventMarkers.length;
+  document.getElementById('ev-feed-count').textContent = window.eventMarkers.filter(function(m) { return !m.userData.isAircraft && !m.userData.isShip; }).length;
 }
 // Wrap renderEvents to cache the current event list for cross-module access
 window.renderEvents = function(events, isLive) {
@@ -6601,17 +6606,151 @@ window.ArgusUI = (function() {
         '<div class="tag-list">' + d.topI.map(function(e) { return '<span class="tag" style="color:#0099ff;border-color:#0099ff44;background:rgba(0,153,255,0.08)">' + e + '</span>'; }).join('') + '</div></div>';
       html += '<div class="detail__section-header">RISK ASSESSMENT</div>';
       html += '<div class="detail__row"><span class="detail__label">COMPOSITE RISK SCORE<br><span style="font-size:7px;color:#4a7da8;letter-spacing:0;font-weight:300">Human rights 70% · Supply chain 30%<br>FH · RSF · ILGA · Gini · Trade</span></span><span class="detail__value" style="color:' + col + '">' + d.score + ' / 100</span></div>';
-      [['COUNTRY RISK RATING'],['POLITICAL STABILITY'],['SANCTIONS EXPOSURE']].forEach(function(kv) {
-        html += '<div class="detail__row"><span class="detail__label">' + kv[0] + '</span><span class="detail__placeholder">— FEED PENDING —</span></div>';
-      });
+      // ── helpers ────────────────────────────────────────────────────────────
+      function parseMoney(str) {
+        if (!str) return null;
+        var s = str.replace(/[$,\s]/g, '');
+        var m = s.match(/^([\d.]+)([TBM]?)$/i);
+        if (!m) return null;
+        var v = parseFloat(m[1]);
+        var u = m[2].toUpperCase();
+        if (u === 'T') v *= 1e12; else if (u === 'B') v *= 1e9; else if (u === 'M') v *= 1e6;
+        return v;
+      }
+      function fmtMoney(n) {
+        if (n == null) return 'N/A';
+        var abs = Math.abs(n);
+        var s = abs >= 1e12 ? (abs/1e12).toFixed(2)+'T' : abs >= 1e9 ? (abs/1e9).toFixed(1)+'B' : (abs/1e6).toFixed(0)+'M';
+        return (n < 0 ? '-' : '+') + '$' + s;
+      }
+      var SANCTIONS_DB = {
+        RUS:{ label:'COMPREHENSIVE', detail:'OFAC · EU · UK (2022+)', col:'#ff0044' },
+        IRN:{ label:'COMPREHENSIVE', detail:'OFAC primary sanctions (1979+)', col:'#ff0044' },
+        SYR:{ label:'COMPREHENSIVE', detail:'OFAC · EU · UK (2004+)', col:'#ff0044' },
+        PRK:{ label:'COMPREHENSIVE', detail:'UN · OFAC · EU', col:'#ff0044' },
+        CUB:{ label:'EMBARGO',       detail:'OFAC CACR (1962+)', col:'#ff0044' },
+        VEN:{ label:'SECTORAL',      detail:'OFAC · EU (2017+)', col:'#ff9933' },
+        BLR:{ label:'SECTORAL',      detail:'EU · UK · US (2020+)', col:'#ff9933' },
+        MMR:{ label:'SECTORAL',      detail:'OFAC · EU (2021+)', col:'#ff9933' },
+        SDN:{ label:'TARGETED',      detail:'OFAC · UN arms embargo', col:'#ffcc00' },
+        SSD:{ label:'ARMS EMBARGO',  detail:'UN (2018+)', col:'#ffcc00' },
+        YEM:{ label:'TARGETED',      detail:'OFAC · UN', col:'#ffcc00' },
+        IRQ:{ label:'TARGETED',      detail:'Historical OFAC — limited active', col:'#ffcc00' },
+        AFG:{ label:'TARGETED',      detail:'Taliban entity designations', col:'#ffcc00' },
+        LBY:{ label:'ARMS EMBARGO',  detail:'UN (2011+)', col:'#ffcc00' },
+        SOM:{ label:'ARMS EMBARGO',  detail:'UN (2023+)', col:'#ffcc00' },
+        ZWE:{ label:'TARGETED',      detail:'EU · US regime figures', col:'#ffcc00' },
+        CHN:{ label:'TARGETED',      detail:'Entity list · chip export controls (2022+)', col:'#ffcc00' },
+        NGA:{ label:'AML WATCH',     detail:'FATF monitoring — no active program', col:'#aaaaff' },
+      };
+      var TARIFF_DB = {
+        CHN:{ label:'CRITICAL',  detail:'US tariffs 145% (2025) · EU antidumping', col:'#ff0044' },
+        RUS:{ label:'CRITICAL',  detail:'G7 MFN revoked · de facto trade embargo', col:'#ff0044' },
+        IRN:{ label:'CRITICAL',  detail:'Near-total trade prohibition under sanctions', col:'#ff0044' },
+        USA:{ label:'HIGH',      detail:'Retaliatory tariffs from EU · China · Canada', col:'#ff9933' },
+        IND:{ label:'ELEVATED',  detail:'High own tariff schedule · US reciprocal 2025', col:'#ffcc00' },
+        TUR:{ label:'ELEVATED',  detail:'EU customs union partial · US steel tariffs', col:'#ffcc00' },
+        CAN:{ label:'MODERATE',  detail:'USMCA · US steel/aluminum tariffs 2025', col:'#aaaaff' },
+        MEX:{ label:'MODERATE',  detail:'USMCA · US tariff scrutiny 2025', col:'#aaaaff' },
+        BRA:{ label:'MODERATE',  detail:'Mercosur common external tariff', col:'#aaaaff' },
+        ARG:{ label:'MODERATE',  detail:'Mercosur + capital controls on trade', col:'#aaaaff' },
+        VEN:{ label:'HIGH',      detail:'Sanctions limit access to trade finance', col:'#ff9933' },
+        NLD:{ label:'LOW',       detail:'EU single market · major re-export hub', col:'#00ff88' },
+        DEU:{ label:'LOW',       detail:'EU single market · WTO member in good standing', col:'#00ff88' },
+        GBR:{ label:'LOW',       detail:'Post-Brexit bilateral deals · WTO schedules', col:'#00ff88' },
+        SAU:{ label:'LOW',       detail:'GCC free trade · oil export exemptions', col:'#00ff88' },
+        KOR:{ label:'LOW',       detail:'US-Korea FTA · strong bilateral ties', col:'#00ff88' },
+        JPN:{ label:'LOW',       detail:'US-Japan trade framework · WTO schedules', col:'#00ff88' },
+        AUS:{ label:'LOW',       detail:'AUSFTA · CPTPP member', col:'#00ff88' },
+      };
+      var GOV_RISK_DB = {
+        RUS:{ label:'AUTHORITARIAN — NO FREE ELECTIONS', col:'#ff0044' },
+        CHN:{ label:'ONE-PARTY — NO COMPETITIVE ELECTIONS', col:'#ff0044' },
+        IRN:{ label:'THEOCRATIC — CONTROLLED ELECTIONS', col:'#ff0044' },
+        PRK:{ label:'TOTALITARIAN — NO ELECTIONS', col:'#ff0044' },
+        SYR:{ label:'CIVIL WAR — TRANSITIONAL GOVT', col:'#ff0044' },
+        AFG:{ label:'AUTHORITARIAN — TALIBAN RULE', col:'#ff0044' },
+        SOM:{ label:'FRAGILE — FEDERAL AUTHORITY LIMITED', col:'#ff0044' },
+        VEN:{ label:'ELECTORAL FRAUD — CONTESTED GOVT (2024)', col:'#ff9933' },
+        BLR:{ label:'AUTHORITARIAN — DISPUTED ELECTIONS', col:'#ff9933' },
+        MMR:{ label:'MILITARY JUNTA — COUP 2021', col:'#ff9933' },
+        SDN:{ label:'MILITARY CONFLICT — NO CENTRAL GOVT 2023+', col:'#ff0044' },
+        BFA:{ label:'MILITARY JUNTA — COUP 2022', col:'#ff0044' },
+        MLI:{ label:'MILITARY JUNTA — COUP 2021', col:'#ff0044' },
+        NER:{ label:'MILITARY JUNTA — COUP 2023', col:'#ff0044' },
+        CAF:{ label:'FRAGILE STATE — WAGNER INFLUENCE', col:'#ff0044' },
+        SSD:{ label:'FRAGILE PEACE — CIVIL WAR RISK', col:'#ff9933' },
+        YEM:{ label:'CIVIL WAR — NO CENTRAL GOVT', col:'#ff9933' },
+        IRQ:{ label:'FRAGILE DEMOCRACY — MILITIA INFLUENCE', col:'#ff9933' },
+        ETH:{ label:'POST-CONFLICT — TIGRAY INSTABILITY', col:'#ff9933' },
+        NGA:{ label:'CONTESTED — GOV LEGITIMACY UNDER PRESSURE', col:'#ff9933' },
+        TUR:{ label:'COMPETITIVE AUTHORITARIAN', col:'#ffcc00' },
+        KAZ:{ label:'LIMITED DEMOCRATIC — POWER TRANSITION', col:'#ffcc00' },
+        UKR:{ label:'WARTIME DEMOCRACY — MARTIAL LAW ACTIVE', col:'#ffcc00' },
+        ROM:{ label:'WATCH — ELECTION DISPUTES 2024', col:'#ffcc00' },
+        USA:{ label:'STABLE — INSTITUTIONAL PRESSURE 2025', col:'#aaffaa' },
+        FRA:{ label:'STABLE — COALITION FRAGILITY', col:'#aaffaa' },
+        GBR:{ label:'STABLE — PARLIAMENTARY ELECTION 2024', col:'#00ff88' },
+        DEU:{ label:'STABLE — COALITION GOVT 2025', col:'#00ff88' },
+        POL:{ label:'STABLE — DEMOCRATIC TRANSITION', col:'#aaffaa' },
+      };
+
+      // ── COUNTRY RISK RATING ─────────────────────────────────────────────────
+      html += '<div class="detail__row"><span class="detail__label">COUNTRY RISK RATING</span><span class="detail__value" style="color:' + col + '">' + d.risk + ' &nbsp;<span style="font-size:10px;color:#4a7da8">' + d.score + ' / 100</span></span></div>';
+
+      // ── POLITICAL STABILITY ──────────────────────────────────────────────────
+      var stabLabel, stabCol;
+      if      (d.score <= 20) { stabLabel = 'STABLE';               stabCol = '#00ff88'; }
+      else if (d.score <= 35) { stabLabel = 'MODERATE';             stabCol = '#aaffaa'; }
+      else if (d.score <= 50) { stabLabel = 'ELEVATED RISK';        stabCol = '#ffcc00'; }
+      else if (d.score <= 65) { stabLabel = 'UNSTABLE';             stabCol = '#ff9933'; }
+      else if (d.score <= 80) { stabLabel = 'HIGH INSTABILITY';     stabCol = '#ff4400'; }
+      else                    { stabLabel = 'CRITICAL INSTABILITY';  stabCol = '#ff0044'; }
+      html += '<div class="detail__row"><span class="detail__label">POLITICAL STABILITY</span><span class="detail__value" style="color:' + stabCol + '">' + stabLabel + '</span></div>';
+
+      // ── SANCTIONS EXPOSURE ───────────────────────────────────────────────────
+      var sanc = SANCTIONS_DB[d.code];
+      if (sanc) {
+        html += '<div class="detail__row"><span class="detail__label">SANCTIONS EXPOSURE<br><span style="font-size:7px;color:#4a7da8;font-weight:300">' + sanc.detail + '</span></span><span class="detail__value" style="color:' + sanc.col + '">' + sanc.label + '</span></div>';
+      } else {
+        html += '<div class="detail__row"><span class="detail__label">SANCTIONS EXPOSURE</span><span class="detail__value" style="color:#00ff88">NONE ACTIVE</span></div>';
+      }
+
+      // ── COUNTRY TRADE INDEX ──────────────────────────────────────────────────
       html += '<div class="detail__section-header">COUNTRY TRADE INDEX</div>';
-      [['BILATERAL TRADE BALANCE'],['TRADE OPENNESS INDEX'],['TARIFF EXPOSURE']].forEach(function(kv) {
-        html += '<div class="detail__row"><span class="detail__label">' + kv[0] + '</span><span class="detail__placeholder">— FEED PENDING —</span></div>';
-      });
+      var expN = parseMoney(d.exports), impN = parseMoney(d.imports), gdpN = parseMoney(d.gdp);
+      var bal    = (expN != null && impN != null) ? expN - impN : null;
+      var balStr = bal != null ? fmtMoney(bal) + (bal >= 0 ? ' SURPLUS' : ' DEFICIT') : 'N/A';
+      var balCol = bal == null ? '#4a7da8' : bal >= 0 ? '#00ff88' : '#ff9933';
+      html += '<div class="detail__row"><span class="detail__label">BILATERAL TRADE BALANCE</span><span class="detail__value" style="color:' + balCol + '">' + balStr + '</span></div>';
+
+      var openness = (expN != null && impN != null && gdpN && gdpN > 0) ? Math.round((expN + impN) / gdpN * 100) : null;
+      var opLabel  = openness == null ? 'N/A' : openness + '% &nbsp;<span style="font-size:9px">' + (openness > 100 ? 'HIGHLY OPEN' : openness > 60 ? 'OPEN' : openness > 35 ? 'MODERATE' : 'CLOSED') + '</span>';
+      var opCol    = openness == null ? '#4a7da8' : openness > 60 ? '#00ff88' : openness > 35 ? '#aaffaa' : '#ffcc00';
+      html += '<div class="detail__row"><span class="detail__label">TRADE OPENNESS INDEX</span><span class="detail__value" style="color:' + opCol + '">' + opLabel + '</span></div>';
+
+      var tariff    = TARIFF_DB[d.code];
+      var tariffCol = tariff ? tariff.col : (d.risk === 'CRITICAL' ? '#ff9933' : d.risk === 'WARNING' ? '#ffcc00' : '#aaffaa');
+      var tariffLbl = tariff ? tariff.label : (d.risk === 'CRITICAL' ? 'ELEVATED' : d.risk === 'WARNING' ? 'MODERATE' : 'LOW');
+      var tariffSub = tariff ? '<br><span style="font-size:7px;color:#4a7da8;font-weight:300">' + tariff.detail + '</span>' : '';
+      html += '<div class="detail__row"><span class="detail__label">TARIFF EXPOSURE' + tariffSub + '</span><span class="detail__value" style="color:' + tariffCol + '">' + tariffLbl + '</span></div>';
+
+      // ── POLICY UNCERTAINTY ───────────────────────────────────────────────────
       html += '<div class="detail__section-header">POLICY UNCERTAINTY</div>';
-      [['COUNTRY EPU INDEX'],['REGULATORY RISK'],['ELECTION / GOV RISK']].forEach(function(kv) {
-        html += '<div class="detail__row"><span class="detail__label">' + kv[0] + '</span><span class="detail__placeholder">— FEED PENDING —</span></div>';
-      });
+      var fr       = window._fredData || {};
+      var gepuStr  = fr.gepu != null
+        ? Math.round(fr.gepu) + ' &nbsp;<span style="font-size:7px;color:#4a7da8">GLOBAL INDEX · ' + (fr.gepuDate || '—') + '</span>'
+        : '<span style="color:#4a7da8">— LOADING —</span>';
+      html += '<div class="detail__row"><span class="detail__label">GLOBAL EPU INDEX</span><span class="detail__value">' + gepuStr + '</span></div>';
+
+      var regLbl = d.score > 70 ? 'HIGH' : d.score > 45 ? 'MODERATE' : 'LOW';
+      var regCol = d.score > 70 ? '#ff9933' : d.score > 45 ? '#ffcc00' : '#00ff88';
+      html += '<div class="detail__row"><span class="detail__label">REGULATORY RISK</span><span class="detail__value" style="color:' + regCol + '">' + regLbl + '</span></div>';
+
+      var govRisk   = GOV_RISK_DB[d.code];
+      var govLabel  = govRisk ? govRisk.label : (d.risk === 'CRITICAL' ? 'HIGH RISK' : d.risk === 'WARNING' ? 'ELEVATED' : 'LOW — STABLE GOVERNANCE');
+      var govColor  = govRisk ? govRisk.col   : (d.risk === 'CRITICAL' ? '#ff9933'   : d.risk === 'WARNING' ? '#ffcc00'  : '#00ff88');
+      html += '<div class="detail__row"><span class="detail__label">ELECTION / GOV RISK</span><span class="detail__value" style="color:' + govColor + ';font-size:9px">' + govLabel + '</span></div>';
       var oilProducers = ['SAU','RUS','IRN','NGA','USA','CAN','AUS','GBR'];
       if (oilProducers.indexOf(d.code) !== -1) {
         var prod = window._eiaProduction && window._eiaProduction[d.code];
@@ -8266,10 +8405,16 @@ function fetchGDACS() {
       })
       .then(parseGDACS)
       .catch(function(e) {
-        console.warn('GDACS Netlify fetch failed, trying proxies:', e.message);
+        console.warn('GDACS Netlify fetch failed, trying corsproxy:', e.message);
         return fetch('https://corsproxy.io/?url=' + encodeURIComponent(GDACS_URL))
-          .then(function(r) { return r.ok ? r.json() : null; })
-          .then(function(json) { if (json) parseGDACS(json); });
+          .then(function(r) { if (!r.ok) throw new Error('corsproxy HTTP ' + r.status); return r.json(); })
+          .then(function(json) { if (json) parseGDACS(json); })
+          .catch(function(e2) {
+            console.warn('GDACS corsproxy failed, trying allorigins:', e2.message);
+            return fetch('https://api.allorigins.win/raw?url=' + encodeURIComponent(GDACS_URL))
+              .then(function(r) { return r.ok ? r.json() : null; })
+              .then(function(json) { if (json) parseGDACS(json); });
+          });
       });
   }
 
@@ -11455,12 +11600,8 @@ function ensureInit() {
 }
 
 // ── Clear a group and de-register its tooltip meshes ─────────────────────────
+// Tracking markers are NOT in window.eventMarkers — no cross-array filter needed.
 function clearGroup(group, hitsArr) {
-  if (window.eventMarkers && hitsArr.length) {
-    window.eventMarkers = window.eventMarkers.filter(function (m) {
-      return hitsArr.indexOf(m) === -1;
-    });
-  }
   hitsArr.length = 0;
   while (group.children.length) group.remove(group.children[0]);
 }
@@ -11487,15 +11628,17 @@ function placeAircraft(lat, lon, heading, callsign, country) {
     title:    cs + (country ? ' · ' + country : ''),
     type:     'AIRCRAFT',
     severity: 'LOW',
-    lat: lat, lon: lon
+    lat: lat, lon: lon,
+    heading:  (heading != null && !isNaN(heading)) ? heading : null
   };
   aircraftGroup.add(sprite);
   aircraftHits.push(sprite);
-  window.eventMarkers.push(sprite);
+  // Tracking markers are managed via aircraftHits / window._aircraftMarkers.
+  // They are NOT pushed to window.eventMarkers to keep the event system clean.
 }
 
 // ── Ship marker — top-down SVG ship sprite ────────────────────────────────────
-function placeShip(lat, lon, name) {
+function placeShip(lat, lon, name, sog, cog) {
   var AG  = window.ArgusGlobe;
   var pos = AG.latLonToVector(lat, corrLon(lon), 101.5);
 
@@ -11515,11 +11658,48 @@ function placeShip(lat, lon, name) {
     title:    label,
     type:     'VESSEL',
     severity: 'LOW',
-    lat: lat, lon: lon
+    lat: lat, lon: lon,
+    velocity: sog != null ? sog : null,
+    heading:  cog != null ? cog : null
   };
   shipGroup.add(sprite);
   shipHits.push(sprite);
-  window.eventMarkers.push(sprite);
+  // Tracking markers are managed via shipHits / window._vesselMarkers.
+  // They are NOT pushed to window.eventMarkers to keep the event system clean.
+}
+
+// ── Normalized tracking model ─────────────────────────────────────────────────
+// Produces window._trackingData: [{id, type, lat, lon, velocity, heading, timestamp}]
+// This is the canonical shape for ALL downstream tracking consumers.
+function normalizeTracking() {
+  var ts = Date.now();
+  var aircraft = aircraftHits.map(function(s, i) {
+    var ud = s.userData;
+    return {
+      id:        'ac-' + i,
+      type:      'aircraft',
+      lat:       ud.lat,
+      lon:       ud.lon,
+      velocity:  null,
+      heading:   ud.heading,
+      label:     ud.title,
+      timestamp: ts
+    };
+  });
+  var vessels = shipHits.map(function(s, i) {
+    var ud = s.userData;
+    return {
+      id:        'vs-' + i,
+      type:      'vessel',
+      lat:       ud.lat,
+      lon:       ud.lon,
+      velocity:  ud.velocity,
+      heading:   ud.heading,
+      label:     ud.title,
+      timestamp: ts
+    };
+  });
+  window._trackingData = aircraft.concat(vessels);
 }
 
 // ── Aircraft fetch — Netlify function (primary) → community fallbacks ─────────
@@ -11580,6 +11760,7 @@ function renderAircraft(json) {
     placeAircraft(s.lat, s.lon, s.track, s.cs, s.country);
   }
   window._aircraftMarkers = aircraftHits;
+  normalizeTracking();
   updateStatus();
 }
 
@@ -11633,8 +11814,9 @@ function renderShips() {
   clearGroup(shipGroup, shipHits);
   // Spec: limit to SHIP_LIMIT, highest SOG first (moving ships take priority)
   var sorted = shipBuffer.slice().sort(function (a, b) { return (b.sog || 0) - (a.sog || 0); });
-  sorted.slice(0, SHIP_LIMIT).forEach(function (s) { placeShip(s.lat, s.lon, s.name); });
-  window._vesselMarkers = shipHits; // keep spec-required reference in sync
+  sorted.slice(0, SHIP_LIMIT).forEach(function (s) { placeShip(s.lat, s.lon, s.name, s.sog, s.cog); });
+  window._vesselMarkers = shipHits;
+  normalizeTracking();
   updateStatus();
 }
 

@@ -11606,15 +11606,21 @@ function clearGroup(group, hitsArr) {
   while (group.children.length) group.remove(group.children[0]);
 }
 
-// ── Aircraft marker — cyan triangle, oriented by heading ──────────────────────
-function placeAircraft(lat, lon, heading, callsign, country) {
+// ── Aircraft type → sprite tint (multiplied against white SVG texture) ────────
+// commercial=white(default) · cargo=#4488ff(blue) · military=#ff4444(red) · unknown=white
+var AC_TYPE_COLORS = { commercial: 0xffffff, cargo: 0x4488ff, military: 0xff4444, unknown: 0xffffff };
+
+// ── Aircraft marker — oriented by heading, tinted by flight type ──────────────
+function placeAircraft(lat, lon, heading, callsign, country, flightType) {
   var AG  = window.ArgusGlobe;
   var pos = AG.latLonToVector(lat, corrLon(lon), 101.8);
+  var ft  = flightType || 'unknown';
 
   var mat = new THREE.SpriteMaterial({
-    map: _acTex,
+    map:      _acTex,
+    color:    new THREE.Color(AC_TYPE_COLORS[ft] !== undefined ? AC_TYPE_COLORS[ft] : 0xffffff),
     transparent: true,
-    opacity: 0.92,
+    opacity:  0.92,
     rotation: (heading != null && !isNaN(heading)) ? -heading * Math.PI / 180 : 0,
     depthTest: false
   });
@@ -11624,21 +11630,21 @@ function placeAircraft(lat, lon, heading, callsign, country) {
 
   var cs = (callsign || '').trim() || '???';
   sprite.userData = {
-    isAircraft: true,
-    title:    cs + (country ? ' · ' + country : ''),
-    type:     'AIRCRAFT',
-    severity: 'LOW',
+    isAircraft:  true,
+    title:       cs + (country ? ' · ' + country : ''),
+    type:        'AIRCRAFT',
+    flightType:  ft,
+    severity:    'LOW',
     lat: lat, lon: lon,
-    heading:  (heading != null && !isNaN(heading)) ? heading : null
+    heading:     (heading != null && !isNaN(heading)) ? heading : null
   };
   aircraftGroup.add(sprite);
   aircraftHits.push(sprite);
-  // Tracking markers are managed via aircraftHits / window._aircraftMarkers.
-  // They are NOT pushed to window.eventMarkers to keep the event system clean.
+  // Tracking markers live in aircraftHits / window._aircraftMarkers — NOT in window.eventMarkers.
 }
 
 // ── Ship marker — top-down SVG ship sprite ────────────────────────────────────
-function placeShip(lat, lon, name, sog, cog) {
+function placeShip(lat, lon, name, sog, cog, typeCategory) {
   var AG  = window.ArgusGlobe;
   var pos = AG.latLonToVector(lat, corrLon(lon), 101.5);
 
@@ -11654,10 +11660,11 @@ function placeShip(lat, lon, name, sog, cog) {
 
   var label = (name || '').trim() || 'VESSEL';
   sprite.userData = {
-    isShip:   true,
-    title:    label,
-    type:     'VESSEL',
-    severity: 'LOW',
+    isShip:       true,
+    title:        label,
+    type:         'VESSEL',
+    typeCategory: typeCategory || 'other',
+    severity:     'LOW',
     lat: lat, lon: lon,
     velocity: sog != null ? sog : null,
     heading:  cog != null ? cog : null
@@ -11676,27 +11683,29 @@ function normalizeTracking() {
   var aircraft = aircraftHits.map(function(s, i) {
     var ud = s.userData;
     return {
-      id:        'ac-' + i,
-      type:      'aircraft',
-      lat:       ud.lat,
-      lon:       ud.lon,
-      velocity:  null,
-      heading:   ud.heading,
-      label:     ud.title,
-      timestamp: ts
+      id:         'ac-' + i,
+      type:       'aircraft',
+      flightType: ud.flightType || 'unknown',
+      lat:        ud.lat,
+      lon:        ud.lon,
+      velocity:   null,
+      heading:    ud.heading,
+      label:      ud.title,
+      timestamp:  ts
     };
   });
   var vessels = shipHits.map(function(s, i) {
     var ud = s.userData;
     return {
-      id:        'vs-' + i,
-      type:      'vessel',
-      lat:       ud.lat,
-      lon:       ud.lon,
-      velocity:  ud.velocity,
-      heading:   ud.heading,
-      label:     ud.title,
-      timestamp: ts
+      id:           'vs-' + i,
+      type:         'vessel',
+      typeCategory: ud.typeCategory || 'other',
+      lat:          ud.lat,
+      lon:          ud.lon,
+      velocity:     ud.velocity,
+      heading:      ud.heading,
+      label:        ud.title,
+      timestamp:    ts
     };
   });
   window._trackingData = aircraft.concat(vessels);
@@ -11757,7 +11766,7 @@ function renderAircraft(json) {
   var step = Math.max(1, Math.floor(states.length / AIRCRAFT_LIMIT));
   for (var i = 0; i < states.length && aircraftHits.length < AIRCRAFT_LIMIT; i += step) {
     var s = states[i];
-    placeAircraft(s.lat, s.lon, s.track, s.cs, s.country);
+    placeAircraft(s.lat, s.lon, s.track, s.cs, s.country, s.flightType || 'unknown');
   }
   window._aircraftMarkers = aircraftHits;
   normalizeTracking();
@@ -11789,7 +11798,7 @@ function fetchShipsFromBackend() {
         if (v.mmsi) {
           vesselMap.set(v.mmsi, { lat: v.lat, lon: v.lon, sog: v.sog, cog: v.cog, shipName: v.name });
         }
-        shipBuffer.push({ lat: v.lat, lon: v.lon, name: v.name || 'VESSEL', sog: v.sog });
+        shipBuffer.push({ lat: v.lat, lon: v.lon, name: v.name || 'VESSEL', sog: v.sog, cog: v.cog || null, typeCategory: v.typeCategory || 'other' });
       });
 
       window._vesselMap = vesselMap;
@@ -11814,7 +11823,7 @@ function renderShips() {
   clearGroup(shipGroup, shipHits);
   // Spec: limit to SHIP_LIMIT, highest SOG first (moving ships take priority)
   var sorted = shipBuffer.slice().sort(function (a, b) { return (b.sog || 0) - (a.sog || 0); });
-  sorted.slice(0, SHIP_LIMIT).forEach(function (s) { placeShip(s.lat, s.lon, s.name, s.sog, s.cog); });
+  sorted.slice(0, SHIP_LIMIT).forEach(function (s) { placeShip(s.lat, s.lon, s.name, s.sog, s.cog, s.typeCategory || 'other'); });
   window._vesselMarkers = shipHits;
   normalizeTracking();
   updateStatus();
@@ -11924,12 +11933,22 @@ window.addEventListener('keydown', function (e) {
   }, 200);
 }());
 
+// ── Filter utility ────────────────────────────────────────────────────────────
+// filterByType(data, type) — works on window._trackingData or any mixed array.
+// type examples: 'commercial', 'cargo', 'military', 'unknown', 'tanker', 'passenger', 'fishing', 'other'
+function filterByType(data, type) {
+  return (data || []).filter(function(item) {
+    return item.flightType === type || item.typeCategory === type;
+  });
+}
+
 // ── Public API ────────────────────────────────────────────────────────────────
 return {
   toggleAircraft:  toggleAircraft,
   toggleShips:     toggleShips,
   refreshAircraft: function () { lastFetch = 0; fetchAndRenderAircraft(); },
   refreshShips:    function () { lastShipFetch = 0; fetchShipsFromBackend(); },
+  filterByType:    filterByType,
 };
 
 }());

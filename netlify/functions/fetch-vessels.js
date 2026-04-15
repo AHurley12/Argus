@@ -16,6 +16,20 @@ const TIMEOUT_MS      = 8000;
 const VESSEL_API_BASE = 'https://api.vesselapi.com/v1/location/vessels/bounding-box';
 const PRIORITY_RE     = /tanker|carrier|bulk|cargo|container/i;
 
+// ── Vessel classification ──────────────────────────────────────────────────────
+function classifyVessel(rawType, name) {
+  const normalized = (rawType || '').toLowerCase();
+  const nameLower  = (name   || '').toLowerCase();
+  // Prefer explicit type field; fall back to name-based matching
+  const src = normalized || nameLower;
+  if (!src) return 'other';
+  if (src.includes('cargo') || src.includes('container') || src.includes('bulk') || src.includes('carrier')) return 'cargo';
+  if (src.includes('tanker'))    return 'tanker';
+  if (src.includes('passenger') || src.includes('cruise') || src.includes('ferry')) return 'passenger';
+  if (src.includes('fishing'))   return 'fishing';
+  return 'other';
+}
+
 // ── Credit budget ──────────────────────────────────────────────────────────────
 // Each corridor fetch = 1 VesselAPI credit.
 // Per-region TTLs are set to consume ~59 credits/day total:
@@ -155,18 +169,20 @@ function normalise(v, regionName) {
   const sog  = v.sog ?? v.speed ?? v.speedOverGround ?? null;
   if (sog != null && sog < 0.5) return null;  // skip anchored / very slow
 
-  const mmsi = String(v.mmsi || v.MMSI || '');
-  const name = (v.shipName || v.name || v.vesselName || mmsi || 'VESSEL').trim();
-  const cog  = v.cog ?? v.course ?? v.courseOverGround ?? null;
+  const mmsi     = String(v.mmsi || v.MMSI || '');
+  const name     = (v.shipName || v.name || v.vesselName || mmsi || 'VESSEL').trim();
+  const cog      = v.cog ?? v.course ?? v.courseOverGround ?? null;
+  const rawType  = v.type || v.vesselType || v.shipType || null;
 
   return {
     mmsi,
     name,
-    region: regionName,
-    lat:  parseFloat(Number(lat).toFixed(4)),
-    lon:  parseFloat(Number(lon).toFixed(4)),
-    sog:  sog  != null ? parseFloat(Number(sog).toFixed(2))  : null,
-    cog:  cog  != null ? parseFloat(Number(cog).toFixed(1))  : null,
+    region:       regionName,
+    lat:          parseFloat(Number(lat).toFixed(4)),
+    lon:          parseFloat(Number(lon).toFixed(4)),
+    sog:          sog != null ? parseFloat(Number(sog).toFixed(2)) : null,
+    cog:          cog != null ? parseFloat(Number(cog).toFixed(1)) : null,
+    typeCategory: classifyVessel(rawType, name),
   };
 }
 

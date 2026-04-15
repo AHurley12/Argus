@@ -14,6 +14,21 @@ const REGION_TTL_MS  = 60 * 1000;   // 60 s per-region freshness window
 const GLOBAL_CAP     = 300;          // hard ceiling on returned aircraft
 const PRIORITY_RE    = /^(FDX|UPS|DHL|PAC|[A-Z]{2}\d)/i; // cargo + commercial callsigns
 
+// ── Flight classification ──────────────────────────────────────────────────────
+const CARGO_PREFIXES      = ['FDX', 'UPS', 'CLX', 'GTI', 'ABX'];
+const MILITARY_PREFIXES   = ['RCH', 'BAF', 'RAF', 'AMC', 'NAV'];
+const COMMERCIAL_PREFIXES = ['DAL', 'UAL', 'AAL', 'SWA', 'BAW', 'AFR', 'KLM'];
+
+function classifyFlight(callsign, alt) {
+  const prefix = (callsign || '').trim().slice(0, 3).toUpperCase();
+  if (prefix && MILITARY_PREFIXES.includes(prefix))   return 'military';
+  if (prefix && CARGO_PREFIXES.includes(prefix))      return 'cargo';
+  if (prefix && COMMERCIAL_PREFIXES.includes(prefix)) return 'commercial';
+  // Altitude/speed heuristic — only when prefix gives no signal
+  if (alt != null && alt > 20000) return 'commercial';
+  return 'unknown';
+}
+
 // ── Region definitions ─────────────────────────────────────────────────────────
 // lat/lon  = center point
 // dist     = radius in nautical miles
@@ -50,15 +65,20 @@ async function fetchRegion(region) {
       s.alt_baro !== 'ground' &&
       (s.alt_baro == null || s.alt_baro >= 3000)
     )
-    .map(s => ({
-      region: region.name,
-      cs:     (s.flight || '').trim(),
-      country: '',
-      lat:    s.lat,
-      lon:    s.lon,
-      track:  s.track  ?? null,
-      alt:    s.alt_baro ?? null,
-    }));
+    .map(s => {
+      const cs  = (s.flight || '').trim();
+      const alt = s.alt_baro ?? null;
+      return {
+        region:     region.name,
+        cs,
+        country:    '',
+        lat:        s.lat,
+        lon:        s.lon,
+        track:      s.track ?? null,
+        alt,
+        flightType: classifyFlight(cs, alt),
+      };
+    });
 }
 
 // Stagger region fetches in batches of `batchSize` with `delayMs` between batches.

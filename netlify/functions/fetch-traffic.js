@@ -72,73 +72,9 @@ async function fetchCorridor(name, bbox) {
   );
 }
 
-exports.handler = async function (event) {
-  const headers = {
-    'Access-Control-Allow-Origin': '*',
-    'Content-Type': 'application/json',
+exports.handler = async () => {
+  return {
+    statusCode: 200,
+    body: "fetch-traffic working"
   };
-
-  if (event.httpMethod === 'OPTIONS') {
-    return { statusCode: 204, headers, body: '' };
-  }
-
-  try {
-    const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
-
-    // ── Check Supabase cache ───────────────────────────────────────────────────
-    const { data: cached } = await supabase
-      .from('global_events')
-      .select('*')
-      .eq('key', 'air_traffic')
-      .single();
-
-    if (cached && Date.now() - new Date(cached.updated_at).getTime() < CACHE_TTL_MS) {
-      return {
-        statusCode: 200,
-        headers,
-        body: JSON.stringify({ source: 'cache', aircraft: cached.payload }),
-      };
-    }
-
-    // ── Fetch all 4 corridors in parallel ─────────────────────────────────────
-    const results = await Promise.allSettled(
-      Object.entries(CORRIDORS).map(([name, bbox]) => fetchCorridor(name, bbox))
-    );
-
-    const aircraft = results.flatMap(r =>
-      r.status === 'fulfilled' ? r.value : []
-    );
-
-    const corridorStatus = {};
-    Object.keys(CORRIDORS).forEach((name, i) => {
-      corridorStatus[name] = results[i].status === 'fulfilled'
-        ? results[i].value.length
-        : 'error';
-    });
-
-    // ── Upsert to Supabase ────────────────────────────────────────────────────
-    await supabase.from('global_events').upsert({
-      key:        'air_traffic',
-      payload:    aircraft,
-      updated_at: new Date().toISOString(),
-    }, { onConflict: 'key' });
-
-    return {
-      statusCode: 200,
-      headers,
-      body: JSON.stringify({
-        source: 'live',
-        corridors: corridorStatus,
-        aircraft,
-      }),
-    };
-
-  } catch (err) {
-    console.error('[fetch-traffic]', err.message);
-    return {
-      statusCode: 500,
-      headers,
-      body: JSON.stringify({ error: err.message, aircraft: [] }),
-    };
-  }
 };

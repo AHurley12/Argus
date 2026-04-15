@@ -97,7 +97,7 @@ exports.handler = async function (event) {
     const { data: cached } = await supabase
       .from('global_events')
       .select('*')
-      .eq('key', 'air_traffic')
+      .eq('key', 'air_traffic_v2')
       .single();
 
     if (cached && Date.now() - new Date(cached.updated_at).getTime() < CACHE_TTL_MS) {
@@ -127,9 +127,9 @@ exports.handler = async function (event) {
 
     console.log('corridorStatus:', JSON.stringify(corridorStatus));
 
-    // ── Upsert to Supabase ────────────────────────────────────────────────────
-    await supabase.from('global_events').upsert({
-      key:        'air_traffic',
+    // ── Upsert to Supabase (only if we got data) ─────────────────────────────
+    if (aircraft.length) await supabase.from('global_events').upsert({
+      key:        'air_traffic_v2',
       payload:    aircraft,
       updated_at: new Date().toISOString(),
     }, { onConflict: 'key' });

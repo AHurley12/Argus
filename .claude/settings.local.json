@@ -12,7 +12,8 @@
       "WebSearch",
       "Bash(grep:*)",
       "WebFetch(domain:vesselapi.com)",
-      "Bash(git push:*)"
+      "Bash(git push:*)",
+      "Bash(git commit:*)"
     ]
   }
 }

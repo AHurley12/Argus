@@ -11,11 +11,12 @@ const SUPABASE_KEY  = process.env.SUPABASE_SERVICE_KEY;
 const CACHE_TTL_MS  = 30 * 60 * 1000;   // 30 min — tanker at 20 kn barely moves in 30 min
 const SAMPLE_RATE   = 0.10;              // 10% sampling — configurable
 const MAX_VESSELS   = 500;              // hard cap on returned records
-const TIMEOUT_MS    = 12000;            // 12 s request timeout
+const TIMEOUT_MS    = 8000;             // 8 s — keeps 2 retries safely under Netlify's 26 s limit
 const MAX_RETRIES   = 2;                // 1-2 retry max per spec
 
-// VesselAPI base — lat/lon bounding boxes covering strategic maritime corridors
-const VESSEL_API_URL = 'https://api.vesselapi.com/api/v1/live/all';
+// VesselAPI — bounding box endpoint (global sweep: full lat/lon range)
+const VESSEL_API_URL = 'https://api.vesselapi.com/v1/location/vessels/bounding-box'
+  + '?filter.latBottom=-90&filter.latTop=90&filter.lonLeft=-180&filter.lonRight=180';
 
 exports.handler = async function (event) {
   const headers = {
@@ -71,14 +72,16 @@ exports.handler = async function (event) {
       const res = await fetch(VESSEL_API_URL, {
         signal: controller.signal,
         headers: {
-          'x-api-key':   VESSELAPI_KEY,
-          'User-Agent':  'ArgusIntel/1.0',
-          'Accept':      'application/json',
+          'Authorization': 'Bearer ' + VESSELAPI_KEY,
+          'User-Agent':    'ArgusIntel/1.0',
+          'Accept':        'application/json',
         },
       });
       clearTimeout(timer);
 
       if (!res.ok) {
+        const errBody = await res.text().catch(() => '');
+        console.error('VesselAPI error — status:', res.status, '| body:', errBody.slice(0, 200));
         throw new Error('VesselAPI HTTP ' + res.status);
       }
 

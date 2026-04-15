@@ -11357,7 +11357,7 @@ window._vesselMap       = vesselMap;
 var _acGeo, _acEdge, _shGeo;
 function ensureGeometries() {
   if (_acGeo) return;
-  _acGeo  = new THREE.ConeGeometry(0.8, 2.0, 3);   // triangle prism — spec: 0.8 radius, 2.0 height
+  _acGeo  = new THREE.ConeGeometry(0.32, 0.8, 3);   // triangle prism — 60% smaller
   _acEdge = new THREE.EdgesGeometry(_acGeo);
   _shGeo    = new THREE.SphereGeometry(0.35, 8, 8); // small sphere — smaller than previous dot (0.5)
 }

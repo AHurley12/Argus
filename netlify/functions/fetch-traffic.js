@@ -39,14 +39,22 @@ function authHeaders() {
 
 // Fetch one corridor; returns normalised aircraft array
 async function fetchCorridor(name, bbox) {
-  const res = await fetch(openskyUrl(bbox), {
+  const url = openskyUrl(bbox);
+  console.log(`[${name}] fetching: ${url}`);
+  const res = await fetch(url, {
     headers: authHeaders(),
     signal: AbortSignal.timeout(12000),
   });
-  if (!res.ok) throw new Error(`OpenSky ${name} HTTP ${res.status}`);
+  console.log(`[${name}] status: ${res.status}`);
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    console.error(`[${name}] error body: ${body.slice(0, 200)}`);
+    throw new Error(`OpenSky ${name} HTTP ${res.status}`);
+  }
 
   const json = await res.json();
   const states = Array.isArray(json.states) ? json.states : [];
+  console.log(`[${name}] raw states: ${states.length}`);
 
   // Normalise OpenSky state vector:
   // [0]=icao24 [1]=callsign [2]=country [5]=lon [6]=lat [8]=on_ground [10]=true_track [7]=baro_alt
@@ -72,9 +80,76 @@ async function fetchCorridor(name, bbox) {
   );
 }
 
-exports.handler = async () => {
-  return {
-    statusCode: 200,
-    body: "fetch-traffic working"
+exports.handler = async function (event) {
+  const headers = {
+    'Access-Control-Allow-Origin': '*',
+    'Content-Type': 'application/json',
   };
+
+  if (event.httpMethod === 'OPTIONS') {
+    return { statusCode: 204, headers, body: '' };
+  }
+
+  try {
+    const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+
+    // ── Check Supabase cache ───────────────────────────────────────────────────
+    const { data: cached } = await supabase
+      .from('global_events')
+      .select('*')
+      .eq('key', 'air_traffic')
+      .single();
+
+    if (cached && Date.now() - new Date(cached.updated_at).getTime() < CACHE_TTL_MS) {
+      console.log('Serving from Supabase cache');
+      return {
+        statusCode: 200,
+        headers,
+        body: JSON.stringify({ source: 'cache', aircraft: cached.payload }),
+      };
+    }
+
+    // ── Fetch all 4 corridors in parallel ─────────────────────────────────────
+    const results = await Promise.allSettled(
+      Object.entries(CORRIDORS).map(([name, bbox]) => fetchCorridor(name, bbox))
+    );
+
+    const aircraft = results.flatMap(r =>
+      r.status === 'fulfilled' ? r.value : []
+    );
+
+    const corridorStatus = {};
+    Object.keys(CORRIDORS).forEach((name, i) => {
+      corridorStatus[name] = results[i].status === 'fulfilled'
+        ? results[i].value.length
+        : results[i].reason?.message || 'error';
+    });
+
+    console.log('corridorStatus:', JSON.stringify(corridorStatus));
+
+    // ── Upsert to Supabase ────────────────────────────────────────────────────
+    await supabase.from('global_events').upsert({
+      key:        'air_traffic',
+      payload:    aircraft,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'key' });
+
+    return {
+      statusCode: 200,
+      headers,
+      body: JSON.stringify({
+        source: 'live',
+        corridors: corridorStatus,
+        aircraft,
+      }),
+    };
+
+  } catch (err) {
+    console.error('[fetch-traffic]', err.message);
+    return {
+      statusCode: 500,
+      headers,
+      body: JSON.stringify({ error: err.message, aircraft: [] }),
+    };
+  }
 };

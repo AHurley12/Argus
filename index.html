@@ -191,6 +191,30 @@
       color: var(--color-white);
       box-shadow: 0 0 20px rgba(0, 153, 255, 0.4);
     }
+    #btn-analysis-lab {
+      background: linear-gradient(135deg, #120830 0%, #1a0a40 100%);
+      border: 1px solid #3a1a6a;
+      color: #b464ff;
+      padding: 8px 18px;
+      cursor: pointer;
+      letter-spacing: 2px;
+      font-size: 10px;
+      font-family: var(--font-mono);
+      font-weight: 600;
+      border-radius: 2px;
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    #btn-analysis-lab:hover {
+      background: linear-gradient(135deg, #1a0a40 0%, #220d55 100%);
+      border-color: #6a2aaa;
+      transform: translateY(-1px);
+    }
+    #btn-analysis-lab.is-active {
+      background: linear-gradient(135deg, #2a0a60 0%, #3a0d80 100%);
+      border-color: #b464ff;
+      color: #d49fff;
+      box-shadow: 0 0 16px rgba(180, 100, 255, 0.35);
+    }
 
     /* ── Panel Base ──────────────────────────────────────────────────────────── */
     .panel {
@@ -1337,6 +1361,32 @@
       z-index: var(--z-strip);
     }
     /* Create event modal — full-screen takeover, intentionally above everything */
+    /* ── FAB — "+ Add Intelligence" floating action button ─────────────────── */
+    #argus-fab {
+      position: fixed;
+      bottom: 28px;
+      right: 24px;
+      z-index: 900;
+      background: rgba(0, 204, 255, 0.1);
+      border: 1px solid rgba(0, 204, 255, 0.35);
+      border-radius: 3px;
+      color: #00ccff;
+      font-family: var(--font-mono);
+      font-size: 9px;
+      letter-spacing: 2px;
+      font-weight: 700;
+      padding: 9px 16px;
+      cursor: pointer;
+      transition: background 0.15s, border-color 0.15s, box-shadow 0.15s;
+      box-shadow: 0 0 14px rgba(0, 204, 255, 0.12);
+      white-space: nowrap;
+    }
+    #argus-fab:hover {
+      background: rgba(0, 204, 255, 0.2);
+      border-color: rgba(0, 204, 255, 0.65);
+      box-shadow: 0 0 22px rgba(0, 204, 255, 0.22);
+    }
+
     #es-modal-overlay {
       display: none;
       position: fixed;
@@ -2490,6 +2540,7 @@
       </div>
       <button id="btn-neural-web" onclick="ArgusNeuralWeb.toggle()" aria-label="Open neural web intelligence builder">⬡ NEURAL WEB</button>
       <button id="btn-ai-query" onclick="ArgusUI.toggleAI()" aria-label="Open AI query panel">◈ AI QUERY</button>
+      <button id="btn-analysis-lab" onclick="ArgusCaseBuilder.toggleDrawer()" aria-label="Open Analysis Lab — advanced tools">⬡ ANALYSIS LAB</button>
       <button id="btn-analyst-request" onclick="ArgusAnalyst.openModal()" aria-label="Submit event request" style="display:none;">⊕ SUBMIT EVENT</button>
     </div>
   </header>
@@ -2775,6 +2826,9 @@
     </div>
   </section>
 
+  <!-- ── FAB — Add Intelligence ───────────────────────────────────────────── -->
+  <button id="argus-fab" onclick="ArgusEvents.openModal()" aria-label="Add intelligence report" title="Add intelligence report">+ ADD INTELLIGENCE</button>
+
   <!-- ── Interaction Hint ─────────────────────────────────────────────────────── -->
   <!-- ── Event Command Strip ───────────────────────────────────────────────── -->
   <!-- ── Create Event Modal ──────────────────────────────────────────────────── -->
@@ -2832,7 +2886,6 @@
       <input id="event-strip-input" type="text"
              placeholder="search location or event…"
              onkeydown="if(event.key==='Enter') ArgusEvents.plot(this.value)" />
-      <button class="event-strip-btn is-primary" onclick="ArgusEvents.openModal()" style="color:#00ccff;border-left-color:rgba(0,204,255,0.2)">+ CREATE</button>
       <button class="event-strip-btn" id="es-btn-feed" onclick="ArgusEvents.toggleFeed()" title="Auto-feed from live news">FEED</button>
       <button class="event-strip-btn" id="es-btn-events" onclick="ArgusEvents.toggleTray()">EVENTS ▾</button>
       <button class="event-strip-btn" onclick="ArgusEvents.clearAll()" title="Clear all manual pins">CLR</button>
@@ -2909,12 +2962,6 @@
 
 <!-- Backdrop: dims globe and blocks all globe/marker interaction when open -->
 <div id="cb-backdrop"></div>
-
-<!-- Trigger: persistent bottom-centre triangle tab, visible to all tiers -->
-<div id="cb-trigger">
-  <div id="cb-trigger-arrow"></div>
-  <div id="cb-trigger-label">◈ CASES</div>
-</div>
 
 <!-- Main drawer panel -->
 <aside id="panel-cases" aria-label="Neural Case Builder" aria-hidden="true">
@@ -10178,6 +10225,15 @@ window._plotPermanentMarkers = function(classified) {
 </script>
 
 <script>
+// ── Feature flags ─────────────────────────────────────────────────────────────
+// isProUser: controls access to monetized features (Analysis Lab, Case Builder).
+// Set to true once payment/session tier is confirmed.  Currently gate-ready only.
+var isProUser = (function () {
+  var t = window.ArgusSession ? window.ArgusSession.tier : 'viewer';
+  return t === 'owner' || t === 'admin' || t === 'pro';
+}());
+window._isProUser = isProUser; // expose for console / future auth hooks
+
 /* ══════════════════════════════════════════════════════════════════════════════
    ArgusCaseBuilder — Neural Case Builder
    Requires: window.ArgusSession, window.ArgusAnim, window._usgsEvents,
@@ -11315,6 +11371,9 @@ window.ArgusCaseBuilder = (function () {
     }
     if (trigger)  { trigger.classList.toggle('is-open', _open); }
     if (backdrop) { backdrop.classList.toggle('is-visible', _open); }
+    // Sync header button active state
+    var headerBtn = document.getElementById('btn-analysis-lab');
+    if (headerBtn) headerBtn.classList.toggle('is-active', _open);
     if (_open) whenResolved(showContent);
   }
 

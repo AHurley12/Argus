@@ -11,7 +11,8 @@
       "Bash(awk 'NR>=6950 && NR<=7000 && /window\\\\.|SUPA_ANON|ArgusEvents|ArgusAI/' index.html)",
       "WebSearch",
       "Bash(grep:*)",
-      "WebFetch(domain:vesselapi.com)"
+      "WebFetch(domain:vesselapi.com)",
+      "Bash(git push:*)"
     ]
   }
 }

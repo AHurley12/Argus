@@ -9,7 +9,9 @@
       "Bash(ls -la /c/Users/aidan/Desktop/Argus/supabase/*.sql)",
       "mcp__claude_ai_Supabase__execute_sql",
       "Bash(awk 'NR>=6950 && NR<=7000 && /window\\\\.|SUPA_ANON|ArgusEvents|ArgusAI/' index.html)",
-      "WebSearch"
+      "WebSearch",
+      "Bash(grep:*)",
+      "WebFetch(domain:vesselapi.com)"
     ]
   }
 }

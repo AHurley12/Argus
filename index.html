@@ -11326,20 +11326,8 @@ var SHIP_CACHE_MS  = 30 * 60 * 1000;  // 30 min — tanker at 20 knots barely mo
 var AC_CACHE_KEY   = 'argus_traffic_v2';
 var AC_CACHE_TS    = 'argus_traffic_ts_v2';
 
-// Primary source: Netlify function — fetches 4 strategic corridors server-side,
-// applies 10% sampling + FDX/UPS/DHL/PAC priority, caches 10 min in Supabase.
-// Fallback chain: community ADS-B feeds (CORS-open, no key needed).
-var TRAFFIC_FN  = '/.netlify/functions/fetch-traffic';
-var OPENSKY_URL = 'https://opensky-network.org/api/states/all';
-var AC_SOURCES  = [
-  TRAFFIC_FN,                                                                         // 1. Netlify fn   — 4-corridor, pre-sampled
-  'https://opendata.adsb.fi/api/v2/all',                                              // 2. adsb.fi      — CORS open, very stable
-  'https://api.adsb.lol/v2/all',                                                      // 3. adsb.lol     — CORS open, community feed
-  'https://api.adsb.one/v2/all',                                                      // 4. adsb.one     — CORS open, community feed
-  'https://api.airplanes.live/v2/all',                                                // 5. airplanes.live — CORS open, community feed
-  'https://api.allorigins.win/raw?url=' + encodeURIComponent(OPENSKY_URL),            // 6. OpenSky via allorigins
-  'https://corsproxy.io/?url=' + encodeURIComponent(OPENSKY_URL)                      // 7. OpenSky via corsproxy.io
-];
+// All aircraft data flows through the Netlify function — no direct external calls.
+var TRAFFIC_FN = '/.netlify/functions/fetch-traffic';
 
 // Ship backend — Netlify function proxies VesselAPI, applies 10% sampling, caches 30 min in Supabase
 var VESSELS_FN = '/.netlify/functions/fetch-vessels';
@@ -11508,35 +11496,23 @@ function fetchAndRenderAircraft() {
     }
   } catch (_) {}
 
-  var idx = 0;
-  function tryNext() {
-    if (idx >= AC_SOURCES.length) {
-      console.warn('[ArgusTracking] All aircraft sources failed — backing off 5 min');
+  fetch(TRAFFIC_FN)
+    .then(function (r) { return r.ok ? r.json() : Promise.reject('HTTP ' + r.status); })
+    .then(function (json) {
+      lastFetch   = Date.now();
+      _acFailedAt = 0;
+      cachedStates = json;
+      try {
+        localStorage.setItem(AC_CACHE_KEY, JSON.stringify(json));
+        localStorage.setItem(AC_CACHE_TS,  String(lastFetch));
+      } catch (_) {}
+      renderAircraft(json);
+    })
+    .catch(function (err) {
+      console.warn('[ArgusTracking] fetch-traffic failed:', err, '— backing off 5 min');
       updateStatus('AIRCRAFT: UNAVAILABLE');
       _acFailedAt = Date.now();
-      return;
-    }
-    var url = AC_SOURCES[idx++];
-    fetch(url)
-      .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
-      .then(function (json) {
-        lastFetch    = Date.now();
-        _acFailedAt  = 0;
-        // Netlify fn returns { aircraft: [...] } — lift into a unified shape
-        // so renderAircraft sees the same object regardless of source.
-        if (Array.isArray(json.aircraft) && url === TRAFFIC_FN) {
-          json = { _corridorData: true, aircraft: json.aircraft };
-        }
-        cachedStates = json;
-        try {
-          localStorage.setItem(AC_CACHE_KEY, JSON.stringify(json));
-          localStorage.setItem(AC_CACHE_TS,  String(lastFetch));
-        } catch (_) {}
-        renderAircraft(json);
-      })
-      .catch(tryNext);
-  }
-  tryNext();
+    });
 }
 
 function renderAircraft(json) {
@@ -11544,47 +11520,8 @@ function renderAircraft(json) {
   clearGroup(aircraftGroup, aircraftHits);
   if (!json) { updateStatus(); return; }
 
-  // Normalise four possible response shapes into {lat, lon, track, cs, country}
-  // Netlify fn  → { _corridorData: true, aircraft: [{cs,lat,lon,track,country}] } — pre-sampled
-  // adsb.fi     → { aircraft: [...] }   fields: lat, lon, track, flight, alt_baro
-  // adsb.lol / adsb.one → { ac: [...] } same fields as adsb.fi
-  // OpenSky     → { states: [[...]] }   indices: 5=lon 6=lat 8=on_ground 10=true_track
-  var states = [];
-
-  if (json._corridorData && Array.isArray(json.aircraft)) {
-    // Already normalised and sampled by the Netlify function — use directly
-    states = json.aircraft;
-  } else {
-    var raw = json.aircraft || json.ac || null;
-    if (Array.isArray(raw)) {
-      // adsb.fi / adsb.lol shape — apply 10% browser-side sample to keep GPU light
-      states = raw
-        .filter(function (a) { return a.lat != null && a.lon != null && a.alt_baro !== 'ground'; })
-        .filter(function (a) {
-          var cs = (a.flight || '').trim();
-          return /^(FDX|UPS|DHL|PAC)/i.test(cs) || Math.random() < 0.10;
-        })
-        .map(function (a) {
-          return { lat: a.lat, lon: a.lon, track: a.track, cs: (a.flight || '').trim(), country: '' };
-        });
-    } else if (Array.isArray(json.states)) {
-      // OpenSky fields: [icao24, callsign, country, time_pos, last_contact,
-      //   lon(5), lat(6), baro_alt(7), on_ground(8), velocity(9), true_track(10), ...]
-      states = json.states
-        .filter(function (s) {
-          return s[5] != null && s[6] != null   // lon/lat present
-            && s[8] === false                    // not on ground
-            && (s[7] == null || s[7] >= 1000);  // altitude ≥ 1000 m (or unreported)
-        })
-        .filter(function (s) {
-          var cs = (s[1] || '').trim();
-          return /^(FDX|UPS|DHL|PAC)/i.test(cs) || Math.random() < 0.10;
-        })
-        .map(function (s) {
-          return { lat: s[6], lon: s[5], track: s[10], cs: (s[1] || '').trim(), country: s[2] || '' };
-        });
-    }
-  }
+  // Netlify fn returns { aircraft: [{cs, lat, lon, track, country}] } — pre-sampled server-side
+  var states = Array.isArray(json.aircraft) ? json.aircraft : [];
 
   if (!states.length) { updateStatus(); return; }
 

@@ -25,10 +25,22 @@ function openskyUrl([lamin, lomin, lamax, lomax]) {
   return `https://opensky-network.org/api/states/all?lamin=${lamin}&lomin=${lomin}&lamax=${lamax}&lomax=${lomax}`;
 }
 
+// Build Basic Auth header if credentials are configured
+function authHeaders() {
+  const user = process.env.OPENSKY_USER;
+  const pass = process.env.OPENSKY_PASS;
+  console.log("USER EXISTS:", !!user);
+  console.log("PASS EXISTS:", !!pass);
+  const base = { 'User-Agent': 'ArgusIntel/1.0' };
+  if (!user || !pass) return base;
+  const token = Buffer.from(`${user}:${pass}`).toString('base64');
+  return { ...base, Authorization: `Basic ${token}` };
+}
+
 // Fetch one corridor; returns normalised aircraft array
 async function fetchCorridor(name, bbox) {
   const res = await fetch(openskyUrl(bbox), {
-    headers: { 'User-Agent': 'ArgusIntel/1.0' },
+    headers: authHeaders(),
     signal: AbortSignal.timeout(12000),
   });
   if (!res.ok) throw new Error(`OpenSky ${name} HTTP ${res.status}`);

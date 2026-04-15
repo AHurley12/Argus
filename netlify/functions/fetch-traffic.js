@@ -46,6 +46,7 @@ async function fetchCorridor(name, bbox) {
     signal: AbortSignal.timeout(12000),
   });
   console.log(`[${name}] status: ${res.status}`);
+
   if (!res.ok) {
     const body = await res.text().catch(() => '');
     console.error(`[${name}] error body: ${body.slice(0, 200)}`);
@@ -120,9 +121,13 @@ exports.handler = async function (event) {
 
     const corridorStatus = {};
     Object.keys(CORRIDORS).forEach((name, i) => {
-      corridorStatus[name] = results[i].status === 'fulfilled'
-        ? results[i].value.length
-        : results[i].reason?.message || 'error';
+      if (results[i].status === 'fulfilled') {
+        corridorStatus[name] = results[i].value.length;
+      } else {
+        const err = results[i].reason;
+        corridorStatus[name] = `${err?.message} | cause: ${err?.cause?.message || err?.cause || 'none'}`;
+        console.error(`[${name}] FAILED:`, err?.message, '| cause:', err?.cause);
+      }
     });
 
     console.log('corridorStatus:', JSON.stringify(corridorStatus));

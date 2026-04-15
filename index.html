@@ -11357,7 +11357,7 @@ window._vesselMap       = vesselMap;
 var _acGeo, _acEdge, _shGeo;
 function ensureGeometries() {
   if (_acGeo) return;
-  _acGeo  = new THREE.ConeGeometry(0.32, 0.8, 3);   // triangle prism — 60% smaller
+  _acGeo  = new THREE.ConeGeometry(0.272, 0.68, 3);   // triangle prism — 60% + 15% smaller
   _acEdge = new THREE.EdgesGeometry(_acGeo);
   _shGeo    = new THREE.SphereGeometry(0.35, 8, 8); // small sphere — smaller than previous dot (0.5)
 }
@@ -11414,7 +11414,7 @@ function placeAircraft(lat, lon, heading, callsign, country) {
   // Solid fill — same lookAt+rotateX approach as capital cities
   var mesh = new THREE.Mesh(
     _acGeo,
-    new THREE.MeshBasicMaterial({ color: 0x00ccff, transparent: true, opacity: 0.70 })
+    new THREE.MeshBasicMaterial({ color: 0x3B82F6, transparent: true, opacity: 0.70 })
   );
   mesh.position.copy(pos);
   mesh.lookAt(pos.clone().normalize().multiplyScalar(200));
@@ -11439,7 +11439,7 @@ function placeAircraft(lat, lon, heading, callsign, country) {
   // Edge outline
   var outline = new THREE.LineSegments(
     _acEdge,
-    new THREE.LineBasicMaterial({ color: 0x00ffff, transparent: true, opacity: 0.5 })
+    new THREE.LineBasicMaterial({ color: 0x3B82F6, transparent: true, opacity: 0.5 })
   );
   outline.position.copy(pos);
   outline.lookAt(pos.clone().normalize().multiplyScalar(200));
@@ -11456,7 +11456,7 @@ function placeShip(lat, lon, name) {
 
   var mesh = new THREE.Mesh(
     _shGeo,
-    new THREE.MeshBasicMaterial({ color: 0x66ccff, transparent: true, opacity: 0.85 })
+    new THREE.MeshBasicMaterial({ color: 0x10B981, transparent: true, opacity: 0.85 })
   );
   mesh.position.copy(pos);
 

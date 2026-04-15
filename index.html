@@ -1985,10 +1985,10 @@
     box-shadow: 0 0 8px rgba(0, 255, 255, 0.18);
   }
   .track-btn.track-ship.is-active {
-    border-color: var(--color-orange);
-    color: var(--color-orange);
-    background: rgba(255, 153, 51, 0.07);
-    box-shadow: 0 0 8px rgba(255, 153, 51, 0.18);
+    border-color: #66ccff;
+    color: #66ccff;
+    background: rgba(102, 204, 255, 0.07);
+    box-shadow: 0 0 8px rgba(102, 204, 255, 0.18);
   }
   #tracking-status {
     font-size: 7px;
@@ -2878,7 +2878,7 @@
       <div class="marker-row"><span class="marker-icon" style="color:#c0ddff">△</span>CITY / CAPITAL</div>
       <div class="marker-row"><span class="marker-icon" style="color:#c0ddff">●</span>COUNTRY NODE</div>
       <div class="marker-row"><span class="marker-icon" style="color:#ffaa44">◈</span>CHOKEPOINT</div>
-      <div class="marker-row"><span class="marker-icon" style="color:#ff9933">⊙</span>VESSEL</div>
+      <div class="marker-row"><span class="marker-icon" style="color:#66ccff">⊙</span>VESSEL</div>
       <div class="marker-row"><span class="marker-icon" style="color:#00ccff">▲</span>AIRCRAFT</div>
       <div class="marker-row"><span class="marker-icon" style="color:#aaaaaa">⚡</span>EVENT</div>
       <div class="marker-row"><span class="marker-icon" style="color:#4a7da8">──</span>TRADE ROUTE</div>
@@ -11366,13 +11366,12 @@ window._vesselMarkers   = shipHits;
 window._vesselMap       = vesselMap;
 
 // Shared geometries (created once, reused across all markers)
-var _acGeo, _acEdge, _shGeo, _shDotGeo;
+var _acGeo, _acEdge, _shGeo;
 function ensureGeometries() {
   if (_acGeo) return;
   _acGeo  = new THREE.ConeGeometry(0.8, 2.0, 3);   // triangle prism — spec: 0.8 radius, 2.0 height
   _acEdge = new THREE.EdgesGeometry(_acGeo);
-  _shGeo    = new THREE.CircleGeometry(1.0, 16);   // outer circle
-  _shDotGeo = new THREE.CircleGeometry(0.5, 16);   // center dot — half radius
+  _shGeo    = new THREE.SphereGeometry(0.35, 8, 8); // small sphere — smaller than previous dot (0.5)
 }
 
 // ── Longitude correction (mirrors Script-1 correctLongitude) ──────────────────
@@ -11467,15 +11466,11 @@ function placeShip(lat, lon, name) {
   var AG  = window.ArgusGlobe;
   var pos = AG.latLonToVector(lat, corrLon(lon), 101.5);
 
-  var normal = pos.clone().normalize();
-  var up     = new THREE.Vector3(0, 0, 1);
-
   var mesh = new THREE.Mesh(
     _shGeo,
-    new THREE.MeshBasicMaterial({ color: 0xff9933, transparent: true, opacity: 0.75, side: THREE.DoubleSide })
+    new THREE.MeshBasicMaterial({ color: 0x66ccff, transparent: true, opacity: 0.85 })
   );
   mesh.position.copy(pos);
-  mesh.quaternion.setFromUnitVectors(up, normal);
 
   var label = (name || '').trim() || 'VESSEL';
   mesh.userData = {
@@ -11488,16 +11483,6 @@ function placeShip(lat, lon, name) {
   shipGroup.add(mesh);
   shipHits.push(mesh);
   window.eventMarkers.push(mesh);
-
-  var dot = new THREE.Mesh(
-    _shDotGeo,
-    new THREE.MeshBasicMaterial({ color: 0xff9933, transparent: true, opacity: 0.95, side: THREE.DoubleSide })
-  );
-  var dotPos = AG.latLonToVector(lat, corrLon(lon), 101.6);
-  dot.position.copy(dotPos);
-  dot.quaternion.setFromUnitVectors(up, normal);
-  dot.userData = { _trackOutline: true };
-  shipGroup.add(dot);
 }
 
 // ── Aircraft fetch — Netlify function (primary) → community fallbacks ─────────

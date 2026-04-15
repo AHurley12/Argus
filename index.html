@@ -1979,16 +1979,16 @@
   }
   .track-btn:hover { border-color: var(--color-accent); color: var(--color-accent); }
   .track-btn.is-active {
-    border-color: #00ffff;
-    color: #00ffff;
-    background: rgba(0, 255, 255, 0.07);
-    box-shadow: 0 0 8px rgba(0, 255, 255, 0.18);
+    border-color: #ffffff;
+    color: #ffffff;
+    background: rgba(255, 255, 255, 0.07);
+    box-shadow: 0 0 8px rgba(255, 255, 255, 0.18);
   }
   .track-btn.track-ship.is-active {
-    border-color: #66ccff;
-    color: #66ccff;
-    background: rgba(102, 204, 255, 0.07);
-    box-shadow: 0 0 8px rgba(102, 204, 255, 0.18);
+    border-color: #2DD4BF;
+    color: #2DD4BF;
+    background: rgba(45, 212, 191, 0.07);
+    box-shadow: 0 0 8px rgba(45, 212, 191, 0.18);
   }
   #tracking-status {
     font-size: 7px;
@@ -2878,8 +2878,8 @@
       <div class="marker-row"><span class="marker-icon" style="color:#c0ddff">△</span>CITY / CAPITAL</div>
       <div class="marker-row"><span class="marker-icon" style="color:#c0ddff">●</span>COUNTRY NODE</div>
       <div class="marker-row"><span class="marker-icon" style="color:#ffaa44">◈</span>CHOKEPOINT</div>
-      <div class="marker-row"><span class="marker-icon" style="color:#66ccff">⊙</span>VESSEL</div>
-      <div class="marker-row"><span class="marker-icon" style="color:#00ccff">▲</span>AIRCRAFT</div>
+      <div class="marker-row"><span class="marker-icon" style="color:#2DD4BF">⊙</span>VESSEL</div>
+      <div class="marker-row"><span class="marker-icon" style="color:#ffffff">▲</span>AIRCRAFT</div>
       <div class="marker-row"><span class="marker-icon" style="color:#aaaaaa">⚡</span>EVENT</div>
       <div class="marker-row"><span class="marker-icon" style="color:#4a7da8">──</span>TRADE ROUTE</div>
     </div>
@@ -11354,12 +11354,71 @@ window._vesselMarkers   = shipHits;
 window._vesselMap       = vesselMap;
 
 // Shared geometries (created once, reused across all markers)
-var _acGeo, _acEdge, _shGeo;
+var _acTex, _shTex;
 function ensureGeometries() {
-  if (_acGeo) return;
-  _acGeo  = new THREE.ConeGeometry(0.272, 0.68, 3);   // triangle prism — 60% + 15% smaller
-  _acEdge = new THREE.EdgesGeometry(_acGeo);
-  _shGeo    = new THREE.SphereGeometry(0.35, 8, 8); // small sphere — smaller than previous dot (0.5)
+  if (_acTex) return;
+
+  // ── Aircraft sprite texture (top-down SVG plane shape) ──────────────────────
+  (function () {
+    var sz = 64, cx = 32, cy = 32, s = 1.5;
+    var cv = document.createElement('canvas');
+    cv.width = cv.height = sz;
+    var c = cv.getContext('2d');
+
+    // Fuselage
+    c.beginPath(); c.ellipse(cx, cy, 4*s, 12*s, 0, 0, Math.PI*2);
+    c.fillStyle = '#BAE6FD'; c.fill();
+
+    // Wings
+    var wg = c.createLinearGradient(cx, cy - 2*s, cx, cy + 2*s);
+    wg.addColorStop(0, '#E0F2FE'); wg.addColorStop(1, '#7DD3FC');
+    c.beginPath(); c.rect(cx - 16*s, cy - 2*s, 32*s, 4*s);
+    c.fillStyle = wg; c.fill();
+
+    // Nose
+    c.beginPath(); c.moveTo(cx - 3*s, cy - 8*s); c.lineTo(cx, cy - 14*s); c.lineTo(cx + 3*s, cy - 8*s);
+    c.closePath(); c.fillStyle = '#7DD3FC'; c.fill();
+
+    // Tail fin
+    c.beginPath(); c.ellipse(cx, cy + 8*s, 2*s, 3*s, 0, 0, Math.PI*2);
+    c.fillStyle = '#F0F9FF'; c.globalAlpha = 0.8; c.fill(); c.globalAlpha = 1;
+
+    _acTex = new THREE.CanvasTexture(cv);
+  }());
+
+  // ── Ship sprite texture (top-down SVG ship shape) ────────────────────────────
+  (function () {
+    var sz = 64, cx = 32, cy = 34, s = 1.8;
+    var cv = document.createElement('canvas');
+    cv.width = cv.height = sz;
+    var c = cv.getContext('2d');
+
+    // Bottom hull
+    c.beginPath(); c.moveTo(cx-12*s, cy+4*s); c.lineTo(cx-10*s, cy+8*s);
+    c.lineTo(cx+10*s, cy+8*s); c.lineTo(cx+12*s, cy+4*s); c.closePath();
+    c.fillStyle = '#047857'; c.fill();
+
+    // Mid hull
+    c.beginPath(); c.moveTo(cx-14*s, cy); c.lineTo(cx-12*s, cy+4*s);
+    c.lineTo(cx+12*s, cy+4*s); c.lineTo(cx+14*s, cy); c.closePath();
+    c.fillStyle = '#059669'; c.fill();
+
+    // Deck rail
+    var dg = c.createLinearGradient(cx, cy-2*s, cx, cy);
+    dg.addColorStop(0, '#2DD4BF'); dg.addColorStop(1, '#059669');
+    c.beginPath(); c.rect(cx-14*s, cy-2*s, 28*s, 2*s);
+    c.fillStyle = dg; c.fill();
+
+    // Superstructure
+    c.beginPath(); c.rect(cx-6*s, cy-8*s, 12*s, 6*s);
+    c.fillStyle = '#14B8A6'; c.fill();
+
+    // Bridge
+    c.beginPath(); c.rect(cx-3*s, cy-12*s, 6*s, 4*s);
+    c.fillStyle = '#5EEAD4'; c.fill();
+
+    _shTex = new THREE.CanvasTexture(cv);
+  }());
 }
 
 // ── Longitude correction (mirrors Script-1 correctLongitude) ──────────────────
@@ -11411,66 +11470,56 @@ function placeAircraft(lat, lon, heading, callsign, country) {
   var AG  = window.ArgusGlobe;
   var pos = AG.latLonToVector(lat, corrLon(lon), 101.8);
 
-  // Solid fill — same lookAt+rotateX approach as capital cities
-  var mesh = new THREE.Mesh(
-    _acGeo,
-    new THREE.MeshBasicMaterial({ color: 0x3B82F6, transparent: true, opacity: 0.70 })
-  );
-  mesh.position.copy(pos);
-  mesh.lookAt(pos.clone().normalize().multiplyScalar(200));
-  mesh.rotateX(Math.PI / 2);
-  // Rotate in tangent plane by heading (0° = north, clockwise)
-  if (heading != null && !isNaN(heading)) {
-    mesh.rotateZ(heading * Math.PI / 180);
-  }
+  var mat = new THREE.SpriteMaterial({
+    map: _acTex,
+    transparent: true,
+    opacity: 0.92,
+    rotation: (heading != null && !isNaN(heading)) ? -heading * Math.PI / 180 : 0,
+    depthTest: false
+  });
+  var sprite = new THREE.Sprite(mat);
+  sprite.position.copy(pos);
+  sprite.scale.set(3.5, 3.5, 1);
 
   var cs = (callsign || '').trim() || '???';
-  mesh.userData = {
+  sprite.userData = {
     isAircraft: true,
     title:    cs + (country ? ' · ' + country : ''),
     type:     'AIRCRAFT',
     severity: 'LOW',
     lat: lat, lon: lon
   };
-  aircraftGroup.add(mesh);
-  aircraftHits.push(mesh);
-  window.eventMarkers.push(mesh); // enables hover tooltip
-
-  // Edge outline
-  var outline = new THREE.LineSegments(
-    _acEdge,
-    new THREE.LineBasicMaterial({ color: 0x3B82F6, transparent: true, opacity: 0.5 })
-  );
-  outline.position.copy(pos);
-  outline.lookAt(pos.clone().normalize().multiplyScalar(200));
-  outline.rotateX(Math.PI / 2);
-  if (heading != null && !isNaN(heading)) outline.rotateZ(heading * Math.PI / 180);
-  outline.userData = { _trackOutline: true };
-  aircraftGroup.add(outline);
+  aircraftGroup.add(sprite);
+  aircraftHits.push(sprite);
+  window.eventMarkers.push(sprite);
 }
 
-// ── Ship marker — orange diamond (octahedron), follows GDACS pattern ───────────
+// ── Ship marker — top-down SVG ship sprite ────────────────────────────────────
 function placeShip(lat, lon, name) {
   var AG  = window.ArgusGlobe;
   var pos = AG.latLonToVector(lat, corrLon(lon), 101.5);
 
-  var mesh = new THREE.Mesh(
-    _shGeo,
-    new THREE.MeshBasicMaterial({ color: 0x10B981, transparent: true, opacity: 0.85 })
-  );
-  mesh.position.copy(pos);
+  var mat = new THREE.SpriteMaterial({
+    map: _shTex,
+    transparent: true,
+    opacity: 0.92,
+    depthTest: false
+  });
+  var sprite = new THREE.Sprite(mat);
+  sprite.position.copy(pos);
+  sprite.scale.set(3.5, 3.5, 1);
 
   var label = (name || '').trim() || 'VESSEL';
-  mesh.userData = {
+  sprite.userData = {
     isShip:   true,
     title:    label,
     type:     'VESSEL',
     severity: 'LOW',
     lat: lat, lon: lon
   };
-  shipGroup.add(mesh);
-  shipHits.push(mesh);
-  window.eventMarkers.push(mesh);
+  shipGroup.add(sprite);
+  shipHits.push(sprite);
+  window.eventMarkers.push(sprite);
 }
 
 // ── Aircraft fetch — Netlify function (primary) → community fallbacks ─────────

@@ -11366,13 +11366,13 @@ window._vesselMarkers   = shipHits;
 window._vesselMap       = vesselMap;
 
 // Shared geometries (created once, reused across all markers)
-var _acGeo, _acEdge, _shGeo, _shEdge;
+var _acGeo, _acEdge, _shGeo, _shDotGeo;
 function ensureGeometries() {
   if (_acGeo) return;
   _acGeo  = new THREE.ConeGeometry(0.8, 2.0, 3);   // triangle prism — spec: 0.8 radius, 2.0 height
   _acEdge = new THREE.EdgesGeometry(_acGeo);
-  _shGeo  = new THREE.SphereGeometry(1.0, 6, 6);   // flat disc — spec: sphere scaled y=0.3
-  _shEdge = new THREE.EdgesGeometry(_shGeo);
+  _shGeo    = new THREE.CircleGeometry(1.0, 16);   // outer circle
+  _shDotGeo = new THREE.CircleGeometry(0.5, 16);   // center dot — half radius
 }
 
 // ── Longitude correction (mirrors Script-1 correctLongitude) ──────────────────
@@ -11467,12 +11467,15 @@ function placeShip(lat, lon, name) {
   var AG  = window.ArgusGlobe;
   var pos = AG.latLonToVector(lat, corrLon(lon), 101.5);
 
+  var normal = pos.clone().normalize();
+  var up     = new THREE.Vector3(0, 0, 1);
+
   var mesh = new THREE.Mesh(
     _shGeo,
-    new THREE.MeshBasicMaterial({ color: 0xff9933, transparent: true, opacity: 0.75 })
+    new THREE.MeshBasicMaterial({ color: 0xff9933, transparent: true, opacity: 0.75, side: THREE.DoubleSide })
   );
   mesh.position.copy(pos);
-  mesh.scale.y = 0.3;            // flatten sphere into disc — spec requirement
+  mesh.quaternion.setFromUnitVectors(up, normal);
 
   var label = (name || '').trim() || 'VESSEL';
   mesh.userData = {
@@ -11486,14 +11489,15 @@ function placeShip(lat, lon, name) {
   shipHits.push(mesh);
   window.eventMarkers.push(mesh);
 
-  var outline = new THREE.LineSegments(
-    _shEdge,
-    new THREE.LineBasicMaterial({ color: 0xff9933, transparent: true, opacity: 0.45 })
+  var dot = new THREE.Mesh(
+    _shDotGeo,
+    new THREE.MeshBasicMaterial({ color: 0xff9933, transparent: true, opacity: 0.95, side: THREE.DoubleSide })
   );
-  outline.position.copy(pos);
-  outline.rotation.y = Math.PI / 4;
-  outline.userData = { _trackOutline: true };
-  shipGroup.add(outline);
+  var dotPos = AG.latLonToVector(lat, corrLon(lon), 101.6);
+  dot.position.copy(dotPos);
+  dot.quaternion.setFromUnitVectors(up, normal);
+  dot.userData = { _trackOutline: true };
+  shipGroup.add(dot);
 }
 
 // ── Aircraft fetch — Netlify function (primary) → community fallbacks ─────────

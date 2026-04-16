@@ -6358,13 +6358,123 @@ async function fetchAndClassify() {
   return classified;
 }
 
+// ── Auto-suggest top events to admin queue (max 5 CRITICAL/WARNING per day) ──
+// Runs once per day after fetchAndClassify(). Submits to argus_event_queue
+// with status 'pending' and source 'AUTO_SUGGEST' so admins can review,
+// set coordinates, and approve for globe plotting.
+var AUTO_SUGGEST_CAP   = 5;
+var AUTO_SUGGEST_SEVS  = { CRITICAL: 0, WARNING: 1 };  // only these tiers qualify
+var AUTO_SUGGEST_TODAY = (function() {
+  var d = new Date();
+  return d.getUTCFullYear() + '-' + String(d.getUTCMonth() + 1).padStart(2,'0') + '-' + String(d.getUTCDate()).padStart(2,'0');
+}());
+var AUTO_SUGGEST_LS_KEY = 'argus_autoq_' + AUTO_SUGGEST_TODAY;  // resets daily
+
+function autoSuggestTopEvents(classified) {
+  // Only fire once per calendar day (UTC)
+  var alreadyDone = parseInt(localStorage.getItem(AUTO_SUGGEST_LS_KEY) || '0');
+  if (alreadyDone >= AUTO_SUGGEST_CAP) {
+    console.log('AutoSuggest: daily cap (' + AUTO_SUGGEST_CAP + ') reached — skipping');
+    return;
+  }
+
+  // Load deduplicated title set for today
+  var dedupKey = 'argus_autoq_titles_' + AUTO_SUGGEST_TODAY;
+  var submitted = {};
+  try { submitted = JSON.parse(localStorage.getItem(dedupKey) || '{}'); } catch(e) {}
+
+  // Pick top CRITICAL/WARNING events not already submitted today
+  var candidates = classified.filter(function(ev) {
+    return AUTO_SUGGEST_SEVS[ev.severity] !== undefined;
+  });
+  // Already sorted by plotPriority descending from fetchAndClassify
+  var toSubmit = [];
+  for (var ci = 0; ci < candidates.length && toSubmit.length < (AUTO_SUGGEST_CAP - alreadyDone); ci++) {
+    var titleKey = (candidates[ci].title || '').slice(0, 80).toLowerCase();
+    if (!submitted[titleKey]) toSubmit.push(candidates[ci]);
+  }
+
+  if (!toSubmit.length) {
+    console.log('AutoSuggest: no new CRITICAL/WARNING events to suggest');
+    return;
+  }
+
+  // Resolve session token (anon key fallback)
+  var sess = null;
+  try { sess = JSON.parse(localStorage.getItem('argus_session')); } catch(e) {}
+  var token = (sess && sess.access_token) || SUPA_ANON_GDELT;
+
+  var submitCount = 0;
+  toSubmit.forEach(function(ev, i) {
+    // Stagger submissions 600 ms apart to avoid burst writes
+    setTimeout(function() {
+      // Build location object — include lat/lon only if geocoding already resolved
+      var locObj = null;
+      if (ev.regionRaw || ev.region) {
+        locObj = { country: ev.regionRaw || ev.region };
+        if (ev.lat != null && ev.lon != null) {
+          locObj.lat = ev.lat;
+          locObj.lon = ev.lon;
+        }
+        // else: lat/lon left null → admin fills in before approving
+      }
+
+      var payload = {
+        source:    'AUTO_SUGGEST',
+        category:  ev.type || 'CONFLICT',
+        status:    'pending',
+        timestamp: new Date().toISOString(),
+        location:  locObj,
+        data: {
+          title:    ev.title,
+          severity: ev.severity,
+          type:     ev.type,
+          impact:   ev.impact || '',
+          link:     ev.link  || '',
+          source:   ev.source || 'NewsData',
+          pubDate:  ev.pubDate || '',
+          autoSuggest: true,
+        }
+      };
+
+      fetch('https://wbvzlxtroewxrmonxodx.supabase.co/rest/v1/argus_event_queue', {
+        method:  'POST',
+        headers: {
+          'apikey':       SUPA_ANON_GDELT,
+          'Authorization':'Bearer ' + token,
+          'Content-Type': 'application/json',
+          'Prefer':       'return=minimal'
+        },
+        body: JSON.stringify(payload)
+      })
+      .then(function(r) {
+        if (r.ok) {
+          // Mark title as submitted today
+          var tKey = (ev.title || '').slice(0, 80).toLowerCase();
+          submitted[tKey] = 1;
+          localStorage.setItem(dedupKey, JSON.stringify(submitted));
+          submitCount++;
+          localStorage.setItem(AUTO_SUGGEST_LS_KEY, String(alreadyDone + submitCount));
+          console.log('AutoSuggest: queued [' + ev.severity + '] ' + ev.title.slice(0, 60));
+        } else {
+          r.text().then(function(t) { console.warn('AutoSuggest: submit failed (' + r.status + '):', t.slice(0,80)); });
+        }
+      })
+      .catch(function(err) {
+        console.warn('AutoSuggest: network error:', err.message);
+      });
+    }, i * 600);
+  });
+}
+
 async function loadLiveEvents() {
   try {
     var cached = localStorage.getItem(FEED_CACHE_KEY);
     var ts     = parseInt(localStorage.getItem(FEED_CACHE_TS) || '0');
     if (cached && Date.now() - ts < FEED_TTL) {
       renderEvents(JSON.parse(cached), true);
-      // cache
+      // Suggest from cache too (dedup prevents re-submission)
+      try { autoSuggestTopEvents(JSON.parse(cached)); } catch(e) {}
       return;
     }
   } catch(e) {}
@@ -6378,6 +6488,7 @@ async function loadLiveEvents() {
     renderEvents(liveEvents, true);
     window._liveEventContext = liveEvents.map(function(e) { return '• ' + e.title + ' [' + e.severity + ']'; }).join('\n');
     console.log('ARGUS: ' + liveEvents.length + ' live events loaded');
+    autoSuggestTopEvents(liveEvents);
   } catch(err) {
     console.warn('Live feed error:', err.message, '— using fallback');
     renderEvents(FALLBACK_EVENTS, false);
@@ -9274,12 +9385,14 @@ window.ArgusAdmin = (function() {
     .then(function(r) { return r.json(); })
     .then(function(rows) {
       var now = new Date();
-      var pending  = rows.filter(function(r) { return r.status === 'pending'; }).length;
-      var approved = rows.filter(function(r) { return r.status === 'approved'; }).length;
-      var dueReview = rows.filter(function(r) { return r.status === 'approved' && r.next_review && new Date(r.next_review) <= now; }).length;
+      var pending    = rows.filter(function(r) { return r.status === 'pending'; }).length;
+      var approved   = rows.filter(function(r) { return r.status === 'approved'; }).length;
+      var autoSugg   = rows.filter(function(r) { return r.status === 'pending' && r.source === 'AUTO_SUGGEST'; }).length;
+      var dueReview  = rows.filter(function(r) { return r.status === 'approved' && r.next_review && new Date(r.next_review) <= now; }).length;
       status.textContent = rows.length + ' active event' + (rows.length !== 1 ? 's' : '') +
-        (pending  ? ' · ' + pending  + ' PENDING'     : '') +
-        (dueReview ? ' · ' + dueReview + ' DUE REVIEW' : '');
+        (pending   ? ' · ' + pending   + ' PENDING'     : '') +
+        (autoSugg  ? ' (' + autoSugg   + ' AI)'         : '') +
+        (dueReview ? ' · ' + dueReview + ' DUE REVIEW'  : '');
       document.getElementById('admin-queue-count').textContent = rows.length ? '· ' + rows.length + ' ACTIVE' : '';
 
       var dbHtml = !rows.length
@@ -9293,14 +9406,19 @@ window.ArgusAdmin = (function() {
         var nextRev   = ev.next_review ? ' · Review: ' + new Date(ev.next_review).toLocaleDateString() : '';
         var statusCol = ev.status === 'approved' ? (isDue ? '#ff9900' : '#00cc66') : ev.status === 'held' ? '#ff9900' : '#ff9933';
         var statusLbl = ev.status === 'approved' ? (isDue ? '⚠ REVIEW DUE' : '✓ ACTIVE') : ev.status === 'held' ? '⏸ HELD' : '⏳ PENDING REVIEW';
-        var isPending = ev.status === 'pending';
+        var isPending    = ev.status === 'pending';
+        var isAutoSuggest = ev.source === 'AUTO_SUGGEST';
 
         // Edit fields — only shown for pending events so admin can verify/fix coordinates + risk
         var editLat = ev.location && ev.location.lat  != null ? parseFloat(ev.location.lat).toFixed(4)  : '';
         var editLon = ev.location && ev.location.lon  != null ? parseFloat(ev.location.lon).toFixed(4)  : '';
         var editSev = (ev.data && ev.data.severity) || 'WATCH';
+        var noCoordWarning = isPending && isAutoSuggest && !editLat
+          ? '<div style="font-size:9px;color:#ff9900;letter-spacing:1px;margin-bottom:4px;">⚠ NO COORDINATES — set lat/lon before approving</div>'
+          : '';
         var editFields = isPending
-          ? '<div class="eq-edit-row">' +
+          ? noCoordWarning +
+            '<div class="eq-edit-row">' +
               '<div class="eq-edit-field">' +
                 '<div class="eq-edit-label">LAT</div>' +
                 '<input type="number" step="0.0001" id="eq-lat-' + ev.id + '" value="' + editLat + '" class="eq-coord-input" placeholder="e.g. 35.6892" />' +
@@ -9326,13 +9444,24 @@ window.ArgusAdmin = (function() {
           ? '<button class="eq-btn approve" onclick="ArgusAdmin.approveEvent(\'' + ev.id + '\')">✓ APPROVE → PUBLISH</button>'
           : '<button class="eq-btn approve" onclick="ArgusAdmin.queueAction(\'' + ev.id + '\',\'approved\')">✓ +7 DAYS</button>';
 
-        return '<div class="eq-card" id="eq-' + ev.id + '" data-status="' + ev.status + '">' +
+        // For auto-suggested events, show source article link if available
+        var srcLink = (isAutoSuggest && ev.data && ev.data.link)
+          ? '<a href="' + ev.data.link + '" target="_blank" rel="noopener" style="font-size:9px;color:#3a8ac4;letter-spacing:1px;text-decoration:none;display:block;margin-bottom:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + ev.data.link + '">↗ SOURCE ARTICLE</a>'
+          : '';
+
+        var autoSuggestBadge = isAutoSuggest
+          ? '<span style="font-size:8px;letter-spacing:1.5px;color:#cc88ff;background:rgba(100,0,180,0.18);border:1px solid rgba(100,0,180,0.35);border-radius:2px;padding:1px 5px;margin-left:6px;">⬡ AI SUGGESTED</span>'
+          : '';
+
+        return '<div class="eq-card" id="eq-' + ev.id + '" data-status="' + ev.status + '" style="' + (isAutoSuggest ? 'border-left:2px solid rgba(140,50,255,0.5);' : '') + '">' +
           '<div class="eq-card-head">' +
             '<span class="eq-src">' + (ev.source || '?') + '</span>' +
-            '<span class="eq-cat">' + (ev.category || '—') + '</span>' +
+            autoSuggestBadge +
+            '<span class="eq-cat" style="margin-left:' + (isAutoSuggest ? '0' : '') + '">' + (ev.category || '—') + '</span>' +
             '<span class="eq-ts" style="color:' + statusCol + '">' + statusLbl + nextRev + '</span>' +
           '</div>' +
           '<div class="eq-title">' + ((ev.data && ev.data.title) || 'No title') + '</div>' +
+          srcLink +
           (ev.data && ev.data.impact ? '<div class="eq-impact">' + (ev.data.impact + '').slice(0, 120) + '</div>' : '') +
           '<div class="eq-meta"><span>📍 ' + loc + '</span><span>🔑 ' + kw + '</span></div>' +
           editFields +

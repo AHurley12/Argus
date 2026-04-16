@@ -167,6 +167,27 @@
       font-family: var(--font-display);
     }
 
+    /* ── Add Intelligence header button ── */
+    #btn-add-intelligence {
+      background: linear-gradient(135deg, #0a1e35 0%, #0d2840 100%);
+      border: 1px solid rgba(0, 204, 255, 0.45);
+      color: #00ccff;
+      padding: 8px 18px;
+      cursor: pointer;
+      letter-spacing: 2px;
+      font-size: 10px;
+      font-family: var(--font-mono);
+      font-weight: 700;
+      border-radius: 2px;
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    #btn-add-intelligence:hover {
+      background: linear-gradient(135deg, #0d2840 0%, #103350 100%);
+      border-color: rgba(0, 204, 255, 0.75);
+      transform: translateY(-1px);
+      box-shadow: 0 0 16px rgba(0, 204, 255, 0.22);
+    }
+
     #btn-ai-query {
       background: linear-gradient(135deg, #0a2540 0%, #0d3050 100%);
       border: 1px solid #1a4a70;
@@ -215,6 +236,69 @@
       color: #d49fff;
       box-shadow: 0 0 16px rgba(180, 100, 255, 0.35);
     }
+
+    /* ── Community Intel feed toggle ── */
+    #intel-feed-toggle {
+      display: flex;
+      gap: 4px;
+      padding: 6px 8px;
+      border-bottom: 1px solid rgba(0,204,255,0.08);
+      flex-shrink: 0;
+    }
+    .intel-toggle-btn {
+      flex: 1;
+      background: none;
+      border: 1px solid rgba(0,204,255,0.12);
+      color: #2a4a6a;
+      font-size: 7px;
+      letter-spacing: 1.5px;
+      font-weight: 700;
+      font-family: var(--font-mono);
+      padding: 4px 0;
+      cursor: pointer;
+      border-radius: 2px;
+      transition: all 0.15s;
+    }
+    .intel-toggle-btn:hover { color: #4a7da8; border-color: rgba(0,204,255,0.25); }
+    .intel-toggle-btn.active { color: #00ccff; border-color: rgba(0,204,255,0.5); background: rgba(0,204,255,0.06); }
+    /* ── Community intel cards ── */
+    .ci-card {
+      padding: 8px 10px;
+      border-bottom: 1px solid rgba(0,204,255,0.06);
+      font-size: 9px;
+    }
+    .ci-card-title { color: #c5d7e8; letter-spacing: 0.5px; margin-bottom: 4px; line-height: 1.4; }
+    .ci-card-meta { display: flex; align-items: center; gap: 6px; margin-bottom: 5px; flex-wrap: wrap; }
+    .ci-tag { font-size: 7px; letter-spacing: 1px; color: #4a7da8; border: 1px solid #1a3050; padding: 1px 5px; border-radius: 1px; }
+    .ci-card-desc { color: #3a6a8a; font-size: 8px; line-height: 1.5; margin-bottom: 6px; }
+    .ci-conf-bar { height: 2px; background: rgba(0,204,255,0.08); border-radius: 1px; margin-bottom: 6px; }
+    .ci-conf-fill { height: 100%; border-radius: 1px; transition: width 0.3s; background: #00ccff; }
+    .ci-card-actions { display: flex; align-items: center; gap: 6px; }
+    .ci-vote-btn {
+      background: none;
+      border: 1px solid rgba(0,204,255,0.15);
+      color: #2a4a6a;
+      font-size: 8px;
+      letter-spacing: 1px;
+      padding: 2px 7px;
+      cursor: pointer;
+      font-family: var(--font-mono);
+      font-weight: 700;
+      border-radius: 2px;
+      transition: all 0.12s;
+    }
+    .ci-vote-btn.up:hover { color: #00ff88; border-color: rgba(0,255,136,0.4); }
+    .ci-vote-btn.down:hover { color: #ff4444; border-color: rgba(255,68,68,0.4); }
+    .ci-vote-btn.voted-up { color: #00ff88; border-color: rgba(0,255,136,0.5); background: rgba(0,255,136,0.05); }
+    .ci-vote-btn.voted-down { color: #ff4444; border-color: rgba(255,68,68,0.5); background: rgba(255,68,68,0.05); }
+    .ci-status-badge {
+      font-size: 7px; letter-spacing: 1.5px; font-weight: 700;
+      padding: 1px 5px; border-radius: 1px; margin-left: auto;
+    }
+    .ci-status-badge.pending  { color: #4a7da8; border: 1px solid #1a3a5a; }
+    .ci-status-badge.verified { color: #00ff88; border: 1px solid rgba(0,255,136,0.3); background: rgba(0,255,136,0.05); }
+    .ci-status-badge.rejected { color: #ff4444; border: 1px solid rgba(255,68,68,0.3); }
+    #ci-empty { padding: 24px; text-align: center; font-size: 8px; letter-spacing: 2px; color: #1a3050; }
 
     /* ── Panel Base ──────────────────────────────────────────────────────────── */
     .panel {
@@ -2538,9 +2622,10 @@
         <div class="header__stat-label" id="tz-label">LOCAL</div>
         <div id="utc-display"></div>
       </div>
+      <button id="btn-add-intelligence" onclick="ArgusEvents.openModal()" aria-label="Add intelligence report">⊕ ADD INTELLIGENCE</button>
       <button id="btn-neural-web" onclick="ArgusNeuralWeb.toggle()" aria-label="Open neural web intelligence builder">⬡ NEURAL WEB</button>
       <button id="btn-ai-query" onclick="ArgusUI.toggleAI()" aria-label="Open AI query panel">◈ AI QUERY</button>
-      <button id="btn-analysis-lab" onclick="ArgusCaseBuilder.toggleDrawer()" aria-label="Open Analysis Lab — advanced tools">⬡ ANALYSIS LAB</button>
+      <button id="btn-analysis-lab" onclick="ArgusCaseBuilder.toggleDrawer()" aria-label="Open Analysis Lab — advanced tools">▦ ANALYSIS LAB</button>
       <button id="btn-analyst-request" onclick="ArgusAnalyst.openModal()" aria-label="Submit event request" style="display:none;">⊕ SUBMIT EVENT</button>
     </div>
   </header>
@@ -2597,7 +2682,12 @@
       <span class="data-age is-stale" id="data-age-events" title="Last events refresh">—</span>
       <button class="panel-min-btn" id="min-btn-events" aria-label="Minimize events panel">—</button>
     </div>
+    <div id="intel-feed-toggle">
+      <button class="intel-toggle-btn active" id="itb-verified" onclick="ArgusEvents.setFeedView('verified')" title="Show verified live events">◈ VERIFIED INTEL</button>
+      <button class="intel-toggle-btn" id="itb-community" onclick="ArgusEvents.setFeedView('community')" title="Show community-submitted intel">⊕ COMMUNITY INTEL</button>
+    </div>
     <div id="ev-list" role="list"></div>
+    <div id="ci-list" style="display:none"></div>
   </aside>
 
   <!-- ── Node Detail Panel ───────────────────────────────────────────────────── -->
@@ -2826,30 +2916,26 @@
     </div>
   </section>
 
-  <!-- ── FAB — Add Intelligence ───────────────────────────────────────────── -->
-  <button id="argus-fab" onclick="ArgusEvents.openModal()" aria-label="Add intelligence report" title="Add intelligence report">+ ADD INTELLIGENCE</button>
-
   <!-- ── Interaction Hint ─────────────────────────────────────────────────────── -->
-  <!-- ── Event Command Strip ───────────────────────────────────────────────── -->
-  <!-- ── Create Event Modal ──────────────────────────────────────────────────── -->
+  <!-- ── Add Intelligence Modal ──────────────────────────────────────────────────── -->
   <div id="es-modal-overlay" onclick="if(event.target===this) ArgusEvents.closeModal()">
     <div id="es-modal">
       <div id="es-modal-header">
-        <span class="es-modal-title">◈ CREATE EVENT</span>
+        <span class="es-modal-title">⊕ ADD INTELLIGENCE</span>
         <button class="es-modal-close" onclick="ArgusEvents.closeModal()">✕</button>
       </div>
       <div class="es-modal-body">
         <div class="es-field">
-          <label>LOCATION</label>
-          <input id="es-m-location" type="text" placeholder="city, country, or place name…" />
+          <label>TITLE</label>
+          <input id="es-m-title" type="text" placeholder="intelligence report title…" />
         </div>
         <div class="es-field">
-          <label>EVENT TITLE</label>
-          <input id="es-m-title" type="text" placeholder="brief intelligence-style title…" />
+          <label>DESCRIPTION</label>
+          <textarea id="es-m-impact" placeholder="describe the event, its context, and potential impact…"></textarea>
         </div>
         <div class="es-modal-row">
           <div class="es-field">
-            <label>TYPE</label>
+            <label>CATEGORY</label>
             <select id="es-m-type">
               <option value="CONFLICT">CONFLICT</option>
               <option value="POLICY" selected>POLICY</option>
@@ -2859,39 +2945,23 @@
             </select>
           </div>
           <div class="es-field">
-            <label>SEVERITY</label>
-            <select id="es-m-severity">
-              <option value="CRITICAL">CRITICAL</option>
-              <option value="WARNING">WARNING</option>
-              <option value="WATCH" selected>WATCH</option>
-              <option value="LOW">LOW</option>
-            </select>
+            <label>TAG (OPTIONAL)</label>
+            <input id="es-m-tag" type="text" placeholder="e.g. sanctions, energy…" />
           </div>
         </div>
         <div class="es-field">
-          <label>IMPACT SUMMARY</label>
-          <textarea id="es-m-impact" placeholder="describe economic and supply chain impact…"></textarea>
+          <label>GEO-TAG (OPTIONAL)</label>
+          <input id="es-m-location" type="text" placeholder="city, country, or region…" />
         </div>
       </div>
       <div id="es-modal-footer">
         <button class="es-modal-btn" onclick="ArgusEvents.closeModal()">CANCEL</button>
-        <button class="es-modal-btn is-primary" onclick="ArgusEvents.submitModal()">◈ PLOT EVENT</button>
+        <button class="es-modal-btn is-primary" onclick="ArgusEvents.submitModal()">⊕ SUBMIT INTELLIGENCE</button>
       </div>
     </div>
   </div>
 
-  <div id="event-strip">
-    <div id="event-strip-bar">
-      <div id="event-strip-label">◈ EVENT INTEL</div>
-      <input id="event-strip-input" type="text"
-             placeholder="search location or event…"
-             onkeydown="if(event.key==='Enter') ArgusEvents.plot(this.value)" />
-      <button class="event-strip-btn" id="es-btn-feed" onclick="ArgusEvents.toggleFeed()" title="Auto-feed from live news">FEED</button>
-      <button class="event-strip-btn" id="es-btn-events" onclick="ArgusEvents.toggleTray()">EVENTS ▾</button>
-      <button class="event-strip-btn" onclick="ArgusEvents.clearAll()" title="Clear all manual pins">CLR</button>
-    </div>
-    <div id="event-strip-tray"></div>
-  </div>
+  <!-- Event strip removed — Add Intelligence is now in the top navigation bar -->
 
   <div id="hint" aria-hidden="true">
     DRAG TO ROTATE GLOBE · CLICK EVENTS FOR DETAILS · ◈ AI QUERY FOR ANALYSIS
@@ -2968,7 +3038,7 @@
 
   <!-- Header row -->
   <div id="cb-panel-header">
-    <span id="cb-title-text">NEURAL CASE BUILDER</span>
+    <span id="cb-title-text">ANALYSIS LAB</span>
     <span id="cb-close-btn" title="Close">✕</span>
   </div>
 
@@ -2988,9 +3058,9 @@
     <!-- View mode toggle -->
     <div id="cb-mode-bar">
       <div class="cb-mode-btn active" id="cbm-brief">⬛ BRIEF</div>
-      <div class="cb-mode-btn"        id="cbm-network">◈ NEURAL WEB</div>
       <div class="cb-mode-btn"        id="cbm-timeline">▤ TIMELINE</div>
       <div class="cb-mode-btn"        id="cbm-notes">✎ NOTES</div>
+      <!-- Neural Web mode removed — use the Neural Web button in the top nav bar -->
     </div>
 
     <!-- Status / cluster info bar -->
@@ -2999,8 +3069,8 @@
     <!-- Brief view (default) -->
     <div id="cb-brief"></div>
 
-    <!-- Neural Web view — canvas draws edges, HTML divs are interactive nodes -->
-    <div id="cb-network-wrap">
+    <!-- Neural web canvas kept in DOM for data support but not exposed as primary UI -->
+    <div id="cb-network-wrap" style="display:none" aria-hidden="true">
       <canvas id="cb-network-canvas"></canvas>
       <div id="cb-network-nodes"></div>
       <div id="cb-net-tooltip"></div>
@@ -7508,12 +7578,9 @@ window.ArgusEvents = (function() {
 
   // ── Modal ─────────────────────────────────────────────────────────────────
   function openModal() {
-    // Pre-fill location from search input if something is typed
-    var inp = document.getElementById('event-strip-input');
-    var loc = document.getElementById('es-m-location');
-    if (inp && loc && inp.value.trim()) loc.value = inp.value.trim();
+    var titleEl = document.getElementById('es-m-title');
     document.getElementById('es-modal-overlay').classList.add('is-open');
-    if (loc) setTimeout(function() { loc.focus(); }, 50);
+    if (titleEl) setTimeout(function() { titleEl.focus(); }, 50);
   }
 
   function closeModal() {
@@ -7523,24 +7590,49 @@ window.ArgusEvents = (function() {
   }
 
   function submitModal() {
-    var location = (document.getElementById('es-m-location').value || '').trim();
     var title    = (document.getElementById('es-m-title').value || '').trim();
     var type     = document.getElementById('es-m-type').value;
-    var severity = document.getElementById('es-m-severity').value;
+    var tag      = (document.getElementById('es-m-tag') ? document.getElementById('es-m-tag').value : '').trim();
+    var location = (document.getElementById('es-m-location').value || '').trim();
     var impact   = (document.getElementById('es-m-impact').value || '').trim();
 
-    if (!location) {
-      document.getElementById('es-m-location').style.borderColor = '#ff0044';
-      setTimeout(function() { document.getElementById('es-m-location').style.borderColor = ''; }, 1500);
+    if (!title) {
+      var titleEl = document.getElementById('es-m-title');
+      if (titleEl) { titleEl.style.borderColor = '#ff0044'; setTimeout(function() { titleEl.style.borderColor = ''; }, 1500); }
       return;
     }
 
     closeModal();
-    var label = document.getElementById('event-strip-label');
-    if (label) label.textContent = '◈ GEOCODING…';
 
-    geocode(location).then(function(geo) {
-      var evTitle = (title || location).slice(0, 60);
+    // Build community intel entry (local, with voting scaffold)
+    var ciId    = 'ci_' + Date.now() + '_' + Math.floor(Math.random() * 9999);
+    var ciEntry = {
+      id:             ciId,
+      title:          title.slice(0, 80),
+      description:    impact,
+      category:       type,
+      tag:            tag,
+      geoTag:         location,
+      votesUp:        0,
+      votesDown:      0,
+      confidenceScore: 0,
+      status:         'pending',
+      timestamp:      new Date().toISOString()
+    };
+
+    // Store in local community intel array
+    window._communityIntel = window._communityIntel || [];
+    window._communityIntel.unshift(ciEntry);
+
+    // Show toast
+    var toast = document.getElementById('eq-submit-toast');
+    if (toast) { toast.classList.add('is-visible'); setTimeout(function() { toast.classList.remove('is-visible'); }, 4000); }
+
+    // Refresh community list if it's currently visible
+    if (window._intelFeedView === 'community') renderCommunityIntel();
+
+    // Submit to Supabase review queue (if location provided, geocode first)
+    var doSubmit = function(geo) {
       var sess = null;
       try { sess = JSON.parse(localStorage.getItem('argus_session')); } catch(e) {}
       var token = (sess && sess.access_token) || SUPA_ANON_GDELT;
@@ -7557,38 +7649,150 @@ window.ArgusEvents = (function() {
           category:  type,
           status:    'pending',
           timestamp: new Date().toISOString(),
-          location:  { lat: geo.lat, lon: geo.lon, country: location },
-          data:      { title: evTitle, severity: severity, type: type,
-                       impact: impact || ('Event at ' + location + '.') }
+          location:  geo ? { lat: geo.lat, lon: geo.lon, country: location } : { country: location || null },
+          data:      { title: title.slice(0, 60), type: type, tag: tag,
+                       impact: impact || title,
+                       votesUp: 0, votesDown: 0, confidenceScore: 0 }
         })
       })
       .then(function(r) {
         if (!r.ok) throw new Error('HTTP ' + r.status);
-        if (label) { label.textContent = '◈ PENDING REVIEW'; setTimeout(function() { label.textContent = '◈ EVENT INTEL'; }, 3500); }
-        var toast = document.getElementById('eq-submit-toast');
-        if (toast) { toast.classList.add('is-visible'); setTimeout(function() { toast.classList.remove('is-visible'); }, 4000); }
-        console.log('ArgusEvents: submitted to review queue —', evTitle, geo.lat.toFixed(4), geo.lon.toFixed(4));
+        console.log('ArgusEvents: submitted to review queue —', title);
       })
       .catch(function(e) {
-        if (label) { label.textContent = '◈ SUBMIT FAILED'; setTimeout(function() { label.textContent = '◈ EVENT INTEL'; }, 2500); }
         console.warn('ArgusEvents: queue submit failed:', e.message);
       });
+    };
 
-      // Clear modal fields
-      ['es-m-location','es-m-title','es-m-impact'].forEach(function(id) {
-        var el = document.getElementById(id);
-        if (el) el.value = '';
-      });
-      document.getElementById('es-m-type').value = 'POLICY';
-      document.getElementById('es-m-severity').value = 'WATCH';
-    }).catch(function(err) {
-      if (label) label.textContent = '◈ NOT FOUND';
-      setTimeout(function() { if (label) label.textContent = '◈ EVENT INTEL'; }, 2000);
-      console.warn('ArgusEvents modal geocode failed:', err.message);
+    if (location) {
+      geocode(location).then(function(geo) { doSubmit(geo); }).catch(function() { doSubmit(null); });
+    } else {
+      doSubmit(null);
+    }
+
+    // Clear modal fields
+    ['es-m-location','es-m-title','es-m-impact','es-m-tag'].forEach(function(id) {
+      var el = document.getElementById(id); if (el) el.value = '';
     });
+    document.getElementById('es-m-type').value = 'POLICY';
   }
 
-  return { plot: plot, toggleFeed: toggleFeed, toggleTray: toggleTray, clearAll: clearAll, deleteEvent: deleteEvent, focusEvent: focusEvent, openModal: openModal, closeModal: closeModal, submitModal: submitModal };
+  // ── Community Intel: feed view toggle ────────────────────────────────────────
+  function setFeedView(view) {
+    window._intelFeedView = view;
+    var evList = document.getElementById('ev-list');
+    var ciList = document.getElementById('ci-list');
+    var btnV   = document.getElementById('itb-verified');
+    var btnC   = document.getElementById('itb-community');
+
+    if (view === 'community') {
+      if (evList) evList.style.display = 'none';
+      if (ciList) ciList.style.display = 'block';
+      if (btnV)  btnV.classList.remove('active');
+      if (btnC)  btnC.classList.add('active');
+      renderCommunityIntel();
+    } else {
+      if (evList) evList.style.display = '';
+      if (ciList) ciList.style.display = 'none';
+      if (btnV)  btnV.classList.add('active');
+      if (btnC)  btnC.classList.remove('active');
+    }
+  }
+
+  // ── Community Intel: render cards ────────────────────────────────────────────
+  var MIN_VOTES = 5;
+
+  function renderCommunityIntel() {
+    var ciList = document.getElementById('ci-list');
+    if (!ciList) return;
+    var items = window._communityIntel || [];
+    if (!items.length) {
+      ciList.innerHTML = '<div id="ci-empty">NO COMMUNITY INTEL SUBMITTED YET<br>USE ⊕ ADD INTELLIGENCE TO CONTRIBUTE</div>';
+      return;
+    }
+    var html = '';
+    items.forEach(function(item) {
+      var votes = loadVotes(item.id);
+      var total = votes.up + votes.down;
+      var conf  = total > 0 ? votes.up / total : 0;
+      item.votesUp        = votes.up;
+      item.votesDown      = votes.down;
+      item.confidenceScore = conf;
+      if (total >= MIN_VOTES && conf > 0.7) item.status = 'verified';
+
+      var confPct   = Math.round(conf * 100);
+      var confColor = conf > 0.7 ? '#00ff88' : conf > 0.4 ? '#ffcc00' : '#ff4444';
+      var myVote    = getMyVote(item.id);
+
+      html += '<div class="ci-card" data-id="' + esc(item.id) + '">' +
+        '<div class="ci-card-title">' + esc(item.title) + '</div>' +
+        '<div class="ci-card-meta">' +
+          '<span class="ci-tag">' + esc(item.category) + '</span>' +
+          (item.tag ? '<span class="ci-tag">' + esc(item.tag) + '</span>' : '') +
+          (item.geoTag ? '<span class="ci-tag">📍 ' + esc(item.geoTag) + '</span>' : '') +
+        '</div>' +
+        (item.description ? '<div class="ci-card-desc">' + esc(item.description) + '</div>' : '') +
+        '<div class="ci-conf-bar"><div class="ci-conf-fill" style="width:' + confPct + '%;background:' + confColor + '"></div></div>' +
+        '<div class="ci-card-actions">' +
+          '<button class="ci-vote-btn up' + (myVote === 'up' ? ' voted-up' : '') + '" onclick="ArgusEvents.vote(\'' + esc(item.id) + '\',\'up\')">▲ ' + votes.up + '</button>' +
+          '<button class="ci-vote-btn down' + (myVote === 'down' ? ' voted-down' : '') + '" onclick="ArgusEvents.vote(\'' + esc(item.id) + '\',\'down\')">▼ ' + votes.down + '</button>' +
+          '<span style="font-size:7px;color:#1a3a5a;letter-spacing:1px;margin-left:2px">CONF ' + confPct + '%</span>' +
+          '<span class="ci-status-badge ' + item.status + '">' + item.status.toUpperCase() + '</span>' +
+        '</div>' +
+      '</div>';
+    });
+    ciList.innerHTML = html;
+  }
+
+  function esc(s) { return (s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+  function loadVotes(id) {
+    try {
+      var v = JSON.parse(localStorage.getItem('argus_ci_votes_' + id) || 'null');
+      return v || { up: 0, down: 0 };
+    } catch(e) { return { up: 0, down: 0 }; }
+  }
+
+  function saveVotes(id, votes) {
+    try { localStorage.setItem('argus_ci_votes_' + id, JSON.stringify(votes)); } catch(e) {}
+  }
+
+  function getMyVote(id) {
+    try { return localStorage.getItem('argus_ci_myvote_' + id) || null; } catch(e) { return null; }
+  }
+
+  function setMyVote(id, dir) {
+    try { localStorage.setItem('argus_ci_myvote_' + id, dir); } catch(e) {}
+  }
+
+  function vote(id, dir) {
+    var items = window._communityIntel || [];
+    var item  = null;
+    for (var i = 0; i < items.length; i++) { if (items[i].id === id) { item = items[i]; break; } }
+    if (!item) return;
+
+    var current = getMyVote(id);
+    var votes   = loadVotes(id);
+
+    if (current === dir) return; // already voted this way
+
+    if (current && current !== dir) {
+      // Switch vote
+      votes[current === 'up' ? 'up' : 'down'] = Math.max(0, votes[current === 'up' ? 'up' : 'down'] - 1);
+    }
+    votes[dir === 'up' ? 'up' : 'down'] += 1;
+    saveVotes(id, votes);
+    setMyVote(id, dir);
+
+    // Check promotion threshold
+    var total = votes.up + votes.down;
+    var conf  = total > 0 ? votes.up / total : 0;
+    if (total >= MIN_VOTES && conf > 0.7) item.status = 'verified';
+
+    renderCommunityIntel();
+  }
+
+  return { plot: plot, toggleFeed: toggleFeed, toggleTray: toggleTray, clearAll: clearAll, deleteEvent: deleteEvent, focusEvent: focusEvent, openModal: openModal, closeModal: closeModal, submitModal: submitModal, setFeedView: setFeedView, vote: vote };
 
 })(); // end ArgusEvents
 
@@ -11461,18 +11665,19 @@ window.ArgusCaseBuilder = (function () {
 
   // ── Mode switching ───────────────────────────────────────────────────────────
   function setMode(mode) {
+    // Network mode removed from primary UI — redirect to brief
+    if (mode === 'network') mode = 'brief';
     _mode = mode;
-    if (mode !== 'network') { _net.wired = false; hideNetTooltip(); }
+    _net.wired = false; hideNetTooltip();
     ['brief','timeline'].forEach(function (m) {
       var btn  = document.getElementById('cbm-' + m);
       var view = document.getElementById('cb-' + m);
       if (btn)  btn.className  = 'cb-mode-btn' + (m === mode ? ' active' : '');
       if (view) view.style.display = m === mode ? 'block' : 'none';
     });
-    var netBtn  = document.getElementById('cbm-network');
+    // Network wrap stays hidden — neural relationships used as background data only
     var netWrap = document.getElementById('cb-network-wrap');
-    if (netBtn)  netBtn.className  = 'cb-mode-btn' + (mode === 'network' ? ' active' : '');
-    if (netWrap) netWrap.style.display = mode === 'network' ? 'flex' : 'none';
+    if (netWrap) netWrap.style.display = 'none';
 
     var notesBtn  = document.getElementById('cbm-notes');
     var notesView = document.getElementById('cb-notes');
@@ -11520,7 +11725,7 @@ window.ArgusCaseBuilder = (function () {
     if (!_initialized) {
       _initialized = true;
       var hdr = document.getElementById('cb-header-text');
-      if (hdr && window.ArgusAnim) window.ArgusAnim.cipherDecode(hdr, 'NEURAL CASE BUILDER — ACTIVE', 900);
+      if (hdr && window.ArgusAnim) window.ArgusAnim.cipherDecode(hdr, 'ANALYSIS LAB — ACTIVE', 900);
       if ((window._usgsEvents || []).length) setTimeout(scan, 700);
     }
   }
@@ -11566,7 +11771,6 @@ window.ArgusCaseBuilder = (function () {
     var clearBtn  = document.getElementById('cb-clear-btn');
     var kwInput   = document.getElementById('input-case-keywords');
     var briefBtn  = document.getElementById('cbm-brief');
-    var netBtn    = document.getElementById('cbm-network');
     var tlBtn     = document.getElementById('cbm-timeline');
 
     if (trigger)   trigger.addEventListener('click', toggleDrawer);
@@ -11576,7 +11780,6 @@ window.ArgusCaseBuilder = (function () {
     if (clearBtn)  clearBtn.addEventListener('click', clearPins);
     if (kwInput)   kwInput.addEventListener('keydown', function (e) { if (e.key === 'Enter') scan(); });
     if (briefBtn)  briefBtn.addEventListener('click', function () { setMode('brief'); });
-    if (netBtn)    netBtn.addEventListener('click', function () { setMode('network'); });
     if (tlBtn)     tlBtn.addEventListener('click', function () { setMode('timeline'); });
 
     var notesBtn    = document.getElementById('cbm-notes');

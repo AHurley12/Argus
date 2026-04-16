@@ -144,7 +144,12 @@
       font-weight: 400;
     }
 
-    .header__controls { display: flex; align-items: center; gap: 24px; }
+    .header__controls { display: flex; align-items: center; gap: 10px; }
+    /* ── Touching button groups ── */
+    .btn-group { display: flex; align-items: stretch; }
+    .btn-group > button { border-radius: 0; }
+    .btn-group > button:first-child { border-radius: 2px 0 0 2px; }
+    .btn-group > button:last-child  { border-radius: 0 2px 2px 0; margin-left: -1px; }
 
     .header__stat { text-align: center; margin: 0 4px; }
     .header__stat-label {
@@ -1767,10 +1772,30 @@
   #admin-toggle-icon {
     font-size: 9px;
     color: #3a6a8a;
-    margin-left: auto;
     transition: transform 0.3s;
+    padding-left: 10px;
   }
   #admin-bar.expanded #admin-toggle-icon { transform: rotate(180deg); }
+  /* Submit Event button lives inside the toggle row */
+  #btn-analyst-request {
+    background: none;
+    border: 1px solid rgba(255,153,0,0.3);
+    color: #996600;
+    font-size: 8px;
+    letter-spacing: 1.5px;
+    font-weight: 700;
+    font-family: var(--font-mono);
+    padding: 3px 10px;
+    border-radius: 2px;
+    cursor: pointer;
+    transition: all 0.15s;
+    margin-left: auto;
+  }
+  #btn-analyst-request:hover {
+    color: #ff9900;
+    border-color: rgba(255,153,0,0.6);
+    background: rgba(255,153,0,0.06);
+  }
 
   #admin-tabs-row {
     display: flex;
@@ -2622,11 +2647,14 @@
         <div class="header__stat-label" id="tz-label">LOCAL</div>
         <div id="utc-display"></div>
       </div>
-      <button id="btn-add-intelligence" onclick="ArgusEvents.openModal()" aria-label="Add intelligence report">⊕ ADD INTELLIGENCE</button>
-      <button id="btn-neural-web" onclick="ArgusNeuralWeb.toggle()" aria-label="Open neural web intelligence builder">⬡ NEURAL WEB</button>
-      <button id="btn-ai-query" onclick="ArgusUI.toggleAI()" aria-label="Open AI query panel">◈ AI QUERY</button>
-      <button id="btn-analysis-lab" onclick="ArgusCaseBuilder.toggleDrawer()" aria-label="Open Analysis Lab — advanced tools">▦ ANALYSIS LAB</button>
-      <button id="btn-analyst-request" onclick="ArgusAnalyst.openModal()" aria-label="Submit event request" style="display:none;">⊕ SUBMIT EVENT</button>
+      <div class="btn-group btn-group--blue">
+        <button id="btn-add-intelligence" onclick="ArgusEvents.openModal()" aria-label="Add intelligence report">⊕ ADD INTELLIGENCE</button>
+        <button id="btn-ai-query" onclick="ArgusUI.toggleAI()" aria-label="Open AI query panel">◈ AI QUERY</button>
+      </div>
+      <div class="btn-group btn-group--purple">
+        <button id="btn-neural-web" onclick="ArgusNeuralWeb.toggle()" aria-label="Open neural web intelligence builder">⬡ NEURAL WEB</button>
+        <button id="btn-analysis-lab" onclick="ArgusCaseBuilder.toggleDrawer()" aria-label="Open Analysis Lab — advanced tools">▦ ANALYSIS LAB</button>
+      </div>
     </div>
   </header>
 
@@ -2638,6 +2666,7 @@
     <div id="admin-toggle-row" onclick="ArgusAdmin.toggle()">
       <span id="admin-toggle-label">⬡ ARGUS ADMIN</span>
       <span style="font-size:9px;letter-spacing:1px;color:#3a6a8a;" id="admin-queue-count"></span>
+      <button id="btn-analyst-request" onclick="event.stopPropagation(); ArgusAnalyst.openModal()" aria-label="Submit analyst event request">⊕ SUBMIT EVENT</button>
       <span id="admin-toggle-icon">▼</span>
     </div>
     <div id="admin-tabs-row">

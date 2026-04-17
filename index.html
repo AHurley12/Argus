@@ -144,10 +144,10 @@
       font-weight: 400;
     }
 
-    .header__controls { display: flex; align-items: center; gap: 10px; }
+    .header__controls { display: flex; align-items: center; gap: 4px; }
     /* ── Touching button groups ── */
-    .btn-group { display: flex; align-items: stretch; }
-    .btn-group > button { border-radius: 0; }
+    .btn-group { display: flex; align-items: stretch; gap: 0; }
+    .btn-group > button { border-radius: 0; height: 28px; box-sizing: border-box; }
     .btn-group > button:first-child { border-radius: 2px 0 0 2px; }
     .btn-group > button:last-child  { border-radius: 0 2px 2px 0; margin-left: -1px; }
 
@@ -177,7 +177,7 @@
       background: linear-gradient(135deg, #0a1e35 0%, #0d2840 100%);
       border: 1px solid rgba(0, 204, 255, 0.45);
       color: #00ccff;
-      padding: 8px 18px;
+      padding: 0 14px;
       cursor: pointer;
       letter-spacing: 2px;
       font-size: 10px;
@@ -197,7 +197,7 @@
       background: linear-gradient(135deg, #0a2540 0%, #0d3050 100%);
       border: 1px solid #1a4a70;
       color: var(--color-accent);
-      padding: 8px 18px;
+      padding: 0 14px;
       cursor: pointer;
       letter-spacing: 2px;
       font-size: 10px;
@@ -221,7 +221,7 @@
       background: linear-gradient(135deg, #120830 0%, #1a0a40 100%);
       border: 1px solid #3a1a6a;
       color: #b464ff;
-      padding: 8px 18px;
+      padding: 0 14px;
       cursor: pointer;
       letter-spacing: 2px;
       font-size: 10px;
@@ -1550,6 +1550,7 @@
     .es-modal-btn:hover { color: #00ccff; border-color: rgba(0, 204, 255, 0.5); background: rgba(0, 204, 255, 0.06); }
     .es-modal-btn.is-primary { background: rgba(0, 204, 255, 0.1); border-color: rgba(0, 204, 255, 0.4); color: #00ccff; }
     .es-modal-btn.is-primary:hover { background: rgba(0, 204, 255, 0.2); }
+    .es-modal-btn.is-primary:disabled { opacity: 0.35; cursor: not-allowed; pointer-events: none; }
     #event-strip-tray.is-open { display: block; }
     .es-event {
       display: flex;
@@ -2180,7 +2181,7 @@
     background: linear-gradient(135deg, #0e0520 0%, #1a0835 100%);
     border: 1px solid #3a1060;
     color: var(--nw-purple-dim);
-    padding: 8px 18px;
+    padding: 0 14px;
     cursor: pointer;
     letter-spacing: 2px;
     font-size: 10px;
@@ -2958,20 +2959,20 @@
       <div class="es-modal-body">
         <div class="es-field">
           <label>TITLE<span class="req-star">*</span></label>
-          <input id="es-m-title" type="text" placeholder="brief intelligence-style title…" />
+          <input id="es-m-title" type="text" placeholder="brief intelligence-style title…" oninput="ArgusEvents.checkFormReady()" />
         </div>
         <div class="es-field">
           <label>LINK<span class="req-star">*</span></label>
-          <input id="es-m-link" type="url" placeholder="https://source-article-or-reference.url" />
+          <input id="es-m-link" type="url" placeholder="https://source-article-or-reference.url" oninput="ArgusEvents.checkFormReady()" />
         </div>
         <div class="es-modal-row">
           <div class="es-field">
             <label>LOCATION<span class="req-star">*</span></label>
-            <input id="es-m-location" type="text" placeholder="city, country, or region…" />
+            <input id="es-m-location" type="text" placeholder="city, country, or region…" oninput="ArgusEvents.checkFormReady()" />
           </div>
           <div class="es-field">
             <label>TAGS<span class="req-star">*</span></label>
-            <input id="es-m-tag" type="text" placeholder="energy, sanctions, conflict…" />
+            <input id="es-m-tag" type="text" placeholder="energy, sanctions, conflict…" oninput="ArgusEvents.checkFormReady()" />
           </div>
         </div>
         <div class="es-modal-row">
@@ -2987,13 +2988,13 @@
           </div>
         </div>
         <div class="es-field">
-          <label>DESCRIPTION (OPTIONAL)</label>
-          <textarea id="es-m-impact" placeholder="context, significance, and potential impact…"></textarea>
+          <label>DESCRIPTION<span class="req-star">*</span></label>
+          <textarea id="es-m-impact" placeholder="context, significance, and potential impact…" oninput="ArgusEvents.checkFormReady()"></textarea>
         </div>
       </div>
       <div id="es-modal-footer">
         <button class="es-modal-btn" onclick="ArgusEvents.closeModal()">CANCEL</button>
-        <button class="es-modal-btn is-primary" onclick="ArgusEvents.submitModal()">⊕ SUBMIT INTELLIGENCE</button>
+        <button class="es-modal-btn is-primary" id="es-submit-btn" onclick="ArgusEvents.submitModal()" disabled>⊕ SUBMIT INTELLIGENCE</button>
       </div>
     </div>
   </div>
@@ -7614,9 +7615,20 @@ window.ArgusEvents = (function() {
   }
 
   // ── Modal ─────────────────────────────────────────────────────────────────
+  function checkFormReady() {
+    var title = (document.getElementById('es-m-title')    ? document.getElementById('es-m-title').value    : '').trim();
+    var link  = (document.getElementById('es-m-link')     ? document.getElementById('es-m-link').value     : '').trim();
+    var loc   = (document.getElementById('es-m-location') ? document.getElementById('es-m-location').value : '').trim();
+    var tags  = (document.getElementById('es-m-tag')      ? document.getElementById('es-m-tag').value      : '').trim();
+    var desc  = (document.getElementById('es-m-impact')   ? document.getElementById('es-m-impact').value   : '').trim();
+    var btn   = document.getElementById('es-submit-btn');
+    if (btn) btn.disabled = !(title && link && loc && tags && desc);
+  }
+
   function openModal() {
     var titleEl = document.getElementById('es-m-title');
     document.getElementById('es-modal-overlay').classList.add('is-open');
+    checkFormReady();
     if (titleEl) setTimeout(function() { titleEl.focus(); }, 50);
   }
 
@@ -7677,9 +7689,9 @@ window.ArgusEvents = (function() {
     var category =  document.getElementById('es-m-type').value;
     var desc     = (document.getElementById('es-m-impact').value   || '').trim();
 
-    // Validate all four required fields
+    // Validate all required fields
     var valid = true;
-    [['es-m-title', title], ['es-m-link', link], ['es-m-location', location], ['es-m-tag', tags]].forEach(function(pair) {
+    [['es-m-title', title], ['es-m-link', link], ['es-m-location', location], ['es-m-tag', tags], ['es-m-impact', desc]].forEach(function(pair) {
       if (!pair[1]) {
         valid = false;
         var el = document.getElementById(pair[0]);
@@ -7717,6 +7729,7 @@ window.ArgusEvents = (function() {
         var el = document.getElementById(fid); if (el) el.value = '';
       });
       if (document.getElementById('es-m-type')) document.getElementById('es-m-type').value = 'POLICY';
+      var submitBtn = document.getElementById('es-submit-btn'); if (submitBtn) submitBtn.disabled = true;
       setFeedView('community');
     })
     .catch(function(e) {
@@ -7815,6 +7828,10 @@ window.ArgusEvents = (function() {
             (n.promoted
               ? '<span class="ci-status-badge verified">✓ REVIEW QUEUED</span>'
               : '<span class="ci-status-badge pending">COMMUNITY</span>') +
+            ((window.ArgusSession && (window.ArgusSession.tier === 'admin' || window.ArgusSession.tier === 'owner'))
+              ? '<button class="ci-vote-btn" style="margin-left:auto;color:#cc2200;border-color:rgba(204,34,0,0.35);" ' +
+                'onclick="ArgusEvents.removeCommunityIntel(\'' + row.id + '\')">✕ REMOVE</button>'
+              : '') +
           '</div>' +
         '</div>';
     });
@@ -7871,6 +7888,22 @@ window.ArgusEvents = (function() {
     });
   }
 
+  // ── Admin/Owner: remove a community intel entry from the public feed ────────
+  function removeCommunityIntel(id) {
+    var tier = window.ArgusSession ? window.ArgusSession.tier : 'viewer';
+    if (tier !== 'admin' && tier !== 'owner') return;
+    if (!confirm('Remove this community intel entry from the public feed?')) return;
+    ciFetch('/rest/v1/argus_analyst_requests?id=eq.' + encodeURIComponent(id), {
+      method: 'DELETE',
+      headers: { 'Prefer': 'return=minimal' }
+    })
+    .then(function(r) {
+      if (!r.ok) throw new Error('DELETE ' + r.status);
+      loadCommunityIntel();
+    })
+    .catch(function(e) { console.warn('ArgusEvents removeCommunityIntel failed:', e.message); });
+  }
+
   // ── Promote to admin REQUESTS tab when threshold reached ─────────────────────
   function promoteToAdminQueue(row, n) {
     ciFetch('/rest/v1/argus_analyst_requests', {
@@ -7898,7 +7931,7 @@ window.ArgusEvents = (function() {
     if (window._intelFeedView === 'community') loadCommunityIntel();
   }, 30000);
 
-  return { plot: plot, toggleFeed: toggleFeed, toggleTray: toggleTray, clearAll: clearAll, deleteEvent: deleteEvent, focusEvent: focusEvent, openModal: openModal, closeModal: closeModal, submitModal: submitModal, setFeedView: setFeedView, vote: vote, loadCommunityIntel: loadCommunityIntel };
+  return { plot: plot, toggleFeed: toggleFeed, toggleTray: toggleTray, clearAll: clearAll, deleteEvent: deleteEvent, focusEvent: focusEvent, openModal: openModal, closeModal: closeModal, submitModal: submitModal, checkFormReady: checkFormReady, setFeedView: setFeedView, vote: vote, loadCommunityIntel: loadCommunityIntel, removeCommunityIntel: removeCommunityIntel };
 
 })(); // end ArgusEvents
 

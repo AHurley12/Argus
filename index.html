@@ -7710,7 +7710,7 @@ window.ArgusEvents = (function() {
       })
     })
     .then(function(r) {
-      if (!r.ok) throw new Error('HTTP ' + r.status);
+      if (!r.ok) return r.text().then(function(t) { throw new Error('HTTP ' + r.status + ' — ' + t); });
       var toast = document.getElementById('eq-submit-toast');
       if (toast) { toast.classList.add('is-visible'); setTimeout(function() { toast.classList.remove('is-visible'); }, 4000); }
       ['es-m-title','es-m-link','es-m-location','es-m-tag','es-m-impact'].forEach(function(fid) {
@@ -7881,8 +7881,7 @@ window.ArgusEvents = (function() {
         category:     row.category    || 'general',
         location:     row.location    || null,
         source_url:   row.source_url  || null,
-        notes:        (n.description  || '') + (n.tags ? ' | TAGS: ' + n.tags : '') +
-                      ' | COMMUNITY UPVOTES: ' + n.votes_up,
+        notes:        JSON.stringify({ description: n.description || '', tags: n.tags || '', votes_up: n.votes_up, votes_down: n.votes_down, promoted: true }),
         submitted_by: row.submitted_by || 'community',
         status:       'pending'
       })

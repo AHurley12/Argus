@@ -14,7 +14,9 @@
       "WebFetch(domain:vesselapi.com)",
       "Bash(git push:*)",
       "Bash(git commit:*)",
-      "Bash(ls -lh /c/Users/aidan/Desktop/Argus/*.html /c/Users/aidan/Desktop/Argus/netlify/functions/*.js)"
+      "Bash(ls -lh /c/Users/aidan/Desktop/Argus/*.html /c/Users/aidan/Desktop/Argus/netlify/functions/*.js)",
+      "mcp__claude_ai_Supabase__list_tables",
+      "mcp__claude_ai_Supabase__apply_migration"
     ]
   }
 }

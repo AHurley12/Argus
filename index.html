@@ -4061,7 +4061,7 @@ window.ArgusAnim = (function() {
   // Typewriter: streams text into el character by character
   // Handles existing HTML safely — strips tags for streaming, restores on done
   function typewriter(el, finalHtml, cps) {
-    cps = cps || 38; // characters per second
+    cps = cps || 76; // characters per second
     var plain = finalHtml.replace(/<[^>]+>/g, ''); // plain text for streaming
     var i     = 0;
     el.textContent = '';
@@ -7226,7 +7226,7 @@ window.ArgusAI = (function() {
       bodyDiv.innerHTML = text;
     } else {
       // Typewriter for bot messages
-      ArgusAnim.typewriter(bodyDiv, text, 42);
+      ArgusAnim.typewriter(bodyDiv, text, 84);
     }
     return div;
   }

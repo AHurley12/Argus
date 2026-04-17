@@ -9785,7 +9785,9 @@ window.ArgusAdmin = (function() {
         ? '<div style="font-size:10px;color:#1a4a70;padding:12px 0;text-align:center;letter-spacing:2px;">QUEUE EMPTY</div>'
         : rows.map(function(ev) {
         var scores    = scoreEvent(ev);
-        var loc       = ev.location ? ((ev.location.country || '') + (ev.location.lat ? ' (' + parseFloat(ev.location.lat).toFixed(1) + ', ' + parseFloat(ev.location.lon).toFixed(1) + ')' : '')) : '—';
+        var _rawCountry = (ev.location && ev.location.country) ? ev.location.country : '';
+        var _country    = /plan|corporate|paid|subscri|upgrade|premium|available/i.test(_rawCountry) ? '' : _rawCountry;
+        var loc         = ev.location ? (_country + (ev.location.lat ? ' (' + parseFloat(ev.location.lat).toFixed(1) + ', ' + parseFloat(ev.location.lon).toFixed(1) + ')' : '')) || '—' : '—';
         var kw        = (ev.data && ev.data.keywords) ? ev.data.keywords.slice(0,4).join(', ') : '—';
         var ts        = ev.timestamp ? new Date(ev.timestamp).toUTCString().slice(0,22) : '—';
         var isDue     = ev.status === 'approved' && ev.next_review && new Date(ev.next_review) <= now;

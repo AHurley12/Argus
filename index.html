@@ -7751,7 +7751,7 @@ window.ArgusEvents = (function() {
     if (ciList) ciList.innerHTML = '<div id="ci-empty">LOADING...</div>';
     ciFetch('/rest/v1/argus_analyst_requests?select=*&status=eq.community&order=created_at.desc&limit=60')
     .then(function(r) { return r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status)); })
-    .then(function(rows) { renderCommunityIntel(rows); })
+    .then(function(rows) { window._ciRows = rows; renderCommunityIntel(rows); })
     .catch(function(e) {
       var el = document.getElementById('ci-list');
       if (el) el.innerHTML = '<div id="ci-empty">LOAD FAILED — ' + esc(e.message.toUpperCase()) + '</div>';
@@ -7772,8 +7772,8 @@ window.ArgusEvents = (function() {
       var myVote  = getMyVote(row.id);
       var total   = n.votes_up + n.votes_down;
       var needed  = Math.max(0, CI_VOTES_THRESHOLD - n.votes_up);
-      var barPct  = Math.min(100, Math.round(n.votes_up / CI_VOTES_THRESHOLD * 100));
-      var barCol  = n.votes_up >= CI_VOTES_THRESHOLD ? '#00ff88' : n.votes_up >= 10 ? '#ffcc00' : '#4a7da8';
+      var upPct   = total > 0 ? Math.round(n.votes_up   / total * 100) : 0;
+      var dnPct   = total > 0 ? (100 - upPct) : 0;
       var ts      = row.created_at ? new Date(row.created_at).toUTCString().slice(0, 22) : '';
       var tagList = n.tags ? n.tags.split(',').map(function(t) {
         return '<span class="ci-tag">' + esc(t.trim()) + '</span>';
@@ -7796,8 +7796,9 @@ window.ArgusEvents = (function() {
               '</a></div>'
             : '') +
           '<div class="ci-progress-row">' +
-            '<div class="ci-conf-bar" style="flex:1">' +
-              '<div class="ci-conf-fill" style="width:' + barPct + '%;background:' + barCol + '"></div>' +
+            '<div class="ci-conf-bar" style="flex:1;display:flex;">' +
+              '<div style="height:100%;width:' + upPct + '%;background:#00ff88;border-radius:1px 0 0 1px;transition:width 0.3s;"></div>' +
+              '<div style="height:100%;width:' + dnPct + '%;background:#ff4444;border-radius:0 1px 1px 0;transition:width 0.3s;"></div>' +
             '</div>' +
             '<span style="font-size:7px;color:#2a4a6a;letter-spacing:1px;white-space:nowrap;margin-left:6px;">' +
               (n.promoted ? '✓ SUBMITTED FOR ADMIN REVIEW' : needed + ' UPVOTES FOR REVIEW') +
@@ -7892,6 +7893,11 @@ window.ArgusEvents = (function() {
     })
     .catch(function(e) { console.warn('ArgusEvents: promote failed:', e.message); });
   }
+
+  // Auto-refresh community intel every 30s so all users see new submissions in real-time
+  setInterval(function() {
+    if (window._intelFeedView === 'community') loadCommunityIntel();
+  }, 30000);
 
   return { plot: plot, toggleFeed: toggleFeed, toggleTray: toggleTray, clearAll: clearAll, deleteEvent: deleteEvent, focusEvent: focusEvent, openModal: openModal, closeModal: closeModal, submitModal: submitModal, setFeedView: setFeedView, vote: vote, loadCommunityIntel: loadCommunityIntel };
 

@@ -791,12 +791,43 @@
                 border: 1px solid #b464ff44; color: #b464ff; margin: 2px 3px 0 0; }
 
     /* ── Timeline ── */
-    .cb-tl-row   { display: flex; gap: 8px; align-items: flex-start; margin-bottom: 6px; }
-    .cb-tl-ts    { font-size: 8px; color: #4a7da8; width: 60px; flex-shrink: 0; padding-top: 2px; }
-    .cb-tl-dot   { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; margin-top: 3px; border: 1px solid #0f2744; }
-    .cb-tl-body  { flex: 1; }
-    .cb-tl-title { font-size: 9px; color: #c5d7e8; line-height: 1.4; }
-    .cb-tl-src   { font-size: 7px; color: #4a7da8; letter-spacing: 1px; margin-top: 2px; }
+    .cb-tl-row        { display: flex; gap: 8px; align-items: flex-start; margin-bottom: 5px; cursor: pointer; border-radius: 2px; transition: background 0.12s; }
+    .cb-tl-row:hover  { background: rgba(180,100,255,0.05); }
+    .cb-tl-row.tl-highlight { background: rgba(180,100,255,0.14); }
+    .cb-tl-ts         { font-size: 8px; color: #4a7da8; width: 60px; flex-shrink: 0; padding-top: 2px; }
+    .cb-tl-dot        { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; margin-top: 3px; border: 1px solid #0f2744; }
+    .cb-tl-body       { flex: 1; }
+    .cb-tl-title      { font-size: 9px; color: #c5d7e8; line-height: 1.4; }
+    .cb-tl-src        { font-size: 7px; color: #4a7da8; letter-spacing: 1px; margin-top: 2px; }
+    .cb-tl-tags       { display: flex; gap: 3px; margin-top: 3px; flex-wrap: wrap; }
+    .cb-tl-tag        { font-size: 6.5px; letter-spacing: 0.8px; padding: 1px 4px; border-radius: 1px; border: 1px solid; opacity: 0.75; }
+    .cb-tl-day-hdr    { font-size: 7.5px; letter-spacing: 2px; color: #4a7da888; border-bottom: 1px solid #0f274466; margin: 8px 0 5px; padding-bottom: 3px; }
+    /* ── Impact Decision Tree ────────────────────────────────────────────────── */
+    #cb-tree          { overflow-y: auto; flex: 1; min-height: 0; }
+    .ct-country       { border-bottom: 1px solid #0a1a2a; margin-bottom: 2px; }
+    .ct-country-hdr   { display: flex; align-items: center; gap: 6px; padding: 5px 4px; cursor: pointer; border-radius: 2px; transition: background 0.12s; }
+    .ct-country-hdr:hover { background: rgba(180,100,255,0.07); }
+    .ct-country-name  { font-size: 9px; letter-spacing: 1.5px; color: #c5d7e8; font-weight: 700; flex: 1; }
+    .ct-country-stats { display: flex; gap: 3px; flex-shrink: 0; }
+    .ct-badge         { font-size: 6.5px; letter-spacing: 1px; color: #4a7da8; border: 1px solid #1a3050; padding: 1px 4px; border-radius: 1px; }
+    .ct-badge.econ    { color: #ff9933; border-color: #ff993344; }
+    .ct-badge.hum     { color: #ffcc00; border-color: #ffcc0044; }
+    .ct-chevron       { font-size: 7px; color: #2a4a6a; transition: transform 0.15s; flex-shrink: 0; }
+    .ct-chevron.small { font-size: 6px; }
+    .ct-country.open > .ct-country-hdr > .ct-chevron  { transform: rotate(90deg); color: #b464ff; }
+    .ct-events        { display: none; padding-left: 12px; border-left: 1px solid #0f2744; margin-left: 8px; margin-bottom: 4px; }
+    .ct-country.open > .ct-events { display: block; }
+    .ct-event         { margin-bottom: 3px; }
+    .ct-event-hdr     { display: flex; align-items: flex-start; gap: 5px; padding: 3px 4px; cursor: pointer; border-radius: 2px; transition: background 0.12s; }
+    .ct-event-hdr:hover { background: rgba(0,204,255,0.05); }
+    .ct-event-title   { font-size: 8px; color: #8ab0cc; line-height: 1.4; flex: 1; }
+    .ct-event.open > .ct-event-hdr > .ct-chevron { transform: rotate(90deg); color: #00ccff; }
+    .ct-impacts       { display: none; padding: 3px 4px 5px 16px; }
+    .ct-event.open > .ct-impacts { display: block; }
+    .ct-impact        { font-size: 7.5px; letter-spacing: 0.8px; color: #2a4a6a; padding: 1px 0; }
+    .ct-impact span   { color: #4a7da8; }
+    .ct-impact.yes span  { color: #00ff88; font-weight: 700; }
+    .ct-impact.no  span  { color: #1a3050; }
 
     .tone-bar-wrap { height: 3px; background: rgba(15, 39, 68, 0.4); border-radius: 2px; margin-top: 5px; overflow: hidden; }
     .tone-bar { height: 100%; border-radius: 2px; transition: width 0.6s ease; }
@@ -2937,9 +2968,9 @@
     <div class="ai__messages" id="ai-messages" role="log" aria-live="polite"></div>
     <div class="ai__footer">
       <div class="ai__suggestions-label">SUGGESTED</div>
-      <button class="ai__suggestion" onclick="ArgusUI.setSuggestion(this)">Red Sea impact on EU trade?</button>
-      <button class="ai__suggestion" onclick="ArgusUI.setSuggestion(this)">Top 3 riskiest chokepoints?</button>
-      <button class="ai__suggestion" onclick="ArgusUI.setSuggestion(this)">China semiconductor supply risk?</button>
+      <button class="ai__suggestion" onclick="ArgusUI.setSuggestion(this)">Active conflict zones near critical infrastructure?</button>
+      <button class="ai__suggestion" onclick="ArgusUI.setSuggestion(this)">Highest-risk maritime chokepoints right now?</button>
+      <button class="ai__suggestion" onclick="ArgusUI.setSuggestion(this)">Which sanctions regimes pose critical energy risk?</button>
       <div class="ai__input-row">
         <input id="ai-input" type="text" placeholder="Query intelligence feed…" aria-label="AI query input"
                onkeydown="if(event.key==='Enter') ArgusAI.sendMessage()" />
@@ -3097,8 +3128,8 @@
     <div id="cb-mode-bar">
       <div class="cb-mode-btn active" id="cbm-brief">⬛ BRIEF</div>
       <div class="cb-mode-btn"        id="cbm-timeline">▤ TIMELINE</div>
+      <div class="cb-mode-btn"        id="cbm-tree">⊞ IMPACT TREE</div>
       <div class="cb-mode-btn"        id="cbm-notes">✎ NOTES</div>
-      <!-- Neural Web mode removed — use the Neural Web button in the top nav bar -->
     </div>
 
     <!-- Status / cluster info bar -->
@@ -3121,6 +3152,9 @@
 
     <!-- Timeline view -->
     <div id="cb-timeline"></div>
+
+    <!-- Impact Decision Tree view -->
+    <div id="cb-tree" style="display:none"></div>
 
     <!-- Notes view -->
     <div id="cb-notes" style="display:none;flex-direction:column;flex:1;min-height:0;gap:5px">
@@ -10906,6 +10940,59 @@ window.ArgusCaseBuilder = (function () {
     return 'STRATEGIC';
   }
 
+  // ── Impact keyword detectors ──────────────────────────────────────────────────
+  var ECONOMIC_KW     = ['oil','gas','trade','shipping','sanctions','inflation','market','supply','exports','tariff','currency','debt','bond','recession','gdp','pipeline','freight','port','crude','commodity'];
+  var HUMANITARIAN_KW = ['death','injury','displaced','refugee','aid','crisis','famine','evacuation','civilian','casualties','wounded','killed','relief','shelter','missing','hospital','children','food','water','epidemic','outbreak'];
+
+  function detectEconomicImpact(text) {
+    var lo = (text || '').toLowerCase();
+    return ECONOMIC_KW.some(function(k){ return lo.indexOf(k) !== -1; });
+  }
+  function detectHumanitarianImpact(text) {
+    var lo = (text || '').toLowerCase();
+    return HUMANITARIAN_KW.some(function(k){ return lo.indexOf(k) !== -1; });
+  }
+
+  // ── Country extractor (region field first, then title scan) ──────────────────
+  var COUNTRY_LIST = [
+    'Afghanistan','Albania','Algeria','Angola','Argentina','Armenia','Australia','Austria',
+    'Azerbaijan','Bahrain','Bangladesh','Belarus','Belgium','Bolivia','Bosnia','Brazil',
+    'Cambodia','Cameroon','Canada','Chad','Chile','China','Colombia','Congo','Croatia',
+    'Cuba','Cyprus','Czech Republic','Denmark','Egypt','Ethiopia','Finland','France',
+    'Georgia','Germany','Ghana','Greece','Guatemala','Haiti','Honduras','Hungary','India',
+    'Indonesia','Iran','Iraq','Ireland','Israel','Italy','Japan','Jordan','Kazakhstan',
+    'Kenya','Kuwait','Kyrgyzstan','Lebanon','Libya','Malaysia','Mali','Mexico','Moldova',
+    'Mongolia','Morocco','Mozambique','Myanmar','Namibia','Nepal','Netherlands','Niger',
+    'Nigeria','North Korea','Norway','Oman','Pakistan','Palestine','Panama','Peru',
+    'Philippines','Poland','Portugal','Qatar','Romania','Russia','Saudi Arabia','Senegal',
+    'Serbia','Somalia','South Africa','South Korea','South Sudan','Spain','Sri Lanka',
+    'Sudan','Sweden','Switzerland','Syria','Taiwan','Tanzania','Thailand','Turkey',
+    'Uganda','Ukraine','United Arab Emirates','United Kingdom','United States',
+    'UAE','USA','UK','Uzbekistan','Venezuela','Vietnam','Yemen','Zambia','Zimbabwe'
+  ];
+
+  function extractCountry(e) {
+    var text = ((e.region || '') + ' ' + (e.title || '') + ' ' + (e.impact || '')).toLowerCase();
+    for (var i = 0; i < COUNTRY_LIST.length; i++) {
+      if (text.indexOf(COUNTRY_LIST[i].toLowerCase()) !== -1) return COUNTRY_LIST[i];
+    }
+    if (e.region) return e.region.split(',')[0].trim().slice(0, 30) || 'GLOBAL';
+    return 'GLOBAL';
+  }
+
+  function categorizeEvent(e) {
+    var text = (e.title || '') + ' ' + (e.impact || '') + ' ' + (e.description || '');
+    return {
+      country:      extractCountry(e),
+      type:         e.type || 'UNKNOWN',
+      economic:     detectEconomicImpact(text),
+      humanitarian: detectHumanitarianImpact(text)
+    };
+  }
+
+  // ── Shared event ID slug ──────────────────────────────────────────────────────
+  function evSlug(title) { return (title || '').slice(0, 24).replace(/\W+/g, '_').toLowerCase(); }
+
   // ── Formatting helper ────────────────────────────────────────────────────────
   function fmtNum(n, dec) {
     if (n == null || isNaN(n)) return '—';
@@ -11302,11 +11389,12 @@ window.ArgusCaseBuilder = (function () {
     });
   }
 
-  // ── Render dispatcher (was missing — caused silent ReferenceError on scan) ────
+  // ── Render dispatcher ────────────────────────────────────────────────────────
   function render() {
     if      (_mode === 'brief')    renderBrief();
     else if (_mode === 'network')  renderNetwork();
     else if (_mode === 'timeline') renderTimeline();
+    else if (_mode === 'tree')     renderTree();
     // notes mode has no data-driven render
   }
 
@@ -11761,7 +11849,7 @@ window.ArgusCaseBuilder = (function () {
     document.getElementById('cb-net-reset')   && document.getElementById('cb-net-reset').addEventListener('click',   function (e) { e.stopPropagation(); _net.scale = 1; _net.ox = 0; _net.oy = 0; renderNetwork(); });
   }
 
-  // ── Mode 3: Timeline Matrix ──────────────────────────────────────────────────
+  // ── Mode 3: Timeline (vertical, day-grouped, cross-linked to tree) ───────────
   function renderTimeline() {
     var el = document.getElementById('cb-timeline');
     if (!el) return;
@@ -11769,60 +11857,202 @@ window.ArgusCaseBuilder = (function () {
       el.innerHTML = '<div style="padding:20px 0;text-align:center;font-size:9px;color:#2a4a6a;letter-spacing:1px">NO CASES — PRESS SCAN</div>';
       return;
     }
-    var evts = [];
-    var mo = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
-    _cases.forEach(function (c) {
-      evts.push({ ts: c.ts, title: c.title, sev: c.type==='CONFLICT'?'CRITICAL':'WARNING', src: 'CLUSTER' });
-      c.news.forEach(function (n) {
-        var t = n.pubDate ? new Date(n.pubDate).getTime() : c.ts;
-        if (!isNaN(t)) evts.push({ ts: t, title: (n.title||'').slice(0,55), sev: n.severity||'LOW', src: n.source||'NEWS' });
-      });
-      if (c.seismic) {
-        var st = c.seismic.pubDate ? new Date(c.seismic.pubDate).getTime() : c.ts;
-        if (!isNaN(st)) evts.push({ ts: st, title: c.seismic.title.slice(0,55), sev: c.seismic.severity||'WATCH', src: 'SEISMIC' });
-      }
-    });
-    evts.sort(function (a, b) { return b.ts - a.ts; });
 
-    var html = '';
-    evts.slice(0, 28).forEach(function (e) {
-      var d  = new Date(e.ts);
-      var ts = isNaN(d.getTime()) ? '——' :
-               d.getUTCDate() + ' ' + mo[d.getUTCMonth()] + ' ' +
-               String(d.getUTCHours()).padStart(2,'0') + ':' + String(d.getUTCMinutes()).padStart(2,'0');
-      var col = sevCol(e.sev);
-      html += '<div class="cb-tl-row">';
-      html += '<div class="cb-tl-ts">' + ts + '</div>';
-      html += '<div class="cb-tl-dot" style="background:' + col + '44;border-color:' + col + '"></div>';
-      html += '<div class="cb-tl-body">';
-      html += '<div class="cb-tl-title">' + esc(e.title) + '</div>';
-      html += '<div class="cb-tl-src">' + esc(e.src) + ' · <span style="color:' + col + '">' + e.sev + '</span></div>';
-      html += '</div></div>';
+    var MO  = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
+    var evts = [];
+    var seen = {};
+
+    _cases.forEach(function(c) {
+      // Collect from all pillar arrays
+      var allItems = (c.kineticEvts||[]).concat(c.economicEvts||[]).concat(c.humanitarianEv||[]).concat(c.strategicEvts||[]);
+      allItems.forEach(function(item) {
+        var ev  = item.ev || item;
+        if (!ev || !ev.title) return;
+        var uid = evSlug(ev.title);
+        if (seen[uid]) return; seen[uid] = true;
+        var t   = ev.pubDate ? new Date(ev.pubDate).getTime() : c.ts;
+        var cat = categorizeEvent(ev);
+        evts.push({ ts: isNaN(t) ? c.ts : t, title: ev.title, sev: ev.severity || 'LOW',
+                    src: ev.source || c.type, pillar: pillarOf(ev), cat: cat, eid: uid });
+      });
+      // Also legacy news array
+      (c.news || []).forEach(function(n) {
+        if (!n || !n.title) return;
+        var uid = evSlug(n.title);
+        if (seen[uid]) return; seen[uid] = true;
+        var t   = n.pubDate ? new Date(n.pubDate).getTime() : c.ts;
+        var cat = categorizeEvent(n);
+        evts.push({ ts: isNaN(t) ? c.ts : t, title: n.title, sev: n.severity || 'LOW',
+                    src: n.source || 'NEWS', pillar: pillarOf(n), cat: cat, eid: uid });
+      });
     });
+
+    evts.sort(function(a, b) { return b.ts - a.ts; });
+
+    // Group by UTC date
+    var days = [], dayMap = {};
+    evts.slice(0, 60).forEach(function(e) {
+      var d   = new Date(e.ts);
+      var key = isNaN(d.getTime()) ? 'UNKNOWN DATE' :
+                d.getUTCDate() + ' ' + MO[d.getUTCMonth()] + ' ' + d.getUTCFullYear();
+      if (!dayMap[key]) { dayMap[key] = []; days.push(key); }
+      dayMap[key].push(e);
+    });
+
+    var PILLAR_COL = { KINETIC:'#ff0044', ECONOMIC:'#ff9933', HUMANITARIAN:'#ffcc00', STRATEGIC:'#4a7da8' };
+    var html = '';
+    days.forEach(function(day) {
+      html += '<div class="cb-tl-day-hdr">— ' + day + ' —</div>';
+      dayMap[day].forEach(function(e) {
+        var d     = new Date(e.ts);
+        var hhmm  = isNaN(d.getTime()) ? '——' :
+                    String(d.getUTCHours()).padStart(2,'0') + ':' + String(d.getUTCMinutes()).padStart(2,'0');
+        var col   = sevCol(e.sev);
+        var pCol  = PILLAR_COL[e.pillar] || '#4a7da8';
+        html += '<div class="cb-tl-row" id="tl-' + e.eid + '" data-eid="' + e.eid + '" onclick="ArgusCaseBuilder._syncTree(\'' + e.eid + '\')">';
+        html += '<div class="cb-tl-ts">' + hhmm + '</div>';
+        html += '<div class="cb-tl-dot" style="background:' + col + '44;border-color:' + col + '"></div>';
+        html += '<div class="cb-tl-body">';
+        html += '<div class="cb-tl-title">' + esc(e.title.slice(0, 68)) + '</div>';
+        html += '<div class="cb-tl-src">' + esc(e.src) + ' · <span style="color:' + col + '">' + e.sev + '</span></div>';
+        html += '<div class="cb-tl-tags">';
+        html += '<span class="cb-tl-tag" style="color:' + pCol + ';border-color:' + pCol + '44">' + e.pillar + '</span>';
+        if (e.cat.economic)     html += '<span class="cb-tl-tag" style="color:#ff9933;border-color:#ff993344">ECONOMIC</span>';
+        if (e.cat.humanitarian) html += '<span class="cb-tl-tag" style="color:#ffcc00;border-color:#ffcc0044">HUMANITARIAN</span>';
+        html += '</div>';
+        html += '</div></div>';
+      });
+    });
+
+    el.innerHTML = html || '<div style="padding:10px;font-size:9px;color:#2a4a6a">NO EVENTS</div>';
+  }
+
+  // ── Mode 4: Impact Decision Tree ──────────────────────────────────────────────
+  function renderTree() {
+    var el = document.getElementById('cb-tree');
+    if (!el) return;
+    if (!_cases.length) {
+      el.innerHTML = '<div style="padding:20px 0;text-align:center;font-size:9px;color:#2a4a6a;letter-spacing:1px">NO CASES — PRESS SCAN</div>';
+      return;
+    }
+
+    // Collect & deduplicate all events from all cases
+    var tree = {}, seen = {};
+    _cases.forEach(function(c) {
+      var allItems = (c.kineticEvts||[]).concat(c.economicEvts||[]).concat(c.humanitarianEv||[]).concat(c.strategicEvts||[]);
+      // Also legacy news
+      (c.news || []).forEach(function(n){ if (n && n.title) allItems.push({ ev: n }); });
+      allItems.forEach(function(item) {
+        var ev = item.ev || item;
+        if (!ev || !ev.title) return;
+        var uid = evSlug(ev.title);
+        if (seen[uid]) return; seen[uid] = true;
+        var cat = categorizeEvent(ev);
+        if (!tree[cat.country]) tree[cat.country] = [];
+        tree[cat.country].push({ ev: ev, cat: cat, eid: uid });
+      });
+    });
+
+    // Sort countries by event count desc
+    var countries = Object.keys(tree).sort(function(a, b){ return tree[b].length - tree[a].length; });
+    if (!countries.length) {
+      el.innerHTML = '<div style="padding:10px;font-size:9px;color:#2a4a6a">NO EVENTS CATEGORIZED</div>';
+      return;
+    }
+
+    var PILLAR_ICON = { KINETIC:'◉', ECONOMIC:'⬡', HUMANITARIAN:'◈', STRATEGIC:'▤' };
+    var html = '';
+    countries.forEach(function(country) {
+      var evts = tree[country];
+      var econCount = evts.filter(function(x){ return x.cat.economic; }).length;
+      var humCount  = evts.filter(function(x){ return x.cat.humanitarian; }).length;
+      var cid = 'ct-c-' + country.replace(/\W+/g, '_');
+
+      html += '<div class="ct-country" id="' + cid + '">';
+      html += '<div class="ct-country-hdr" onclick="this.parentNode.classList.toggle(\'open\')">';
+      html += '<span class="ct-country-name">◈ ' + esc(country) + '</span>';
+      html += '<span class="ct-country-stats">';
+      html +=   '<span class="ct-badge">' + evts.length + ' EVT</span>';
+      if (econCount) html += '<span class="ct-badge econ">⚡ ECON</span>';
+      if (humCount)  html += '<span class="ct-badge hum">◉ HUM</span>';
+      html += '</span>';
+      html += '<span class="ct-chevron">▶</span>';
+      html += '</div>';
+
+      html += '<div class="ct-events">';
+      evts.forEach(function(item) {
+        var ev  = item.ev;
+        var cat = item.cat;
+        var col = sevCol(ev.severity || 'LOW');
+        var pIcon = PILLAR_ICON[pillarOf(ev)] || '▸';
+        html += '<div class="ct-event" data-eid="' + item.eid + '">';
+        html += '<div class="ct-event-hdr" onclick="event.stopPropagation();this.parentNode.classList.toggle(\'open\')">';
+        html +=   '<span style="color:' + col + ';font-size:8px;flex-shrink:0">' + pIcon + '</span>';
+        html +=   '<span class="ct-event-title">' + esc(ev.title.slice(0, 65)) + '</span>';
+        html +=   '<span class="ct-chevron small">▶</span>';
+        html += '</div>';
+        html += '<div class="ct-impacts">';
+        html +=   '<div class="ct-impact ' + (cat.economic ? 'yes' : 'no') + '">⚡ ECONOMIC: <span>' + (cat.economic ? 'YES' : 'NO') + '</span></div>';
+        html +=   '<div class="ct-impact ' + (cat.humanitarian ? 'yes' : 'no') + '">◉ HUMANITARIAN: <span>' + (cat.humanitarian ? 'YES' : 'NO') + '</span></div>';
+        html +=   '<div class="ct-impact">▸ TYPE: <span>' + esc(cat.type) + '</span></div>';
+        if (ev.source) html += '<div class="ct-impact">▸ SOURCE: <span>' + esc(ev.source) + '</span></div>';
+        if (ev.severity) html += '<div class="ct-impact">▸ SEVERITY: <span style="color:' + col + '">' + esc(ev.severity) + '</span></div>';
+        html += '</div>';
+        html += '</div>'; // ct-event
+      });
+      html += '</div>'; // ct-events
+      html += '</div>'; // ct-country
+    });
+
     el.innerHTML = html;
+  }
+
+  // ── Cross-link: click timeline row → open matching tree node ──────────────────
+  function syncTree(eid) {
+    var treeEl = document.getElementById('cb-tree');
+    if (!treeEl) return;
+    // Find the event node in the tree
+    var evNode = treeEl.querySelector('[data-eid="' + eid + '"]');
+    if (!evNode) return;
+    // Expand parent country
+    var country = evNode.closest('.ct-country');
+    if (country) country.classList.add('open');
+    // Expand the event node
+    evNode.classList.add('open');
+    // Switch to tree mode and scroll
+    setMode('tree');
+    setTimeout(function(){ evNode.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }, 80);
+  }
+
+  // ── Cross-link: click tree event → highlight matching timeline row ─────────────
+  function syncToTimeline(eid) {
+    var tlEl = document.getElementById('tl-' + eid);
+    if (!tlEl) return;
+    setMode('timeline');
+    setTimeout(function(){
+      tlEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      tlEl.classList.add('tl-highlight');
+      setTimeout(function(){ tlEl.classList.remove('tl-highlight'); }, 1600);
+    }, 80);
   }
 
   // ── Mode switching ───────────────────────────────────────────────────────────
   function setMode(mode) {
-    // Network mode removed from primary UI — redirect to brief
-    if (mode === 'network') mode = 'brief';
+    if (mode === 'network') mode = 'brief'; // network not a primary mode
     _mode = mode;
     _net.wired = false; hideNetTooltip();
-    ['brief','timeline'].forEach(function (m) {
+    ['brief','timeline','tree'].forEach(function(m) {
       var btn  = document.getElementById('cbm-' + m);
       var view = document.getElementById('cb-' + m);
       if (btn)  btn.className  = 'cb-mode-btn' + (m === mode ? ' active' : '');
       if (view) view.style.display = m === mode ? 'block' : 'none';
     });
-    // Network wrap stays hidden — neural relationships used as background data only
     var netWrap = document.getElementById('cb-network-wrap');
     if (netWrap) netWrap.style.display = 'none';
-
     var notesBtn  = document.getElementById('cbm-notes');
     var notesView = document.getElementById('cb-notes');
     if (notesBtn)  notesBtn.className  = 'cb-mode-btn' + (mode === 'notes' ? ' active' : '');
     if (notesView) notesView.style.display = mode === 'notes' ? 'flex' : 'none';
-
     render();
   }
 
@@ -11920,6 +12150,8 @@ window.ArgusCaseBuilder = (function () {
     if (kwInput)   kwInput.addEventListener('keydown', function (e) { if (e.key === 'Enter') scan(); });
     if (briefBtn)  briefBtn.addEventListener('click', function () { setMode('brief'); });
     if (tlBtn)     tlBtn.addEventListener('click', function () { setMode('timeline'); });
+    var treeBtn = document.getElementById('cbm-tree');
+    if (treeBtn) treeBtn.addEventListener('click', function() { setMode('tree'); });
 
     var notesBtn    = document.getElementById('cbm-notes');
     var notesTxt    = document.getElementById('cb-notes-export-txt');
@@ -11977,7 +12209,9 @@ window.ArgusCaseBuilder = (function () {
     clearPins:    clearPins,
     exportReport: exportReport,
     getCases:     function () { return _cases; },
-    getPins:      function () { return _pins; }
+    getPins:      function () { return _pins; },
+    _syncTree:    syncTree,       // called by timeline row onclick
+    _syncTl:      syncToTimeline  // called by tree event onclick (future use)
   };
 
 }());

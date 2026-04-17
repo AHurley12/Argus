@@ -9,7 +9,9 @@
   <!-- Fonts -->
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;600;700&family=Rajdhani:wght@400;600;700&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;600;700&family=IBM+Plex+Mono:wght@300;400;600&family=Rajdhani:wght@400;600;700&display=swap" rel="stylesheet" />
+  <link href="https://cdn.jsdelivr.net/npm/@fontsource/iosevka@5/400.css" rel="stylesheet" />
+  <link href="https://cdn.jsdelivr.net/npm/@fontsource/iosevka@5/600.css" rel="stylesheet" />
 
   <!-- Three.js + ThreeGlobe — load synchronously before DOMContentLoaded scripts -->
   <script src="https://cdn.jsdelivr.net/npm/three@0.149.0/build/three.min.js"></script>
@@ -35,6 +37,8 @@
       --color-red:          #ff0044;
       --color-white:        #ffffff;
       --font-mono:          'JetBrains Mono', monospace;
+      --font-secondary:     'IBM Plex Mono', monospace;
+      --font-admin:         'Iosevka', monospace;
       --font-display:       'Rajdhani', sans-serif;
       --header-height:      62px;
       --panel-left-width:   290px;
@@ -275,7 +279,7 @@
     .ci-card-title { color: #c5d7e8; letter-spacing: 0.5px; margin-bottom: 4px; line-height: 1.4; }
     .ci-card-meta { display: flex; align-items: center; gap: 6px; margin-bottom: 5px; flex-wrap: wrap; }
     .ci-tag { font-size: 7px; letter-spacing: 1px; color: #4a7da8; border: 1px solid #1a3050; padding: 1px 5px; border-radius: 1px; }
-    .ci-card-desc { color: #3a6a8a; font-size: 8px; line-height: 1.5; margin-bottom: 6px; }
+    .ci-card-desc { color: #3a6a8a; font-size: 8px; line-height: 1.5; margin-bottom: 6px; font-family: var(--font-secondary); }
     .ci-conf-bar { height: 2px; background: rgba(0,204,255,0.08); border-radius: 1px; margin-bottom: 6px; }
     .ci-conf-fill { height: 100%; border-radius: 1px; transition: width 0.3s; background: #00ccff; }
     .ci-card-actions { display: flex; align-items: center; gap: 6px; }
@@ -389,7 +393,7 @@
     .event-card__row { display: flex; justify-content: space-between; margin-bottom: 2px; }
     .event-card__type { font-size: 8px; letter-spacing: 1.5px; font-weight: 600; }
     .event-card__title { font-size: 11px; color: #ddeeff; margin-top: 4px; line-height: 1.5; font-weight: 400; }
-    .dwell-time { font-size: 7px; letter-spacing: 1.5px; font-family: 'DM Mono', monospace; font-weight: 300; }
+    .dwell-time { font-size: 7px; letter-spacing: 1.5px; font-family: var(--font-secondary); font-weight: 300; }
     .event-card__detail {
       font-size: 10px;
       color: #8899bb;
@@ -398,6 +402,7 @@
       border-top: 1px solid rgba(255, 255, 255, 0.08);
       line-height: 1.6;
       font-weight: 300;
+      font-family: var(--font-secondary);
       display: none;
     }
     .event-card.is-open .event-card__detail { display: block; }
@@ -498,6 +503,8 @@
       border-bottom: none;
       border-radius: 3px 3px 0 0;
       transition: bottom 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+      font-family: var(--font-admin);
+      font-stretch: condensed;
     }
     #panel-cases.is-visible { bottom: 0; }
 
@@ -780,7 +787,7 @@
       background: rgba(2, 8, 18, 0.7);
       border: 1px solid #1a2a3a;
       color: #c5d7e8;
-      font-family: var(--font-mono);
+      font-family: var(--font-secondary);
       font-size: 8px; line-height: 1.55; letter-spacing: 0.4px;
       padding: 5px 7px; outline: none; border-radius: 1px;
       transition: border-color 0.15s;
@@ -1200,6 +1207,7 @@
       white-space: pre-wrap;
       border-radius: 2px;
       font-weight: 300;
+      font-family: var(--font-secondary);
     }
     .ai__message--user {
       background: linear-gradient(135deg, #0a2540 0%, #0d3050 100%);
@@ -1778,7 +1786,8 @@
     z-index: 19;
     background: rgba(4,10,20,0.97);
     border-bottom: 1px solid #0f2d48;
-    font-family: 'DM Mono', monospace;
+    font-family: var(--font-admin);
+    font-stretch: condensed;
     transition: height 0.3s cubic-bezier(0.22,1,0.36,1);
     overflow: hidden;
   }
@@ -1842,7 +1851,7 @@
     border: none;
     border-right: 1px solid #0a1e35;
     color: #3a6a8a;
-    font-family: 'DM Mono', monospace;
+    font-family: var(--font-admin);
     font-size: 9px;
     letter-spacing: 2px;
     padding: 0 18px;
@@ -1915,7 +1924,7 @@
 
   .eq-actions { display: flex; flex-direction: column; gap: 5px; justify-content: center; }
   .eq-btn {
-    font-family: 'DM Mono', monospace;
+    font-family: var(--font-admin);
     font-size: 8px;
     letter-spacing: 1px;
     padding: 5px 10px;
@@ -1987,7 +1996,7 @@
 
   .um-tier-select {
     background: #040d18; border: 1px solid #0f2d48; color: #7aafcc;
-    font-family: 'DM Mono', monospace; font-size: 9px; letter-spacing: 1px;
+    font-family: var(--font-admin); font-size: 9px; letter-spacing: 1px;
     padding: 3px 6px; cursor: pointer;
   }
   .um-tier-select:focus { outline: none; border-color: #1a4a70; }
@@ -2027,13 +2036,13 @@
   }
   .eq-coord-input {
     background: #040d18; border: 1px solid #1a4a70; color: #7aafcc;
-    font-family: 'DM Mono', monospace; font-size: 10px; padding: 4px 6px;
+    font-family: var(--font-admin); font-size: 10px; padding: 4px 6px;
     width: 100%; box-sizing: border-box;
   }
   .eq-coord-input:focus { outline: none; border-color: #00aaff; }
   .eq-sev-select {
     background: #040d18; border: 1px solid #1a4a70; color: #7aafcc;
-    font-family: 'DM Mono', monospace; font-size: 9px; letter-spacing: 1px;
+    font-family: var(--font-admin); font-size: 9px; letter-spacing: 1px;
     padding: 4px 6px; cursor: pointer; width: 100%;
   }
   .eq-sev-select:focus { outline: none; border-color: #00aaff; }
@@ -2049,7 +2058,7 @@
   #eq-submit-toast {
     position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(20px);
     background: #071525; border: 1px solid #00aa66; color: #00cc66;
-    font-family: 'DM Mono', monospace; font-size: 10px; letter-spacing: 2px;
+    font-family: var(--font-admin); font-size: 10px; letter-spacing: 2px;
     padding: 10px 20px; z-index: 9999; pointer-events: none;
     opacity: 0; transition: opacity 0.3s, transform 0.3s;
   }
@@ -2059,7 +2068,7 @@
 
   /* ── Analyst Request button ── */
   #btn-analyst-request {
-    font-family: 'DM Mono', monospace;
+    font-family: var(--font-admin);
     font-size: 10px; letter-spacing: 2px;
     background: transparent;
     border: 1px solid #ff9900;
@@ -2096,7 +2105,7 @@
   .ar-field label { font-size:9px; letter-spacing:3px; color:#3a6a8a; font-family:'DM Mono',monospace; }
   .ar-field input, .ar-field textarea, .ar-field select {
     background: rgba(4,13,24,0.7); border: 1px solid #0f2d48;
-    color: #c8dff0; font-family: 'DM Mono', monospace; font-size:12px;
+    color: #c8dff0; font-family: var(--font-admin); font-size:12px;
     padding: 8px 10px; outline: none; resize: vertical;
     transition: border-color 0.2s;
   }
@@ -2131,13 +2140,13 @@
 
   .um-select {
     background: #040d18; border: 1px solid #0f2d48; color: #7aafcc;
-    font-family: 'DM Mono', monospace; font-size: 9px; padding: 3px 6px;
+    font-family: var(--font-admin); font-size: 9px; padding: 3px 6px;
     cursor: pointer;
   }
   .um-select:focus { outline: none; border-color: #1a4a70; }
 
   .admin-refresh-btn {
-    font-family: 'DM Mono', monospace; font-size: 9px; letter-spacing: 2px;
+    font-family: var(--font-admin); font-size: 9px; letter-spacing: 2px;
     background: none; border: 1px solid #0f2d48; color: #3a6a8a;
     padding: 4px 10px; cursor: pointer; margin-bottom: 12px;
     transition: border-color 0.15s, color 0.15s;
@@ -3160,7 +3169,7 @@
     <div id="cb-notes" style="display:none;flex-direction:column;flex:1;min-height:0;gap:5px">
       <textarea id="cb-notes-input" placeholder="Analyst notes — observations, hypotheses, follow-up actions…"
         style="flex:1;resize:none;background:rgba(2,8,18,0.8);border:1px solid #1a3050;color:#c5d7e8;
-               font-family:var(--font-mono);font-size:9px;letter-spacing:0.5px;line-height:1.6;
+               font-family:var(--font-secondary);font-size:9px;letter-spacing:0.5px;line-height:1.6;
                padding:8px 10px;outline:none;min-height:0;border-radius:1px;"></textarea>
       <div style="display:flex;gap:5px;flex-shrink:0">
         <div class="cb-btn" id="cb-notes-export-txt" style="flex:2">↓ EXPORT .TXT</div>

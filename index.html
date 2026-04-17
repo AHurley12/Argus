@@ -1508,6 +1508,8 @@
     .es-modal-body { padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }
     .es-field { display: flex; flex-direction: column; gap: 4px; }
     .es-field label { font-size: 8px; letter-spacing: 1.5px; color: #4a7da8; font-weight: 700; }
+    .req-star { color: #ff4444; margin-left: 2px; }
+    .ci-progress-row { display: flex; align-items: center; gap: 0; margin-bottom: 6px; }
     .es-field input, .es-field select, .es-field textarea {
       background: rgba(5, 15, 30, 0.6);
       border: 1px solid rgba(15, 39, 68, 0.8);
@@ -2955,12 +2957,22 @@
       </div>
       <div class="es-modal-body">
         <div class="es-field">
-          <label>TITLE</label>
-          <input id="es-m-title" type="text" placeholder="intelligence report title…" />
+          <label>TITLE<span class="req-star">*</span></label>
+          <input id="es-m-title" type="text" placeholder="brief intelligence-style title…" />
         </div>
         <div class="es-field">
-          <label>DESCRIPTION</label>
-          <textarea id="es-m-impact" placeholder="describe the event, its context, and potential impact…"></textarea>
+          <label>LINK<span class="req-star">*</span></label>
+          <input id="es-m-link" type="url" placeholder="https://source-article-or-reference.url" />
+        </div>
+        <div class="es-modal-row">
+          <div class="es-field">
+            <label>LOCATION<span class="req-star">*</span></label>
+            <input id="es-m-location" type="text" placeholder="city, country, or region…" />
+          </div>
+          <div class="es-field">
+            <label>TAGS<span class="req-star">*</span></label>
+            <input id="es-m-tag" type="text" placeholder="energy, sanctions, conflict…" />
+          </div>
         </div>
         <div class="es-modal-row">
           <div class="es-field">
@@ -2973,14 +2985,10 @@
               <option value="CYBER">CYBER</option>
             </select>
           </div>
-          <div class="es-field">
-            <label>TAG (OPTIONAL)</label>
-            <input id="es-m-tag" type="text" placeholder="e.g. sanctions, energy…" />
-          </div>
         </div>
         <div class="es-field">
-          <label>GEO-TAG (OPTIONAL)</label>
-          <input id="es-m-location" type="text" placeholder="city, country, or region…" />
+          <label>DESCRIPTION (OPTIONAL)</label>
+          <textarea id="es-m-impact" placeholder="context, significance, and potential impact…"></textarea>
         </div>
       </div>
       <div id="es-modal-footer">
@@ -7618,92 +7626,102 @@ window.ArgusEvents = (function() {
     if (window.eventMarkers) window.eventMarkers.forEach(function(m) { m.visible = true; });
   }
 
-  function submitModal() {
-    var title    = (document.getElementById('es-m-title').value || '').trim();
-    var type     = document.getElementById('es-m-type').value;
-    var tag      = (document.getElementById('es-m-tag') ? document.getElementById('es-m-tag').value : '').trim();
-    var location = (document.getElementById('es-m-location').value || '').trim();
-    var impact   = (document.getElementById('es-m-impact').value || '').trim();
+  // ── Community Intel: Supabase helpers ────────────────────────────────────────
+  var CI_SUPA_URL        = 'https://wbvzlxtroewxrmonxodx.supabase.co';
+  var CI_VOTES_THRESHOLD = 20;
 
-    if (!title) {
-      var titleEl = document.getElementById('es-m-title');
-      if (titleEl) { titleEl.style.borderColor = '#ff0044'; setTimeout(function() { titleEl.style.borderColor = ''; }, 1500); }
-      return;
-    }
+  function ciToken() {
+    var s = null;
+    try { s = JSON.parse(localStorage.getItem('argus_session')); } catch(e) {}
+    return (s && s.access_token) || SUPA_ANON_GDELT;
+  }
+
+  function ciFetch(path, opts) {
+    var hdrs = Object.assign({
+      'apikey':        SUPA_ANON_GDELT,
+      'Authorization': 'Bearer ' + ciToken(),
+      'Content-Type':  'application/json'
+    }, (opts && opts.headers) || {});
+    return fetch(CI_SUPA_URL + path, Object.assign({}, opts || {}, { headers: hdrs }));
+  }
+
+  function parseNotes(raw) {
+    if (!raw) return { description: '', tags: '', votes_up: 0, votes_down: 0, promoted: false };
+    try {
+      var p = typeof raw === 'string' ? JSON.parse(raw) : raw;
+      return {
+        description: p.description || '',
+        tags:        p.tags        || '',
+        votes_up:    parseInt(p.votes_up)   || 0,
+        votes_down:  parseInt(p.votes_down) || 0,
+        promoted:    !!p.promoted
+      };
+    } catch(e) { return { description: String(raw), tags: '', votes_up: 0, votes_down: 0, promoted: false }; }
+  }
+
+  function esc(s) { return (s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+  function getMyVote(id) {
+    try { return localStorage.getItem('argus_ci_myvote_' + id) || null; } catch(e) { return null; }
+  }
+  function setMyVote(id, dir) {
+    try { localStorage.setItem('argus_ci_myvote_' + id, dir); } catch(e) {}
+  }
+
+  // ── Submit modal ──────────────────────────────────────────────────────────────
+  function submitModal() {
+    var title    = (document.getElementById('es-m-title').value    || '').trim();
+    var link     = (document.getElementById('es-m-link')    ? document.getElementById('es-m-link').value    : '').trim();
+    var location = (document.getElementById('es-m-location').value || '').trim();
+    var tags     = (document.getElementById('es-m-tag').value      || '').trim();
+    var category =  document.getElementById('es-m-type').value;
+    var desc     = (document.getElementById('es-m-impact').value   || '').trim();
+
+    // Validate all four required fields
+    var valid = true;
+    [['es-m-title', title], ['es-m-link', link], ['es-m-location', location], ['es-m-tag', tags]].forEach(function(pair) {
+      if (!pair[1]) {
+        valid = false;
+        var el = document.getElementById(pair[0]);
+        if (el) { el.style.borderColor = '#ff0044'; setTimeout(function() { el.style.borderColor = ''; }, 1800); }
+      }
+    });
+    if (!valid) return;
+
+    // Ensure link has protocol
+    if (!/^https?:\/\//i.test(link)) link = 'https://' + link;
 
     closeModal();
 
-    // Build community intel entry (local, with voting scaffold)
-    var ciId    = 'ci_' + Date.now() + '_' + Math.floor(Math.random() * 9999);
-    var ciEntry = {
-      id:             ciId,
-      title:          title.slice(0, 80),
-      description:    impact,
-      category:       type,
-      tag:            tag,
-      geoTag:         location,
-      votesUp:        0,
-      votesDown:      0,
-      confidenceScore: 0,
-      status:         'pending',
-      timestamp:      new Date().toISOString()
-    };
+    var email = window.ArgusSession ? window.ArgusSession.email : null;
+    var notesObj = { description: desc, tags: tags, votes_up: 0, votes_down: 0, promoted: false };
 
-    // Store in local community intel array
-    window._communityIntel = window._communityIntel || [];
-    window._communityIntel.unshift(ciEntry);
-
-    // Show toast
-    var toast = document.getElementById('eq-submit-toast');
-    if (toast) { toast.classList.add('is-visible'); setTimeout(function() { toast.classList.remove('is-visible'); }, 4000); }
-
-    // Refresh community list if it's currently visible
-    if (window._intelFeedView === 'community') renderCommunityIntel();
-
-    // Submit to Supabase review queue (if location provided, geocode first)
-    var doSubmit = function(geo) {
-      var sess = null;
-      try { sess = JSON.parse(localStorage.getItem('argus_session')); } catch(e) {}
-      var token = (sess && sess.access_token) || SUPA_ANON_GDELT;
-      fetch('https://wbvzlxtroewxrmonxodx.supabase.co/rest/v1/argus_event_queue', {
-        method: 'POST',
-        headers: {
-          'apikey': SUPA_ANON_GDELT,
-          'Authorization': 'Bearer ' + token,
-          'Content-Type': 'application/json',
-          'Prefer': 'return=minimal'
-        },
-        body: JSON.stringify({
-          source:    'MANUAL',
-          category:  type,
-          status:    'pending',
-          timestamp: new Date().toISOString(),
-          location:  geo ? { lat: geo.lat, lon: geo.lon, country: location } : { country: location || null },
-          data:      { title: title.slice(0, 60), type: type, tag: tag,
-                       impact: impact || title,
-                       votesUp: 0, votesDown: 0, confidenceScore: 0 }
-        })
+    ciFetch('/rest/v1/argus_analyst_requests', {
+      method: 'POST',
+      headers: { 'Prefer': 'return=minimal' },
+      body: JSON.stringify({
+        title:        title.slice(0, 120),
+        category:     category,
+        location:     location,
+        source_url:   link,
+        notes:        JSON.stringify(notesObj),
+        submitted_by: email || 'community',
+        status:       'community'
       })
-      .then(function(r) {
-        if (!r.ok) throw new Error('HTTP ' + r.status);
-        console.log('ArgusEvents: submitted to review queue —', title);
-      })
-      .catch(function(e) {
-        console.warn('ArgusEvents: queue submit failed:', e.message);
+    })
+    .then(function(r) {
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      var toast = document.getElementById('eq-submit-toast');
+      if (toast) { toast.classList.add('is-visible'); setTimeout(function() { toast.classList.remove('is-visible'); }, 4000); }
+      ['es-m-title','es-m-link','es-m-location','es-m-tag','es-m-impact'].forEach(function(fid) {
+        var el = document.getElementById(fid); if (el) el.value = '';
       });
-    };
-
-    if (location) {
-      geocode(location).then(function(geo) { doSubmit(geo); }).catch(function() { doSubmit(null); });
-    } else {
-      doSubmit(null);
-    }
-
-    // Clear modal fields
-    ['es-m-location','es-m-title','es-m-impact','es-m-tag'].forEach(function(id) {
-      var el = document.getElementById(id); if (el) el.value = '';
+      if (document.getElementById('es-m-type')) document.getElementById('es-m-type').value = 'POLICY';
+      setFeedView('community');
+    })
+    .catch(function(e) {
+      console.warn('ArgusEvents: community intel submit failed:', e.message);
     });
-    document.getElementById('es-m-type').value = 'POLICY';
   }
 
   // ── Community Intel: feed view toggle ────────────────────────────────────────
@@ -7713,115 +7731,169 @@ window.ArgusEvents = (function() {
     var ciList = document.getElementById('ci-list');
     var btnV   = document.getElementById('itb-verified');
     var btnC   = document.getElementById('itb-community');
-
     if (view === 'community') {
       if (evList) evList.style.display = 'none';
       if (ciList) ciList.style.display = 'block';
-      if (btnV)  btnV.classList.remove('active');
-      if (btnC)  btnC.classList.add('active');
-      renderCommunityIntel();
+      if (btnV) btnV.classList.remove('active');
+      if (btnC) btnC.classList.add('active');
+      loadCommunityIntel();
     } else {
       if (evList) evList.style.display = '';
       if (ciList) ciList.style.display = 'none';
-      if (btnV)  btnV.classList.add('active');
-      if (btnC)  btnC.classList.remove('active');
+      if (btnV) btnV.classList.add('active');
+      if (btnC) btnC.classList.remove('active');
     }
   }
 
-  // ── Community Intel: render cards ────────────────────────────────────────────
-  var MIN_VOTES = 5;
+  // ── Community Intel: load from Supabase ──────────────────────────────────────
+  function loadCommunityIntel() {
+    var ciList = document.getElementById('ci-list');
+    if (ciList) ciList.innerHTML = '<div id="ci-empty">LOADING...</div>';
+    ciFetch('/rest/v1/argus_analyst_requests?select=*&status=eq.community&order=created_at.desc&limit=60')
+    .then(function(r) { return r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status)); })
+    .then(function(rows) { renderCommunityIntel(rows); })
+    .catch(function(e) {
+      var el = document.getElementById('ci-list');
+      if (el) el.innerHTML = '<div id="ci-empty">LOAD FAILED — ' + esc(e.message.toUpperCase()) + '</div>';
+    });
+  }
 
-  function renderCommunityIntel() {
+  // ── Community Intel: render cards ────────────────────────────────────────────
+  function renderCommunityIntel(rows) {
     var ciList = document.getElementById('ci-list');
     if (!ciList) return;
-    var items = window._communityIntel || [];
-    if (!items.length) {
-      ciList.innerHTML = '<div id="ci-empty">NO COMMUNITY INTEL SUBMITTED YET<br>USE ⊕ ADD INTELLIGENCE TO CONTRIBUTE</div>';
+    if (!rows || !rows.length) {
+      ciList.innerHTML = '<div id="ci-empty">NO COMMUNITY INTEL YET<br>USE ⊕ ADD INTELLIGENCE TO CONTRIBUTE</div>';
       return;
     }
     var html = '';
-    items.forEach(function(item) {
-      var votes = loadVotes(item.id);
-      var total = votes.up + votes.down;
-      var conf  = total > 0 ? votes.up / total : 0;
-      item.votesUp        = votes.up;
-      item.votesDown      = votes.down;
-      item.confidenceScore = conf;
-      if (total >= MIN_VOTES && conf > 0.7) item.status = 'verified';
+    rows.forEach(function(row) {
+      var n       = parseNotes(row.notes);
+      var myVote  = getMyVote(row.id);
+      var total   = n.votes_up + n.votes_down;
+      var needed  = Math.max(0, CI_VOTES_THRESHOLD - n.votes_up);
+      var barPct  = Math.min(100, Math.round(n.votes_up / CI_VOTES_THRESHOLD * 100));
+      var barCol  = n.votes_up >= CI_VOTES_THRESHOLD ? '#00ff88' : n.votes_up >= 10 ? '#ffcc00' : '#4a7da8';
+      var ts      = row.created_at ? new Date(row.created_at).toUTCString().slice(0, 22) : '';
+      var tagList = n.tags ? n.tags.split(',').map(function(t) {
+        return '<span class="ci-tag">' + esc(t.trim()) + '</span>';
+      }).join('') : '';
 
-      var confPct   = Math.round(conf * 100);
-      var confColor = conf > 0.7 ? '#00ff88' : conf > 0.4 ? '#ffcc00' : '#ff4444';
-      var myVote    = getMyVote(item.id);
-
-      html += '<div class="ci-card" data-id="' + esc(item.id) + '">' +
-        '<div class="ci-card-title">' + esc(item.title) + '</div>' +
-        '<div class="ci-card-meta">' +
-          '<span class="ci-tag">' + esc(item.category) + '</span>' +
-          (item.tag ? '<span class="ci-tag">' + esc(item.tag) + '</span>' : '') +
-          (item.geoTag ? '<span class="ci-tag">📍 ' + esc(item.geoTag) + '</span>' : '') +
-        '</div>' +
-        (item.description ? '<div class="ci-card-desc">' + esc(item.description) + '</div>' : '') +
-        '<div class="ci-conf-bar"><div class="ci-conf-fill" style="width:' + confPct + '%;background:' + confColor + '"></div></div>' +
-        '<div class="ci-card-actions">' +
-          '<button class="ci-vote-btn up' + (myVote === 'up' ? ' voted-up' : '') + '" onclick="ArgusEvents.vote(\'' + esc(item.id) + '\',\'up\')">▲ ' + votes.up + '</button>' +
-          '<button class="ci-vote-btn down' + (myVote === 'down' ? ' voted-down' : '') + '" onclick="ArgusEvents.vote(\'' + esc(item.id) + '\',\'down\')">▼ ' + votes.down + '</button>' +
-          '<span style="font-size:7px;color:#1a3a5a;letter-spacing:1px;margin-left:2px">CONF ' + confPct + '%</span>' +
-          '<span class="ci-status-badge ' + item.status + '">' + item.status.toUpperCase() + '</span>' +
-        '</div>' +
-      '</div>';
+      html +=
+        '<div class="ci-card" id="ci-row-' + row.id + '">' +
+          '<div class="ci-card-title">' + esc(row.title) + '</div>' +
+          '<div class="ci-card-meta">' +
+            '<span class="ci-tag">' + esc(row.category || '') + '</span>' +
+            tagList +
+            '<span class="ci-tag">📍 ' + esc(row.location || '') + '</span>' +
+            (ts ? '<span style="font-size:7px;color:#1a3050;letter-spacing:1px;margin-left:auto;">' + ts + '</span>' : '') +
+          '</div>' +
+          (n.description ? '<div class="ci-card-desc">' + esc(n.description) + '</div>' : '') +
+          (row.source_url
+            ? '<div style="margin:3px 0 5px;"><a href="' + esc(row.source_url) + '" target="_blank" rel="noopener" ' +
+              'style="font-size:8px;color:#3a6a8a;letter-spacing:1px;text-decoration:none;">↗ ' +
+              esc(row.source_url.length > 60 ? row.source_url.slice(0, 60) + '…' : row.source_url) +
+              '</a></div>'
+            : '') +
+          '<div class="ci-progress-row">' +
+            '<div class="ci-conf-bar" style="flex:1">' +
+              '<div class="ci-conf-fill" style="width:' + barPct + '%;background:' + barCol + '"></div>' +
+            '</div>' +
+            '<span style="font-size:7px;color:#2a4a6a;letter-spacing:1px;white-space:nowrap;margin-left:6px;">' +
+              (n.promoted ? '✓ SUBMITTED FOR ADMIN REVIEW' : needed + ' UPVOTES FOR REVIEW') +
+            '</span>' +
+          '</div>' +
+          '<div class="ci-card-actions">' +
+            '<button class="ci-vote-btn up' + (myVote === 'up'   ? ' voted-up'   : '') + '" ' +
+              'onclick="ArgusEvents.vote(\'' + row.id + '\',\'up\')">▲ ' + n.votes_up + '</button>' +
+            '<button class="ci-vote-btn down' + (myVote === 'down' ? ' voted-down' : '') + '" ' +
+              'onclick="ArgusEvents.vote(\'' + row.id + '\',\'down\')">▼ ' + n.votes_down + '</button>' +
+            '<span style="font-size:7px;color:#1a3050;letter-spacing:1px;margin-left:4px;">' +
+              esc(row.submitted_by || 'community') +
+            '</span>' +
+            (n.promoted
+              ? '<span class="ci-status-badge verified">✓ REVIEW QUEUED</span>'
+              : '<span class="ci-status-badge pending">COMMUNITY</span>') +
+          '</div>' +
+        '</div>';
     });
     ciList.innerHTML = html;
   }
 
-  function esc(s) { return (s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
-
-  function loadVotes(id) {
-    try {
-      var v = JSON.parse(localStorage.getItem('argus_ci_votes_' + id) || 'null');
-      return v || { up: 0, down: 0 };
-    } catch(e) { return { up: 0, down: 0 }; }
-  }
-
-  function saveVotes(id, votes) {
-    try { localStorage.setItem('argus_ci_votes_' + id, JSON.stringify(votes)); } catch(e) {}
-  }
-
-  function getMyVote(id) {
-    try { return localStorage.getItem('argus_ci_myvote_' + id) || null; } catch(e) { return null; }
-  }
-
-  function setMyVote(id, dir) {
-    try { localStorage.setItem('argus_ci_myvote_' + id, dir); } catch(e) {}
-  }
-
+  // ── Voting: fetch current, increment, PATCH back to Supabase ─────────────────
   function vote(id, dir) {
-    var items = window._communityIntel || [];
-    var item  = null;
-    for (var i = 0; i < items.length; i++) { if (items[i].id === id) { item = items[i]; break; } }
-    if (!item) return;
+    if (getMyVote(id) === dir) return; // already voted this way
 
-    var current = getMyVote(id);
-    var votes   = loadVotes(id);
+    // Disable buttons optimistically
+    var card = document.getElementById('ci-row-' + id);
+    if (card) card.querySelectorAll('.ci-vote-btn').forEach(function(b) {
+      b.disabled = true; b.style.opacity = '0.4';
+    });
 
-    if (current === dir) return; // already voted this way
+    ciFetch('/rest/v1/argus_analyst_requests?id=eq.' + encodeURIComponent(id) +
+            '&select=id,notes,status,title,category,location,source_url,submitted_by')
+    .then(function(r) { return r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status)); })
+    .then(function(rows) {
+      if (!rows || !rows.length) throw new Error('Record not found');
+      var row    = rows[0];
+      var n      = parseNotes(row.notes);
+      var prev   = getMyVote(id);
 
-    if (current && current !== dir) {
-      // Switch vote
-      votes[current === 'up' ? 'up' : 'down'] = Math.max(0, votes[current === 'up' ? 'up' : 'down'] - 1);
-    }
-    votes[dir === 'up' ? 'up' : 'down'] += 1;
-    saveVotes(id, votes);
-    setMyVote(id, dir);
+      // Undo previous vote if switching
+      if (prev === 'up')   n.votes_up   = Math.max(0, n.votes_up   - 1);
+      if (prev === 'down') n.votes_down = Math.max(0, n.votes_down - 1);
 
-    // Check promotion threshold
-    var total = votes.up + votes.down;
-    var conf  = total > 0 ? votes.up / total : 0;
-    if (total >= MIN_VOTES && conf > 0.7) item.status = 'verified';
+      // Apply new vote
+      if (dir === 'up')   n.votes_up   += 1;
+      if (dir === 'down') n.votes_down += 1;
 
-    renderCommunityIntel();
+      var shouldPromote = n.votes_up >= CI_VOTES_THRESHOLD && !n.promoted;
+      if (shouldPromote) n.promoted = true;
+
+      return ciFetch('/rest/v1/argus_analyst_requests?id=eq.' + encodeURIComponent(id), {
+        method:  'PATCH',
+        headers: { 'Prefer': 'return=minimal' },
+        body:    JSON.stringify({ notes: JSON.stringify(n) })
+      })
+      .then(function(r) {
+        if (!r.ok) throw new Error('PATCH ' + r.status);
+        setMyVote(id, dir);
+        if (shouldPromote) promoteToAdminQueue(row, n);
+        loadCommunityIntel(); // refresh feed
+      });
+    })
+    .catch(function(e) {
+      console.warn('ArgusEvents vote failed:', e.message);
+      if (card) card.querySelectorAll('.ci-vote-btn').forEach(function(b) {
+        b.disabled = false; b.style.opacity = '';
+      });
+    });
   }
 
-  return { plot: plot, toggleFeed: toggleFeed, toggleTray: toggleTray, clearAll: clearAll, deleteEvent: deleteEvent, focusEvent: focusEvent, openModal: openModal, closeModal: closeModal, submitModal: submitModal, setFeedView: setFeedView, vote: vote };
+  // ── Promote to admin REQUESTS tab when threshold reached ─────────────────────
+  function promoteToAdminQueue(row, n) {
+    ciFetch('/rest/v1/argus_analyst_requests', {
+      method:  'POST',
+      headers: { 'Prefer': 'return=minimal' },
+      body: JSON.stringify({
+        title:        '[COMMUNITY ▲' + n.votes_up + '] ' + (row.title || '').slice(0, 95),
+        category:     row.category    || 'general',
+        location:     row.location    || null,
+        source_url:   row.source_url  || null,
+        notes:        (n.description  || '') + (n.tags ? ' | TAGS: ' + n.tags : '') +
+                      ' | COMMUNITY UPVOTES: ' + n.votes_up,
+        submitted_by: row.submitted_by || 'community',
+        status:       'pending'
+      })
+    })
+    .then(function(r) {
+      if (!r.ok) console.warn('ArgusEvents: promote failed HTTP', r.status);
+      else console.log('ArgusEvents: community intel promoted to admin queue —', row.title);
+    })
+    .catch(function(e) { console.warn('ArgusEvents: promote failed:', e.message); });
+  }
+
+  return { plot: plot, toggleFeed: toggleFeed, toggleTray: toggleTray, clearAll: clearAll, deleteEvent: deleteEvent, focusEvent: focusEvent, openModal: openModal, closeModal: closeModal, submitModal: submitModal, setFeedView: setFeedView, vote: vote, loadCommunityIntel: loadCommunityIntel };
 
 })(); // end ArgusEvents
 

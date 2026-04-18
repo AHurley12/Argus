@@ -3871,7 +3871,7 @@ document.addEventListener('DOMContentLoaded', function() {
     e.preventDefault();
     // Scale zoom speed with distance so close-range scrolling stays granular
     // and far-range scrolling covers ground quickly
-    var zoomSpeed = e.deltaY * 0.1 * (camera.position.z / 250);
+    var zoomSpeed = e.deltaY * 0.125 * (camera.position.z / 250);
     // minDistance 113 = 75% of the previous 150 floor → ~25% closer to globe surface
     // Globe radius = 100, so at z=113 the camera is 13 units above the surface — no clipping risk
     camera.position.z = Math.max(113, Math.min(400, camera.position.z + zoomSpeed));

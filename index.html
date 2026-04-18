@@ -8645,7 +8645,6 @@ async function fetchAll() {
   } catch(e) {}
 
   applyToGlobe();
-  pushEventsToGlobe();
   if (activeTab === 'gdelt') renderGdeltTab();
   console.log('GDELT: done —', data.events.length, 'events,', Object.keys(data.tones).length, 'country tones');
 }
@@ -8690,69 +8689,6 @@ function geolocateArticle(title) {
     }
   }
   return null;
-}
-
-// ── Push GDELT events as live markers onto globe ──────────────────────────────
-function pushEventsToGlobe() {
-  var AG = window.ArgusGlobe;
-  if (!AG || !AG.eventMarkerGroup || !AG.latLonToVector) return;
-
-  var group   = AG.eventMarkerGroup;
-  var l2v     = AG.latLonToVector;
-  var SEV_COL = { CRITICAL: 0xff0044, WARNING: 0xff9933, WATCH: 0xffcc00, LOW: 0x00ff88 };
-
-  // Remove previously injected GDELT markers (leave hardcoded ones intact)
-  var toRemove = [];
-  group.children.forEach(function(obj) { if (obj.userData && obj.userData._gdeltMarker) toRemove.push(obj); });
-  toRemove.forEach(function(obj) { group.remove(obj); });
-  window.eventMarkers = window.eventMarkers.filter(function(m) { return !m.userData._gdeltMarker; });
-
-  // Only plot WATCH / WARNING / CRITICAL — LOW (green) events are excluded.
-  // Only plot events with a confirmed geographic match — no geo = no pin.
-  var PLOT_SEV = { WATCH: true, WARNING: true, CRITICAL: true };
-
-  var toPlot = data.events
-    .filter(function(ev) {
-      if (!PLOT_SEV[ev.severity]) return false;      // exclude LOW
-      if (ev.plotPriority <= 0)   return false;      // exclude zero-signal events
-      if (!geolocateArticle(ev.title)) return false; // exclude no-geo events
-      return true;
-    })
-    .sort(function(a, b) { return b.plotPriority - a.plotPriority; })
-    .slice(0, 25);
-
-  var placed = 0;
-  toPlot.forEach(function(ev) {
-    var geo = geolocateArticle(ev.title);
-    if (!geo) return;
-
-    var col = SEV_COL[ev.severity] || 0x0099ff;
-    var pos = l2v(geo.lat, geo.lon, 101);
-
-    var mesh = new THREE.Mesh(
-      new THREE.SphereGeometry(1.68, 16, 16),
-      new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.45 })
-    );
-    mesh.position.copy(pos);
-    mesh.userData = { _gdeltMarker: true, type: ev.type, severity: ev.severity, title: ev.title,
-                      impact: ev.tone ? 'Tone: ' + ev.tone.toFixed(2) : '', source: 'GDELT', url: ev.url || '' };
-    group.add(mesh);
-    window.eventMarkers.push(mesh);
-
-    var ring = new THREE.Mesh(
-      new THREE.RingGeometry(2.6, 3.9, 32),
-      new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.45, side: THREE.DoubleSide })
-    );
-    ring.position.copy(pos);
-    ring.lookAt(pos.clone().normalize().multiplyScalar(200));
-    ring.userData = { isPulseRing: true, phase: Math.random() * Math.PI * 2, _gdeltMarker: true };
-    group.add(ring);
-
-    placed++;
-  });
-
-  if (typeof window.updateNodeCounts === 'function') window.updateNodeCounts();
-  console.log('GDELT: placed', placed, 'event markers on globe');
 }
 
 // ── Apply tones to globe markers ──────────────────────────────────────────────

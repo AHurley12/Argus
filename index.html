@@ -150,8 +150,8 @@
 
     .header__controls { display: flex; align-items: center; gap: 4px; }
     /* ── Touching button groups ── */
-    .btn-group { display: flex; align-items: stretch; gap: 0; }
-    .btn-group > button { border-radius: 0; height: 28px; box-sizing: border-box; }
+    .btn-group { display: flex; align-items: stretch; gap: 0; height: var(--header-height); }
+    .btn-group > button { border-radius: 0; height: 100%; box-sizing: border-box; display: flex; align-items: center; white-space: nowrap; overflow: hidden; }
     .btn-group > button:first-child { border-radius: 2px 0 0 2px; }
     .btn-group > button:last-child  { border-radius: 0 2px 2px 0; margin-left: -1px; }
 
@@ -2230,7 +2230,7 @@
     border-radius: 2px;
     transition: all 0.3s cubic-bezier(0.4,0,0.2,1);
   }
-  #btn-neural-web:hover  { border-color: var(--nw-purple-dim); color: var(--nw-purple); }
+  #btn-neural-web:hover  { border-color: var(--nw-purple-dim); color: var(--nw-purple); transform: translateY(-1px); }
   #btn-neural-web.is-active { background: linear-gradient(135deg, #1a0840 0%, #250a55 100%); border-color: var(--nw-purple); color: var(--nw-purple); box-shadow: 0 0 16px var(--nw-purple-glow); }
 
   #nw-overlay {

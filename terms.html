@@ -1,0 +1,467 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Terms of Service — ARGUS</title>
+<link href="https://fonts.googleapis.com/css2?family=Syncopate:wght@400;700&family=DM+Mono:ital,wght@0,300;0,400;1,300&family=Barlow+Condensed:wght@200;300;400;600&display=swap" rel="stylesheet" />
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --navy:     #040d18;
+    --deep:     #071525;
+    --mid:      #0a1e35;
+    --border:   #0f2d48;
+    --accent:   #0af;
+    --accent2:  #00ff9d;
+    --text:     #c8dff0;
+    --dim:      #3a6a8a;
+    --white:    #f0f8ff;
+    --danger:   #ff4466;
+  }
+
+  html, body {
+    width: 100%; min-height: 100%;
+    background: var(--navy);
+    font-family: 'Barlow Condensed', sans-serif;
+    color: var(--text);
+  }
+
+  body {
+    padding: 60px 24px 120px;
+  }
+
+  /* Header */
+  header {
+    max-width: 900px;
+    margin: 0 auto 48px;
+    padding-bottom: 32px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .back-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-family: 'DM Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 2px;
+    color: var(--accent);
+    text-decoration: none;
+    margin-bottom: 32px;
+    transition: opacity 0.2s;
+  }
+
+  .back-link:hover { opacity: 0.7; }
+
+  h1 {
+    font-family: 'Syncopate', sans-serif;
+    font-size: clamp(32px, 5vw, 48px);
+    font-weight: 700;
+    color: var(--white);
+    letter-spacing: -1px;
+    margin-bottom: 12px;
+  }
+
+  .doc-meta {
+    font-family: 'DM Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 2px;
+    color: var(--dim);
+  }
+
+  /* Content */
+  .content {
+    max-width: 900px;
+    margin: 0 auto;
+    background: rgba(7, 21, 37, 0.4);
+    border: 1px solid var(--border);
+    padding: 48px;
+    position: relative;
+  }
+
+  .content::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0;
+    width: 30px; height: 30px;
+    border-top: 2px solid var(--accent);
+    border-left: 2px solid var(--accent);
+  }
+
+  .content::after {
+    content: '';
+    position: absolute;
+    bottom: 0; right: 0;
+    width: 30px; height: 30px;
+    border-bottom: 2px solid var(--dim);
+    border-right: 2px solid var(--dim);
+  }
+
+  h2 {
+    font-family: 'Syncopate', sans-serif;
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--accent);
+    letter-spacing: 1px;
+    margin: 48px 0 16px;
+    padding-top: 24px;
+    border-top: 1px solid var(--border);
+  }
+
+  h2:first-child {
+    margin-top: 0;
+    padding-top: 0;
+    border-top: none;
+  }
+
+  h3 {
+    font-family: 'Barlow Condensed', sans-serif;
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--white);
+    letter-spacing: 1px;
+    margin: 28px 0 12px;
+  }
+
+  p {
+    font-size: 15px;
+    line-height: 1.8;
+    color: var(--text);
+    margin-bottom: 16px;
+  }
+
+  ul {
+    margin: 16px 0 16px 24px;
+  }
+
+  li {
+    font-size: 15px;
+    line-height: 1.8;
+    color: var(--text);
+    margin-bottom: 8px;
+  }
+
+  strong {
+    color: var(--white);
+    font-weight: 600;
+  }
+
+  a {
+    color: var(--accent);
+    text-decoration: none;
+    border-bottom: 1px solid transparent;
+    transition: border-color 0.2s;
+  }
+
+  a:hover {
+    border-bottom-color: var(--accent);
+  }
+
+  .notice {
+    background: rgba(0,170,255,0.05);
+    border-left: 3px solid var(--accent);
+    padding: 16px 20px;
+    margin: 24px 0;
+    font-family: 'DM Mono', monospace;
+    font-size: 13px;
+    line-height: 1.6;
+    color: var(--text);
+  }
+
+  .warning {
+    background: rgba(255,68,102,0.05);
+    border-left: 3px solid var(--danger);
+    padding: 16px 20px;
+    margin: 24px 0;
+    font-family: 'DM Mono', monospace;
+    font-size: 13px;
+    line-height: 1.6;
+    color: var(--text);
+  }
+
+  /* Footer */
+  footer {
+    max-width: 900px;
+    margin: 48px auto 0;
+    padding-top: 32px;
+    border-top: 1px solid var(--border);
+    font-family: 'DM Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 2px;
+    color: var(--dim);
+    text-align: center;
+  }
+
+  footer a {
+    color: var(--accent);
+    margin: 0 12px;
+  }
+
+  @media (max-width: 768px) {
+    body { padding: 40px 16px 80px; }
+    .content { padding: 32px 24px; }
+    h1 { font-size: 28px; }
+    h2 { font-size: 16px; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <a href="login.html" class="back-link">← BACK TO LOGIN</a>
+  <h1>TERMS OF SERVICE</h1>
+  <div class="doc-meta">EFFECTIVE DATE: APRIL 18, 2026 · LAST UPDATED: APRIL 18, 2026</div>
+</header>
+
+<div class="content">
+
+<div class="notice">
+  <strong>IMPORTANT:</strong> These Terms of Service ("Terms") constitute a legally binding agreement between you and ARGUS Intelligence Platform ("ARGUS", "we", "us", or "our"). By accessing or using the ARGUS platform, you agree to be bound by these Terms. If you do not agree, do not use the platform.
+</div>
+
+<h2>1. SERVICE DEFINITION</h2>
+
+<h3>1.1 What ARGUS Is</h3>
+<p>ARGUS is a global intelligence aggregation and visualization platform that provides users with access to:</p>
+<ul>
+  <li>Real-time geopolitical event feeds (GDELT and other sources)</li>
+  <li>Energy market data and analytics</li>
+  <li>Supply chain intelligence and risk indicators</li>
+  <li>AI-powered query engine (Pro tier only)</li>
+  <li>Interactive globe visualization and mapping tools</li>
+</ul>
+
+<h3>1.2 What ARGUS Is Not</h3>
+<div class="warning">
+  <strong>CRITICAL DISCLAIMER:</strong> ARGUS is NOT:
+</div>
+<ul>
+  <li>A source of real-time, guaranteed accurate intelligence</li>
+  <li>A provider of financial, legal, or operational advice</li>
+  <li>Suitable for emergency response or time-critical decision-making</li>
+  <li>A verified or certified intelligence service</li>
+  <li>A replacement for professional analysis or judgment</li>
+</ul>
+
+<h2>2. ACCEPTABLE USE</h2>
+
+<h3>2.1 Permitted Use</h3>
+<p>You may use ARGUS for:</p>
+<ul>
+  <li>Research and analysis purposes</li>
+  <li>Internal business intelligence gathering</li>
+  <li>Educational and informational purposes</li>
+  <li>Supply chain risk assessment</li>
+</ul>
+
+<h3>2.2 Prohibited Activities</h3>
+<p>You may NOT:</p>
+<ul>
+  <li>Scrape, crawl, or systematically download data from the platform</li>
+  <li>Resell, redistribute, or sublicense ARGUS data or access</li>
+  <li>Use the platform for illegal activities or to violate any laws</li>
+  <li>Reverse-engineer, decompile, or attempt to extract source code</li>
+  <li>Share your account credentials with others</li>
+  <li>Attempt to bypass access controls or authentication mechanisms</li>
+  <li>Use the platform to harass, harm, or discriminate against individuals or groups</li>
+  <li>Overload or interfere with platform infrastructure</li>
+</ul>
+
+<h2>3. ACCOUNT TERMS</h2>
+
+<h3>3.1 Account Creation</h3>
+<p>To access certain features, you must create an account. You agree to:</p>
+<ul>
+  <li>Provide accurate and complete registration information</li>
+  <li>Maintain the security of your password and account</li>
+  <li>Notify us immediately of any unauthorized use</li>
+  <li>Accept responsibility for all activities under your account</li>
+</ul>
+
+<h3>3.2 Account Termination</h3>
+<p>We reserve the right to suspend or terminate your account if:</p>
+<ul>
+  <li>You violate these Terms</li>
+  <li>Your use poses security or legal risks</li>
+  <li>Your payment fails or subscription lapses</li>
+  <li>We discontinue the service (with notice)</li>
+</ul>
+
+<h2>4. PAYMENT TERMS</h2>
+
+<h3>4.1 Subscription Plans</h3>
+<p>ARGUS offers multiple subscription tiers:</p>
+<ul>
+  <li><strong>Guest/Viewer:</strong> Limited access to basic features (free)</li>
+  <li><strong>Pro:</strong> Full access including AI query engine (paid subscription)</li>
+</ul>
+
+<h3>4.2 Billing</h3>
+<ul>
+  <li>Subscriptions are billed monthly or annually based on your selection</li>
+  <li>Payment is processed via Stripe (third-party payment processor)</li>
+  <li>Subscriptions auto-renew unless canceled before the renewal date</li>
+  <li>Price changes will be communicated at least 30 days in advance</li>
+</ul>
+
+<h3>4.3 Refund Policy</h3>
+<ul>
+  <li>Monthly subscriptions: No refunds for partial months</li>
+  <li>Annual subscriptions: Pro-rated refunds available within 30 days of initial purchase</li>
+  <li>Refunds are issued at our discretion for extenuating circumstances</li>
+</ul>
+
+<h3>4.4 Cancellation</h3>
+<p>You may cancel your subscription at any time through your account settings or the Stripe customer portal. Cancellation takes effect at the end of the current billing period. You will retain access until that date.</p>
+
+<h2>5. DATA & CONTENT</h2>
+
+<h3>5.1 Data Sources</h3>
+<p>ARGUS aggregates data from multiple third-party sources including:</p>
+<ul>
+  <li>GDELT Project (geopolitical events)</li>
+  <li>OpenSky Network (flight tracking data)</li>
+  <li>Public energy market feeds</li>
+  <li>Other publicly available datasets</li>
+</ul>
+
+<h3>5.2 Data Accuracy Disclaimer</h3>
+<div class="warning">
+  <strong>NO WARRANTY OF ACCURACY:</strong> We make no representations or warranties regarding the accuracy, completeness, timeliness, or reliability of any data displayed on ARGUS. Data may be delayed, incomplete, or contain errors. You use all data at your own risk.
+</div>
+
+<h3>5.3 User-Generated Content</h3>
+<p>If you submit queries, feedback, or other content to ARGUS:</p>
+<ul>
+  <li>You retain ownership of your content</li>
+  <li>You grant us a license to use it to improve the platform</li>
+  <li>You represent that you have the right to submit such content</li>
+</ul>
+
+<h2>6. INTELLECTUAL PROPERTY</h2>
+
+<h3>6.1 Platform Ownership</h3>
+<p>ARGUS, including all software, design, code, and branding, is owned by us and protected by copyright, trademark, and other intellectual property laws. You may not copy, modify, or distribute any part of the platform without permission.</p>
+
+<h3>6.2 Limited License</h3>
+<p>We grant you a limited, non-exclusive, non-transferable license to access and use ARGUS for your personal or internal business purposes, subject to these Terms.</p>
+
+<h2>7. LIABILITY LIMITATION</h2>
+
+<div class="warning">
+  <strong>CRITICAL LEGAL NOTICE:</strong>
+</div>
+
+<h3>7.1 No Liability for Decisions</h3>
+<p>ARGUS is an informational tool only. We are NOT liable for any decisions, actions, or consequences resulting from your use of the platform or reliance on any data displayed. This includes but is not limited to:</p>
+<ul>
+  <li>Financial losses</li>
+  <li>Operational disruptions</li>
+  <li>Missed opportunities</li>
+  <li>Business decisions based on platform data</li>
+</ul>
+
+<h3>7.2 Maximum Liability</h3>
+<p>To the maximum extent permitted by law, our total liability to you for any claims arising from your use of ARGUS is limited to the amount you paid us in the 12 months preceding the claim.</p>
+
+<h3>7.3 No Consequential Damages</h3>
+<p>We are not liable for any indirect, incidental, special, consequential, or punitive damages, including lost profits, lost data, or business interruption.</p>
+
+<h3>7.4 As-Is Service</h3>
+<p>ARGUS is provided "AS IS" and "AS AVAILABLE" without warranties of any kind, express or implied, including but not limited to warranties of merchantability, fitness for a particular purpose, or non-infringement.</p>
+
+<h2>8. INDEMNIFICATION</h2>
+
+<p>You agree to indemnify, defend, and hold harmless ARGUS, its officers, directors, employees, and agents from any claims, damages, losses, liabilities, and expenses (including legal fees) arising from:</p>
+<ul>
+  <li>Your use of the platform</li>
+  <li>Your violation of these Terms</li>
+  <li>Your violation of any third-party rights</li>
+  <li>Your misuse of platform data</li>
+</ul>
+
+<h2>9. MODIFICATIONS TO TERMS</h2>
+
+<h3>9.1 Right to Modify</h3>
+<p>We reserve the right to modify these Terms at any time. Changes will be effective:</p>
+<ul>
+  <li>Immediately upon posting for non-material changes</li>
+  <li>30 days after notice for material changes affecting your rights</li>
+</ul>
+
+<h3>9.2 Notification</h3>
+<p>We will notify you of material changes via:</p>
+<ul>
+  <li>Email to your registered address</li>
+  <li>Prominent notice on the platform</li>
+</ul>
+
+<h3>9.3 Continued Use = Acceptance</h3>
+<p>Your continued use of ARGUS after changes take effect constitutes acceptance of the modified Terms. If you do not agree, you must stop using the platform and cancel your subscription.</p>
+
+<h2>10. PRIVACY</h2>
+
+<p>Your use of ARGUS is also governed by our <a href="privacy.html">Privacy Policy</a>, which describes how we collect, use, and protect your personal information. By using ARGUS, you consent to our privacy practices.</p>
+
+<h2>11. GOVERNING LAW & DISPUTES</h2>
+
+<h3>11.1 Governing Law</h3>
+<p>These Terms are governed by the laws of the United States and the State of [YOUR STATE], without regard to conflict of law principles.</p>
+
+<h3>11.2 Dispute Resolution</h3>
+<p>Any disputes arising from these Terms or your use of ARGUS will be resolved through:</p>
+<ul>
+  <li>Good faith negotiation first</li>
+  <li>Binding arbitration if negotiation fails (under AAA rules)</li>
+  <li>Arbitration in [YOUR JURISDICTION]</li>
+</ul>
+
+<h3>11.3 Class Action Waiver</h3>
+<p>You agree to resolve disputes on an individual basis only. You waive any right to participate in class actions, class arbitrations, or representative proceedings.</p>
+
+<h2>12. MISCELLANEOUS</h2>
+
+<h3>12.1 Entire Agreement</h3>
+<p>These Terms, together with our Privacy Policy and any other policies referenced herein, constitute the entire agreement between you and ARGUS.</p>
+
+<h3>12.2 Severability</h3>
+<p>If any provision of these Terms is found unenforceable, the remaining provisions remain in full effect.</p>
+
+<h3>12.3 No Waiver</h3>
+<p>Our failure to enforce any provision does not waive our right to enforce it later.</p>
+
+<h3>12.4 Assignment</h3>
+<p>You may not assign these Terms without our consent. We may assign our rights and obligations to any successor or affiliate.</p>
+
+<h3>12.5 Force Majeure</h3>
+<p>We are not liable for delays or failures due to circumstances beyond our reasonable control (natural disasters, cyberattacks, government actions, etc.).</p>
+
+<h2>13. CONTACT INFORMATION</h2>
+
+<p>For questions about these Terms, contact us at:</p>
+
+<div class="notice">
+  <strong>ARGUS Intelligence Platform</strong><br>
+  Email: legal@argus-platform.com<br>
+  Address: [YOUR BUSINESS ADDRESS]
+</div>
+
+<p style="margin-top: 48px; font-family: 'DM Mono', monospace; font-size: 11px; color: var(--dim);">
+  By using ARGUS, you acknowledge that you have read, understood, and agree to be bound by these Terms of Service.
+</p>
+
+</div>
+
+<footer>
+  <a href="login.html">LOGIN</a> ·
+  <a href="privacy.html">PRIVACY POLICY</a> ·
+  <a href="pricing.html">PRICING</a> ·
+  <a href="disclaimer.html">DISCLAIMER</a>
+  <br><br>
+  © 2026 ARGUS INTELLIGENCE PLATFORM · ALL RIGHTS RESERVED
+</footer>
+
+</body>
+</html>

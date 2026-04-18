@@ -9679,12 +9679,13 @@ return { getCountryData: getCountryData, getDisasters: getDisasters, init: init 
     }
 
     // ── Header user indicator ────────────────────────────────────────────────
-    if (email) {
-      var header = document.querySelector('#header > div:last-child');
-      if (header) {
-        var userEl = document.createElement('div');
-        userEl.style.cssText = 'font-family:\'DM Mono\',monospace;font-size:9px;letter-spacing:2px;color:#3a6a8a;display:flex;align-items:center;gap:8px;';
+    var header = document.querySelector('#header > div:last-child');
+    if (header) {
+      var userEl = document.createElement('div');
+      userEl.id = 'header-user-slot';
+      userEl.style.cssText = 'font-family:var(--font-secondary,\'DM Mono\',monospace);font-size:9px;letter-spacing:2px;color:#3a6a8a;display:flex;align-items:center;gap:8px;';
 
+      if (email) {
         var badgeHtml = badge
           ? '<span style="' +
               'background:' + badge.bg + ';' +
@@ -9700,9 +9701,19 @@ return { getCountryData: getCountryData, getDisasters: getDisasters, init: init 
           '<span style="color:#7aafcc;">' + email.split('@')[0].toUpperCase() + '</span>' +
           badgeHtml +
           '<button onclick="ArgusAuth.signOut()" style="background:none;border:1px solid #0f2d48;color:#3a6a8a;font-family:inherit;font-size:8px;letter-spacing:2px;padding:2px 7px;cursor:pointer;transition:border-color 0.2s,color 0.2s;" onmouseover="this.style.borderColor=\'#1a4a70\';this.style.color=\'#7aafcc\'" onmouseout="this.style.borderColor=\'#0f2d48\';this.style.color=\'#3a6a8a\'">OUT</button>';
-
-        header.insertBefore(userEl, header.firstChild);
+      } else {
+        // Guest — show a login button in the same slot
+        userEl.innerHTML =
+          '<span style="width:6px;height:6px;border-radius:50%;background:#1a3a5a;display:inline-block;"></span>' +
+          '<span style="color:#2a5a7a;">GUEST</span>' +
+          '<button onclick="window.location.href=\'login.html\'" ' +
+            'style="background:linear-gradient(135deg,#0a1e35 0%,#0d2840 100%);border:1px solid rgba(0,204,255,0.4);color:#00ccff;font-family:inherit;font-size:8px;letter-spacing:2px;font-weight:700;padding:2px 10px;cursor:pointer;border-radius:2px;transition:border-color 0.2s,box-shadow 0.2s;" ' +
+            'onmouseover="this.style.borderColor=\'rgba(0,204,255,0.75)\';this.style.boxShadow=\'0 0 10px rgba(0,204,255,0.2)\';" ' +
+            'onmouseout="this.style.borderColor=\'rgba(0,204,255,0.4)\';this.style.boxShadow=\'none\';"' +
+          '>LOG IN</button>';
       }
+
+      header.insertBefore(userEl, header.firstChild);
     }
   }
 

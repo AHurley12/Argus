@@ -6949,20 +6949,98 @@ window.ArgusUI = (function() {
   }
 
   function showEventDetail(d) {
-    var col = RC[d.severity] || '#0099ff';
-    var tagEl   = document.getElementById('detail-tag');
-    var nameEl  = document.getElementById('detail-name');
-    var badge   = document.getElementById('detail-risk-badge');
+    var tagEl  = document.getElementById('detail-tag');
+    var nameEl = document.getElementById('detail-name');
+    var badge  = document.getElementById('detail-risk-badge');
+    var bodyEl = document.getElementById('detail-body');
 
-    // Set static values first so layout is stable
     tagEl.textContent  = '';
     nameEl.textContent = '';
-    badge.textContent  = d.severity;
+
+    // ── Aircraft detail ─────────────────────────────────────────────────────────
+    if (d.isAircraft) {
+      var FT_LABEL = {
+        commercial: 'COMMERCIAL AVIATION',
+        cargo:      'CARGO FREIGHT',
+        military:   'MILITARY / GOVERNMENT',
+        unknown:    'CLASSIFICATION PENDING'
+      };
+      var FT_COL = {
+        commercial: '#c5d7e8',
+        cargo:      '#4488ff',
+        military:   '#ff4444',
+        unknown:    '#5577aa'
+      };
+      var ft     = (d.flightType || 'unknown').toLowerCase();
+      var ftLabel = FT_LABEL[ft] || ft.toUpperCase();
+      var ftCol   = FT_COL[ft]   || '#5577aa';
+
+      badge.textContent       = ft.toUpperCase();
+      badge.style.color       = ftCol;
+      badge.style.borderColor = ftCol + '44';
+      badge.style.background  = ftCol + '14';
+
+      // Callsign — everything before ' · ' in title
+      var cs = d.title ? d.title.split(' · ')[0] : '—';
+
+      // Altitude — feet + flight level
+      var altStr = 'N/A — DATA UNAVAILABLE';
+      if (d.alt != null) {
+        var fl = Math.round(d.alt / 100);
+        altStr = d.alt.toLocaleString() + ' ft  ·  FL' + fl;
+      }
+
+      // Heading — degrees + 16-point cardinal
+      var hdgStr = 'N/A — DATA UNAVAILABLE';
+      if (d.heading != null) {
+        var cardinals = ['N','NNE','NE','ENE','E','ESE','SE','SSE','S','SSW','SW','WSW','W','WNW','NW','NNW'];
+        var card      = cardinals[Math.round(d.heading / 22.5) % 16];
+        hdgStr        = d.heading + '°  (' + card + ')';
+      }
+
+      // Position
+      var latStr = d.lat != null ? (Math.abs(d.lat).toFixed(2) + '° ' + (d.lat >= 0 ? 'N' : 'S')) : '—';
+      var lonStr = d.lon != null ? (Math.abs(d.lon).toFixed(2) + '° ' + (d.lon >= 0 ? 'E' : 'W')) : '—';
+
+      // ADS-B coverage region — human label
+      var REGION_LABEL = {
+        NA_EAST:  'NORTH AMERICA EAST',
+        NA_WEST:  'NORTH AMERICA WEST',
+        EUROPE:   'EUROPE',
+        EAST_ASIA:'EAST ASIA',
+        SE_ASIA:  'SOUTHEAST ASIA',
+        MIDEAST:  'MIDDLE EAST',
+        LATAM:    'LATIN AMERICA',
+        OCEANIA:  'OCEANIA / PACIFIC'
+      };
+      var regionStr = d.region ? (REGION_LABEL[d.region] || d.region) : 'N/A — DATA UNAVAILABLE';
+
+      bodyEl.innerHTML =
+        '<div class="detail__section-header">IDENTIFICATION</div>' +
+        '<div class="detail__row"><span class="detail__label">CALLSIGN</span><span class="detail__value">' + cs + '</span></div>' +
+        '<div class="detail__row"><span class="detail__label">FLIGHT TYPE</span><span class="detail__value" style="color:' + ftCol + '">' + ftLabel + '</span></div>' +
+        '<div class="detail__section-header">FLIGHT STATE</div>' +
+        '<div class="detail__row"><span class="detail__label">ALTITUDE</span><span class="detail__value">' + altStr + '</span></div>' +
+        '<div class="detail__row"><span class="detail__label">HEADING</span><span class="detail__value">' + hdgStr + '</span></div>' +
+        '<div class="detail__section-header">ORIGIN</div>' +
+        '<div class="detail__row"><span class="detail__label">ADS-B REGION</span><span class="detail__value">' + regionStr + '</span></div>' +
+        '<div class="detail__row"><span class="detail__label">POSITION</span><span class="detail__value">' + latStr + '  ' + lonStr + '</span></div>';
+
+      openDetail(ftCol);
+      ArgusAnim.cipherDecode(tagEl,  'AIRSPACE TRACK', 320);
+      ArgusAnim.cipherDecode(nameEl, cs,               560);
+      ArgusAnim.cipherDecode(badge,  ft.toUpperCase(), 260);
+      ArgusAnim.staggerRows(bodyEl);
+      return;
+    }
+
+    // ── Standard event detail ───────────────────────────────────────────────────
+    var col = RC[d.severity] || '#0099ff';
+    badge.textContent       = d.severity;
     badge.style.color       = col;
     badge.style.borderColor = col + '44';
     badge.style.background  = RB[d.severity] || 'transparent';
 
-    var bodyEl = document.getElementById('detail-body');
     bodyEl.innerHTML =
       '<div class="detail__row"><span class="detail__label">TYPE</span><span class="detail__value">' + d.type + '</span></div>' +
       '<div class="detail__row"><span class="detail__label">SEVERITY</span><span class="detail__value" style="color:' + col + '">' + d.severity + '</span></div>' +
@@ -6972,8 +7050,6 @@ window.ArgusUI = (function() {
       '</div>';
 
     openDetail(col);
-
-    // Cipher decode the header after panel opens
     ArgusAnim.cipherDecode(tagEl,  'EVENT ALERT', 320);
     ArgusAnim.cipherDecode(nameEl,  d.title,       560);
     ArgusAnim.cipherDecode(badge,   d.severity,    260);
@@ -12530,7 +12606,7 @@ function clearGroup(group, hitsArr) {
 var AC_TYPE_COLORS = { commercial: 0xffffff, cargo: 0x4488ff, military: 0xff4444, unknown: 0xffffff };
 
 // ── Aircraft marker — oriented by heading, tinted by flight type ──────────────
-function placeAircraft(lat, lon, heading, callsign, country, flightType) {
+function placeAircraft(lat, lon, heading, callsign, country, flightType, alt, region) {
   var AG  = window.ArgusGlobe;
   var pos = AG.latLonToVector(lat, corrLon(lon), 101.8);
   var ft  = flightType || 'unknown';
@@ -12554,8 +12630,11 @@ function placeAircraft(lat, lon, heading, callsign, country, flightType) {
     type:        'AIRCRAFT',
     flightType:  ft,
     severity:    'LOW',
-    lat: lat, lon: lon,
-    heading:     (heading != null && !isNaN(heading)) ? heading : null
+    lat:         lat,
+    lon:         lon,
+    heading:     (heading != null && !isNaN(heading)) ? Math.round(heading) : null,
+    alt:         (alt != null && !isNaN(alt))         ? Math.round(alt)     : null,
+    region:      region || null
   };
   aircraftGroup.add(sprite);
   aircraftHits.push(sprite);
@@ -12685,7 +12764,7 @@ function renderAircraft(json) {
   var step = Math.max(1, Math.floor(states.length / AIRCRAFT_LIMIT));
   for (var i = 0; i < states.length && aircraftHits.length < AIRCRAFT_LIMIT; i += step) {
     var s = states[i];
-    placeAircraft(s.lat, s.lon, s.track, s.cs, s.country, s.flightType || 'unknown');
+    placeAircraft(s.lat, s.lon, s.track, s.cs, s.country, s.flightType || 'unknown', s.alt, s.region);
   }
   window._aircraftMarkers = aircraftHits;
   normalizeTracking();

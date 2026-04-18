@@ -3888,11 +3888,12 @@ document.addEventListener('DOMContentLoaded', function() {
     _activeHoverObj = null;
   }
 
-  // canHover — SSOT eligibility check for hover detection.
-  // Returns false if the entity or its layer is disabled.
-  function canHover(obj) {
+  // canInteract — centralized visibility gate for ALL interaction paths (hover + click).
+  // An object passes only when it is visible, its parent group is visible, and its
+  // corresponding layer is enabled in ArgusLayerState.
+  // Three.js raycaster does NOT cascade parent group visibility — that check is here.
+  function canInteract(obj) {
     if (!obj || !obj.visible) return false;
-    // Three.js raycaster does NOT cascade parent group visibility — check it here.
     if (obj.parent && !obj.parent.visible) return false;
     var ls = window.ArgusLayerState;
     if (!ls) return true;
@@ -3960,8 +3961,8 @@ document.addEventListener('DOMContentLoaded', function() {
       .concat(capitalHits)
       .filter(function(h) {
         // isFacingCamera: front-hemisphere cull
-        // canHover: enforces object.visible AND parent group visible AND LayerState
-        return isFacingCamera(h.object) && canHover(h.object);
+        // canInteract: enforces object.visible AND parent group visible AND LayerState
+        return isFacingCamera(h.object) && canInteract(h.object);
       });
 
     var seen   = {};
@@ -4009,15 +4010,28 @@ document.addEventListener('DOMContentLoaded', function() {
     mouseClick.y = -((e.clientY - rect.top)  / rect.height) * 2 + 1;
     raycasterClick.setFromCamera(mouseClick, camera);
 
-    var _evTargets = window.eventMarkers.concat(window._aircraftMarkers || []).concat(window._vesselMarkers || []);
-    var evHits = raycasterClick.intersectObjects(_evTargets).filter(function(h) { return isFacingCamera(h.object); });
+    // ── Click targets gated by LayerState — mirrors hover assembly pattern.
+    // Only layers that are ON enter the raycast; canInteract() re-validates the winner.
+    var cls = window.ArgusLayerState;
+    var _evTargets = []
+      .concat((!cls || cls.events)   ? window.eventMarkers           : [])
+      .concat((!cls || cls.aircraft) ? window._aircraftMarkers || [] : [])
+      .concat((!cls || cls.vessels)  ? window._vesselMarkers   || [] : []);
+    var evHits = raycasterClick.intersectObjects(_evTargets)
+      .filter(function(h) { return isFacingCamera(h.object) && canInteract(h.object); });
     if (evHits.length) { ArgusUI.showEventDetail(evHits[0].object.userData); return; }
 
-    var cpHits = raycasterClick.intersectObjects(window.chokepointMarkers).filter(function(h) { return isFacingCamera(h.object); });
-    if (cpHits.length) { ArgusUI.showStaticDetail(cpHits[0].object.userData); return; }
+    if (!cls || cls.chokepoints) {
+      var cpHits = raycasterClick.intersectObjects(window.chokepointMarkers)
+        .filter(function(h) { return isFacingCamera(h.object) && canInteract(h.object); });
+      if (cpHits.length) { ArgusUI.showStaticDetail(cpHits[0].object.userData); return; }
+    }
 
-    var cnHits = raycasterClick.intersectObjects(window.countryMarkers).filter(function(h) { return isFacingCamera(h.object); });
-    if (cnHits.length) { ArgusUI.showStaticDetail(cnHits[0].object.userData); return; }
+    if (!cls || cls.countries) {
+      var cnHits = raycasterClick.intersectObjects(window.countryMarkers)
+        .filter(function(h) { return isFacingCamera(h.object) && canInteract(h.object); });
+      if (cnHits.length) { ArgusUI.showStaticDetail(cnHits[0].object.userData); return; }
+    }
   });
 
   // ── Animation Loop ───────────────────────────────────────────────────────────
@@ -4046,7 +4060,7 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 
     // ── Hover reconciliation — clear stale tooltip if hovered entity is no longer eligible
-    if (_activeHoverObj && !canHover(_activeHoverObj)) {
+    if (_activeHoverObj && !canInteract(_activeHoverObj)) {
       clearHoverTooltip();
     }
 

@@ -3842,17 +3842,6 @@ document.addEventListener('DOMContentLoaded', function() {
     eventMarkerGroup.add(sphere);
     capitalMarkers.push(sphere);
 
-    // Cyan edge outline — separate wireframe mesh on same geometry
-    var outline = new THREE.LineSegments(
-      new THREE.EdgesGeometry(new THREE.ConeGeometry(1.2, 2.2, 3, 1)),
-      new THREE.LineBasicMaterial({ color: 0x00ccff, transparent: true, opacity: 0.9 })
-    );
-    outline.position.copy(pos);
-    outline.lookAt(pos.clone().normalize().multiplyScalar(200));
-    outline.rotateX(Math.PI / 2);
-    outline.userData = { isCapitalCity: true, city: city.capital, country: city.country,
-                         label: city.capital + ', ' + city.country, lat: city.lat, lon: city.lon };
-    eventMarkerGroup.add(outline);
   });
 
   // ── Mouse Controls ───────────────────────────────────────────────────────────

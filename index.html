@@ -6816,8 +6816,8 @@ window.ArgusUI = (function() {
           'Upgrade to ask questions across live geopolitical, energy, and supply chain data.',
         '</div>',
         '<div style="display:flex;flex-direction:column;gap:10px;">',
-          '<button onclick="document.getElementById(\'upgrade-modal\').classList.remove(\'is-open\');document.getElementById(\'upgrade-modal\').style.display=\'none\'" ',
-            'style="background:transparent;border:1px solid #0af;color:#0af;padding:12px;font-family:\'Barlow Condensed\',sans-serif;font-size:12px;letter-spacing:3px;cursor:pointer;">',
+          '<button id="upgrade-cta-btn" onclick="ArgusUpgrade.startCheckout()" ',
+            'style="background:transparent;border:1px solid #0af;color:#0af;padding:12px;font-family:var(--font-mono);font-size:12px;letter-spacing:3px;cursor:pointer;">',
             'UPGRADE TO PRO →',
           '</button>',
           '<button onclick="document.getElementById(\'upgrade-modal\').style.display=\'none\'" ',
@@ -6835,6 +6835,20 @@ window.ArgusUI = (function() {
   function setSuggestion(el) {
     document.getElementById('ai-input').value = el.textContent;
   }
+
+  // ── Show success banner if redirected back from Stripe ────────────────────
+  (function() {
+    if (window.location.search.indexOf('upgraded=1') !== -1) {
+      history.replaceState(null, '', window.location.pathname);
+      var banner = document.createElement('div');
+      banner.style.cssText = 'position:fixed;top:70px;left:50%;transform:translateX(-50%);z-index:9999;' +
+        'background:#071525;border:1px solid #00cc66;color:#00cc66;font-family:var(--font-mono);' +
+        'font-size:9px;letter-spacing:2px;padding:10px 20px;border-radius:2px;';
+      banner.textContent = '✓ ARGUS PRO ACTIVATED — WELCOME TO THE NETWORK';
+      document.body.appendChild(banner);
+      setTimeout(function(){ banner.remove(); }, 5000);
+    }
+  })();
 
   function closeDetail() {
     var panel = document.getElementById('panel-detail');
@@ -7208,6 +7222,56 @@ window.ArgusUI = (function() {
   return { toggleAI: toggleAI, togglePanel: togglePanel, setSuggestion: setSuggestion, closeDetail: closeDetail, showEventDetail: showEventDetail, showStaticDetail: showStaticDetail };
 
 })(); // end ArgusUI
+
+// ════════════════════════════════════════════════════════════════════════════
+// ArgusUpgrade — Stripe Checkout flow
+// ════════════════════════════════════════════════════════════════════════════
+window.ArgusUpgrade = (function() {
+  'use strict';
+
+  function startCheckout() {
+    var sess   = window.ArgusSession;
+    var userId = sess && sess.userId;
+    var email  = sess && sess.email;
+
+    // Guard: must be logged in
+    if (!userId || !email) {
+      alert('Please sign in before upgrading.');
+      return;
+    }
+
+    // Already pro/admin/owner — nothing to do
+    var tier = sess.tier || 'viewer';
+    if (tier === 'pro' || tier === 'admin' || tier === 'owner') {
+      alert('Your account already has Pro access.');
+      return;
+    }
+
+    var btn = document.getElementById('upgrade-cta-btn');
+    if (btn) { btn.textContent = 'REDIRECTING…'; btn.style.opacity = '0.6'; btn.disabled = true; }
+
+    fetch('/.netlify/functions/create-checkout-session', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ userId: userId, email: email }),
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data.url) {
+        window.location.href = data.url;
+      } else {
+        throw new Error(data.error || 'No checkout URL returned');
+      }
+    })
+    .catch(function(err) {
+      console.error('ArgusUpgrade: checkout failed:', err.message);
+      if (btn) { btn.textContent = 'UPGRADE TO PRO →'; btn.style.opacity = ''; btn.disabled = false; }
+      alert('Checkout failed — please try again.\n' + err.message);
+    });
+  }
+
+  return { startCheckout: startCheckout };
+})(); // end ArgusUpgrade
 
 // ════════════════════════════════════════════════════════════════════════════
 // ArgusAI — chat with live data context
@@ -9257,8 +9321,9 @@ return { getCountryData: getCountryData, getDisasters: getDisasters, init: init 
       } catch(e) { console.warn('ARGUS: refresh error', e); }
     }
 
-    window.ArgusSession.token = stored.access_token;
-    window.ArgusSession.email = stored.user && stored.user.email;
+    window.ArgusSession.token  = stored.access_token;
+    window.ArgusSession.email  = stored.user && stored.user.email;
+    window.ArgusSession.userId = stored.user && stored.user.id;
 
     // Fetch tier from profiles table
     try {

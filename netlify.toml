@@ -24,6 +24,12 @@
 [functions."fetch-bdi"]
   timeout = 26
 
+[functions."create-checkout-session"]
+  timeout = 10
+
+[functions."stripe-webhook"]
+  timeout = 10
+
 [[headers]]
   for = "/*"
   [headers.values]

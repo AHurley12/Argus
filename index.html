@@ -3210,6 +3210,17 @@ window.eventMarkers      = [];
 window.countryMarkers    = [];
 window.chokepointMarkers = [];
 
+// ── Layer visibility — Single Source of Truth ────────────────────────────────
+// All hover detection and tooltip rendering MUST derive from this state.
+window.ArgusLayerState = {
+  events:      true,
+  chokepoints: true,
+  countries:   true,
+  capitals:    true,
+  vessels:     false,
+  aircraft:    false
+};
+
 document.addEventListener('DOMContentLoaded', function() {
 
   // ── Renderer ────────────────────────────────────────────────────────────────
@@ -3313,9 +3324,24 @@ document.addEventListener('DOMContentLoaded', function() {
     if (document.querySelector('#panel-ai.is-open')) return;
     if (e.key.toLowerCase() === 'g') coordinateGrid.visible = !coordinateGrid.visible;
     if (e.key.toLowerCase() === 't') routeArcLines.forEach(function(l) { l.visible = !l.visible; });
-    if (e.key.toLowerCase() === 'c') window.countryMarkers.forEach(function(m) { m.visible = !m.visible; });
-    if (e.key.toLowerCase() === 'v') capitalMarkers.forEach(function(m) { m.visible = !m.visible; });
-    if (e.key.toLowerCase() === 'e') window.eventMarkers.forEach(function(m) { m.visible = !m.visible; });
+    if (e.key.toLowerCase() === 'c') {
+      var cnOn = !(window.ArgusLayerState.countries);
+      window.ArgusLayerState.countries = cnOn;
+      window.countryMarkers.forEach(function(m) { m.visible = cnOn; });
+      if (!cnOn) clearHoverTooltip();
+    }
+    if (e.key.toLowerCase() === 'v') {
+      var capOn = !(window.ArgusLayerState.capitals);
+      window.ArgusLayerState.capitals = capOn;
+      capitalMarkers.forEach(function(m) { m.visible = capOn; });
+      if (!capOn) clearHoverTooltip();
+    }
+    if (e.key.toLowerCase() === 'e') {
+      var evOn = !(window.ArgusLayerState.events);
+      window.ArgusLayerState.events = evOn;
+      window.eventMarkers.forEach(function(m) { m.visible = evOn; });
+      if (!evOn) clearHoverTooltip();
+    }
   });
 
   // ── Lights ──────────────────────────────────────────────────────────────────
@@ -3862,36 +3888,91 @@ document.addEventListener('DOMContentLoaded', function() {
     camera.position.z = Math.max(113, Math.min(400, camera.position.z + zoomSpeed));
   }, { passive: false });
 
+  // ── Hover helpers ────────────────────────────────────────────────────────────
+  var _activeHoverObj = null;
+
+  // clearHoverTooltip — hides tooltip and resets active hover state.
+  // Called on layer toggle, frame reconciliation, and canvas leave.
+  function clearHoverTooltip() {
+    tooltip.style.display = 'none';
+    _activeHoverObj = null;
+  }
+
+  // canHover — SSOT eligibility check for hover detection.
+  // Returns false if the entity or its layer is disabled.
+  function canHover(obj) {
+    if (!obj || !obj.visible) return false;
+    // Three.js raycaster does NOT cascade parent group visibility — check it here.
+    if (obj.parent && !obj.parent.visible) return false;
+    var ls = window.ArgusLayerState;
+    if (!ls) return true;
+    var d = obj.userData;
+    if (!d) return true;
+    if (d.isAircraft)    return ls.aircraft;
+    if (d.isShip)        return ls.vessels;
+    if (d.isCountry)     return ls.countries;
+    if (d.isCapitalCity) return ls.capitals;
+    if (d.isChokepoint)  return ls.chokepoints;
+    return ls.events;
+  }
+
+  // Clear tooltip when cursor leaves the canvas entirely
+  renderer.domElement.addEventListener('mouseleave', function() {
+    clearHoverTooltip();
+    if (!isDragging) document.body.style.cursor = 'default';
+  });
+
   // ── Hover Tooltip ────────────────────────────────────────────────────────────
   window.addEventListener('mousemove', function(e) {
+    var ls = window.ArgusLayerState;
+
+    // Bail immediately if cursor is not directly over the canvas (e.g. over a panel).
+    // elementFromPoint returns the topmost element under the cursor — if it isn't the
+    // renderer canvas then hover detection must not run and any live tooltip is cleared.
+    var topEl = document.elementFromPoint(e.clientX, e.clientY);
+    if (topEl !== renderer.domElement) {
+      if (tooltip.style.display !== 'none') clearHoverTooltip();
+      return;
+    }
+
     mouseHover.x =  (e.clientX / window.innerWidth)  * 2 - 1;
     mouseHover.y = -(e.clientY / window.innerHeight) * 2 + 1;
     raycasterHover.setFromCamera(mouseHover, camera);
 
-    // Shift ray upward by one cursor length (~24px) for capital markers only
-    // This lowers the interactive hit area on screen without moving the mesh or tooltip
-    var cursorNDC = 24 / window.innerHeight * 2;
-    var shiftedMouse = new THREE.Vector2(mouseHover.x, mouseHover.y + cursorNDC);
-    raycasterHover.setFromCamera(shiftedMouse, camera);
-    var capitalHits = raycasterHover.intersectObjects(capitalMarkers);
-    raycasterHover.setFromCamera(mouseHover, camera);
+    // Capital markers: shift ray upward ~24px to lower the hot zone on screen
+    var capitalHits = [];
+    if (!ls || ls.capitals) {
+      var cursorNDC    = 24 / window.innerHeight * 2;
+      var shiftedMouse = new THREE.Vector2(mouseHover.x, mouseHover.y + cursorNDC);
+      raycasterHover.setFromCamera(shiftedMouse, camera);
+      capitalHits = raycasterHover.intersectObjects(capitalMarkers);
+      raycasterHover.setFromCamera(mouseHover, camera);
+    }
 
-    // Shift ray upward (= lower hit area on screen) + 30% wider for country markers
-    var countryShiftedMouse = new THREE.Vector2(mouseHover.x, mouseHover.y + cursorNDC);
-    raycasterHover.setFromCamera(countryShiftedMouse, camera);
-    raycasterHover.params.Mesh = { threshold: 0 };
-    var countryHits = raycasterHover.intersectObjects(window.countryHitMeshes || window.countryMarkers);
-    raycasterHover.setFromCamera(mouseHover, camera);
+    // Country hit meshes: invisible spheres, same upward shift for consistent hot zone
+    var countryHits = [];
+    if (!ls || ls.countries) {
+      var cndcShift      = 24 / window.innerHeight * 2;
+      var countryShifted = new THREE.Vector2(mouseHover.x, mouseHover.y + cndcShift);
+      raycasterHover.setFromCamera(countryShifted, camera);
+      raycasterHover.params.Mesh = { threshold: 0 };
+      countryHits = raycasterHover.intersectObjects(window.countryHitMeshes || window.countryMarkers);
+      raycasterHover.setFromCamera(mouseHover, camera);
+    }
 
-    var allHits = [
-      raycasterHover.intersectObjects(window.eventMarkers),
-      raycasterHover.intersectObjects(window.chokepointMarkers),
-      raycasterHover.intersectObjects(window._aircraftMarkers || []),
-      raycasterHover.intersectObjects(window._vesselMarkers   || []),
-      countryHits,
-      capitalHits,
-    ].reduce(function(a, b) { return a.concat(b); }, [])
-     .filter(function(h) { return isFacingCamera(h.object); });
+    // ── Assemble hits, gated by LayerState — invisible/disabled layers never tested
+    var allHits = []
+      .concat((!ls || ls.events)      ? raycasterHover.intersectObjects(window.eventMarkers)           : [])
+      .concat((!ls || ls.chokepoints) ? raycasterHover.intersectObjects(window.chokepointMarkers)      : [])
+      .concat((!ls || ls.aircraft)    ? raycasterHover.intersectObjects(window._aircraftMarkers || []) : [])
+      .concat((!ls || ls.vessels)     ? raycasterHover.intersectObjects(window._vesselMarkers   || []) : [])
+      .concat(countryHits)
+      .concat(capitalHits)
+      .filter(function(h) {
+        // isFacingCamera: front-hemisphere cull
+        // canHover: enforces object.visible AND parent group visible AND LayerState
+        return isFacingCamera(h.object) && canHover(h.object);
+      });
 
     var seen   = {};
     var unique = allHits.filter(function(h) {
@@ -3902,6 +3983,7 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 
     if (unique.length > 0) {
+      _activeHoverObj = unique[0].object;
       var rows = unique.map(function(h) { return buildTooltipRow(h.object.userData); }).join('');
       var hdr  = unique.length > 1 ? '<div style="color:#4a7da8;font-size:8px;letter-spacing:2px;margin-bottom:5px">' + unique.length + ' MARKERS</div>' : '';
 
@@ -3923,6 +4005,7 @@ document.addEventListener('DOMContentLoaded', function() {
       tooltip.style.top  = Math.round(sp.y - tooltip.offsetHeight + yOffset) + 'px';
       document.body.style.cursor = 'pointer';
     } else {
+      _activeHoverObj = null;
       tooltip.style.display = 'none';
       if (!isDragging) document.body.style.cursor = 'grab';
     }
@@ -3972,6 +4055,11 @@ document.addEventListener('DOMContentLoaded', function() {
       line.material.opacity = 0.28 + 0.14 * Math.sin(animT + i * 0.6);
     });
 
+    // ── Hover reconciliation — clear stale tooltip if hovered entity is no longer eligible
+    if (_activeHoverObj && !canHover(_activeHoverObj)) {
+      clearHoverTooltip();
+    }
+
     renderer.render(scene, camera);
   }
   animate();
@@ -3986,7 +4074,7 @@ document.addEventListener('DOMContentLoaded', function() {
   });
 
   // Expose for external access
-  window.ArgusGlobe = { scene: scene, camera: camera, renderer: renderer, globe: Globe, globeGroup: globeGroup, eventMarkerGroup: eventMarkerGroup, latLonToVector: latLonToVector };
+  window.ArgusGlobe = { scene: scene, camera: camera, renderer: renderer, globe: Globe, globeGroup: globeGroup, eventMarkerGroup: eventMarkerGroup, latLonToVector: latLonToVector, clearHover: clearHoverTooltip };
 
 }); // end DOMContentLoaded
 })();
@@ -7741,8 +7829,9 @@ window.ArgusEvents = (function() {
 
   function closeModal() {
     document.getElementById('es-modal-overlay').classList.remove('is-open');
-    // Restore event marker visibility in case keyboard shortcut fired during input
-    if (window.eventMarkers) window.eventMarkers.forEach(function(m) { m.visible = true; });
+    // Restore event marker visibility to whatever the layer state says
+    var evOn = !window.ArgusLayerState || window.ArgusLayerState.events;
+    if (window.eventMarkers) window.eventMarkers.forEach(function(m) { m.visible = evOn; });
   }
 
   // ── Community Intel: Supabase helpers ────────────────────────────────────────
@@ -9620,8 +9709,9 @@ window.ArgusAnalyst = (function() {
     ['ar-title','ar-location','ar-source','ar-notes'].forEach(function(id) {
       document.getElementById(id).value = '';
     });
-    // Restore event marker visibility in case keyboard shortcut fired during input
-    if (window.eventMarkers) window.eventMarkers.forEach(function(m) { m.visible = true; });
+    // Restore event marker visibility to whatever the layer state says
+    var evOn = !window.ArgusLayerState || window.ArgusLayerState.events;
+    if (window.eventMarkers) window.eventMarkers.forEach(function(m) { m.visible = evOn; });
   }
 
   function showModalMsg(text, isError) {
@@ -12496,7 +12586,7 @@ function placeShip(lat, lon, name, sog, cog, typeCategory) {
   });
   var sprite = new THREE.Sprite(mat);
   sprite.position.copy(pos);
-  sprite.scale.set(1.75, 1.75, 1);
+  sprite.scale.set(1.05, 1.05, 1);
 
   var label = (name || '').trim() || 'VESSEL';
   sprite.userData = {
@@ -12677,6 +12767,8 @@ function toggleAircraft() {
   }
   aircraftOn             = !aircraftOn;
   aircraftGroup.visible  = aircraftOn;
+  window.ArgusLayerState.aircraft = aircraftOn;
+  if (!aircraftOn && window.ArgusGlobe && window.ArgusGlobe.clearHover) window.ArgusGlobe.clearHover();
 
   if (aircraftOn) {
     fetchAndRenderAircraft();
@@ -12702,6 +12794,8 @@ function toggleShips() {
   }
   shipsOn            = !shipsOn;
   shipGroup.visible  = shipsOn;
+  window.ArgusLayerState.vessels = shipsOn;
+  if (!shipsOn && window.ArgusGlobe && window.ArgusGlobe.clearHover) window.ArgusGlobe.clearHover();
 
   if (shipsOn) {
     fetchShipsFromBackend();

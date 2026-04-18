@@ -3459,7 +3459,8 @@ document.addEventListener('DOMContentLoaded', function() {
       new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.39 })
     );
     mesh.position.copy(pos);
-    mesh.userData = ev;
+    // Source discriminator — required by ArgusHardcodedQueue FIFO logic
+    mesh.userData = Object.assign({}, ev, { source: 'HARDCODED', _hcMarker: true, timestamp: Date.now() });
     eventMarkerGroup.add(mesh);
     window.eventMarkers.push(mesh);
 
@@ -3469,7 +3470,7 @@ document.addEventListener('DOMContentLoaded', function() {
     );
     ring.position.copy(pos);
     ring.lookAt(pos.clone().normalize().multiplyScalar(200));
-    ring.userData = { isPulseRing: true, phase: Math.random() * Math.PI * 2 };
+    ring.userData = { isPulseRing: true, phase: Math.random() * Math.PI * 2, _hcMarker: true };
     eventMarkerGroup.add(ring);
   });
   globeGroup.add(eventMarkerGroup);
@@ -4064,6 +4065,125 @@ document.addEventListener('DOMContentLoaded', function() {
 
   // Expose for external access
   window.ArgusGlobe = { scene: scene, camera: camera, renderer: renderer, globe: Globe, globeGroup: globeGroup, eventMarkerGroup: eventMarkerGroup, latLonToVector: latLonToVector, clearHover: clearHoverTooltip };
+
+  // ── Hardcoded Event Queue — FIFO bounded, max 40 ─────────────────────────────
+  // Scope guard: ONLY events with source === 'HARDCODED' are tracked or evicted.
+  // API events (_gdeltMarker, _unMarker, _permanentPin, _analystPin, _manualPin)
+  // and user events are never touched by this module.
+  window.ArgusHardcodedQueue = (function() {
+    var HARDCODED_MAX = 40;
+
+    // ── Selector — all live hardcoded meshes in window.eventMarkers ────────────
+    function selectHardcoded() {
+      return (window.eventMarkers || []).filter(function(m) {
+        return m.userData && m.userData.source === 'HARDCODED';
+      });
+    }
+
+    // ── removeById — full cleanup: mesh + companion ring + hover + node counter ─
+    function removeById(id) {
+      var AG = window.ArgusGlobe;
+      if (!AG || !AG.eventMarkerGroup) return;
+
+      var markers = window.eventMarkers || [];
+      var mesh = null;
+      for (var i = 0; i < markers.length; i++) {
+        if (markers[i].userData &&
+            markers[i].userData.id === id &&
+            markers[i].userData.source === 'HARDCODED') {
+          mesh = markers[i]; break;
+        }
+      }
+      if (!mesh) return;
+
+      // Setting visible=false before removal lets the animate-loop hover
+      // reconciliation detect the change on the next frame and call clearHover()
+      // cleanly, without needing direct access to _activeHoverObj.
+      mesh.visible = false;
+
+      // Remove companion pulse ring(s) identified by _hcMarker + position proximity
+      AG.eventMarkerGroup.children.slice().forEach(function(child) {
+        if (child.userData && child.userData._hcMarker &&
+            child.userData.isPulseRing &&
+            child.position.distanceTo(mesh.position) < 0.5) {
+          AG.eventMarkerGroup.remove(child);
+        }
+      });
+
+      AG.eventMarkerGroup.remove(mesh);
+      window.eventMarkers = markers.filter(function(m) { return m !== mesh; });
+      if (typeof window.updateNodeCounts === 'function') window.updateNodeCounts();
+    }
+
+    // ── enforceHardcodedCap — evict oldest by timestamp until under cap ────────
+    function enforceHardcodedCap() {
+      var hardcoded = selectHardcoded();
+      if (hardcoded.length <= HARDCODED_MAX) return;
+      // Oldest = smallest timestamp; fall back to array order if timestamps collide
+      var oldest = hardcoded.reduce(function(min, m) {
+        return m.userData.timestamp < min.userData.timestamp ? m : min;
+      });
+      removeById(oldest.userData.id);
+    }
+
+    // ── addHardcodedEvent — insert path with automatic cap enforcement ──────────
+    // evData: { lat, lon (raw °), type, severity, title, id?, impact?, timestamp? }
+    function addHardcodedEvent(evData) {
+      var AG = window.ArgusGlobe;
+      if (!AG || !AG.eventMarkerGroup || !AG.latLonToVector) return;
+
+      var SEV_COL = { CRITICAL: 0xff0044, WARNING: 0xff9933, WATCH: 0xffcc00, LOW: 0x00ff88 };
+      var col = SEV_COL[evData.severity] || 0xffffff;
+
+      // Apply the same +90° longitude correction used throughout the globe engine
+      var lon = (evData.lon || 0) + 90;
+      while (lon >  180) lon -= 360;
+      while (lon < -180) lon += 360;
+      var pos = AG.latLonToVector(evData.lat || 0, lon, 101);
+
+      var mesh = new THREE.Mesh(
+        new THREE.SphereGeometry(1.68, 16, 16),
+        new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.39 })
+      );
+      mesh.position.copy(pos);
+      mesh.userData = Object.assign({}, evData, {
+        source:    'HARDCODED',
+        _hcMarker: true,
+        timestamp: evData.timestamp || Date.now()
+      });
+      // Guarantee a stable id for eviction lookups
+      if (!mesh.userData.id) {
+        mesh.userData.id = 'hc-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7);
+      }
+      AG.eventMarkerGroup.add(mesh);
+      window.eventMarkers = window.eventMarkers || [];
+      window.eventMarkers.push(mesh);
+
+      // Respect current layer toggle state
+      if (window.ArgusLayerState) mesh.visible = !!window.ArgusLayerState.events;
+
+      var ring = new THREE.Mesh(
+        new THREE.RingGeometry(2.4, 3.6, 32),
+        new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.5, side: THREE.DoubleSide })
+      );
+      ring.position.copy(pos);
+      ring.lookAt(pos.clone().normalize().multiplyScalar(200));
+      ring.userData = { isPulseRing: true, phase: Math.random() * Math.PI * 2, _hcMarker: true };
+      AG.eventMarkerGroup.add(ring);
+
+      // FIFO cap — evict oldest hardcoded event if now over limit
+      enforceHardcodedCap();
+      if (typeof window.updateNodeCounts === 'function') window.updateNodeCounts();
+    }
+
+    return {
+      addHardcodedEvent:   addHardcodedEvent,   // insert + auto-evict
+      removeById:          removeById,           // explicit remove by id
+      enforceHardcodedCap: enforceHardcodedCap,  // manual cap check
+      selectHardcoded:     selectHardcoded,      // read-only selector
+      MAX:                 HARDCODED_MAX         // 40
+    };
+  })();
 
 }); // end DOMContentLoaded
 })();

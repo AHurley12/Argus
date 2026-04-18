@@ -17,16 +17,44 @@ const VESSEL_API_BASE = 'https://api.vesselapi.com/v1/location/vessels/bounding-
 const PRIORITY_RE     = /tanker|carrier|bulk|cargo|container/i;
 
 // ── Vessel classification ──────────────────────────────────────────────────────
+// Handles both AIS numeric type codes (ITU-R M.1371) and string descriptors.
+// Mapping is isolated here — never scattered into caller logic.
 function classifyVessel(rawType, name) {
+  // ── AIS numeric type codes (ITU-R M.1371-5) ────────────────────────────────
+  const num = parseInt(rawType, 10);
+  if (!isNaN(num) && num > 0) {
+    if (num === 35)                          return 'military';
+    if (num === 30)                          return 'fishing';
+    if (num === 31 || num === 32 || num === 52) return 'tug';
+    if (num === 36 || num === 37)            return 'recreational';
+    if (num >= 50 && num <= 59)              return 'port_service';
+    if (num >= 60 && num <= 69)              return 'passenger';
+    if (num >= 70 && num <= 79)              return 'cargo';
+    if (num >= 80 && num <= 89)              return 'tanker';
+    if (num > 0)                             return 'unknown';
+  }
+
+  // ── String descriptor fallback ──────────────────────────────────────────────
   const normalized = (rawType || '').toLowerCase();
   const nameLower  = (name   || '').toLowerCase();
-  // Prefer explicit type field; fall back to name-based matching
-  const src = normalized || nameLower;
-  if (!src) return 'other';
-  if (src.includes('cargo') || src.includes('container') || src.includes('bulk') || src.includes('carrier')) return 'cargo';
-  if (src.includes('tanker'))    return 'tanker';
-  if (src.includes('passenger') || src.includes('cruise') || src.includes('ferry')) return 'passenger';
-  if (src.includes('fishing'))   return 'fishing';
+  const src        = normalized || nameLower;
+  if (!src) return 'unknown';
+
+  if (src.includes('military') || src.includes('naval') || src.includes('navy') ||
+      src.includes('warship')  || src.includes('coast guard'))        return 'military';
+  if (src.includes('tug') || src.includes('salvage') ||
+      src.includes('offshore supply'))                                 return 'tug';
+  if (src.includes('pilot')  || src.includes('patrol') ||
+      src.includes('supply') || src.includes('law enforcement') ||
+      src.includes('search and rescue'))                               return 'port_service';
+  if (src.includes('sail') || src.includes('pleasure') ||
+      src.includes('yacht') || src.includes('recreational'))          return 'recreational';
+  if (src.includes('cargo') || src.includes('container') ||
+      src.includes('bulk')  || src.includes('carrier'))               return 'cargo';
+  if (src.includes('tanker'))                                          return 'tanker';
+  if (src.includes('passenger') || src.includes('cruise') ||
+      src.includes('ferry'))                                           return 'passenger';
+  if (src.includes('fishing'))                                         return 'fishing';
   return 'other';
 }
 
@@ -169,10 +197,12 @@ function normalise(v, regionName) {
   const sog  = v.sog ?? v.speed ?? v.speedOverGround ?? null;
   if (sog != null && sog < 0.5) return null;  // skip anchored / very slow
 
-  const mmsi     = String(v.mmsi || v.MMSI || '');
-  const name     = (v.shipName || v.name || v.vesselName || mmsi || 'VESSEL').trim();
-  const cog      = v.cog ?? v.course ?? v.courseOverGround ?? null;
-  const rawType  = v.type || v.vesselType || v.shipType || null;
+  const mmsi        = String(v.mmsi || v.MMSI || '');
+  const name        = (v.shipName || v.name || v.vesselName || mmsi || 'VESSEL').trim();
+  const cog         = v.cog ?? v.course ?? v.courseOverGround ?? null;
+  const rawType     = v.type || v.vesselType || v.shipType || null;
+  const navStatus   = v.nav_status ?? v.navStatus ?? v.navigationStatus ?? null;
+  const destination = (v.destination || v.dest || '').trim() || null;
 
   return {
     mmsi,
@@ -183,6 +213,8 @@ function normalise(v, regionName) {
     sog:          sog != null ? parseFloat(Number(sog).toFixed(2)) : null,
     cog:          cog != null ? parseFloat(Number(cog).toFixed(1)) : null,
     typeCategory: classifyVessel(rawType, name),
+    navStatus:    navStatus != null ? navStatus : null,
+    destination,
   };
 }
 

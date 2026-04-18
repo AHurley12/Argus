@@ -7154,6 +7154,115 @@ window.ArgusUI = (function() {
       return;
     }
 
+    // ── Vessel detail ───────────────────────────────────────────────────────────
+    if (d.isShip) {
+      var VT_LABEL = {
+        cargo:        'CARGO VESSEL',
+        tanker:       'TANKER',
+        military:     'NAVAL / MILITARY',
+        passenger:    'PASSENGER / FERRY',
+        fishing:      'FISHING VESSEL',
+        tug:          'TUG / SALVAGE',
+        port_service: 'PORT SERVICE',
+        recreational: 'RECREATIONAL',
+        other:        'COMMERCIAL VESSEL',
+        unknown:      'CLASSIFICATION PENDING'
+      };
+      var VT_COL = {
+        cargo:        '#4488ff',
+        tanker:       '#ff9933',
+        military:     '#ff4444',
+        passenger:    '#c5d7e8',
+        fishing:      '#44cc88',
+        tug:          '#ffcc44',
+        port_service: '#aaaaaa',
+        recreational: '#cc88ff',
+        other:        '#14b8a6',
+        unknown:      '#5577aa'
+      };
+      var NAV_STATUS_LABEL = {
+        '0':  'UNDERWAY — ENGINE',
+        '1':  'AT ANCHOR',
+        '2':  'NOT UNDER COMMAND',
+        '3':  'RESTRICTED MANOEUVRABILITY',
+        '4':  'CONSTRAINED BY DRAUGHT',
+        '5':  'MOORED',
+        '6':  'AGROUND',
+        '7':  'ENGAGED IN FISHING',
+        '8':  'UNDERWAY — SAILING',
+        '15': 'STATUS UNKNOWN'
+      };
+
+      var vt      = (d.typeCategory || 'unknown').toLowerCase();
+      var vtLabel = VT_LABEL[vt] || vt.toUpperCase();
+      var vtCol   = VT_COL[vt]   || '#5577aa';
+
+      badge.textContent       = vt.toUpperCase();
+      badge.style.color       = vtCol;
+      badge.style.borderColor = vtCol + '44';
+      badge.style.background  = vtCol + '14';
+
+      var vName   = d.title || 'UNIDENTIFIED VESSEL';
+      var mmsiStr = d.mmsi  || 'N/A';
+
+      // Speed — knots
+      var sogStr = 'N/A — DATA UNAVAILABLE';
+      if (d.velocity != null) sogStr = d.velocity.toFixed(1) + ' kts';
+
+      // Course over ground — degrees + 16-point cardinal
+      var cogStr = 'N/A — DATA UNAVAILABLE';
+      if (d.heading != null) {
+        var vcardinals = ['N','NNE','NE','ENE','E','ESE','SE','SSE','S','SSW','SW','WSW','W','WNW','NW','NNW'];
+        var vcard      = vcardinals[Math.round(d.heading / 22.5) % 16];
+        cogStr         = Math.round(d.heading) + '°  (' + vcard + ')';
+      }
+
+      // Nav status
+      var nsStr = 'N/A';
+      if (d.navStatus != null) {
+        var nsKey = String(d.navStatus);
+        nsStr = NAV_STATUS_LABEL[nsKey] || ('STATUS ' + nsKey);
+      }
+
+      // Position
+      var vLatStr = d.lat != null ? (Math.abs(d.lat).toFixed(2) + '° ' + (d.lat >= 0 ? 'N' : 'S')) : '—';
+      var vLonStr = d.lon != null ? (Math.abs(d.lon).toFixed(2) + '° ' + (d.lon >= 0 ? 'E' : 'W')) : '—';
+
+      // AIS region
+      var VESSEL_REGION_LABEL = {
+        ASIA_PACIFIC:  'ASIA PACIFIC',
+        MIDDLE_EAST:   'MIDDLE EAST',
+        EUROPE_MED:    'EUROPE / MEDITERRANEAN',
+        AMERICAS:      'AMERICAS',
+        SOUTH_AFRICA:  'SOUTH AFRICA / CAPE'
+      };
+      var vRegionStr = d.region ? (VESSEL_REGION_LABEL[d.region] || d.region) : 'N/A';
+
+      // Destination
+      var destStr = (d.destination && d.destination.trim()) ? d.destination.trim().toUpperCase() : 'N/A — NOT REPORTED';
+
+      bodyEl.innerHTML =
+        '<div class="detail__section-header">IDENTIFICATION</div>' +
+        '<div class="detail__row"><span class="detail__label">VESSEL NAME</span><span class="detail__value">' + vName + '</span></div>' +
+        '<div class="detail__row"><span class="detail__label">VESSEL TYPE</span><span class="detail__value" style="color:' + vtCol + '">' + vtLabel + '</span></div>' +
+        '<div class="detail__row"><span class="detail__label">MMSI</span><span class="detail__value">' + mmsiStr + '</span></div>' +
+        '<div class="detail__section-header">NAVIGATION STATE</div>' +
+        '<div class="detail__row"><span class="detail__label">SPEED</span><span class="detail__value">' + sogStr + '</span></div>' +
+        '<div class="detail__row"><span class="detail__label">COURSE</span><span class="detail__value">' + cogStr + '</span></div>' +
+        '<div class="detail__row"><span class="detail__label">NAV STATUS</span><span class="detail__value">' + nsStr + '</span></div>' +
+        '<div class="detail__section-header">ORIGIN / DESTINATION</div>' +
+        '<div class="detail__row"><span class="detail__label">AIS REGION</span><span class="detail__value">' + vRegionStr + '</span></div>' +
+        '<div class="detail__row"><span class="detail__label">POSITION</span><span class="detail__value">' + vLatStr + '  ' + vLonStr + '</span></div>' +
+        '<div class="detail__row"><span class="detail__label">DESTINATION</span><span class="detail__value">' + destStr + '</span></div>';
+
+      openDetail(vtCol);
+      ArgusAnim.cipherDecode(tagEl,  'MARITIME TRACK',  320);
+      ArgusAnim.cipherDecode(nameEl,  vName,             560);
+      ArgusAnim.cipherDecode(badge,   vt.toUpperCase(),  260);
+      ArgusAnim.staggerRows(bodyEl);
+      return;
+    }
+
     // ── Standard event detail ───────────────────────────────────────────────────
     var col = RC[d.severity] || '#0099ff';
     badge.textContent       = d.severity;
@@ -12672,6 +12781,21 @@ function clearGroup(group, hitsArr) {
 // commercial=white(default) · cargo=#4488ff(blue) · military=#ff4444(red) · unknown=white
 var AC_TYPE_COLORS = { commercial: 0xffffff, cargo: 0x4488ff, military: 0xff4444, unknown: 0xffffff };
 
+// ── Vessel type → sprite tint (multiplied against base ship texture) ──────────
+// Mirrors AC_TYPE_COLORS pattern — single mapping table, no scattered logic.
+var SHIP_TYPE_COLORS = {
+  cargo:        0x4488ff,  // blue  — matches cargo flight tint
+  tanker:       0xff9933,  // amber — high-value / high-risk
+  military:     0xff4444,  // red   — matches military flight tint
+  passenger:    0xffffff,  // white — civilian
+  fishing:      0x44cc88,  // green
+  tug:          0xffcc44,  // yellow
+  port_service: 0xaaaaaa,  // grey
+  recreational: 0xcc88ff,  // violet
+  other:        0x14b8a6,  // default teal (original ship colour)
+  unknown:      0x888888   // mid-grey
+};
+
 // ── Aircraft marker — oriented by heading, tinted by flight type ──────────────
 function placeAircraft(lat, lon, heading, callsign, country, flightType, alt, region) {
   var AG  = window.ArgusGlobe;
@@ -12709,15 +12833,17 @@ function placeAircraft(lat, lon, heading, callsign, country, flightType, alt, re
 }
 
 // ── Ship marker — top-down SVG ship sprite ────────────────────────────────────
-function placeShip(lat, lon, name, sog, cog, typeCategory) {
+function placeShip(lat, lon, name, sog, cog, typeCategory, mmsi, region, navStatus, destination) {
   var AG  = window.ArgusGlobe;
   var pos = AG.latLonToVector(lat, corrLon(lon), 101.5);
+  var tc  = typeCategory || 'other';
 
   var mat = new THREE.SpriteMaterial({
-    map: _shTex,
+    map:         _shTex,
+    color:       new THREE.Color(SHIP_TYPE_COLORS[tc] !== undefined ? SHIP_TYPE_COLORS[tc] : SHIP_TYPE_COLORS.other),
     transparent: true,
-    opacity: 0.92,
-    depthTest: false
+    opacity:     0.92,
+    depthTest:   false
   });
   var sprite = new THREE.Sprite(mat);
   sprite.position.copy(pos);
@@ -12728,11 +12854,16 @@ function placeShip(lat, lon, name, sog, cog, typeCategory) {
     isShip:       true,
     title:        label,
     type:         'VESSEL',
-    typeCategory: typeCategory || 'other',
+    typeCategory: tc,
     severity:     'LOW',
-    lat: lat, lon: lon,
-    velocity: sog != null ? sog : null,
-    heading:  cog != null ? cog : null
+    lat:          lat,
+    lon:          lon,
+    velocity:     sog != null ? sog : null,
+    heading:      cog != null ? cog : null,
+    mmsi:         mmsi        || null,
+    region:       region      || null,
+    navStatus:    navStatus   != null ? navStatus : null,
+    destination:  destination || null
   };
   shipGroup.add(sprite);
   shipHits.push(sprite);
@@ -12863,7 +12994,18 @@ function fetchShipsFromBackend() {
         if (v.mmsi) {
           vesselMap.set(v.mmsi, { lat: v.lat, lon: v.lon, sog: v.sog, cog: v.cog, shipName: v.name });
         }
-        shipBuffer.push({ lat: v.lat, lon: v.lon, name: v.name || 'VESSEL', sog: v.sog, cog: v.cog || null, typeCategory: v.typeCategory || 'other' });
+        shipBuffer.push({
+          lat:          v.lat,
+          lon:          v.lon,
+          name:         v.name || 'VESSEL',
+          sog:          v.sog,
+          cog:          v.cog         || null,
+          typeCategory: v.typeCategory || 'unknown',
+          mmsi:         v.mmsi        || null,
+          region:       v.region      || null,
+          navStatus:    v.navStatus   != null ? v.navStatus : null,
+          destination:  v.destination || null
+        });
       });
 
       window._vesselMap = vesselMap;
@@ -12888,7 +13030,9 @@ function renderShips() {
   clearGroup(shipGroup, shipHits);
   // Spec: limit to SHIP_LIMIT, highest SOG first (moving ships take priority)
   var sorted = shipBuffer.slice().sort(function (a, b) { return (b.sog || 0) - (a.sog || 0); });
-  sorted.slice(0, SHIP_LIMIT).forEach(function (s) { placeShip(s.lat, s.lon, s.name, s.sog, s.cog, s.typeCategory || 'other'); });
+  sorted.slice(0, SHIP_LIMIT).forEach(function (s) {
+    placeShip(s.lat, s.lon, s.name, s.sog, s.cog, s.typeCategory, s.mmsi, s.region, s.navStatus, s.destination);
+  });
   window._vesselMarkers = shipHits;
   normalizeTracking();
   updateStatus();

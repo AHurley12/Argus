@@ -1,0 +1,551 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Pricing — ARGUS</title>
+<link href="https://fonts.googleapis.com/css2?family=Syncopate:wght@400;700&family=DM+Mono:ital,wght@0,300;0,400;1,300&family=Barlow+Condensed:wght@200;300;400;600&display=swap" rel="stylesheet" />
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --navy:    #040d18;
+    --deep:    #071525;
+    --mid:     #0a1e35;
+    --border:  #0f2d48;
+    --accent:  #0af;
+    --accent2: #00ff9d;
+    --text:    #c8dff0;
+    --dim:     #3a6a8a;
+    --white:   #f0f8ff;
+    --danger:  #ff4466;
+
+    --font-display: 'Syncopate', sans-serif;
+    --font-mono:    'DM Mono', monospace;
+    --font-body:    'Barlow Condensed', sans-serif;
+  }
+
+  html, body {
+    width: 100%; min-height: 100%;
+    background: var(--navy);
+    font-family: var(--font-body);
+    color: var(--text);
+  }
+
+  body { padding: 60px 24px 120px; }
+
+  /* ── Header ─────────────────────────────────────────────────────────── */
+  header {
+    max-width: 900px;
+    margin: 0 auto 48px;
+    padding-bottom: 32px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .back-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 2px;
+    color: var(--accent);
+    text-decoration: none;
+    margin-bottom: 32px;
+    transition: opacity 0.2s;
+  }
+
+  .back-link:hover { opacity: 0.7; }
+
+  h1 {
+    font-family: var(--font-display);
+    font-size: clamp(32px, 5vw, 48px);
+    font-weight: 700;
+    color: var(--white);
+    letter-spacing: -1px;
+    margin-bottom: 12px;
+  }
+
+  .doc-meta {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 2px;
+    color: var(--dim);
+  }
+
+  /* ── Tier grid ───────────────────────────────────────────────────────── */
+  .tiers {
+    max-width: 900px;
+    margin: 0 auto 48px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+  }
+
+  @media (max-width: 680px) {
+    .tiers { grid-template-columns: 1fr; }
+  }
+
+  .tier-card {
+    background: rgba(7, 21, 37, 0.5);
+    border: 1px solid var(--border);
+    padding: 36px 32px;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* corner accents — viewer card */
+  .tier-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0;
+    width: 24px; height: 24px;
+    border-top: 1px solid var(--dim);
+    border-left: 1px solid var(--dim);
+  }
+
+  /* pro card corner accents */
+  .tier-card.is-pro::before {
+    border-color: var(--accent);
+    width: 28px; height: 28px;
+    border-width: 2px;
+  }
+
+  .tier-card.is-pro::after {
+    content: '';
+    position: absolute;
+    bottom: 0; right: 0;
+    width: 28px; height: 28px;
+    border-bottom: 2px solid var(--accent);
+    border-right: 2px solid var(--accent);
+  }
+
+  .tier-card.is-pro {
+    border-color: rgba(0,170,255,0.35);
+    background: rgba(0,170,255,0.04);
+  }
+
+  .tier-badge {
+    font-family: var(--font-mono);
+    font-size: 9px;
+    letter-spacing: 3px;
+    color: var(--dim);
+    margin-bottom: 16px;
+  }
+
+  .tier-card.is-pro .tier-badge { color: var(--accent); }
+
+  .tier-name {
+    font-family: var(--font-display);
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--white);
+    letter-spacing: 1px;
+    margin-bottom: 8px;
+  }
+
+  .tier-price {
+    font-family: var(--font-mono);
+    font-size: 32px;
+    font-weight: 400;
+    color: var(--white);
+    margin-bottom: 4px;
+    letter-spacing: -1px;
+  }
+
+  .tier-price span {
+    font-size: 13px;
+    color: var(--dim);
+    letter-spacing: 1px;
+    font-weight: 300;
+  }
+
+  .tier-price-sub {
+    font-family: var(--font-mono);
+    font-size: 9px;
+    letter-spacing: 2px;
+    color: var(--dim);
+    margin-bottom: 28px;
+  }
+
+  .tier-divider {
+    height: 1px;
+    background: var(--border);
+    margin-bottom: 24px;
+  }
+
+  .tier-card.is-pro .tier-divider {
+    background: rgba(0,170,255,0.2);
+  }
+
+  .feature-list {
+    list-style: none;
+    margin: 0 0 32px;
+    padding: 0;
+    flex: 1;
+  }
+
+  .feature-list li {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.5px;
+    color: var(--text);
+    padding: 7px 0;
+    border-bottom: 1px solid rgba(15,45,72,0.4);
+    line-height: 1.5;
+  }
+
+  .feature-list li:last-child { border-bottom: none; }
+
+  .feature-list li.locked { color: var(--dim); opacity: 0.5; }
+
+  .feat-icon {
+    width: 16px; height: 16px;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 9px;
+    flex-shrink: 0;
+    margin-top: 1px;
+  }
+
+  .feat-icon.on {
+    background: rgba(0,255,157,0.12);
+    border: 1px solid var(--accent2);
+    color: var(--accent2);
+  }
+
+  .feat-icon.pro {
+    background: rgba(0,170,255,0.12);
+    border: 1px solid var(--accent);
+    color: var(--accent);
+  }
+
+  .feat-icon.off {
+    background: rgba(58,106,138,0.1);
+    border: 1px solid rgba(58,106,138,0.4);
+    color: var(--dim);
+  }
+
+  /* ── CTA buttons ─────────────────────────────────────────────────────── */
+  .tier-btn {
+    display: block;
+    width: 100%;
+    padding: 14px;
+    font-family: var(--font-display);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    text-align: center;
+    text-decoration: none;
+    cursor: pointer;
+    border: none;
+    transition: opacity 0.2s, box-shadow 0.2s, background 0.2s, color 0.2s;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .tier-btn.viewer {
+    background: transparent;
+    border: 1px solid var(--dim);
+    color: var(--dim);
+  }
+
+  .tier-btn.viewer:hover {
+    border-color: var(--text);
+    color: var(--text);
+  }
+
+  .tier-btn.pro-btn {
+    background: var(--accent);
+    color: var(--navy);
+    border: none;
+  }
+
+  .tier-btn.pro-btn:hover {
+    opacity: 0.88;
+    box-shadow: 0 0 32px rgba(0,170,255,0.35);
+  }
+
+  .tier-btn:disabled,
+  .tier-btn.loading {
+    opacity: 0.5;
+    pointer-events: none;
+  }
+
+  /* ── Error / status message ──────────────────────────────────────────── */
+  #checkout-msg {
+    max-width: 900px;
+    margin: 0 auto 24px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 1px;
+    padding: 12px 16px;
+    border-left: 2px solid var(--danger);
+    background: rgba(255,68,102,0.05);
+    color: var(--danger);
+    display: none;
+    line-height: 1.5;
+  }
+
+  #checkout-msg.success {
+    border-color: var(--accent2);
+    background: rgba(0,255,157,0.05);
+    color: var(--accent2);
+  }
+
+  /* ── FAQ / info block ────────────────────────────────────────────────── */
+  .info-block {
+    max-width: 900px;
+    margin: 0 auto;
+    background: rgba(7, 21, 37, 0.4);
+    border: 1px solid var(--border);
+    padding: 40px 48px;
+    position: relative;
+  }
+
+  .info-block::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0;
+    width: 24px; height: 24px;
+    border-top: 2px solid var(--accent);
+    border-left: 2px solid var(--accent);
+  }
+
+  .info-block::after {
+    content: '';
+    position: absolute;
+    bottom: 0; right: 0;
+    width: 24px; height: 24px;
+    border-bottom: 2px solid var(--dim);
+    border-right: 2px solid var(--dim);
+  }
+
+  .info-section-header {
+    font-family: var(--font-display);
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--accent);
+    letter-spacing: 2px;
+    margin-bottom: 20px;
+  }
+
+  .faq-item {
+    padding: 16px 0;
+    border-bottom: 1px solid rgba(15,45,72,0.5);
+  }
+
+  .faq-item:last-child { border-bottom: none; }
+
+  .faq-q {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 1px;
+    color: var(--white);
+    margin-bottom: 8px;
+  }
+
+  .faq-a {
+    font-size: 14px;
+    line-height: 1.7;
+    color: var(--text);
+  }
+
+  .faq-a a {
+    color: var(--accent);
+    text-decoration: none;
+    border-bottom: 1px solid transparent;
+    transition: border-color 0.2s;
+  }
+
+  .faq-a a:hover { border-bottom-color: var(--accent); }
+
+  /* ── Footer ──────────────────────────────────────────────────────────── */
+  footer {
+    max-width: 900px;
+    margin: 48px auto 0;
+    padding-top: 32px;
+    border-top: 1px solid var(--border);
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 2px;
+    color: var(--dim);
+    text-align: center;
+  }
+
+  footer a { color: var(--accent); margin: 0 12px; }
+
+  @media (max-width: 768px) {
+    body { padding: 40px 16px 80px; }
+    .info-block { padding: 28px 24px; }
+    h1 { font-size: 28px; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <a href="login.html" class="back-link">← BACK TO LOGIN</a>
+  <h1>PRICING</h1>
+  <div class="doc-meta">TRANSPARENT · NO HIDDEN FEES · CANCEL ANYTIME</div>
+</header>
+
+<!-- Status message (errors / success) -->
+<div id="checkout-msg"></div>
+
+<!-- Tier cards -->
+<div class="tiers">
+
+  <!-- Viewer (free) -->
+  <div class="tier-card">
+    <div class="tier-badge">FREE TIER</div>
+    <div class="tier-name">VIEWER</div>
+    <div class="tier-price">$0 <span>/ month</span></div>
+    <div class="tier-price-sub">NO CARD REQUIRED</div>
+    <div class="tier-divider"></div>
+    <ul class="feature-list">
+      <li><span class="feat-icon on">✓</span>Interactive 3D globe</li>
+      <li><span class="feat-icon on">✓</span>Live GDELT event feed</li>
+      <li><span class="feat-icon on">✓</span>Energy &amp; market data</li>
+      <li><span class="feat-icon on">✓</span>Geopolitical risk markers</li>
+      <li><span class="feat-icon on">✓</span>Chokepoint intelligence</li>
+      <li><span class="feat-icon on">✓</span>Country trade profiles</li>
+      <li><span class="feat-icon on">✓</span>Flight &amp; vessel tracking</li>
+      <li><span class="feat-icon off">—</span><span class="locked">AI intelligence query engine</span></li>
+      <li><span class="feat-icon off">—</span><span class="locked">Community intel submission</span></li>
+      <li><span class="feat-icon off">—</span><span class="locked">Analysis lab</span></li>
+    </ul>
+    <a href="login.html" class="tier-btn viewer">CONTINUE AS GUEST →</a>
+  </div>
+
+  <!-- Pro (paid) -->
+  <div class="tier-card is-pro">
+    <div class="tier-badge">PRO TIER</div>
+    <div class="tier-name">PRO</div>
+    <div class="tier-price">$20 <span>/ month</span></div>
+    <div class="tier-price-sub">BILLED MONTHLY · CANCEL ANYTIME</div>
+    <div class="tier-divider"></div>
+    <ul class="feature-list">
+      <li><span class="feat-icon on">✓</span>Everything in Viewer</li>
+      <li><span class="feat-icon pro">✦</span>AI intelligence query engine</li>
+      <li><span class="feat-icon pro">✦</span>Community intel submission</li>
+      <li><span class="feat-icon pro">✦</span>Full analysis lab access</li>
+      <li><span class="feat-icon pro">✦</span>Priority data refresh</li>
+      <li><span class="feat-icon pro">✦</span>Dynamic risk scoring overlay</li>
+      <li><span class="feat-icon pro">✦</span>Global briefing feed</li>
+      <li><span class="feat-icon pro">✦</span>All future Pro features</li>
+    </ul>
+    <button id="checkout-btn" class="tier-btn pro-btn" onclick="handleCheckout()">
+      UPGRADE TO PRO →
+    </button>
+  </div>
+
+</div>
+
+<!-- FAQ -->
+<div class="info-block">
+  <div class="info-section-header">COMMON QUESTIONS</div>
+
+  <div class="faq-item">
+    <div class="faq-q">DO I NEED AN ACCOUNT TO UPGRADE?</div>
+    <div class="faq-a">Yes. You must be signed in to subscribe. If you don't have an account, <a href="login.html">create one free</a> — it takes under a minute.</div>
+  </div>
+
+  <div class="faq-item">
+    <div class="faq-q">HOW IS PAYMENT HANDLED?</div>
+    <div class="faq-a">Payments are processed securely by Stripe. We never store your card details. You'll be redirected to Stripe's hosted checkout to complete payment.</div>
+  </div>
+
+  <div class="faq-item">
+    <div class="faq-q">CAN I CANCEL ANYTIME?</div>
+    <div class="faq-a">Yes. Cancel from your Stripe customer portal at any time. Access continues until the end of your current billing period — no partial refunds for monthly plans.</div>
+  </div>
+
+  <div class="faq-item">
+    <div class="faq-q">WHAT HAPPENS AFTER I SUBSCRIBE?</div>
+    <div class="faq-a">Your account tier is upgraded automatically within seconds of payment confirmation. Log in and the AI query engine and Pro features will be unlocked.</div>
+  </div>
+
+  <div class="faq-item">
+    <div class="faq-q">PRIVACY &amp; DATA</div>
+    <div class="faq-a">We do not sell or exploit your data. See our <a href="privacy.html">Privacy Policy</a> for full details.</div>
+  </div>
+</div>
+
+<footer>
+  <a href="login.html">LOGIN</a> ·
+  <a href="terms.html">TERMS OF SERVICE</a> ·
+  <a href="privacy.html">PRIVACY POLICY</a>
+  <br><br>
+  © 2026 ARGUS INTELLIGENCE PLATFORM · ALL RIGHTS RESERVED
+</footer>
+
+<script>
+function showMsg(text, isError) {
+  var el = document.getElementById('checkout-msg');
+  el.textContent = text;
+  el.className = isError ? '' : 'success';
+  el.style.display = 'block';
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+async function handleCheckout() {
+  var btn = document.getElementById('checkout-btn');
+
+  // Read session from localStorage (set by login.html on auth)
+  var session = null;
+  try { session = JSON.parse(localStorage.getItem('argus_session')); } catch(e) {}
+
+  var userId = session && session.user && session.user.id;
+  var email  = session && session.user && session.user.email;
+
+  // Guest or not logged in — send to login first
+  if (!userId || userId === 'guest' || !email) {
+    showMsg('YOU MUST BE SIGNED IN TO SUBSCRIBE. REDIRECTING TO LOGIN…', false);
+    setTimeout(function() { window.location.href = 'login.html'; }, 1800);
+    return;
+  }
+
+  btn.textContent = 'REDIRECTING TO STRIPE…';
+  btn.classList.add('loading');
+  document.getElementById('checkout-msg').style.display = 'none';
+
+  try {
+    var res = await fetch('/.netlify/functions/create-checkout-session', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ userId: userId, email: email }),
+    });
+
+    var data = await res.json();
+
+    if (!res.ok || !data.url) {
+      throw new Error(data.error || 'No checkout URL returned');
+    }
+
+    window.location.href = data.url;
+
+  } catch(err) {
+    showMsg('CHECKOUT ERROR: ' + err.message.toUpperCase(), true);
+    btn.textContent = 'UPGRADE TO PRO →';
+    btn.classList.remove('loading');
+  }
+}
+
+// Show success banner if redirected back after payment
+(function() {
+  if (window.location.search.indexOf('upgraded=1') !== -1) {
+    showMsg('PAYMENT CONFIRMED — YOUR ACCOUNT HAS BEEN UPGRADED TO PRO. RETURNING TO PLATFORM…', false);
+    history.replaceState(null, '', window.location.pathname);
+    setTimeout(function() { window.location.href = 'index.html'; }, 3000);
+  }
+})();
+</script>
+
+</body>
+</html>

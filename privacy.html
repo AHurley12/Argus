@@ -258,14 +258,28 @@
 </ul>
 <p>We do not manually access or process user data outside of these systems unless required for debugging, security, or legal compliance.</p>
 
-<h2>5. PAYMENTS</h2>
+<h2>5. SUBSCRIPTION AND BILLING INFORMATION</h2>
 
-<p>If you subscribe to a paid plan, payments are processed by Stripe.</p>
+<p>If you subscribe to ArgusIntel Pro ($9/month), the following applies:</p>
+
+<h3>A. What We Collect for Billing</h3>
 <ul>
-  <li>We do not store your payment details</li>
-  <li>Payment information is handled directly by Stripe's secure infrastructure</li>
-  <li>We may store limited metadata (e.g., subscription status)</li>
+  <li><strong>Email address</strong> — used to identify your account with our payment processor</li>
+  <li><strong>Subscription status</strong> — whether your account is on the Free (Viewer) or Pro tier</li>
+  <li><strong>Billing cycle metadata</strong> — renewal dates and payment confirmation status</li>
 </ul>
+<p>We do <strong>not</strong> collect or store card numbers, CVVs, bank account details, or any other raw payment information.</p>
+
+<h3>B. Payment Processing</h3>
+<p>All payments are processed by <strong>Stripe</strong>, a PCI-DSS compliant third-party payment processor. When you subscribe:</p>
+<ul>
+  <li>Your payment details are entered directly on Stripe's hosted checkout — they never pass through our servers</li>
+  <li>Stripe may collect and retain billing data under their own <a href="https://stripe.com/privacy" target="_blank">Privacy Policy</a></li>
+  <li>We receive only a confirmation of payment and your subscription tier status from Stripe</li>
+</ul>
+
+<h3>C. Subscription Status</h3>
+<p>We store your current subscription tier (Viewer or Pro) in our database to gate access to Pro features. This data is retained for the life of your account and removed upon account deletion.</p>
 
 <h2>6. DATA RETENTION</h2>
 
@@ -353,6 +367,7 @@
   <li>Minimizing data collection</li>
   <li>Being transparent about how systems operate</li>
   <li>Not knowingly engaging in exploitative data practices</li>
+  <li>Clearly disclosing the data implications of paid features — see our <a href="pricing.html">Pricing page</a> for current subscription tiers</li>
 </ul>
 
 <div class="notice">

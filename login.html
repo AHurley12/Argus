@@ -387,6 +387,38 @@
   }
 
   /* footer */
+  /* Pricing nudge strip */
+  .auth-pricing-strip {
+    margin-top: 18px;
+    padding: 10px 14px;
+    border: 1px solid rgba(0,170,255,0.2);
+    background: rgba(0,170,255,0.04);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  .auth-pricing-strip-label {
+    font-family: var(--font-mono);
+    font-size: 9px;
+    letter-spacing: 1.5px;
+    color: var(--dim);
+  }
+
+  .auth-pricing-strip-link {
+    font-family: var(--font-display);
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 2px;
+    color: var(--accent);
+    text-decoration: none;
+    white-space: nowrap;
+    transition: color 0.2s;
+  }
+
+  .auth-pricing-strip-link:hover { color: var(--white); }
+
   .auth-footer {
     margin-top: 22px;
     padding-top: 16px;
@@ -690,13 +722,18 @@
       </div>
       <button class="auth-btn" onclick="handleGuest()"><span>CONTINUE AS GUEST →</span></button>
       <div class="upgrade-banner">
-        <div class="upgrade-banner-label">UNLOCK AI QUERY ENGINE</div>
+        <div class="upgrade-banner-label">UNLOCK AI QUERY ENGINE — $9/MO</div>
         <div class="upgrade-banner-sub">Ask questions across live geopolitical, energy &amp; supply chain data</div>
-        <a href="YOUR-STRIPE-LINK" class="upgrade-banner-btn" target="_blank">UPGRADE TO PRO →</a>
+        <a href="pricing.html" class="upgrade-banner-btn">VIEW PRICING →</a>
       </div>
     </div>
 
     <div id="auth-message"></div>
+
+    <div class="auth-pricing-strip">
+      <span class="auth-pricing-strip-label">PRO PLAN — $9/MONTH</span>
+      <a href="pricing.html" class="auth-pricing-strip-link">VIEW PRICING →</a>
+    </div>
 
     <div class="auth-footer">
       <div class="auth-footer-row">
@@ -705,6 +742,8 @@
           <a href="terms.html" target="_blank">Terms of Service</a>
           <span style="margin:0 6px;opacity:0.4">·</span>
           <a href="privacy.html" target="_blank">Privacy Policy</a>
+          <span style="margin:0 6px;opacity:0.4">·</span>
+          <a href="pricing.html">Pricing</a>
         </div>
       </div>
     </div>

@@ -427,7 +427,7 @@
   <div class="tier-card is-pro">
     <div class="tier-badge">PRO TIER</div>
     <div class="tier-name">PRO</div>
-    <div class="tier-price">$20 <span>/ month</span></div>
+    <div class="tier-price">$9 <span>/ month</span></div>
     <div class="tier-price-sub">BILLED MONTHLY · CANCEL ANYTIME</div>
     <div class="tier-divider"></div>
     <ul class="feature-list">
@@ -443,6 +443,9 @@
     <button id="checkout-btn" class="tier-btn pro-btn" onclick="handleCheckout()">
       UPGRADE TO PRO →
     </button>
+    <div id="login-nudge" style="display:none;margin-top:10px;text-align:center;font-family:var(--font-mono);font-size:9px;letter-spacing:1px;color:var(--dim);">
+      <a href="login.html" style="color:var(--accent);text-decoration:none;border-bottom:1px solid rgba(0,170,255,0.3);">Sign in</a> or <a href="login.html" style="color:var(--accent);text-decoration:none;border-bottom:1px solid rgba(0,170,255,0.3);">create a free account</a> to subscribe
+    </div>
   </div>
 
 </div>
@@ -536,6 +539,18 @@ async function handleCheckout() {
     btn.classList.remove('loading');
   }
 }
+
+// Show login nudge if user is not authenticated
+(function() {
+  var session = null;
+  try { session = JSON.parse(localStorage.getItem('argus_session')); } catch(e) {}
+  var userId = session && session.user && session.user.id;
+  if (!userId || userId === 'guest') {
+    document.getElementById('login-nudge').style.display = 'block';
+    var btn = document.getElementById('checkout-btn');
+    btn.textContent = 'LOGIN TO UPGRADE →';
+  }
+})();
 
 // Show success banner if redirected back after payment
 (function() {

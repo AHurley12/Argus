@@ -3351,6 +3351,12 @@ document.addEventListener('DOMContentLoaded', function() {
       window.eventMarkers.forEach(function(m) { m.visible = evOn; });
       if (!evOn) clearHoverTooltip();
     }
+    if (e.key.toLowerCase() === 'k') {
+      var cpOn = !(window.ArgusLayerState.chokepoints);
+      window.ArgusLayerState.chokepoints = cpOn;
+      window.chokepointMarkers.forEach(function(m) { m.visible = cpOn; });
+      if (!cpOn) clearHoverTooltip();
+    }
   });
 
   // ── Lights ──────────────────────────────────────────────────────────────────

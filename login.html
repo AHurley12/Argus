@@ -9,47 +9,50 @@
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
   :root {
-    --navy:     #040d18;
-    --deep:     #071525;
-    --mid:      #0a1e35;
-    --border:   #0f2d48;
-    --accent:   #0af;
-    --accent2:  #00ff9d;
-    --text:     #c8dff0;
-    --dim:      #3a6a8a;
-    --white:    #f0f8ff;
-    --danger:   #ff4466;
+    /* ── Palette ── */
+    --navy:    #040d18;
+    --deep:    #071525;
+    --mid:     #0a1e35;
+    --border:  #0f2d48;
+    --accent:  #0af;
+    --accent2: #00ff9d;
+    --text:    #c8dff0;
+    --dim:     #3a6a8a;
+    --white:   #f0f8ff;
+    --danger:  #ff4466;
+
+    /* ── Typography — mirrors index.html architecture ── */
+    --font-display:   'Syncopate', sans-serif;       /* headers, titles, buttons */
+    --font-mono:      'DM Mono', monospace;           /* labels, data, fields, HUD */
+    --font-body:      'Barlow Condensed', sans-serif; /* body copy, tabs, secondary */
   }
 
   html, body {
     width: 100%; height: 100%;
     background: var(--navy);
-    font-family: 'Barlow Condensed', sans-serif;
+    font-family: var(--font-body);
     color: var(--text);
     overflow: hidden;
   }
 
-  /* ── Canvas globe ─────────────────────────────────────────────────────── */
+  /* ── Canvas globe ────────────────────────────────────────────────────── */
   #globe-canvas {
-    position: fixed;
-    inset: 0;
+    position: fixed; inset: 0;
     width: 100%; height: 100%;
     z-index: 0;
   }
 
-  /* ── Scanlines ────────────────────────────────────────────────────────── */
+  /* ── Scanlines ───────────────────────────────────────────────────────── */
   #scan {
     position: fixed; inset: 0; z-index: 1; pointer-events: none;
     background: repeating-linear-gradient(
       0deg,
-      transparent,
-      transparent 2px,
-      rgba(0,0,0,0.08) 2px,
-      rgba(0,0,0,0.08) 4px
+      transparent, transparent 2px,
+      rgba(0,0,0,0.08) 2px, rgba(0,0,0,0.08) 4px
     );
   }
 
-  /* ── Vignette ─────────────────────────────────────────────────────────── */
+  /* ── Vignette ────────────────────────────────────────────────────────── */
   #vignette {
     position: fixed; inset: 0; z-index: 2; pointer-events: none;
     background: radial-gradient(ellipse at center,
@@ -59,7 +62,7 @@
     );
   }
 
-  /* ── Layout ───────────────────────────────────────────────────────────── */
+  /* ── Layout ──────────────────────────────────────────────────────────── */
   #layout {
     position: fixed; inset: 0; z-index: 10;
     display: flex;
@@ -69,7 +72,7 @@
     pointer-events: none;
   }
 
-  /* ── Left — branding ──────────────────────────────────────────────────── */
+  /* ── Left — branding ─────────────────────────────────────────────────── */
   #brand {
     display: flex;
     flex-direction: column;
@@ -79,7 +82,7 @@
   }
 
   #brand-eye {
-    font-family: 'DM Mono', monospace;
+    font-family: var(--font-mono);
     font-size: 11px;
     letter-spacing: 6px;
     color: var(--accent);
@@ -89,7 +92,7 @@
   }
 
   #brand-title {
-    font-family: 'Syncopate', sans-serif;
+    font-family: var(--font-display);
     font-size: clamp(64px, 8vw, 112px);
     font-weight: 700;
     color: var(--white);
@@ -116,6 +119,7 @@
     color: var(--dim);
     font-weight: 300;
     text-transform: uppercase;
+    font-family: var(--font-body);
   }
 
   #brand-line {
@@ -133,7 +137,7 @@
   }
 
   .brand-stat {
-    font-family: 'DM Mono', monospace;
+    font-family: var(--font-mono);
     font-size: 10px;
     letter-spacing: 2px;
     color: var(--dim);
@@ -155,20 +159,20 @@
   .brand-stat:nth-child(2)::before { animation-delay: 0.4s; background: var(--accent); box-shadow: 0 0 6px var(--accent); }
   .brand-stat:nth-child(3)::before { animation-delay: 0.8s; }
 
-  /* ── Right — auth card ────────────────────────────────────────────────── */
+  /* ── Right — auth card ───────────────────────────────────────────────── */
   #auth-card {
     pointer-events: all;
     width: 360px;
-    background: rgba(7, 21, 37, 0.85);
+    background: rgba(7,21,37,0.88);
     border: 1px solid var(--border);
     backdrop-filter: blur(24px);
     -webkit-backdrop-filter: blur(24px);
-    padding: 36px 32px;
+    padding: 36px 32px 28px;
     position: relative;
     animation: fadeUp 1.2s 0.2s cubic-bezier(0.22,1,0.36,1) both;
   }
 
-  /* corner accent */
+  /* corner accents */
   #auth-card::before {
     content: '';
     position: absolute;
@@ -187,7 +191,7 @@
   }
 
   .auth-label {
-    font-family: 'DM Mono', monospace;
+    font-family: var(--font-mono);
     font-size: 9px;
     letter-spacing: 4px;
     color: var(--accent);
@@ -196,7 +200,7 @@
   }
 
   .auth-title {
-    font-family: 'Syncopate', sans-serif;
+    font-family: var(--font-display);
     font-size: 16px;
     font-weight: 700;
     color: var(--white);
@@ -207,7 +211,6 @@
   /* tabs */
   #auth-tabs {
     display: flex;
-    gap: 0;
     margin-bottom: 28px;
     border-bottom: 1px solid var(--border);
   }
@@ -217,7 +220,7 @@
     background: none;
     border: none;
     padding: 10px 0;
-    font-family: 'Barlow Condensed', sans-serif;
+    font-family: var(--font-body);
     font-size: 12px;
     letter-spacing: 3px;
     color: var(--dim);
@@ -237,18 +240,18 @@
     transition: transform 0.25s cubic-bezier(0.22,1,0.36,1);
   }
 
-  .auth-tab.active { color: var(--white); }
+  .auth-tab.active  { color: var(--white); }
   .auth-tab.active::after { transform: scaleX(1); }
-  .auth-tab:hover { color: var(--text); }
+  .auth-tab:hover   { color: var(--text); }
 
-  /* form */
+  /* forms */
   .auth-form { display: none; flex-direction: column; gap: 14px; }
   .auth-form.active { display: flex; }
 
   .field-group { display: flex; flex-direction: column; gap: 6px; }
 
   .field-label {
-    font-family: 'DM Mono', monospace;
+    font-family: var(--font-mono);
     font-size: 9px;
     letter-spacing: 3px;
     color: var(--dim);
@@ -256,10 +259,10 @@
   }
 
   .field-input {
-    background: rgba(4, 13, 24, 0.6);
+    background: rgba(4,13,24,0.6);
     border: 1px solid var(--border);
     color: var(--white);
-    font-family: 'DM Mono', monospace;
+    font-family: var(--font-mono);
     font-size: 13px;
     padding: 10px 12px;
     outline: none;
@@ -279,7 +282,7 @@
     background: transparent;
     border: 1px solid var(--accent);
     color: var(--accent);
-    font-family: 'Syncopate', sans-serif;
+    font-family: var(--font-display);
     font-size: 11px;
     font-weight: 700;
     letter-spacing: 3px;
@@ -293,8 +296,7 @@
 
   .auth-btn::before {
     content: '';
-    position: absolute;
-    inset: 0;
+    position: absolute; inset: 0;
     background: var(--accent);
     transform: translateX(-100%);
     transition: transform 0.3s cubic-bezier(0.22,1,0.36,1);
@@ -304,11 +306,34 @@
   .auth-btn:hover::before { transform: translateX(0); }
   .auth-btn:hover { color: var(--navy); box-shadow: 0 0 30px rgba(0,170,255,0.3); }
   .auth-btn span { position: relative; z-index: 1; }
-
   .auth-btn.loading { opacity: 0.6; pointer-events: none; }
 
+  /* TOS acknowledgement line */
+  .auth-tos {
+    font-family: var(--font-mono);
+    font-size: 8px;
+    letter-spacing: 0.8px;
+    color: var(--dim);
+    text-align: center;
+    line-height: 1.6;
+    margin-top: -4px;
+  }
+
+  .auth-tos a {
+    color: var(--accent);
+    text-decoration: none;
+    border-bottom: 1px solid rgba(0,170,255,0.3);
+    transition: color 0.2s, border-color 0.2s;
+  }
+
+  .auth-tos a:hover {
+    color: var(--white);
+    border-color: rgba(255,255,255,0.4);
+  }
+
+  /* message */
   #auth-message {
-    font-family: 'DM Mono', monospace;
+    font-family: var(--font-mono);
     font-size: 10px;
     letter-spacing: 1px;
     padding: 10px 12px;
@@ -328,6 +353,24 @@
 
   #auth-message.visible { display: block; }
 
+  /* guest-only link */
+  .auth-link-btn {
+    background: none;
+    border: none;
+    color: var(--dim);
+    font-family: var(--font-mono);
+    font-size: 9px;
+    letter-spacing: 2px;
+    cursor: pointer;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+    transition: color 0.2s;
+    text-align: center;
+    margin-top: -2px;
+  }
+
+  .auth-link-btn:hover { color: var(--text); }
+
   .auth-divider {
     display: flex;
     align-items: center;
@@ -337,20 +380,65 @@
 
   .auth-divider-line { flex: 1; height: 1px; background: var(--border); }
   .auth-divider-text {
-    font-family: 'DM Mono', monospace;
+    font-family: var(--font-mono);
     font-size: 9px;
     letter-spacing: 2px;
     color: var(--dim);
   }
 
+  /* footer */
   .auth-footer {
-    margin-top: 20px;
-    font-family: 'DM Mono', monospace;
-    font-size: 9px;
+    margin-top: 22px;
+    padding-top: 16px;
+    border-top: 1px solid rgba(15,45,72,0.6);
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .auth-footer-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .auth-footer-status {
+    font-family: var(--font-mono);
+    font-size: 8px;
+    letter-spacing: 2px;
+    color: var(--dim);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .auth-footer-status::before {
+    content: '';
+    width: 5px; height: 5px;
+    border-radius: 50%;
+    background: var(--accent2);
+    box-shadow: 0 0 5px var(--accent2);
+    flex-shrink: 0;
+    animation: pulse 2.4s ease-in-out infinite;
+  }
+
+  .auth-footer-tos {
+    font-family: var(--font-mono);
+    font-size: 8px;
     letter-spacing: 1px;
     color: var(--dim);
-    line-height: 1.6;
-    opacity: 0.7;
+  }
+
+  .auth-footer-tos a {
+    color: var(--dim);
+    text-decoration: none;
+    border-bottom: 1px solid rgba(58,106,138,0.4);
+    transition: color 0.2s, border-color 0.2s;
+  }
+
+  .auth-footer-tos a:hover {
+    color: var(--text);
+    border-color: rgba(200,223,240,0.4);
   }
 
   /* Guest tab accent */
@@ -372,7 +460,7 @@
     display: flex;
     align-items: center;
     gap: 10px;
-    font-family: 'DM Mono', monospace;
+    font-family: var(--font-mono);
     font-size: 10px;
     letter-spacing: 1px;
     color: var(--text);
@@ -414,14 +502,14 @@
   }
 
   .upgrade-banner-label {
-    font-family: 'DM Mono', monospace;
+    font-family: var(--font-mono);
     font-size: 9px;
     letter-spacing: 3px;
     color: var(--accent);
-    font-weight: 400;
   }
 
   .upgrade-banner-sub {
+    font-family: var(--font-body);
     font-size: 11px;
     color: var(--dim);
     letter-spacing: 0.5px;
@@ -434,7 +522,7 @@
     text-align: center;
     background: var(--accent);
     color: var(--navy);
-    font-family: 'Syncopate', sans-serif;
+    font-family: var(--font-display);
     font-size: 10px;
     font-weight: 700;
     letter-spacing: 2px;
@@ -448,7 +536,7 @@
     box-shadow: 0 0 20px rgba(0,170,255,0.3);
   }
 
-  /* ── Animations ───────────────────────────────────────────────────────── */
+  /* ── Animations ──────────────────────────────────────────────────────── */
   @keyframes fadeUp {
     from { opacity: 0; transform: translateY(24px); }
     to   { opacity: 1; transform: translateY(0); }
@@ -459,12 +547,12 @@
     50%       { opacity: 0.4; transform: scale(0.7); }
   }
 
-  /* ── HUD corner decorations ───────────────────────────────────────────── */
+  /* ── HUD corner decorations ──────────────────────────────────────────── */
   .hud-corner {
     position: fixed;
     z-index: 10;
     pointer-events: none;
-    font-family: 'DM Mono', monospace;
+    font-family: var(--font-mono);
     font-size: 9px;
     letter-spacing: 2px;
     color: var(--dim);
@@ -472,12 +560,12 @@
     animation: fadeUp 2s 0.8s both;
   }
 
-  #hud-tl { top: 24px; left: 28px; }
+  #hud-tl { top: 24px; left: 28px; line-height: 1.8; }
   #hud-tr { top: 24px; right: 28px; text-align: right; }
-  #hud-bl { bottom: 24px; left: 28px; }
-  #hud-br { bottom: 24px; right: 28px; text-align: right; }
+  #hud-bl { bottom: 24px; left: 28px; line-height: 1.8; }
+  #hud-br { bottom: 24px; right: 28px; text-align: right; line-height: 1.8; }
 
-  /* ── Responsive ───────────────────────────────────────────────────────── */
+  /* ── Responsive ──────────────────────────────────────────────────────── */
   @media (max-width: 800px) {
     #layout {
       flex-direction: column;
@@ -502,9 +590,9 @@
 
 <!-- HUD corners -->
 <div class="hud-corner" id="hud-tl">ARGUS v3.0<br>SUPPLY CHAIN INTELLIGENCE</div>
-<div class="hud-corner" id="hud-tr" id="hud-clock">--:--:-- ET</div>
+<div class="hud-corner" id="hud-tr">--:--:-- UTC</div>
 <div class="hud-corner" id="hud-bl">SYS: NOMINAL<br>FEEDS: ACTIVE</div>
-<div class="hud-corner" id="hud-br">ARGUS INTELLIGENCE PLATFORM<br>ANALYST ACCESS</div>
+<div class="hud-corner" id="hud-br">ARGUS INTELLIGENCE PLATFORM<br>ANALYST ACCESS PORTAL</div>
 
 <div id="layout">
 
@@ -526,12 +614,12 @@
 
   <!-- Right auth -->
   <div id="auth-card">
-    <div class="auth-label">ACCESS LEVEL</div>
+    <div class="auth-label">ANALYST ACCESS</div>
     <div class="auth-title">ENTER ARGUS</div>
 
     <div id="auth-tabs">
-      <button class="auth-tab active" data-tab="signin" onclick="switchTab('signin')">SIGN IN</button>
-      <button class="auth-tab" data-tab="register" onclick="switchTab('register')">REGISTER</button>
+      <button class="auth-tab active" data-tab="signin"   onclick="switchTab('signin')">SIGN IN</button>
+      <button class="auth-tab"        data-tab="register" onclick="switchTab('register')">REGISTER</button>
       <button class="auth-tab guest-tab" data-tab="guest" onclick="switchTab('guest')">GUEST</button>
     </div>
 
@@ -547,9 +635,7 @@
           onkeydown="if(event.key==='Enter') handleSignIn()" />
       </div>
       <button class="auth-btn" onclick="handleSignIn()"><span>AUTHENTICATE →</span></button>
-      <div style="text-align:center;margin-top:12px;">
-        <button onclick="switchTab('guest')" style="background:none;border:none;color:var(--dim);font-family:'DM Mono',monospace;font-size:9px;letter-spacing:2px;cursor:pointer;text-decoration:underline;text-underline-offset:3px;">CONTINUE AS GUEST →</button>
-      </div>
+      <button class="auth-link-btn" onclick="switchTab('guest')">CONTINUE AS GUEST →</button>
     </div>
 
     <!-- Register -->
@@ -568,9 +654,11 @@
           onkeydown="if(event.key==='Enter') handleRegister()" />
       </div>
       <button class="auth-btn" onclick="handleRegister()"><span>CREATE ACCOUNT →</span></button>
-      <div style="text-align:center;margin-top:12px;">
-        <button onclick="switchTab('guest')" style="background:none;border:none;color:var(--dim);font-family:'DM Mono',monospace;font-size:9px;letter-spacing:2px;cursor:pointer;text-decoration:underline;text-underline-offset:3px;">CONTINUE AS GUEST →</button>
+      <div class="auth-tos">
+        By creating an account you agree to the
+        <a href="terms.html" target="_blank">Terms of Service</a>
       </div>
+      <button class="auth-link-btn" onclick="switchTab('guest')">CONTINUE AS GUEST →</button>
     </div>
 
     <!-- Guest -->
@@ -611,8 +699,10 @@
     <div id="auth-message"></div>
 
     <div class="auth-footer">
-      ARGUS is a global supply chain intelligence platform.<br>
-      Sign in or create an account to get started.
+      <div class="auth-footer-row">
+        <div class="auth-footer-status">SECURE CONNECTION</div>
+        <div class="auth-footer-tos"><a href="terms.html" target="_blank">Terms of Service</a></div>
+      </div>
     </div>
   </div>
 
@@ -628,10 +718,10 @@ var SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS
 function showMessage(text, isError) {
   var el = document.getElementById('auth-message');
   el.textContent = text;
-  el.style.display = 'block';
+  el.style.display      = 'block';
   el.style.borderLeftColor = isError ? '#ff4466' : '#00ff9d';
   el.style.background      = isError ? 'rgba(255,68,102,0.05)' : 'rgba(0,255,157,0.05)';
-  el.style.color            = isError ? '#ff4466' : '#00ff9d';
+  el.style.color           = isError ? '#ff4466' : '#00ff9d';
 }
 
 function hideMessage() {
@@ -694,9 +784,9 @@ async function handleRegister() {
   var email   = document.getElementById('reg-email').value.trim();
   var pass    = document.getElementById('reg-password').value;
   var confirm = document.getElementById('reg-confirm').value;
-  if (!email || !pass)    { showMessage('ALL FIELDS REQUIRED', true); return; }
-  if (pass !== confirm)   { showMessage('PASSWORDS DO NOT MATCH', true); return; }
-  if (pass.length < 8)    { showMessage('PASSWORD MIN 8 CHARACTERS', true); return; }
+  if (!email || !pass)  { showMessage('ALL FIELDS REQUIRED', true); return; }
+  if (pass !== confirm) { showMessage('PASSWORDS DO NOT MATCH', true); return; }
+  if (pass.length < 8)  { showMessage('PASSWORD MIN 8 CHARACTERS', true); return; }
   setBtn('#form-register', 'CREATING ACCOUNT...', true);
   hideMessage();
   try {
@@ -720,11 +810,9 @@ function handleGuest() {
 }
 
 // ── Email confirmation callback ───────────────────────────────────────────────
-// Runs after DOM ready — handles both hash fragment (#access_token=) and
-// query param (?code=) flows that Supabase uses depending on project settings.
 window.addEventListener('DOMContentLoaded', function() {
 
-  // Parse hash params (implicit flow — most common for GitHub Pages)
+  // Parse hash params (implicit flow)
   var hashParams = {};
   if (window.location.hash) {
     window.location.hash.replace('#','').split('&').forEach(function(p) {
@@ -740,16 +828,13 @@ window.addEventListener('DOMContentLoaded', function() {
     });
   }
 
-  // Error in either flow
   if (hashParams.error || queryParams.error) {
     var msg = hashParams.error_description || queryParams.error_description || 'LINK EXPIRED';
     showMessage(msg.toUpperCase() + ' — PLEASE SIGN IN OR REGISTER AGAIN.', true);
-    // Clean URL
     history.replaceState(null, '', window.location.pathname);
     return;
   }
 
-  // Implicit flow — access_token in hash
   if (hashParams.access_token) {
     showMessage('VERIFYING EMAIL...', false);
     fetch(SUPABASE_URL + '/auth/v1/user', {
@@ -766,7 +851,6 @@ window.addEventListener('DOMContentLoaded', function() {
     return;
   }
 
-  // PKCE flow — exchange code for session
   if (queryParams.code) {
     showMessage('VERIFYING EMAIL...', false);
     fetch(SUPABASE_URL + '/auth/v1/token?grant_type=pkce', {
@@ -789,16 +873,14 @@ window.addEventListener('DOMContentLoaded', function() {
 <script>
 // ── Clock ─────────────────────────────────────────────────────────────────────
 (function() {
-  var tz   = Intl.DateTimeFormat().resolvedOptions().timeZone;
-  var abbr = new Date().toLocaleTimeString('en-US', { timeZone: tz, timeZoneName: 'short' }).split(' ').pop();
-  var el   = document.getElementById('hud-tr');
+  var el = document.getElementById('hud-tr');
   setInterval(function() {
-    var t = new Date().toLocaleTimeString('en-US', { timeZone: tz, hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
-    el.textContent = t + ' ' + abbr;
+    var t = new Date().toISOString().replace('T', ' ').slice(0, 19);
+    el.textContent = t + ' UTC';
   }, 1000);
 })();
 
-// ── Three.js Globe ───────────────────────────────────────────────────────────
+// ── Three.js Globe ────────────────────────────────────────────────────────────
 (function() {
   var canvas   = document.getElementById('globe-canvas');
   var renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true, alpha: true });
@@ -819,50 +901,44 @@ window.addEventListener('DOMContentLoaded', function() {
     shininess:   40,
     transparent: true,
     opacity:     0.92,
-    wireframe:   false,
   });
   var globe = new THREE.Mesh(geo, mat);
   scene.add(globe);
 
   // Wireframe overlay
-  var wireMat  = new THREE.MeshBasicMaterial({ color: 0x0a2a4a, wireframe: true, transparent: true, opacity: 0.18 });
-  var wireGeo  = new THREE.SphereGeometry(1.001, 32, 32);
-  var wireframe = new THREE.Mesh(wireGeo, wireMat);
+  var wireframe = new THREE.Mesh(
+    new THREE.SphereGeometry(1.001, 32, 32),
+    new THREE.MeshBasicMaterial({ color: 0x0a2a4a, wireframe: true, transparent: true, opacity: 0.18 })
+  );
   scene.add(wireframe);
 
   // Atmosphere glow
-  var atmGeo = new THREE.SphereGeometry(1.08, 64, 64);
-  var atmMat = new THREE.MeshBasicMaterial({
-    color: 0x0055aa,
-    transparent: true,
-    opacity: 0.07,
-    side: THREE.BackSide,
-  });
-  scene.add(new THREE.Mesh(atmGeo, atmMat));
+  scene.add(new THREE.Mesh(
+    new THREE.SphereGeometry(1.08, 64, 64),
+    new THREE.MeshBasicMaterial({ color: 0x0055aa, transparent: true, opacity: 0.07, side: THREE.BackSide })
+  ));
 
   // Outer glow ring
-  var ringGeo = new THREE.SphereGeometry(1.14, 64, 64);
-  var ringMat = new THREE.MeshBasicMaterial({
-    color: 0x0099ff,
-    transparent: true,
-    opacity: 0.03,
-    side: THREE.BackSide,
-  });
-  scene.add(new THREE.Mesh(ringGeo, ringMat));
+  scene.add(new THREE.Mesh(
+    new THREE.SphereGeometry(1.14, 64, 64),
+    new THREE.MeshBasicMaterial({ color: 0x0099ff, transparent: true, opacity: 0.03, side: THREE.BackSide })
+  ));
 
-  // Random dots for cities/events
+  // Random dots
   var dotGroup = new THREE.Group();
   for (var i = 0; i < 120; i++) {
     var phi   = Math.acos(-1 + (2 * i) / 120);
     var theta = Math.sqrt(120 * Math.PI) * phi;
-    var x = Math.sin(phi) * Math.cos(theta);
-    var y = Math.cos(phi);
-    var z = Math.sin(phi) * Math.sin(theta);
-    var dotGeo = new THREE.SphereGeometry(0.004, 4, 4);
-    var col    = Math.random() > 0.85 ? 0x00aaff : (Math.random() > 0.7 ? 0x00ff9d : 0x0a3060);
-    var dotMat = new THREE.MeshBasicMaterial({ color: col });
-    var dot    = new THREE.Mesh(dotGeo, dotMat);
-    dot.position.set(x, y, z);
+    var col   = Math.random() > 0.85 ? 0x00aaff : (Math.random() > 0.7 ? 0x00ff9d : 0x0a3060);
+    var dot   = new THREE.Mesh(
+      new THREE.SphereGeometry(0.004, 4, 4),
+      new THREE.MeshBasicMaterial({ color: col })
+    );
+    dot.position.set(
+      Math.sin(phi) * Math.cos(theta),
+      Math.cos(phi),
+      Math.sin(phi) * Math.sin(theta)
+    );
     dotGroup.add(dot);
   }
   scene.add(dotGroup);
@@ -876,14 +952,12 @@ window.addEventListener('DOMContentLoaded', function() {
   rimLight.position.set(-5, -2, -3);
   scene.add(rimLight);
 
-  // Resize
   window.addEventListener('resize', function() {
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
     renderer.setSize(window.innerWidth, window.innerHeight);
   });
 
-  // Animate
   var t = 0;
   (function animate() {
     requestAnimationFrame(animate);
@@ -891,7 +965,6 @@ window.addEventListener('DOMContentLoaded', function() {
     globe.rotation.y     = t;
     wireframe.rotation.y = t;
     dotGroup.rotation.y  = t;
-    // Subtle tilt oscillation
     globe.rotation.x     = Math.sin(t * 0.3) * 0.05;
     wireframe.rotation.x = globe.rotation.x;
     dotGroup.rotation.x  = globe.rotation.x;

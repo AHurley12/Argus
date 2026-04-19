@@ -7384,7 +7384,14 @@ window.ArgusUI = (function() {
       html += '<div style="margin-top:10px"><div class="detail__label" style="margin-bottom:7px">TOP IMPORTS</div>' +
         '<div class="tag-list">' + d.topI.map(function(e) { return '<span class="tag" style="color:#0099ff;border-color:#0099ff44;background:rgba(0,153,255,0.08)">' + e + '</span>'; }).join('') + '</div></div>';
       html += '<div class="detail__section-header">RISK ASSESSMENT</div>';
-      html += '<div class="detail__row"><span class="detail__label">COMPOSITE RISK SCORE<br><span style="font-size:7px;color:#4a7da8;letter-spacing:0;font-weight:300">Human rights 70% · Supply chain 30%<br>FH · RSF · ILGA · Gini · Trade</span></span><span class="detail__value" style="color:' + col + '">' + d.score + ' / 100</span></div>';
+      html += '<div class="detail__row"><span class="detail__label">BASELINE SCORE<br><span style="font-size:7px;color:#4a7da8;letter-spacing:0;font-weight:300">Human rights 70% · Supply chain 30%<br>FH · RSF · ILGA · Gini · Trade</span></span><span class="detail__value" style="color:' + col + '">' + d.score + ' / 100</span></div>';
+      if (d._dynamicScore != null) {
+        var dsCol = d._dynamicScore >= 75 ? '#ff0044' : d._dynamicScore >= 54 ? '#ff9933' : d._dynamicScore >= 33 ? '#ffcc00' : '#00ff88';
+        html += '<div class="detail__row"><span class="detail__label">DYNAMIC SCORE<br><span style="font-size:7px;color:#4a7da8;letter-spacing:0;font-weight:300">Baseline 55% · GDELT events 30% · Volatility 15%</span></span><span class="detail__value" style="color:' + dsCol + '">' + d._dynamicScore + ' / 100</span></div>';
+        if (d._articleCount > 0) {
+          html += '<div class="detail__row"><span class="detail__label">LIVE SIGNAL</span><span class="detail__value" style="color:#7ab8d4">' + d._articleCount + ' articles · event +' + (d._eventScore || 0) + ' · vol +' + (d._volatility || 0) + '</span></div>';
+        }
+      }
       // ── helpers ────────────────────────────────────────────────────────────
       function parseMoney(str) {
         if (!str) return null;
@@ -15535,6 +15542,92 @@ return {
   getState:         function(){ return state; },
   getStore:         function(){ return store; },
 };
+
+}());
+</script>
+
+<!-- ── Dynamic Risk Scoring Engine ──────────────────────────────────────── -->
+<script>
+(function() {
+'use strict';
+
+// score → risk tier (mirrors calculate-risk.js scoreToTier)
+function scoreToTier(s) {
+  if (s >= 75) return 'CRITICAL';
+  if (s >= 54) return 'WARNING';
+  if (s >= 33) return 'WATCH';
+  return 'LOW';
+}
+
+var RISK_TIER_RANK  = { LOW: 0, WATCH: 1, WARNING: 2, CRITICAL: 3 };
+var RISK_TIER_COLOR = { LOW: '#00ff88', WATCH: '#ffcc00', WARNING: '#ff9933', CRITICAL: '#ff0044' };
+
+// Fetch scores from calculate-risk, apply to globe markers and COUNTRIES_DATA.
+// Only upgrades risk (never silently downgrades static hand-curated baselines).
+async function fetchDynamicRisk() {
+  try {
+    var res = await fetch('/.netlify/functions/calculate-risk');
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    var json = await res.json();
+    var scores = json.scores;
+    if (!scores || !scores.length) return;
+
+    // Build lookup: ISO3 → score object
+    var byIso3 = {};
+    scores.forEach(function(s) { byIso3[s.iso3] = s; });
+
+    // ── Update COUNTRIES_DATA in place ───────────────────────────────────────
+    (window.COUNTRIES_DATA || []).forEach(function(cd) {
+      var s = byIso3[cd.code];
+      if (!s) return;
+      cd._dynamicScore  = s.dynamicScore;
+      cd._eventScore    = s.eventScore;
+      cd._volatility    = s.volatility;
+      cd._articleCount  = s.articleCount;
+    });
+
+    // ── Update globe marker colors ────────────────────────────────────────────
+    // Only escalate — if dynamic score pushes to a higher tier, update color.
+    (window.countryMarkers || []).forEach(function(mesh) {
+      var s = byIso3[mesh.userData.code];
+      if (!s) return;
+
+      var staticTier  = mesh.userData.risk || 'LOW';
+      var dynamicTier = scoreToTier(s.dynamicScore);
+
+      mesh.userData._dynamicScore = s.dynamicScore;
+      mesh.userData._eventScore   = s.eventScore;
+      mesh.userData._volatility   = s.volatility;
+
+      if (RISK_TIER_RANK[dynamicTier] > RISK_TIER_RANK[staticTier]) {
+        mesh.material.color.set(RISK_TIER_COLOR[dynamicTier]);
+        mesh.userData._dynamicTier = dynamicTier;
+      }
+    });
+
+    // Mirror to hit meshes (invisible but carry userData for detail panel)
+    (window.countryHitMeshes || []).forEach(function(mesh) {
+      var s = byIso3[mesh.userData.code];
+      if (!s) return;
+      mesh.userData._dynamicScore = s.dynamicScore;
+      mesh.userData._eventScore   = s.eventScore;
+      mesh.userData._volatility   = s.volatility;
+    });
+
+    console.log('calculate-risk: applied dynamic scores (' + json.source + ', ' + scores.length + ' countries)');
+
+  } catch(err) {
+    console.warn('calculate-risk: fetch failed —', err.message);
+  }
+}
+
+// Run after globe markers are placed (slight defer ensures globe init is done)
+window.addEventListener('DOMContentLoaded', function() {
+  setTimeout(fetchDynamicRisk, 3000);            // initial load
+  setInterval(fetchDynamicRisk, 5 * 60 * 1000); // refresh every 5 min
+});
+
+window.fetchDynamicRisk = fetchDynamicRisk; // expose for manual refresh
 
 }());
 </script>

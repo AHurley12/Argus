@@ -24,6 +24,9 @@
 [functions."fetch-bdi"]
   timeout = 26
 
+[functions."calculate-risk"]
+  timeout = 15
+
 [functions."create-checkout-session"]
   timeout = 10
 

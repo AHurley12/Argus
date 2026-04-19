@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Privacy Policy — ARGUS</title>
+<link href="https://fonts.googleapis.com/css2?family=Syncopate:wght@400;700&family=DM+Mono:ital,wght@0,300;0,400;1,300&family=Barlow+Condensed:wght@200;300;400;600&display=swap" rel="stylesheet" />
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --navy:    #040d18;
+    --deep:    #071525;
+    --mid:     #0a1e35;
+    --border:  #0f2d48;
+    --accent:  #0af;
+    --accent2: #00ff9d;
+    --text:    #c8dff0;
+    --dim:     #3a6a8a;
+    --white:   #f0f8ff;
+    --danger:  #ff4466;
+  }
+
+  html, body {
+    width: 100%; min-height: 100%;
+    background: var(--navy);
+    font-family: 'Barlow Condensed', sans-serif;
+    color: var(--text);
+  }
+
+  body { padding: 60px 24px 120px; }
+
+  /* Header */
+  header {
+    max-width: 900px;
+    margin: 0 auto 48px;
+    padding-bottom: 32px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .back-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-family: 'DM Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 2px;
+    color: var(--accent);
+    text-decoration: none;
+    margin-bottom: 32px;
+    transition: opacity 0.2s;
+  }
+
+  .back-link:hover { opacity: 0.7; }
+
+  h1 {
+    font-family: 'Syncopate', sans-serif;
+    font-size: clamp(32px, 5vw, 48px);
+    font-weight: 700;
+    color: var(--white);
+    letter-spacing: -1px;
+    margin-bottom: 12px;
+  }
+
+  .doc-meta {
+    font-family: 'DM Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 2px;
+    color: var(--dim);
+  }
+
+  /* Content */
+  .content {
+    max-width: 900px;
+    margin: 0 auto;
+    background: rgba(7, 21, 37, 0.4);
+    border: 1px solid var(--border);
+    padding: 48px;
+    position: relative;
+  }
+
+  .content::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0;
+    width: 30px; height: 30px;
+    border-top: 2px solid var(--accent);
+    border-left: 2px solid var(--accent);
+  }
+
+  .content::after {
+    content: '';
+    position: absolute;
+    bottom: 0; right: 0;
+    width: 30px; height: 30px;
+    border-bottom: 2px solid var(--dim);
+    border-right: 2px solid var(--dim);
+  }
+
+  h2 {
+    font-family: 'Syncopate', sans-serif;
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--accent);
+    letter-spacing: 1px;
+    margin: 48px 0 16px;
+    padding-top: 24px;
+    border-top: 1px solid var(--border);
+  }
+
+  h2:first-child {
+    margin-top: 0;
+    padding-top: 0;
+    border-top: none;
+  }
+
+  h3 {
+    font-family: 'Barlow Condensed', sans-serif;
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--white);
+    letter-spacing: 1px;
+    margin: 28px 0 12px;
+  }
+
+  p {
+    font-size: 15px;
+    line-height: 1.8;
+    color: var(--text);
+    margin-bottom: 16px;
+  }
+
+  ul {
+    margin: 16px 0 16px 24px;
+  }
+
+  li {
+    font-size: 15px;
+    line-height: 1.8;
+    color: var(--text);
+    margin-bottom: 8px;
+  }
+
+  strong { color: var(--white); font-weight: 600; }
+
+  a {
+    color: var(--accent);
+    text-decoration: none;
+    border-bottom: 1px solid transparent;
+    transition: border-color 0.2s;
+  }
+
+  a:hover { border-bottom-color: var(--accent); }
+
+  .notice {
+    background: rgba(0,170,255,0.05);
+    border-left: 3px solid var(--accent);
+    padding: 16px 20px;
+    margin: 24px 0;
+    font-family: 'DM Mono', monospace;
+    font-size: 13px;
+    line-height: 1.6;
+    color: var(--text);
+  }
+
+  .warning {
+    background: rgba(255,68,102,0.05);
+    border-left: 3px solid var(--danger);
+    padding: 16px 20px;
+    margin: 24px 0;
+    font-family: 'DM Mono', monospace;
+    font-size: 13px;
+    line-height: 1.6;
+    color: var(--text);
+  }
+
+  /* Footer */
+  footer {
+    max-width: 900px;
+    margin: 48px auto 0;
+    padding-top: 32px;
+    border-top: 1px solid var(--border);
+    font-family: 'DM Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 2px;
+    color: var(--dim);
+    text-align: center;
+  }
+
+  footer a { color: var(--accent); margin: 0 12px; }
+
+  @media (max-width: 768px) {
+    body { padding: 40px 16px 80px; }
+    .content { padding: 32px 24px; }
+    h1 { font-size: 28px; }
+    h2 { font-size: 16px; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <a href="login.html" class="back-link">← BACK TO LOGIN</a>
+  <h1>PRIVACY POLICY</h1>
+  <div class="doc-meta">LAST UPDATED: APRIL 19, 2026</div>
+</header>
+
+<div class="content">
+
+<div class="notice">
+  Argus ("we", "our", "us") is committed to transparency and protecting user privacy. This <a href="privacy.html">Privacy Policy</a> explains what information we collect, how we use it, and how it is handled.
+</div>
+
+<h2>1. OVERVIEW</h2>
+
+<p>Argus is a global intelligence and data visualization platform. We do <strong>not knowingly harvest, sell, or exploit personal data</strong>. All user-related data is limited to what is necessary for authentication, platform functionality, and service improvement.</p>
+
+<h2>2. INFORMATION WE COLLECT</h2>
+
+<p>We collect only the minimum data required to operate the platform.</p>
+
+<h3>A. Account Information</h3>
+<p>When you create an account:</p>
+<ul>
+  <li>Email address</li>
+  <li>Authentication credentials (securely handled via backend services)</li>
+</ul>
+
+<h3>B. Usage Data</h3>
+<p>We may collect limited technical data such as:</p>
+<ul>
+  <li>Device/browser type</li>
+  <li>Session activity (for performance and debugging)</li>
+  <li>General interaction with features</li>
+</ul>
+<p>This data is used strictly for improving platform stability and usability.</p>
+
+<h2>3. WHAT WE DO NOT DO</h2>
+
+<p>We explicitly do <strong>not</strong>:</p>
+<ul>
+  <li>Sell user data</li>
+  <li>Track users across unrelated websites</li>
+  <li>Build personal behavioral profiles for advertising</li>
+  <li>Intentionally harvest sensitive personal information</li>
+</ul>
+
+<div class="notice">
+  If any data beyond core functionality is ever introduced, this <a href="privacy.html">Privacy Policy</a> will be updated accordingly.
+</div>
+
+<h2>4. HOW YOUR DATA IS HANDLED</h2>
+
+<p>All data is processed through secure backend infrastructure:</p>
+<ul>
+  <li>Authentication and database services are handled via Supabase</li>
+  <li>Backend logic and API handling are managed through Netlify Functions</li>
+</ul>
+<p>We do not manually access or process user data outside of these systems unless required for debugging, security, or legal compliance.</p>
+
+<h2>5. PAYMENTS</h2>
+
+<p>If you subscribe to a paid plan, payments are processed by Stripe.</p>
+<ul>
+  <li>We do not store your payment details</li>
+  <li>Payment information is handled directly by Stripe's secure infrastructure</li>
+  <li>We may store limited metadata (e.g., subscription status)</li>
+</ul>
+
+<h2>6. DATA RETENTION</h2>
+
+<p>We retain user data only as long as necessary to:</p>
+<ul>
+  <li>Maintain your account</li>
+  <li>Provide access to the platform</li>
+  <li>Comply with legal obligations</li>
+</ul>
+<p>Users may request account deletion, which will remove associated data where feasible.</p>
+
+<h2>7. SECURITY</h2>
+
+<p>We implement reasonable safeguards through our infrastructure providers to protect data from:</p>
+<ul>
+  <li>Unauthorized access</li>
+  <li>Misuse</li>
+  <li>Disclosure</li>
+</ul>
+
+<div class="warning">
+  No system is completely secure. Users should take standard precautions to protect their accounts, including using strong passwords and not sharing credentials.
+</div>
+
+<h2>8. USER CONDUCT &amp; ENFORCEMENT</h2>
+
+<p>To maintain platform integrity and user safety, the following activities are strictly prohibited:</p>
+<ul>
+  <li>Attempted data extraction or scraping</li>
+  <li>Unauthorized access or intrusion</li>
+  <li>DDoS or service disruption attempts</li>
+  <li>Doxing or targeted harassment</li>
+  <li>Any form of cyber-related criminal activity</li>
+</ul>
+
+<p>Violations will result in:</p>
+<ul>
+  <li>Immediate and permanent account termination</li>
+  <li>IP/address-level bans where applicable</li>
+  <li>Potential reporting to relevant authorities</li>
+</ul>
+
+<h2>9. THIRD-PARTY SERVICES</h2>
+
+<p>Argus relies on trusted third-party services to operate:</p>
+<ul>
+  <li><strong>Supabase</strong> — authentication and database</li>
+  <li><strong>Netlify</strong> — hosting and serverless infrastructure</li>
+  <li><strong>Stripe</strong> — payments</li>
+</ul>
+<p>These providers may process data as part of their services under their own privacy policies.</p>
+
+<h2>10. YOUR RIGHTS</h2>
+
+<p>Depending on your location, you may have the right to:</p>
+<ul>
+  <li>Access your data</li>
+  <li>Request correction or deletion</li>
+  <li>Withdraw consent where applicable</li>
+</ul>
+<p>Requests can be made by contacting us directly.</p>
+
+<h2>11. CHANGES TO THIS POLICY</h2>
+
+<p>We may update this <a href="privacy.html">Privacy Policy</a> as the platform evolves.</p>
+<p>When changes are made:</p>
+<ul>
+  <li>The "Last updated" date will be revised</li>
+  <li>Continued use of the platform constitutes acceptance of the updated policy</li>
+</ul>
+
+<h2>12. CONTACT</h2>
+
+<p>For questions regarding this <a href="privacy.html">Privacy Policy</a> or your data, you may contact us through the platform or official communication channels.</p>
+
+<div class="notice">
+  <strong>ARGUS Intelligence Platform</strong><br>
+  Email: privacy@argus-platform.com
+</div>
+
+<h2>13. TRANSPARENCY COMMITMENT</h2>
+
+<p>Argus is actively evolving. While the platform is not yet in a final state, we are committed to:</p>
+<ul>
+  <li>Minimizing data collection</li>
+  <li>Being transparent about how systems operate</li>
+  <li>Not knowingly engaging in exploitative data practices</li>
+</ul>
+
+<div class="notice">
+  If that ever changes, it will be clearly disclosed in an updated <a href="privacy.html">Privacy Policy</a>.
+</div>
+
+<p style="margin-top: 48px; font-family: 'DM Mono', monospace; font-size: 11px; color: var(--dim);">
+  By using ARGUS, you acknowledge that you have read and understood this Privacy Policy.
+</p>
+
+</div>
+
+<footer>
+  <a href="login.html">LOGIN</a> ·
+  <a href="terms.html">TERMS OF SERVICE</a> ·
+  <a href="privacy.html">PRIVACY POLICY</a> ·
+  <a href="pricing.html">PRICING</a>
+  <br><br>
+  © 2026 ARGUS INTELLIGENCE PLATFORM · ALL RIGHTS RESERVED
+</footer>
+
+</body>
+</html>

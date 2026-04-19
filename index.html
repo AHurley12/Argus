@@ -3826,23 +3826,67 @@ document.addEventListener('DOMContentLoaded', function() {
   ];
   window.capitalCitiesData = capitalCitiesData; // expose for snapshot
 
+  // ── City icon texture — canvas-drawn once, shared across all capital markers ──
+  // Four blocks of ascending heights with blue/cyan gradient + right-face depth cue.
+  // Consistent with aircraft/vessel sprite architecture (_acTex, _shTex).
+  var _cityTex = (function() {
+    var sz = 64;
+    var cv = document.createElement('canvas');
+    cv.width = cv.height = sz;
+    var c = cv.getContext('2d');
+
+    // Base platform glow
+    var baseGrad = c.createRadialGradient(32, 57, 1, 32, 57, 22);
+    baseGrad.addColorStop(0, 'rgba(0,190,255,0.55)');
+    baseGrad.addColorStop(1, 'rgba(0,190,255,0)');
+    c.fillStyle = baseGrad;
+    c.fillRect(6, 48, 52, 14);
+
+    // Blocks: [left, width, height] — bottom-aligned at y=54, ascending left→peak→step-down
+    [[3,9,20],[14,10,33],[26,11,43],[39,9,27]].forEach(function(b) {
+      var bx = b[0], bw = b[1], bh = b[2], by = 54 - bh;
+
+      // Main face: cyan top → deep blue bottom
+      var g = c.createLinearGradient(bx, by, bx, 54);
+      g.addColorStop(0, 'rgba(114,238,255,0.95)');
+      g.addColorStop(1, 'rgba(0,80,200,0.92)');
+      c.fillStyle = g;
+      c.fillRect(bx, by, bw, bh);
+
+      // Right-side darker face — simulates 3D depth without extra geometry
+      c.fillStyle = 'rgba(0,40,140,0.4)';
+      c.fillRect(bx + bw - 2, by + 2, 2, bh - 2);
+
+      // Top highlight — simulates lit roof
+      c.fillStyle = 'rgba(180,248,255,0.88)';
+      c.fillRect(bx, by, bw, 2);
+    });
+
+    return new THREE.CanvasTexture(cv);
+  }());
+
   var capitalMarkers = [];
   capitalCitiesData.forEach(function(city) {
-    var pos    = latLonToVector(city.lat, city.lon, 101.5);
-    // Triangle (cone with 3 radial segments, flat-capped)
-    var sphere = new THREE.Mesh(
-      new THREE.ConeGeometry(1.2, 2.2, 3, 1),
-      new THREE.MeshBasicMaterial({ color: 0xaaccff, transparent: true, opacity: 0.85 })
-    );
-    sphere.position.copy(pos);
-    // Orient tip outward from globe center
-    sphere.lookAt(pos.clone().normalize().multiplyScalar(200));
-    sphere.rotateX(Math.PI / 2);
-    sphere.userData = { isCapitalCity: true, city: city.capital, country: city.country,
-                        label: city.capital + ', ' + city.country, lat: city.lat, lon: city.lon };
-    eventMarkerGroup.add(sphere);
-    capitalMarkers.push(sphere);
-
+    var pos = latLonToVector(city.lat, city.lon, 101.8);
+    var mat = new THREE.SpriteMaterial({
+      map:         _cityTex,
+      transparent: true,
+      opacity:     0.92,
+      depthTest:   false
+    });
+    var sprite = new THREE.Sprite(mat);
+    sprite.position.copy(pos);
+    sprite.scale.set(2.1, 2.1, 1);
+    sprite.userData = {
+      isCapitalCity: true,
+      city:          city.capital,
+      country:       city.country,
+      label:         city.capital + ', ' + city.country,
+      lat:           city.lat,
+      lon:           city.lon
+    };
+    eventMarkerGroup.add(sprite);
+    capitalMarkers.push(sprite);
   });
 
   // ── Mouse Controls ───────────────────────────────────────────────────────────
@@ -8770,48 +8814,6 @@ async function fetchAll() {
   applyToGlobe();
   if (activeTab === 'gdelt') renderGdeltTab();
   console.log('GDELT: done —', data.events.length, 'events,', Object.keys(data.tones).length, 'country tones');
-}
-
-// ── Geo keyword → lat/lon lookup ──────────────────────────────────────────────
-var GEO_KEYS = [
-  { keys: ['houthi','bab el mandeb','bab-el-mandeb','yemen'],          lat: 12.5,  lon: 43.3   },
-  { keys: ['suez','red sea','egypt'],                                   lat: 29.5,  lon: 32.5   },
-  { keys: ['hormuz','strait of hormuz'],                                lat: 26.6,  lon: 56.3   },
-  { keys: ['panama canal','panama'],                                    lat: 9.0,   lon: -79.5  },
-  { keys: ['black sea','ukraine','kyiv','odessa','crimea'],             lat: 45.0,  lon: 30.5   },
-  { keys: ['taiwan','taiwan strait'],                                   lat: 24.5,  lon: 121.0  },
-  { keys: ['south china sea'],                                          lat: 15.0,  lon: 114.0  },
-  { keys: ['russia','moscow','kremlin','putin'],                        lat: 55.7,  lon: 37.6   },
-  { keys: ['china','beijing','shanghai'],                               lat: 35.0,  lon: 105.0  },
-  { keys: ['iran','tehran'],                                            lat: 35.7,  lon: 51.4   },
-  { keys: ['north korea','pyongyang','dprk'],                          lat: 39.0,  lon: 125.7  },
-  { keys: ['india','mumbai','delhi'],                                   lat: 20.6,  lon: 79.0   },
-  { keys: ['israel','gaza','west bank','tel aviv'],                     lat: 31.5,  lon: 34.8   },
-  { keys: ['lebanon','beirut'],                                         lat: 33.9,  lon: 35.5   },
-  { keys: ['syria','damascus'],                                         lat: 33.5,  lon: 36.3   },
-  { keys: ['iraq','baghdad'],                                           lat: 33.3,  lon: 44.4   },
-  { keys: ['saudi','riyadh'],                                           lat: 24.7,  lon: 46.7   },
-  { keys: ['europe','brussels','nato'],                                 lat: 50.8,  lon: 4.4    },
-  { keys: ['africa','sahel','nigeria','lagos'],                         lat: 9.1,   lon: 8.7    },
-  { keys: ['malacca','singapore','strait of malacca'],                  lat: 1.3,   lon: 103.8  },
-  { keys: ['cape of good hope','south africa'],                         lat: -34.0, lon: 18.5   },
-  { keys: ['venezuela','caracas'],                                      lat: 10.5,  lon: -66.9  },
-  { keys: ['mexico','cartel'],                                          lat: 23.6,  lon: -102.5 },
-  { keys: ['arctic','alaska'],                                          lat: 71.0,  lon: -156.0 },
-  { keys: ['pacific','shipping lane'],                                  lat: 30.0,  lon: -150.0 },
-];
-
-function geolocateArticle(title) {
-  var low = (title || '').toLowerCase();
-  for (var i = 0; i < GEO_KEYS.length; i++) {
-    var entry = GEO_KEYS[i];
-    for (var j = 0; j < entry.keys.length; j++) {
-      if (low.indexOf(entry.keys[j]) !== -1) {
-        return { lat: entry.lat, lon: entry.lon };
-      }
-    }
-  }
-  return null;
 }
 
 // ── Apply tones to globe markers ──────────────────────────────────────────────

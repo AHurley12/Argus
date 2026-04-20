@@ -1,8 +1,9 @@
 // netlify/functions/create-checkout-session.js
-// Creates a Stripe Checkout session for the Argus Pro subscription.
-// POST { userId, email } → { url }
+// Builds a Stripe Payment Link URL with client_reference_id and prefilled_email,
+// so stripe-webhook.js can map checkout.session.completed back to the Supabase user.
+// No Stripe API call required — just returns the constructed URL.
 
-const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+const PAYMENT_LINK = 'https://buy.stripe.com/4gM28t0nY08k1vk3aW5sA00';
 
 const CORS = {
   'Access-Control-Allow-Origin':  '*',
@@ -26,37 +27,9 @@ exports.handler = async function(event) {
     return { statusCode: 400, headers: CORS, body: JSON.stringify({ error: 'userId and email required' }) };
   }
 
-  try {
-    // Re-use existing customer if present, otherwise create.
-    // Store supabase_user_id in metadata so webhooks can always map back.
-    let customerId;
-    const existing = await stripe.customers.list({ email, limit: 1 });
-    if (existing.data.length) {
-      customerId = existing.data[0].id;
-      await stripe.customers.update(customerId, { metadata: { supabase_user_id: userId } });
-    } else {
-      const customer = await stripe.customers.create({ email, metadata: { supabase_user_id: userId } });
-      customerId = customer.id;
-    }
+  const url = new URL(PAYMENT_LINK);
+  url.searchParams.set('client_reference_id', userId);
+  url.searchParams.set('prefilled_email',     email);
 
-    // Derive origin for redirect URLs — works on any domain without hardcoding
-    const origin = (event.headers && (event.headers.origin || event.headers.referer || '').replace(/\/$/, ''))
-      || process.env.SITE_URL
-      || 'https://argus-intel.netlify.app';
-
-    const session = await stripe.checkout.sessions.create({
-      customer:            customerId,
-      mode:                'subscription',
-      line_items:          [{ price: process.env.STRIPE_PRICE_ID, quantity: 1 }],
-      client_reference_id: userId,           // lets webhook skip an extra API call on first event
-      success_url:         origin + '/?upgraded=1',
-      cancel_url:          origin + '/',
-    });
-
-    return { statusCode: 200, headers: CORS, body: JSON.stringify({ url: session.url }) };
-
-  } catch (err) {
-    console.error('create-checkout-session error:', err.message);
-    return { statusCode: 500, headers: CORS, body: JSON.stringify({ error: err.message }) };
-  }
+  return { statusCode: 200, headers: CORS, body: JSON.stringify({ url: url.toString() }) };
 };

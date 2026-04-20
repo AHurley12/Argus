@@ -14,8 +14,9 @@ const { createClient } = require('@supabase/supabase-js');
 // ── Supabase write helper ─────────────────────────────────────────────────────
 async function setTier(userId, tier) {
   const sb = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY);
-  const { error } = await sb.from('profiles').update({ tier }).eq('id', userId);
-  if (error) throw new Error('Supabase update failed: ' + error.message);
+  // Upsert so the row is created if it doesn't exist yet (e.g. signup → pay before first login)
+  const { error } = await sb.from('profiles').upsert({ id: userId, tier }, { onConflict: 'id' });
+  if (error) throw new Error('Supabase upsert failed: ' + error.message);
   console.log(`stripe-webhook: set profiles.tier="${tier}" for user ${userId}`);
 }
 

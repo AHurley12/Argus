@@ -12674,12 +12674,14 @@ window.ArgusTracking = (function () {
 'use strict';
 
 // ── Config ────────────────────────────────────────────────────────────────────
-var AIRCRAFT_LIMIT = 300;   // Max aircraft markers on globe at once
+var AIRCRAFT_LIMIT = 600;   // Matches GLOBAL_CAP in fetch-traffic v4
 var SHIP_LIMIT     = 500;   // Max ship markers (highest SOG first)
-var AC_CACHE_MS    = 10 * 60 * 1000;  // 10 min — cargo flux / CEO movement snapshot
+var AC_CACHE_MS    = 90 * 1000;        // 90 s — matches server 60 s TTL + propagation buffer
 var SHIP_CACHE_MS  = 30 * 60 * 1000;  // 30 min — tanker at 20 knots barely moves in 30 min
-var AC_CACHE_KEY   = 'argus_traffic_v2';
-var AC_CACHE_TS    = 'argus_traffic_ts_v2';
+var AC_CACHE_KEY   = 'argus_traffic_v4';
+var AC_CACHE_TS    = 'argus_traffic_ts_v4';
+// Dead-reckoning state — keyed by ICAO24, used to extrapolate position between fetches
+var _prevPositions = new Map(); // icao24 → { lat, lon, track, gs, seenAt }
 
 // All aircraft data flows through the Netlify function — no direct external calls.
 var TRAFFIC_FN = '/.netlify/functions/fetch-traffic';
@@ -12688,8 +12690,9 @@ var TRAFFIC_FN = '/.netlify/functions/fetch-traffic';
 var VESSELS_FN = '/.netlify/functions/fetch-vessels';
 
 // ── State ─────────────────────────────────────────────────────────────────────
-var aircraftGroup = null;   // THREE.Group for aircraft meshes
-var shipGroup     = null;   // THREE.Group for ship meshes
+var aircraftGroup  = null;   // THREE.Group for aircraft meshes
+var corridorGroup  = null;   // THREE.Group for corridor flow-line indicators
+var shipGroup      = null;   // THREE.Group for ship meshes
 var aircraftOn    = false;
 var shipsOn       = false;
 var aircraftHits  = [];     // meshes registered in window.eventMarkers (for tooltips)
@@ -12795,6 +12798,12 @@ function init() {
     aircraftGroup.visible  = false;
     AG.eventMarkerGroup.add(aircraftGroup);
   }
+  if (!corridorGroup) {
+    corridorGroup         = new THREE.Group();
+    corridorGroup.name    = 'ArgusCorridors';
+    corridorGroup.visible = false;  // shown only when aircraft layer is on
+    AG.eventMarkerGroup.add(corridorGroup);
+  }
   if (!shipGroup) {
     shipGroup         = new THREE.Group();
     shipGroup.name    = 'ArgusShips';
@@ -12836,18 +12845,19 @@ var SHIP_TYPE_COLORS = {
 };
 
 // ── Aircraft marker — oriented by heading, tinted by flight type ──────────────
-function placeAircraft(lat, lon, heading, callsign, country, flightType, alt, region) {
+// stale=true → dead-reckoned or carry-forward position; rendered at reduced opacity
+function placeAircraft(lat, lon, heading, callsign, country, flightType, alt, region, icao24, gs, phase, stale) {
   var AG  = window.ArgusGlobe;
   var pos = AG.latLonToVector(lat, corrLon(lon), 101.8);
   var ft  = flightType || 'unknown';
 
   var mat = new THREE.SpriteMaterial({
-    map:      _acTex,
-    color:    new THREE.Color(AC_TYPE_COLORS[ft] !== undefined ? AC_TYPE_COLORS[ft] : 0xffffff),
+    map:         _acTex,
+    color:       new THREE.Color(AC_TYPE_COLORS[ft] !== undefined ? AC_TYPE_COLORS[ft] : 0xffffff),
     transparent: true,
-    opacity:  0.92,
-    rotation: (heading != null && !isNaN(heading)) ? -heading * Math.PI / 180 : 0,
-    depthTest: false
+    opacity:     stale ? 0.45 : 0.92,  // dimmed for carry-forward / dead-reckoned
+    rotation:    (heading != null && !isNaN(heading)) ? -heading * Math.PI / 180 : 0,
+    depthTest:   false
   });
   var sprite = new THREE.Sprite(mat);
   sprite.position.copy(pos);
@@ -12856,7 +12866,7 @@ function placeAircraft(lat, lon, heading, callsign, country, flightType, alt, re
   var cs = (callsign || '').trim() || '???';
   sprite.userData = {
     isAircraft:  true,
-    title:       cs + (country ? ' · ' + country : ''),
+    title:       cs + (country ? ' · ' + country : '') + (stale ? ' [DR]' : ''),
     type:        'AIRCRAFT',
     flightType:  ft,
     severity:    'LOW',
@@ -12864,11 +12874,14 @@ function placeAircraft(lat, lon, heading, callsign, country, flightType, alt, re
     lon:         lon,
     heading:     (heading != null && !isNaN(heading)) ? Math.round(heading) : null,
     alt:         (alt != null && !isNaN(alt))         ? Math.round(alt)     : null,
-    region:      region || null
+    gs:          (gs  != null && !isNaN(gs))          ? Math.round(gs)      : null,
+    phase:       phase  || null,
+    icao24:      icao24 || null,
+    region:      region || null,
+    stale:       !!stale,
   };
   aircraftGroup.add(sprite);
   aircraftHits.push(sprite);
-  // Tracking markers live in aircraftHits / window._aircraftMarkers — NOT in window.eventMarkers.
 }
 
 // ── Ship marker — top-down SVG ship sprite ────────────────────────────────────
@@ -12988,21 +13001,96 @@ function fetchAndRenderAircraft() {
     });
 }
 
+// ── Corridor flow-line renderer ───────────────────────────────────────────────
+// Draws short heading-direction line segments at each corridor centroid on the
+// globe surface. Length and opacity scale with aircraft count in the corridor.
+function renderCorridors(corridors) {
+  if (!corridorGroup) return;
+  while (corridorGroup.children.length) corridorGroup.remove(corridorGroup.children[0]);
+  if (!corridors || !corridors.length) return;
+
+  var AG  = window.ArgusGlobe;
+  var RAD = Math.PI / 180;
+
+  corridors.forEach(function(c) {
+    // Half-length of the corridor indicator in degrees (1.5° – 4°, scales with count)
+    var halfLen = Math.min(4, 1.5 + c.count * 0.05);
+    var hRad    = c.heading * RAD;
+    var cosLat  = Math.max(0.05, Math.cos(c.lat * RAD));
+    var dLat    = halfLen * Math.cos(hRad);
+    var dLon    = halfLen * Math.sin(hRad) / cosLat;
+
+    var p1 = AG.latLonToVector(c.lat - dLat, corrLon(c.lon - dLon), 101.9);
+    var p2 = AG.latLonToVector(c.lat + dLat, corrLon(c.lon + dLon), 101.9);
+
+    var opacity = Math.min(0.72, 0.22 + c.count * 0.04);
+    var line = new THREE.Line(
+      new THREE.BufferGeometry().setFromPoints([p1, p2]),
+      new THREE.LineBasicMaterial({ color: 0x00aaff, transparent: true, opacity: opacity, depthTest: false })
+    );
+    corridorGroup.add(line);
+  });
+}
+
 function renderAircraft(json) {
   if (!aircraftGroup) return;
   clearGroup(aircraftGroup, aircraftHits);
   if (!json) { updateStatus(); return; }
 
-  // Netlify fn returns { aircraft: [{cs, lat, lon, track, country}] } — pre-sampled server-side
-  var states = Array.isArray(json.aircraft) ? json.aircraft : [];
+  // v4 schema: { aircraft, corridors, activeCells, staleCells, ... }
+  var states    = Array.isArray(json.aircraft)  ? json.aircraft  : [];
+  var corridors = Array.isArray(json.corridors) ? json.corridors : [];
 
   if (!states.length) { updateStatus(); return; }
 
-  var step = Math.max(1, Math.floor(states.length / AIRCRAFT_LIMIT));
-  for (var i = 0; i < states.length && aircraftHits.length < AIRCRAFT_LIMIT; i += step) {
-    var s = states[i];
-    placeAircraft(s.lat, s.lon, s.track, s.cs, s.country, s.flightType || 'unknown', s.alt, s.region);
+  // Build a Set of ICAO24s in this snapshot for dead-reckoning gap fill
+  var nowMs      = Date.now();
+  var currentIds = new Set();
+  states.forEach(function(s) { if (s.icao24) currentIds.add(s.icao24); });
+
+  // Dead-reckon aircraft from previous snapshot absent in current
+  // Uses heading + ground speed to extrapolate position over elapsed time
+  _prevPositions.forEach(function(prev, icao24) {
+    if (currentIds.has(icao24)) return;                          // present — no DR needed
+    var age = nowMs - prev.seenAt;
+    if (age > AC_CACHE_MS * 2) return;                          // too old — drop
+    if (prev.track == null || prev.gs == null || prev.gs < 50) return; // no vector — skip
+    var dtHours = age / 3600000;
+    var distNm  = prev.gs * dtHours;
+    var RAD     = Math.PI / 180;
+    var dLat    = distNm * Math.cos(prev.track * RAD) / 60;
+    var dLon    = distNm * Math.sin(prev.track * RAD) / (60 * Math.max(0.05, Math.cos(prev.lat * RAD)));
+    var drLat   = prev.lat + dLat;
+    var drLon   = prev.lon + dLon;
+    if (drLat < -90 || drLat > 90) return;
+    placeAircraft(drLat, drLon, prev.track, prev.cs, null, prev.flightType, prev.alt, prev.region, icao24, prev.gs, prev.phase, true);
+  });
+
+  // Render current snapshot aircraft — no systematic step-skip
+  // Server already grid-stratified to AIRCRAFT_LIMIT; render all directly
+  states.forEach(function(s) {
+    if (aircraftHits.length >= AIRCRAFT_LIMIT) return;
+    placeAircraft(s.lat, s.lon, s.track, s.cs, s.country, s.flightType || 'unknown',
+                  s.alt, s.region, s.icao24, s.gs, s.phase, !!s.stale);
+  });
+
+  // Update dead-reckoning store with current snapshot
+  _prevPositions.clear();
+  states.forEach(function(s) {
+    if (!s.icao24 || s.stale) return;
+    _prevPositions.set(s.icao24, {
+      lat: s.lat, lon: s.lon, track: s.track, gs: s.gs,
+      alt: s.alt, cs: s.cs, flightType: s.flightType, phase: s.phase,
+      region: s.region, seenAt: nowMs,
+    });
+  });
+
+  // Render corridor flow indicators (visible while aircraft layer is on)
+  if (corridorGroup) {
+    renderCorridors(corridors);
+    corridorGroup.visible = aircraftOn;
   }
+
   window._aircraftMarkers = aircraftHits;
   normalizeTracking();
   updateStatus();
@@ -13085,6 +13173,7 @@ function toggleAircraft() {
   }
   aircraftOn             = !aircraftOn;
   aircraftGroup.visible  = aircraftOn;
+  if (corridorGroup) corridorGroup.visible = aircraftOn;
   window.ArgusLayerState.aircraft = aircraftOn;
   if (!aircraftOn && window.ArgusGlobe && window.ArgusGlobe.clearHover) window.ArgusGlobe.clearHover();
 
@@ -13863,7 +13952,7 @@ function scanRelationships() {
 
   // Air corridor flux signal from cached traffic data
   try {
-    var tc = localStorage.getItem('argus_traffic_v2');
+    var tc = localStorage.getItem('argus_traffic_v4');
     if (tc) {
       var traffic = JSON.parse(tc);
       if (Array.isArray(traffic) && traffic.length > 8) {

@@ -11,7 +11,7 @@ const SUPABASE_KEY    = process.env.SUPABASE_SERVICE_KEY;
 
 const CACHE_KEY       = 'vessel_positions_v2';
 const GLOBAL_CAP      = 450;
-const TIMEOUT_MS      = 8000;
+const TIMEOUT_MS      = 4000;
 
 const VESSEL_API_BASE = 'https://api.vesselapi.com/v1/location/vessels/bounding-box';
 const PRIORITY_RE     = /tanker|carrier|bulk|cargo|container/i;
@@ -168,35 +168,30 @@ async function fetchCorridor(corridor, apiKey) {
   }
 }
 
-// Fetch all corridors in a region, batched 3 at a time with 400 ms delay.
-async function fetchRegion(region, apiKey) {
-  const raw       = [];
-  const batchSize = 3;
-  const delayMs   = 400;
+// Fetch all corridors across all stale regions in a single parallel wave.
+// No serial batching or artificial delays — Netlify's 10s limit demands it.
+// Each corridor has its own 4s AbortController; slow corridors fail fast and
+// are skipped without blocking the rest.
+async function fetchAllCorridors(staleRegions, apiKey) {
+  // Flatten to [{region, corridor}] pairs
+  const tasks = staleRegions.flatMap(r =>
+    r.corridors.map(c => ({ regionName: r.name, corridor: c }))
+  );
 
-  for (let i = 0; i < region.corridors.length; i += batchSize) {
-    const batch   = region.corridors.slice(i, i + batchSize);
-    const results = await Promise.allSettled(batch.map(c => fetchCorridor(c, apiKey)));
-    results.forEach(r => { if (r.status === 'fulfilled') raw.push(...r.value); });
-    if (i + batchSize < region.corridors.length) {
-      await new Promise(r => setTimeout(r, delayMs));
-    }
-  }
-  return raw;
-}
+  // Fire all in parallel
+  const settled = await Promise.allSettled(
+    tasks.map(t => fetchCorridor(t.corridor, apiKey))
+  );
 
-// Fetch stale regions 2 at a time with 500 ms delay between batches.
-async function fetchRegionsThrottled(regions, apiKey, batchSize = 2, delayMs = 500) {
-  const results = [];
-  for (let i = 0; i < regions.length; i += batchSize) {
-    const batch   = regions.slice(i, i + batchSize);
-    const settled = await Promise.allSettled(batch.map(r => fetchRegion(r, apiKey)));
-    results.push(...settled);
-    if (i + batchSize < regions.length) {
-      await new Promise(r => setTimeout(r, delayMs));
-    }
-  }
-  return results;
+  // Group raw results back by region name
+  const byRegion = {};
+  settled.forEach((res, i) => {
+    const name = tasks[i].regionName;
+    if (!byRegion[name]) byRegion[name] = [];
+    if (res.status === 'fulfilled') byRegion[name].push(...res.value);
+  });
+
+  return byRegion;
 }
 
 // ── Normalisation ──────────────────────────────────────────────────────────────
@@ -320,33 +315,33 @@ exports.handler = async function (event) {
     `| Cached: [${cached.map(r => r.name).join(', ')}]`
   );
 
-  // ── Fetch stale regions ───────────────────────────────────────────────────────
+  // ── Fetch stale regions — all corridors in parallel ──────────────────────────
   if (stale.length) {
-    const results = await fetchRegionsThrottled(stale, VESSELAPI_KEY);
+    const byRegion = await fetchAllCorridors(stale, VESSELAPI_KEY);
 
-    stale.forEach((region, i) => {
-      const res = results[i];
-      if (res.status === 'fulfilled') {
-        const raw = res.value;
+    stale.forEach(region => {
+      const raw = byRegion[region.name] || [];
 
-        // Normalise and deduplicate within region
-        const seen   = new Set();
-        const deduped = [];
-        for (const v of raw) {
-          const n = normalise(v, region.name);
-          if (!n) continue;
-          if (n.mmsi && seen.has(n.mmsi)) continue;
-          if (n.mmsi) seen.add(n.mmsi);
-          deduped.push(n);
-        }
-
-        const sampled = stratifiedSample(deduped, region.target, region.weight);
-        console.log(`[${region.name}] raw: ${raw.length} → deduped: ${deduped.length} → sampled: ${sampled.length}`);
-        regionCache[region.name] = { vessels: sampled, ts: now };
-      } else {
-        console.error(`[${region.name}] FAILED: ${results[i].reason?.message}`);
+      if (raw.length === 0) {
+        console.warn(`[${region.name}] 0 raw vessels — all corridors failed or empty`);
         // Preserve stale cache on failure
+        return;
       }
+
+      // Normalise and deduplicate within region
+      const seen   = new Set();
+      const deduped = [];
+      for (const v of raw) {
+        const n = normalise(v, region.name);
+        if (!n) continue;
+        if (n.mmsi && seen.has(n.mmsi)) continue;
+        if (n.mmsi) seen.add(n.mmsi);
+        deduped.push(n);
+      }
+
+      const sampled = stratifiedSample(deduped, region.target, region.weight);
+      console.log(`[${region.name}] raw: ${raw.length} → deduped: ${deduped.length} → sampled: ${sampled.length}`);
+      regionCache[region.name] = { vessels: sampled, ts: now };
     });
 
     // Persist updated cache only when we have data

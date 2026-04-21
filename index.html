@@ -3085,11 +3085,11 @@
       </div>
 
       <div class="hud-section">MARKERS</div>
-      <div class="marker-row"><span class="marker-icon" style="color:#c0ddff">△</span>CITY / CAPITAL</div>
+      <div class="marker-row"><span class="marker-icon" style="color:#72eeff">⊞</span>CITY / CAPITAL</div>
       <div class="marker-row"><span class="marker-icon" style="color:#c0ddff">●</span>COUNTRY NODE</div>
-      <div class="marker-row"><span class="marker-icon" style="color:#ffaa44">◈</span>CHOKEPOINT</div>
-      <div class="marker-row"><span class="marker-icon" style="color:#2DD4BF">⊙</span>VESSEL</div>
-      <div class="marker-row"><span class="marker-icon" style="color:#ffffff">▲</span>AIRCRAFT</div>
+      <div class="marker-row"><span class="marker-icon" style="color:#ffaa44">◇</span>CHOKEPOINT</div>
+      <div class="marker-row"><span class="marker-icon" style="color:#2DD4BF">⚓</span>VESSEL</div>
+      <div class="marker-row"><span class="marker-icon" style="color:#BAE6FD">✈</span>AIRCRAFT</div>
       <div class="marker-row"><span class="marker-icon" style="color:#aaaaaa">⚡</span>EVENT</div>
       <div class="marker-row"><span class="marker-icon" style="color:#4a7da8">──</span>TRADE ROUTE</div>
     </div>
@@ -3217,7 +3217,9 @@
 // ── Global marker registries (accessed by data script and GDELT module) ──────
 window.eventMarkers      = [];
 window.countryMarkers    = [];
-window.chokepointMarkers = [];
+window.chokepointMarkers = [];   // unused after refactor, kept for external compat
+window.chokepointSpikes  = [];   // rotating prism meshes (isStaticSpike)
+window.chokepointRings   = [];   // pulse ring meshes (isPulseRingStatic)
 
 // ── Layer visibility — Single Source of Truth ────────────────────────────────
 // All hover detection and tooltip rendering MUST derive from this state.
@@ -3349,12 +3351,18 @@ document.addEventListener('DOMContentLoaded', function() {
       var evOn = !(window.ArgusLayerState.events);
       window.ArgusLayerState.events = evOn;
       window.eventMarkers.forEach(function(m) { m.visible = evOn; });
+      // Also toggle pulse rings (they are NOT in eventMarkers)
+      var _emg = window.ArgusGlobe && window.ArgusGlobe.eventMarkerGroup;
+      if (_emg) _emg.children.forEach(function(obj) {
+        if (obj.userData && obj.userData.isPulseRing) obj.visible = evOn;
+      });
       if (!evOn) clearHoverTooltip();
     }
     if (e.key.toLowerCase() === 'k') {
       var cpOn = !(window.ArgusLayerState.chokepoints);
       window.ArgusLayerState.chokepoints = cpOn;
-      window.chokepointMarkers.forEach(function(m) { m.visible = cpOn; });
+      window.chokepointSpikes.forEach(function(m) { m.visible = cpOn; });
+      window.chokepointRings.forEach(function(m) { m.visible = cpOn; });
       if (!cpOn) clearHoverTooltip();
     }
   });
@@ -3489,8 +3497,11 @@ document.addEventListener('DOMContentLoaded', function() {
     eventMarkerGroup.add(ring);
   });
   globeGroup.add(eventMarkerGroup);
-  // Hide hardcoded event markers on first load
+  // Hide hardcoded event markers and their pulse rings on first load
   window.eventMarkers.forEach(function(m) { m.visible = false; });
+  eventMarkerGroup.children.forEach(function(obj) {
+    if (obj.userData && obj.userData.isPulseRing) obj.visible = false;
+  });
 
   // ── Static Data (Countries, Chokepoints, Routes) ─────────────────────────────
   var COUNTRIES_DATA = [
@@ -3679,9 +3690,11 @@ document.addEventListener('DOMContentLoaded', function() {
     );
     mesh.position.copy(pos);
     mesh.userData = userData;
-    staticMarkerGroup.add(mesh);
-    if (userData.isCountry)    window.countryMarkers.push(mesh);
-    if (userData.isChokepoint) window.chokepointMarkers.push(mesh);
+    // Chokepoints: sphere removed — prism+ring are the sole visuals
+    if (!userData.isChokepoint) {
+      staticMarkerGroup.add(mesh);
+    }
+    if (userData.isCountry) window.countryMarkers.push(mesh);
 
     // Pulse ring — chokepoints only; country dots are static for visual clarity
     if (!userData.isCountry) {
@@ -3693,6 +3706,7 @@ document.addEventListener('DOMContentLoaded', function() {
       ring.lookAt(pos.clone().normalize().multiplyScalar(200));
       ring.userData = { isPulseRingStatic: true, phase: Math.random() * Math.PI * 2 };
       staticMarkerGroup.add(ring);
+      if (userData.isChokepoint) window.chokepointRings.push(ring);
     }
 
     if (withSpike) {
@@ -3703,6 +3717,7 @@ document.addEventListener('DOMContentLoaded', function() {
       spike.position.copy(pos);
       spike.userData = { isStaticSpike: true };
       staticMarkerGroup.add(spike);
+      window.chokepointSpikes.push(spike);
     }
   }
 
@@ -3773,9 +3788,10 @@ document.addEventListener('DOMContentLoaded', function() {
     if (f && t) addRouteArc(f.rawLat, f.rawLon, t.rawLat, t.rawLon, STATIC_RC[rt.risk], rt.vol);
   });
   globeGroup.add(staticMarkerGroup);
-  // Hide country and chokepoint markers on first load
+  // Hide country markers and chokepoint prisms/rings on first load
   window.countryMarkers.forEach(function(m) { m.visible = false; });
-  window.chokepointMarkers.forEach(function(m) { m.visible = false; });
+  window.chokepointSpikes.forEach(function(m) { m.visible = false; });
+  window.chokepointRings.forEach(function(m)  { m.visible = false; });
 
   // Node counter — exposed on window for data script
   window.updateNodeCounts = function() {
@@ -4250,6 +4266,7 @@ document.addEventListener('DOMContentLoaded', function() {
       ring.lookAt(pos.clone().normalize().multiplyScalar(200));
       ring.userData = { isPulseRing: true, phase: Math.random() * Math.PI * 2, _hcMarker: true };
       AG.eventMarkerGroup.add(ring);
+      if (window.ArgusLayerState) ring.visible = !!window.ArgusLayerState.events;
 
       // FIFO cap — evict oldest hardcoded event if now over limit
       enforceHardcodedCap();
@@ -11165,6 +11182,8 @@ window._plotPermanentMarkers = function(classified) {
     AG.eventMarkerGroup.add(mesh);
     window.eventMarkers = window.eventMarkers || [];
     window.eventMarkers.push(mesh);
+    // Respect current layer toggle state (events may be hidden on fresh load)
+    if (window.ArgusLayerState) mesh.visible = !!window.ArgusLayerState.events;
 
     var ring = new THREE.Mesh(
       new THREE.RingGeometry(2.4, 3.6, 32),
@@ -11174,6 +11193,7 @@ window._plotPermanentMarkers = function(classified) {
     ring.lookAt(pos.clone().normalize().multiplyScalar(200));
     ring.userData = { isPulseRing: true, phase: Math.random() * Math.PI * 2, _permanentPin: true };
     AG.eventMarkerGroup.add(ring);
+    if (window.ArgusLayerState) ring.visible = !!window.ArgusLayerState.events;
 
     window._permanentPins.push({ permId: ev.id, mesh: mesh, ring: ring, title: ev.title });
     alreadyPlotted[ev.id] = true;

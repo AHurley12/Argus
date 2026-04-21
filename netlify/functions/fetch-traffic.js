@@ -26,7 +26,7 @@ const SUPABASE_KEY  = process.env.SUPABASE_SERVICE_KEY;
 
 const CACHE_KEY     = 'air_traffic_v4';
 const REGION_TTL_MS = 60 * 1000;   // 60 s per-region freshness
-const GLOBAL_CAP    = 600;          // hard ceiling on returned aircraft
+const GLOBAL_CAP    = 750;          // hard ceiling on returned aircraft
 const MIN_PER_CELL  = 2;            // guaranteed minimum per active 5° grid cell
 const GRID_DEG      = 5;            // grid resolution in degrees
 const CORRIDOR_MIN  = 3;            // minimum co-directional aircraft to form a corridor
@@ -94,6 +94,8 @@ const REGIONS = [
   { name: 'MIDEAST',   lat:  25,  lon:   52,  dist: 550 },
   { name: 'LATAM',     lat: -10,  lon:  -55,  dist: 750 },
   { name: 'OCEANIA',   lat: -25,  lon:  140,  dist: 750 },
+  { name: 'AFRICA',    lat:   5,  lon:   22,  dist: 750 },  // West/Central/East Africa — previously unqueried
+  { name: 'RUSSIA',    lat:  60,  lon:   80,  dist: 800 },  // Siberia/Central Russia — gap east of EUROPE
 ];
 
 // ── Fetch one region — full snapshot, no per-fetch aircraft cap ────────────────

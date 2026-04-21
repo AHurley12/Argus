@@ -3222,10 +3222,10 @@ window.chokepointMarkers = [];
 // ── Layer visibility — Single Source of Truth ────────────────────────────────
 // All hover detection and tooltip rendering MUST derive from this state.
 window.ArgusLayerState = {
-  events:      true,
-  chokepoints: true,
-  countries:   true,
-  capitals:    true,
+  events:      false,
+  chokepoints: false,
+  countries:   false,
+  capitals:    false,
   vessels:     false,
   aircraft:    false
 };
@@ -3489,6 +3489,8 @@ document.addEventListener('DOMContentLoaded', function() {
     eventMarkerGroup.add(ring);
   });
   globeGroup.add(eventMarkerGroup);
+  // Hide hardcoded event markers on first load
+  window.eventMarkers.forEach(function(m) { m.visible = false; });
 
   // ── Static Data (Countries, Chokepoints, Routes) ─────────────────────────────
   var COUNTRIES_DATA = [
@@ -3771,6 +3773,9 @@ document.addEventListener('DOMContentLoaded', function() {
     if (f && t) addRouteArc(f.rawLat, f.rawLon, t.rawLat, t.rawLon, STATIC_RC[rt.risk], rt.vol);
   });
   globeGroup.add(staticMarkerGroup);
+  // Hide country and chokepoint markers on first load
+  window.countryMarkers.forEach(function(m) { m.visible = false; });
+  window.chokepointMarkers.forEach(function(m) { m.visible = false; });
 
   // Node counter — exposed on window for data script
   window.updateNodeCounts = function() {
@@ -3903,6 +3908,8 @@ document.addEventListener('DOMContentLoaded', function() {
     eventMarkerGroup.add(sprite);
     capitalMarkers.push(sprite);
   });
+  // Hide capital city markers on first load
+  capitalMarkers.forEach(function(m) { m.visible = false; });
 
   // ── Mouse Controls ───────────────────────────────────────────────────────────
   var isDragging = false;
@@ -12674,7 +12681,7 @@ window.ArgusTracking = (function () {
 'use strict';
 
 // ── Config ────────────────────────────────────────────────────────────────────
-var AIRCRAFT_LIMIT = 600;   // Matches GLOBAL_CAP in fetch-traffic v4
+var AIRCRAFT_LIMIT = 750;   // Matches GLOBAL_CAP in fetch-traffic v4
 var SHIP_LIMIT     = 500;   // Max ship markers (highest SOG first)
 var AC_CACHE_MS    = 90 * 1000;        // 90 s — matches server 60 s TTL + propagation buffer
 var SHIP_CACHE_MS  = 30 * 60 * 1000;  // 30 min — tanker at 20 knots barely moves in 30 min

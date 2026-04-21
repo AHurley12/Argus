@@ -16,7 +16,8 @@
       "Bash(git commit:*)",
       "Bash(ls -lh /c/Users/aidan/Desktop/Argus/*.html /c/Users/aidan/Desktop/Argus/netlify/functions/*.js)",
       "mcp__claude_ai_Supabase__list_tables",
-      "mcp__claude_ai_Supabase__apply_migration"
+      "mcp__claude_ai_Supabase__apply_migration",
+      "Bash(ls C:/Users/aidan/Desktop/Argus/*.js C:/Users/aidan/Desktop/Argus/js/)"
     ]
   }
 }

@@ -3821,6 +3821,12 @@ document.addEventListener('DOMContentLoaded', function() {
     { id:'bab_cp',    rawLat:12.6,  rawLon:43.3,   label:'Bab-el-Mandeb',     risk:'CRITICAL', traffic:'21,000 ships/yr', volume:'$700B goods/yr',  status:'CRITICAL — Active Houthi missile attacks' },
     { id:'dover',     rawLat:51.0,  rawLon:1.3,    label:'Dover Strait',      risk:'LOW',      traffic:'500 ships/day',   volume:'$600B goods/yr',  status:'NOMINAL — Normal operations' },
     { id:'cape_cp',   rawLat:-34.4, rawLon:18.4,   label:'Cape of Good Hope', risk:'WATCH',    traffic:'32,000 ships/yr', volume:'Suez diversion',  status:'WATCH — Increased rerouting traffic' },
+    { id:'dardanelles', rawLat:40.2,  rawLon:26.4,   label:'Dardanelles Strait',  risk:'WARNING',  traffic:'45,000 ships/yr', volume:'Black Sea access',  status:'WARNING — Black Sea conflict proximity' },
+    { id:'oresund',   rawLat:55.85, rawLon:12.6,   label:'Øresund Strait',      risk:'WATCH',    traffic:'30,000 ships/yr', volume:'Baltic Sea access',  status:'WATCH — Baltic Sea NATO transit corridor' },
+    { id:'great_belt', rawLat:55.3, rawLon:11.0,   label:'Great Belt Strait',   risk:'WATCH',    traffic:'35,000 ships/yr', volume:'Baltic Sea access',  status:'WATCH — Baltic Sea NATO transit corridor' },
+    { id:'taiwan_cp', rawLat:23.8,  rawLon:119.8,  label:'Taiwan Strait',       risk:'CRITICAL', traffic:'45,000 ships/yr', volume:'50% container flow', status:'CRITICAL — PLA military exercise pressure' },
+    { id:'lombok',    rawLat:-8.5,  rawLon:116.0,  label:'Lombok Strait',       risk:'LOW',      traffic:'20,000 ships/yr', volume:'Malacca alternative', status:'NOMINAL — Deep-water VLCC transit route' },
+    { id:'sunda',     rawLat:-6.0,  rawLon:105.8,  label:'Sunda Strait',        risk:'LOW',      traffic:'15,000 ships/yr', volume:'Java–Sumatra passage', status:'NOMINAL — Shallow draft monitoring' },
   ];
   window.CHOKEPOINTS_DATA = CHOKEPOINTS_DATA;
 
@@ -6491,7 +6497,7 @@ var _SCOPE_NATIONAL_RE = /\b(national|nationwide|entire country|whole country|ca
 var _SCOPE_REGIONAL_RE = /\b(regional|province|multiple cities|cross-border|neighboring country|surrounding area|region-wide|cross-border|border region|several provinces)\b/i;
 
 // ── Context boost — strategic infrastructure amplifies any risk signal ─────────
-var _CTX_CHOKEPOINT_RE   = /suez canal|strait of hormuz|strait of malacca|taiwan strait|bosphorus strait|panama canal|bab.el.mandeb|strait of gibraltar|kerch strait|danish straits|red sea corridor/i;
+var _CTX_CHOKEPOINT_RE   = /suez canal|strait of hormuz|strait of malacca|taiwan strait|bosphorus strait|dardanelles|oresund|øresund|great belt|storebælt|lombok strait|sunda strait|panama canal|bab.el.mandeb|strait of gibraltar|kerch strait|danish straits|red sea corridor/i;
 var _CTX_ENERGY_RE       = /\b(pipeline|lng terminal|oil field|gas field|refinery|power grid|nuclear plant|oil platform|gas pipeline|energy infrastructure|oil supply|gas supply)\b/i;
 var _CTX_MAJOR_ECON_RE   = /\b(united states|china|european union|russia|india|japan|south korea|germany|france|brazil|g7|g20|opec|saudi arabia|taiwan)\b/i;
 var _CTX_SUPPLY_CHAIN_RE = /\b(semiconductor|rare earth|lithium|cobalt|copper|wheat corridor|grain corridor|container port|logistics hub|critical mineral|chip supply|chip shortage)\b/i;
@@ -9066,10 +9072,16 @@ var COUNTRY_KEYS = {
   UKR: ['ukraine','kyiv','zelensky','ukrainian'],
 };
 var CHOKE_KEYS = {
-  bab_cp:    ['bab el mandeb','houthi','red sea','yemen'],
-  suez:      ['suez','canal'],
-  hormuz:    ['hormuz','strait of hormuz'],
-  bosphorus: ['bosphorus','black sea','istanbul'],
+  bab_cp:     ['bab el mandeb','houthi','red sea','yemen'],
+  suez:       ['suez','canal'],
+  hormuz:     ['hormuz','strait of hormuz'],
+  bosphorus:  ['bosphorus','black sea','istanbul'],
+  dardanelles:['dardanelles','canakkale','çanakkale'],
+  oresund:    ['oresund','øresund','copenhagen','baltic sea','swedish'],
+  great_belt: ['great belt','storebælt','storebalt','denmark'],
+  taiwan_cp:  ['taiwan strait','pla','taiwan'],
+  lombok:     ['lombok','vlcc','deep water passage'],
+  sunda:      ['sunda','java','sumatra'],
 };
 
 // ── Main fetch ────────────────────────────────────────────────────────────────

@@ -3235,6 +3235,138 @@
   };
 }());
 
+// ── Performance monitor ───────────────────────────────────────────────────────
+// Tracks timing stats for named operations across the session.
+// Call  ArgusPerf.report()  from the browser console at any time.
+// Budgets (ms): FRAME_TIME=16.67, SCAN=200, AIRCRAFT_RENDER=200, RAYCAST=10
+(function() {
+  var _stats = {}; // name → { count, totalMs, maxMs, overBudget }
+
+  function record(name, ms, budgetMs) {
+    var s = _stats[name] || (_stats[name] = { count: 0, totalMs: 0, maxMs: 0, overBudget: 0 });
+    s.count++;
+    s.totalMs += ms;
+    if (ms > s.maxMs) s.maxMs = ms;
+    if (budgetMs && ms > budgetMs) {
+      s.overBudget++;
+      console.warn('[ArgusPerf] ' + name + ' ' + ms.toFixed(1) + 'ms (budget ' + budgetMs + 'ms)');
+    }
+  }
+
+  // Measure a synchronous function and record its duration.
+  function measure(name, fn, budgetMs) {
+    var t0 = performance.now();
+    var r  = fn();
+    record(name, performance.now() - t0, budgetMs);
+    return r;
+  }
+
+  // Print a formatted session report to the browser console.
+  function report() {
+    var names = Object.keys(_stats).sort();
+    if (!names.length) { console.log('[ArgusPerf] No data yet.'); return; }
+    console.group('[ArgusPerf] Session Performance Report');
+    names.forEach(function(name) {
+      var s   = _stats[name];
+      var avg = s.count ? (s.totalMs / s.count).toFixed(1) : '—';
+      var row = name
+        + '  avg='  + avg + 'ms'
+        + '  max='  + s.maxMs.toFixed(1) + 'ms'
+        + '  n='    + s.count;
+      if (s.overBudget) row += '  ⚠ over-budget=' + s.overBudget + '/' + s.count;
+      console.log(row);
+    });
+    console.groupEnd();
+  }
+
+  // Long Tasks API — browser fires this automatically for any task > 50 ms.
+  // Catches unexpected main-thread stalls with zero manual instrumentation.
+  if (typeof PerformanceObserver !== 'undefined') {
+    try {
+      new PerformanceObserver(function(list) {
+        list.getEntries().forEach(function(e) { record('LONG_TASK', e.duration, 50); });
+      }).observe({ type: 'longtask', buffered: true });
+    } catch(_) {}
+  }
+
+  window.ArgusPerf = { record: record, measure: measure, report: report };
+}());
+
+// ── Event listener registry ───────────────────────────────────────────────────
+// Tracks every addEventListener call made by the globe engine so that all
+// handlers can be removed in one pass on beforeunload. Without this, browsers
+// may retain the JS heap (including Three.js objects) for the lifetime of the
+// tab even after navigation, because live event handlers count as GC roots.
+// Usage: evtMgr.add(element, event, handler[, options])
+//        evtMgr.removeAll()
+(function() {
+  function EventManager() {
+    // Map<element, Array<{event, handler, options}>>
+    this._reg = new Map();
+  }
+  EventManager.prototype.add = function(element, event, handler, options) {
+    if (!this._reg.has(element)) this._reg.set(element, []);
+    this._reg.get(element).push({ event: event, handler: handler, options: options });
+    element.addEventListener(event, handler, options);
+  };
+  EventManager.prototype.removeAll = function() {
+    this._reg.forEach(function(entries, element) {
+      entries.forEach(function(e) {
+        element.removeEventListener(e.event, e.handler, e.options);
+      });
+    });
+    this._reg.clear();
+  };
+  window.ArgusEventManager = EventManager;
+}());
+
+// ── Request coalescer / in-flight cache ───────────────────────────────────────
+// Deduplicates concurrent fetches to the same URL (e.g. two rapid calls to the
+// aircraft or vessel endpoint while a fetch is already in-flight) and caches
+// successful responses for `ttlMs` milliseconds so a brief surge of callers
+// all get the same payload without hitting the Netlify function again.
+// Backed by a plain Map so memory is bounded to open requests + TTL window.
+// Usage: window._argusReqCache.fetch(url) → Promise<response>
+(function() {
+  function RequestCache(ttlMs) {
+    this._ttl     = ttlMs || 30000;
+    this._cache   = new Map(); // url → { data, ts }
+    this._pending = new Map(); // url → Promise
+  }
+  RequestCache.prototype.fetch = function(url) {
+    var self = this;
+    // Return cached entry if still fresh
+    var cached = this._cache.get(url);
+    if (cached && (Date.now() - cached.ts) < this._ttl) {
+      return Promise.resolve(cached.data);
+    }
+    // Coalesce: reuse in-flight promise if one already exists for this URL
+    if (this._pending.has(url)) {
+      return this._pending.get(url);
+    }
+    // Issue a new fetch and cache the result
+    var promise = fetch(url)
+      .then(function(r) {
+        if (!r.ok) return Promise.reject('HTTP ' + r.status);
+        return r.json();
+      })
+      .then(function(data) {
+        self._cache.set(url, { data: data, ts: Date.now() });
+        self._pending.delete(url);
+        return data;
+      })
+      .catch(function(err) {
+        self._pending.delete(url);
+        return Promise.reject(err);
+      });
+    this._pending.set(url, promise);
+    return promise;
+  };
+  // Expose a shared singleton; individual callers can also create their own instances.
+  window.ArgusRequestCache = RequestCache;
+  window._argusReqCache    = new RequestCache(0); // TTL=0 → coalesce only, no extra caching
+}());
+
 // ── Global marker registries (accessed by data script and GDELT module) ──────
 window.eventMarkers      = [];
 window.countryMarkers    = [];
@@ -3254,6 +3386,11 @@ window.ArgusLayerState = {
 };
 
 document.addEventListener('DOMContentLoaded', function() {
+
+  // ── Globe engine event listener registry ────────────────────────────────────
+  // All canvas / window listeners created below are registered through evtMgr
+  // so that beforeunload can call evtMgr.removeAll() and release GC roots.
+  var evtMgr = new window.ArgusEventManager();
 
   // ── Renderer ────────────────────────────────────────────────────────────────
   const container = document.getElementById('globe-canvas-container');
@@ -3345,7 +3482,7 @@ document.addEventListener('DOMContentLoaded', function() {
     return group;
   })();
 
-  window.addEventListener('keydown', function(e) {
+  evtMgr.add(window, 'keydown', function(e) {
     // Never fire globe shortcuts while user is typing in any input/textarea/select
     var tag = document.activeElement && document.activeElement.tagName;
     if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
@@ -3955,13 +4092,13 @@ document.addEventListener('DOMContentLoaded', function() {
   var isDragging = false;
   var prevMouse  = { x: 0, y: 0 };
 
-  renderer.domElement.addEventListener('mousedown', function(e) {
+  evtMgr.add(renderer.domElement, 'mousedown', function(e) {
     isDragging = true;
     prevMouse  = { x: e.clientX, y: e.clientY };
     document.body.classList.add('is-dragging');
   });
 
-  renderer.domElement.addEventListener('mousemove', function(e) {
+  evtMgr.add(renderer.domElement, 'mousemove', function(e) {
     if (isDragging) {
       var dx = e.clientX - prevMouse.x;
       var dy = e.clientY - prevMouse.y;
@@ -3972,9 +4109,9 @@ document.addEventListener('DOMContentLoaded', function() {
     }
   });
 
-  renderer.domElement.addEventListener('mouseup',    function() { isDragging = false; document.body.classList.remove('is-dragging'); });
-  renderer.domElement.addEventListener('mouseleave', function() { isDragging = false; document.body.classList.remove('is-dragging'); });
-  renderer.domElement.addEventListener('wheel', function(e) {
+  evtMgr.add(renderer.domElement, 'mouseup',    function() { isDragging = false; document.body.classList.remove('is-dragging'); });
+  evtMgr.add(renderer.domElement, 'mouseleave', function() { isDragging = false; document.body.classList.remove('is-dragging'); });
+  evtMgr.add(renderer.domElement, 'wheel', function(e) {
     e.preventDefault();
     // Scale zoom speed with distance so close-range scrolling stays granular
     // and far-range scrolling covers ground quickly
@@ -4014,7 +4151,7 @@ document.addEventListener('DOMContentLoaded', function() {
   }
 
   // Clear tooltip when cursor leaves the canvas entirely
-  renderer.domElement.addEventListener('mouseleave', function() {
+  evtMgr.add(renderer.domElement, 'mouseleave', function() {
     clearHoverTooltip();
     if (!isDragging) document.body.style.cursor = 'default';
   });
@@ -4048,7 +4185,7 @@ document.addEventListener('DOMContentLoaded', function() {
   }
 
   // ── Hover Tooltip ────────────────────────────────────────────────────────────
-  window.addEventListener('mousemove', function(e) {
+  evtMgr.add(window, 'mousemove', function(e) {
     var ls = window.ArgusLayerState;
 
     // Bail immediately if cursor is not directly over the canvas (e.g. over a panel).
@@ -4146,7 +4283,7 @@ document.addEventListener('DOMContentLoaded', function() {
   });
 
   // ── Click Handling ───────────────────────────────────────────────────────────
-  renderer.domElement.addEventListener('click', function(e) {
+  evtMgr.add(renderer.domElement, 'click', function(e) {
     if (isDragging) return;
     var rect = renderer.domElement.getBoundingClientRect();
     mouseClick.x =  ((e.clientX - rect.left) / rect.width)  * 2 - 1;
@@ -4178,10 +4315,20 @@ document.addEventListener('DOMContentLoaded', function() {
   });
 
   // ── Animation Loop ───────────────────────────────────────────────────────────
-  var animT = 0;
+  var animT        = 0;
+  var _frameLast   = 0; // timestamp of previous frame for budget sampling
+  var _frameCount  = 0; // frame counter — sample every 60 frames (~1 s at 60 fps)
   function animate() {
     requestAnimationFrame(animate);
     animT += 0.016;
+
+    // Sample frame budget every 60 frames so we detect sustained render stalls
+    // without paying measurement overhead on every single frame.
+    var _frameNow = performance.now();
+    if (_frameLast && ++_frameCount % 60 === 0 && window.ArgusPerf) {
+      ArgusPerf.record('FRAME_TIME_MS', _frameNow - _frameLast, 16.67); // 16.67 ms = 60 fps
+    }
+    _frameLast = _frameNow;
 
     // Only animate groups that are currently visible — skipping hidden groups
     // eliminates up to 84,000 no-op iterations/sec when layers are toggled off.
@@ -4220,7 +4367,7 @@ document.addEventListener('DOMContentLoaded', function() {
   animate();
 
   // ── Resize Handler ───────────────────────────────────────────────────────────
-  window.addEventListener('resize', function() {
+  evtMgr.add(window, 'resize', function() {
     var nW = window.innerWidth;
     var nH = window.innerHeight - 62;
     camera.aspect = nW / nH;
@@ -4228,11 +4375,13 @@ document.addEventListener('DOMContentLoaded', function() {
     renderer.setSize(nW, nH);
   });
 
-  // ── Page unload — dispose Three.js GPU resources ─────────────────────────────
-  // Without this, navigating away leaves textures, geometries, and materials
-  // allocated on the GPU until the browser decides to collect them (can be
-  // minutes). Disposing explicitly keeps per-tab VRAM under 50 MB.
-  window.addEventListener('beforeunload', function() {
+  // ── Page unload — dispose Three.js GPU resources + release GC roots ──────────
+  // evtMgr.removeAll() runs first so every registered handler reference is
+  // cleared before Three.js objects are disposed. Without this, live event
+  // handlers closure-capture scene/renderer, keeping them alive past unload.
+  // Disposing textures/geometries/materials explicitly keeps per-tab VRAM < 50 MB.
+  evtMgr.add(window, 'beforeunload', function() {
+    evtMgr.removeAll();
     scene.traverse(function(obj) {
       if (obj.geometry) obj.geometry.dispose();
       if (obj.material) {
@@ -5978,6 +6127,13 @@ var _CLAUDE_KEY = (typeof window !== 'undefined' && window.ARGUS_CLAUDE_KEY) || 
 window.argusSetClaudeKey = function(k) { _CLAUDE_KEY = k || ''; };
 var _AI_CLASS_CACHE_KEY = 'argus_ai_class_v1';
 var _AI_CLASS_CACHE_TTL = 2 * 60 * 60 * 1000; // 2 hours
+// Daily call budget — prevents a single user from firing unlimited Claude calls
+// when cache is cold. 30 batches × 20 articles = 600 classifications/user/day.
+var _AI_DAILY_KEY = 'argus_ai_daily_v1';
+var _AI_DAILY_CAP = 30;
+// Max entries kept in the AI classification cache bucket.
+// Oldest entries are pruned when this is exceeded to prevent unbounded growth.
+var _AI_BUCKET_MAX = 500;
 
 var FALLBACK_EVENTS = [
   { id:1, type:'CONFLICT',  severity:'CRITICAL', title:'Red Sea — Houthi Maritime Attacks',     impact:'Suez diversions up 400%. ~$1B/day trade disruption. 60% of container traffic rerouted.' },
@@ -6656,7 +6812,32 @@ var _AI_CLASS_BUCKET = (function() {
 }());
 
 function _saveAIBucket() {
-  try { localStorage.setItem(_AI_CLASS_CACHE_KEY, JSON.stringify(_AI_CLASS_BUCKET)); } catch(e) {}
+  // Prune bucket before saving — evict entries oldest-first if over cap.
+  // Prevents the classification cache from growing indefinitely across sessions.
+  var keys = Object.keys(_AI_CLASS_BUCKET);
+  if (keys.length > _AI_BUCKET_MAX) {
+    keys.sort(function(a, b) { return _AI_CLASS_BUCKET[a].ts - _AI_CLASS_BUCKET[b].ts; });
+    keys.slice(0, keys.length - _AI_BUCKET_MAX).forEach(function(k) { delete _AI_CLASS_BUCKET[k]; });
+  }
+  // Defer serialization — bucket can be several hundred KB after a full session
+  window._lsWrite(_AI_CLASS_CACHE_KEY, _AI_CLASS_BUCKET);
+}
+
+// ── Daily call budget helpers ─────────────────────────────────────────────────
+function _getDailyBudget() {
+  var today = new Date().toISOString().slice(0, 10);
+  try {
+    var stored = JSON.parse(localStorage.getItem(_AI_DAILY_KEY) || '{}');
+    if (stored.date === today) return stored;
+  } catch(e) {}
+  return { date: today, count: 0 };
+}
+
+function _useDailyBudget() {
+  var b = _getDailyBudget();
+  b.count++;
+  try { localStorage.setItem(_AI_DAILY_KEY, JSON.stringify(b)); } catch(e) {}
+  return b.count;
 }
 
 // Map Claude's lowercase taxonomy → Argus uppercase taxonomy
@@ -6692,6 +6873,18 @@ async function applyAIClassifications(classified) {
   for (var b = 0; b < toClassify.length; b += 20) batches.push(toClassify.slice(b, b + 20));
 
   for (var bi = 0; bi < batches.length; bi++) {
+    // Daily budget guard — stop if this user has already consumed their allocation.
+    var _budgetUsed = _getDailyBudget().count;
+    if (_budgetUsed >= _AI_DAILY_CAP) {
+      console.warn('Argus AI classify: daily budget reached (' + _AI_DAILY_CAP + ' batches). Falling back to keyword classification.');
+      break;
+    }
+    _useDailyBudget();
+
+    // Inter-batch delay — prevents Anthropic rate-limit errors when multiple
+    // batches are needed in one refresh (300 ms gap is well inside burst limits).
+    if (bi > 0) await new Promise(function(r) { setTimeout(r, 300); });
+
     var batch = batches[bi];
     var userMsg = batch.map(function(a) { return a.id + ': ' + a.title.slice(0, 120); }).join('\n');
     try {
@@ -13210,8 +13403,7 @@ function fetchAndRenderAircraft() {
     }
   } catch (_) {}
 
-  fetch(TRAFFIC_FN)
-    .then(function (r) { return r.ok ? r.json() : Promise.reject('HTTP ' + r.status); })
+  window._argusReqCache.fetch(TRAFFIC_FN)
     .then(function (json) {
       lastFetch   = Date.now();
       _acFailedAt = 0;
@@ -13220,7 +13412,9 @@ function fetchAndRenderAircraft() {
       // doesn't block renderAircraft (both keys written in the same task).
       window._lsWrite(AC_CACHE_KEY, json);
       window._lsWrite(AC_CACHE_TS,  String(lastFetch));
+      var _acT0 = performance.now();
       renderAircraft(json);
+      if (window.ArgusPerf) ArgusPerf.record('AIRCRAFT_RENDER', performance.now() - _acT0, 200);
     })
     .catch(function (err) {
       console.warn('[ArgusTracking] fetch-traffic failed:', err, '— backing off 5 min');
@@ -13332,11 +13526,7 @@ function fetchShipsFromBackend() {
     return;
   }
 
-  fetch(VESSELS_FN)
-    .then(function (r) {
-      console.log('[ArgusTracking] fetch-vessels HTTP', r.status);
-      return r.ok ? r.json() : Promise.reject('HTTP ' + r.status);
-    })
+  window._argusReqCache.fetch(VESSELS_FN)
     .then(function (json) {
       if (!json || !Array.isArray(json.vessels)) {
         console.warn('[ArgusTracking] fetch-vessels: unexpected response shape —', JSON.stringify(json).slice(0, 200));
@@ -14068,8 +14258,12 @@ function scanRelationships() {
   var btn = document.getElementById('btn-nw-scan');
   if (btn) { btn.classList.add('is-scanning'); btn.textContent = '⟳ SCANNING…'; }
 
-  // Ensure store has latest data
   refreshStore();
+
+  // Defer CPU work so the button-state paint happens before the loop starts.
+  // No Web Worker needed at MAX_NODES = 40 — setTimeout(0) is sufficient.
+  setTimeout(function() {
+  var _scanT0 = performance.now();
 
   var corpus    = buildScanCorpus();
   var allTextL  = corpus.map(function(c){ return c.text; }).join(' ');
@@ -14104,16 +14298,25 @@ function scanRelationships() {
 
   function textOf(n) { return ((n.label||'') + ' ' + (n.impact||'')).toLowerCase(); }
 
+  // Pre-compute per-node text strings and keyword Sets once.
+  // Avoids re-running textOf() and O(k) indexOf inside every pair comparison.
+  var _textCache = evNodes.map(function(n) { return textOf(n); });
+  var _kwSets    = evNodes.map(function(n) {
+    var s = new Set();
+    (n.keywords || []).forEach(function(k) { if (k.length > 4) s.add(k); });
+    return s;
+  });
+
   // 1. Event ↔ Event relationship detection (shared keywords → correlation minimum)
   for (var i = 0; i < evNodes.length; i++) {
-    var a = evNodes[i]; var ta = textOf(a);
+    var a = evNodes[i]; var ta = _textCache[i];
     for (var j = i + 1; j < evNodes.length; j++) {
-      var b = evNodes[j]; var tb = textOf(b);
+      var b = evNodes[j]; var tb = _textCache[j];
       var edgeType = null;
 
-      // Shared keyword overlap ≥1 (len > 4) → correlation (upgrade if trigger verb present)
+      // Set.has() is O(1) vs indexOf O(k) — measurable at 40 nodes × 8 keywords
       var sharedKws = (a.keywords || []).filter(function(k) {
-        return k.length > 4 && (b.keywords || []).indexOf(k) !== -1;
+        return k.length > 4 && _kwSets[j].has(k);
       });
       if (sharedKws.length) {
         var combined = ta + ' ' + tb;
@@ -14290,11 +14493,13 @@ function scanRelationships() {
   });
 
   // 4d. Conflict escalation cascade: CRITICAL events → infer causality to WARNING events sharing ≥1 keyword
+  // Build edge Set once for O(1) existence checks (replaces O(edges) relEdges.some per pair).
+  var _edgeSet = new Set(relEdges.map(function(e) { return e.source + '|' + e.target; }));
   var critEvents = evNodes.filter(function(n){ return n.risk === 'CRITICAL'; });
   var warnEvents2 = evNodes.filter(function(n){ return n.risk === 'WARNING'; });
   critEvents.forEach(function(ce) {
     warnEvents2.forEach(function(we) {
-      if (relEdges.some(function(e){ return (e.source === ce.id && e.target === we.id) || (e.source === we.id && e.target === ce.id); })) return;
+      if (_edgeSet.has(ce.id + '|' + we.id) || _edgeSet.has(we.id + '|' + ce.id)) return;
       var shared = (ce.keywords || []).filter(function(k){ return k.length > 4 && (we.keywords || []).indexOf(k) !== -1; });
       if (shared.length) relEdges.push({ source: ce.id, target: we.id, weight: 2.5, edgeType: 'causality', detected: true });
     });
@@ -14336,7 +14541,10 @@ function scanRelationships() {
       );
   }
 
+  if (window.ArgusPerf) ArgusPerf.record('SCAN_RELATIONSHIPS', performance.now() - _scanT0, 200);
   if (btn) setTimeout(function(){ btn.classList.remove('is-scanning'); btn.textContent = '⬡ SCAN RELATIONS'; }, 900);
+
+  }, 0); // end scan defer
 }
 
 // Extend layout to position newly added nodes in an outer shell

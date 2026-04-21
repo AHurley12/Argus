@@ -3361,8 +3361,9 @@ document.addEventListener('DOMContentLoaded', function() {
     if (e.key.toLowerCase() === 'k') {
       var cpOn = !(window.ArgusLayerState.chokepoints);
       window.ArgusLayerState.chokepoints = cpOn;
-      window.chokepointSpikes.forEach(function(m) { m.visible = cpOn; });
-      window.chokepointRings.forEach(function(m) { m.visible = cpOn; });
+      window.chokepointMarkers.forEach(function(m) { m.visible = cpOn; });
+      window.chokepointSpikes.forEach(function(m)  { m.visible = cpOn; });
+      window.chokepointRings.forEach(function(m)   { m.visible = cpOn; });
       if (!cpOn) clearHoverTooltip();
     }
   });
@@ -3684,17 +3685,18 @@ document.addEventListener('DOMContentLoaded', function() {
     var pos   = latLonToVector(rawLat, correctLongitude(rawLon), 101);
     var color = new THREE.Color(colorHex);
 
+    // Chokepoints use an invisible hit sphere (no visual bubble, interaction preserved)
     var mesh = new THREE.Mesh(
       new THREE.SphereGeometry(size, 14, 14),
-      new THREE.MeshBasicMaterial({ color: color, transparent: true, opacity: 0.82 })
+      userData.isChokepoint
+        ? new THREE.MeshBasicMaterial({ visible: false })
+        : new THREE.MeshBasicMaterial({ color: color, transparent: true, opacity: 0.82 })
     );
     mesh.position.copy(pos);
     mesh.userData = userData;
-    // Chokepoints: sphere removed — prism+ring are the sole visuals
-    if (!userData.isChokepoint) {
-      staticMarkerGroup.add(mesh);
-    }
-    if (userData.isCountry) window.countryMarkers.push(mesh);
+    staticMarkerGroup.add(mesh);
+    if (userData.isCountry)    window.countryMarkers.push(mesh);
+    if (userData.isChokepoint) window.chokepointMarkers.push(mesh);
 
     // Pulse ring — chokepoints only; country dots are static for visual clarity
     if (!userData.isCountry) {
@@ -3788,10 +3790,11 @@ document.addEventListener('DOMContentLoaded', function() {
     if (f && t) addRouteArc(f.rawLat, f.rawLon, t.rawLat, t.rawLon, STATIC_RC[rt.risk], rt.vol);
   });
   globeGroup.add(staticMarkerGroup);
-  // Hide country markers and chokepoint prisms/rings on first load
-  window.countryMarkers.forEach(function(m) { m.visible = false; });
-  window.chokepointSpikes.forEach(function(m) { m.visible = false; });
-  window.chokepointRings.forEach(function(m)  { m.visible = false; });
+  // Hide country markers and chokepoint hit spheres/prisms/rings on first load
+  window.countryMarkers.forEach(function(m)   { m.visible = false; });
+  window.chokepointMarkers.forEach(function(m) { m.visible = false; });
+  window.chokepointSpikes.forEach(function(m)  { m.visible = false; });
+  window.chokepointRings.forEach(function(m)   { m.visible = false; });
 
   // Node counter — exposed on window for data script
   window.updateNodeCounts = function() {

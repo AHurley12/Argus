@@ -1,7 +1,7 @@
 // netlify/functions/fetch-vessels.js
 // Multi-region vessel ingestion via VesselAPI.
-// 5 maritime regions / 15 corridors with stratified sampling and per-region caching.
-// Per-region TTLs tuned to ~59 VesselAPI credits/day (1,500 credit budget over 24 days).
+// 5 maritime regions / 26 corridors with stratified sampling and per-region caching.
+// Per-region TTLs tuned to ~84 VesselAPI credits/day (~2,016 credit budget over 24 days).
 // Env: VESSELAPI_KEY, SUPABASE_URL, SUPABASE_SERVICE_KEY
 
 const { createClient } = require('@supabase/supabase-js');
@@ -10,7 +10,7 @@ const SUPABASE_URL    = process.env.SUPABASE_URL;
 const SUPABASE_KEY    = process.env.SUPABASE_SERVICE_KEY;
 
 const CACHE_KEY       = 'vessel_positions_v2';
-const GLOBAL_CAP      = 300;
+const GLOBAL_CAP      = 450;
 const TIMEOUT_MS      = 8000;
 
 const VESSEL_API_BASE = 'https://api.vesselapi.com/v1/location/vessels/bounding-box';
@@ -60,14 +60,14 @@ function classifyVessel(rawType, name) {
 
 // ── Credit budget ──────────────────────────────────────────────────────────────
 // Each corridor fetch = 1 VesselAPI credit.
-// Per-region TTLs are set to consume ~59 credits/day total:
-//   MIDDLE_EAST  (2 corridors, 4h TTL)  → 12 credits/day  [highest tactical value]
-//   ASIA_PACIFIC (5 corridors, 6h TTL)  → 20 credits/day
-//   EUROPE_MED   (4 corridors, 6h TTL)  → 16 credits/day
-//   AMERICAS     (3 corridors, 8h TTL)  →  9 credits/day
-//   SOUTH_AFRICA (1 corridor,  12h TTL) →  2 credits/day
+// Per-region TTLs are set to consume ~84 credits/day total:
+//   MIDDLE_EAST  (3 corridors, 4h TTL)  → 18 credits/day  [highest tactical value]
+//   ASIA_PACIFIC (8 corridors, 8h TTL)  → 24 credits/day
+//   EUROPE_MED   (6 corridors, 8h TTL)  → 18 credits/day
+//   AMERICAS     (6 corridors, 8h TTL)  → 18 credits/day
+//   AFRICA       (3 corridors, 12h TTL) →  6 credits/day
 //   ─────────────────────────────────────────────────────
-//   Total                               ~59 credits/day  (1,416 / 24-day window)
+//   Total                               ~84 credits/day  (~2,016 / 24-day window)
 
 // ── Region definitions ─────────────────────────────────────────────────────────
 // Each region contains named VesselAPI corridors (2°×2° bounding boxes).
@@ -76,57 +76,68 @@ function classifyVessel(rawType, name) {
 // ttl     = per-region cache TTL in ms (drives credit consumption rate)
 const REGIONS = [
   {
-    name: 'ASIA_PACIFIC', target: 80, weight: 1.0,
-    ttl: 6 * 60 * 60 * 1000,   // 6h — 4 refreshes/day × 5 corridors = 20 credits/day
+    name: 'ASIA_PACIFIC', target: 120, weight: 1.0,
+    ttl: 8 * 60 * 60 * 1000,   // 8h — 3 refreshes/day × 8 corridors = 24 credits/day
     corridors: [
       { name: 'Strait of Malacca',   latB: 1,    latT: 3,    lonL: 102,   lonR: 104  },
       { name: 'South China Sea',     latB: 14,   latT: 16,   lonL: 113,   lonR: 115  },
       { name: 'Taiwan Strait',       latB: 23,   latT: 25,   lonL: 119,   lonR: 121  },
       { name: 'East China Sea',      latB: 29,   latT: 31,   lonL: 122,   lonR: 124  },
       { name: 'Bay of Bengal',       latB: 12,   latT: 14,   lonL: 82,    lonR: 84   },
+      { name: 'Lombok Strait',       latB: -9,   latT: -7,   lonL: 115,   lonR: 117  },
+      { name: 'Luzon Strait',        latB: 19,   latT: 21,   lonL: 120,   lonR: 122  },
+      { name: 'Korea Strait',        latB: 33,   latT: 35,   lonL: 128,   lonR: 130  },
     ],
   },
   {
-    name: 'MIDDLE_EAST', target: 55, weight: 1.1,
-    ttl: 4 * 60 * 60 * 1000,   // 4h — 6 refreshes/day × 2 corridors = 12 credits/day
+    name: 'MIDDLE_EAST', target: 83, weight: 1.1,
+    ttl: 4 * 60 * 60 * 1000,   // 4h — 6 refreshes/day × 3 corridors = 18 credits/day
     corridors: [
       { name: 'Strait of Hormuz',    latB: 25,   latT: 27,   lonL: 55,    lonR: 57   },
       { name: 'Bab el-Mandeb',       latB: 11.5, latT: 13.5, lonL: 42.5,  lonR: 44.5 },
+      { name: 'Arabian Sea',         latB: 18,   latT: 20,   lonL: 69,    lonR: 71   },
     ],
   },
   {
-    name: 'EUROPE_MED', target: 70, weight: 0.85, // suppress density bias
-    ttl: 6 * 60 * 60 * 1000,   // 6h — 4 refreshes/day × 4 corridors = 16 credits/day
+    name: 'EUROPE_MED', target: 105, weight: 0.85, // suppress density bias
+    ttl: 8 * 60 * 60 * 1000,   // 8h — 3 refreshes/day × 6 corridors = 18 credits/day
     corridors: [
       { name: 'Suez Canal',          latB: 29,   latT: 31,   lonL: 31.5,  lonR: 33.5 },
       { name: 'English Channel',     latB: 50,   latT: 52,   lonL: 0,     lonR: 2    },
       { name: 'Strait of Gibraltar', latB: 35,   latT: 37,   lonL: -6.5,  lonR: -4.5 },
       { name: 'North Sea',           latB: 55,   latT: 57,   lonL: 2,     lonR: 4    },
+      { name: 'Baltic Approaches',   latB: 56,   latT: 58,   lonL: 9,     lonR: 11   },
+      { name: 'Bosphorus',           latB: 40,   latT: 42,   lonL: 28,    lonR: 30   },
     ],
   },
   {
-    name: 'AMERICAS', target: 60, weight: 1.1,
-    ttl: 8 * 60 * 60 * 1000,   // 8h — 3 refreshes/day × 3 corridors = 9 credits/day
+    name: 'AMERICAS', target: 90, weight: 1.1,
+    ttl: 8 * 60 * 60 * 1000,   // 8h — 3 refreshes/day × 6 corridors = 18 credits/day
     corridors: [
       { name: 'Panama Canal',        latB: 8,    latT: 10,   lonL: -80.5, lonR: -78.5 },
-      { name: 'US East Coast',       latB: 36,   latT: 38,   lonL: -76,   lonR: -74  },
-      { name: 'Caribbean',           latB: 17,   latT: 19,   lonL: -67,   lonR: -65  },
+      { name: 'US East Coast',       latB: 36,   latT: 38,   lonL: -76,   lonR: -74   },
+      { name: 'Caribbean',           latB: 17,   latT: 19,   lonL: -67,   lonR: -65   },
+      { name: 'Gulf of Mexico',      latB: 28,   latT: 30,   lonL: -95,   lonR: -93   },
+      { name: 'US West Coast',       latB: 33,   latT: 35,   lonL: -119,  lonR: -117  },
+      { name: 'Brazil Santos',       latB: -25,  latT: -23,  lonL: -47,   lonR: -45   },
     ],
   },
   {
-    name: 'SOUTH_AFRICA', target: 35, weight: 1.2, // overweight sparse region
-    ttl: 12 * 60 * 60 * 1000,  // 12h — 2 refreshes/day × 1 corridor = 2 credits/day
+    name: 'AFRICA', target: 52, weight: 1.2, // overweight sparse region
+    ttl: 12 * 60 * 60 * 1000,  // 12h — 2 refreshes/day × 3 corridors = 6 credits/day
     corridors: [
       { name: 'Cape of Good Hope',   latB: -35,  latT: -33,  lonL: 17,    lonR: 19   },
+      { name: 'Gulf of Guinea',      latB: 3,    latT: 5,    lonL: 4,     lonR: 6    },
+      { name: 'East Africa',         latB: -5,   latT: -3,   lonL: 39,    lonR: 41   },
     ],
   },
 ];
-// Sum of targets = 300 (at GLOBAL_CAP)
+// Sum of targets = 450 (at GLOBAL_CAP)
 
 // ── Data fetching ──────────────────────────────────────────────────────────────
 
 function buildUrl(corridor) {
-  return `${VESSEL_API_BASE}?filter.latBottom=${corridor.latB}&filter.latTop=${corridor.latT}&filter.lonLeft=${corridor.lonL}&filter.lonRight=${corridor.lonR}&pagination.limit=50`;
+  return `${VESSEL_API_BASE}?filter.latBottom=${corridor.latB}&filter.latTop=${corridor.latT}&filter.lonLeft=${corridor.lonL}&filter.lonRight=${corridor.lonR}&pagination.limit=75`;
 }
 
 async function fetchCorridor(corridor, apiKey) {

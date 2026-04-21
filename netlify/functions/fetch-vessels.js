@@ -160,7 +160,10 @@ async function fetchCorridor(corridor, apiKey) {
       return [];
     }
     const json = await res.json();
-    return Array.isArray(json) ? json : (json.data || json.vessels || []);
+    const keys = Array.isArray(json) ? '[array]' : Object.keys(json).join(', ');
+    const arr  = Array.isArray(json) ? json : (json.data || json.vessels || []);
+    console.log(`[${corridor.name}] response keys: ${keys} → ${arr.length} vessels`);
+    return arr;
   } catch (err) {
     clearTimeout(timer);
     console.warn(`[${corridor.name}] failed: ${err.message}`);
@@ -273,7 +276,7 @@ exports.handler = async function (event) {
     'Access-Control-Allow-Origin':  '*',
     'Access-Control-Allow-Headers': 'Content-Type',
     'Content-Type': 'application/json',
-    'Cache-Control': 'public, max-age=1800',
+    'Cache-Control': 'no-store',
   };
 
   if (event.httpMethod === 'OPTIONS') {
@@ -295,13 +298,21 @@ exports.handler = async function (event) {
   // ── Load per-region cache ────────────────────────────────────────────────────
   let regionCache = {};
   try {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('global_events')
       .select('payload')
       .eq('key', CACHE_KEY)
       .single();
-    if (data?.payload) regionCache = data.payload;
-  } catch (_) {}
+    if (error) console.warn('[fetch-vessels] Supabase cache load error:', error.message);
+    if (data?.payload) {
+      regionCache = data.payload;
+      console.log('[fetch-vessels] Cache loaded. Regions present:', Object.keys(regionCache).join(', ') || 'none');
+    } else {
+      console.log('[fetch-vessels] No cache row found — cold start, all regions stale');
+    }
+  } catch (e) {
+    console.error('[fetch-vessels] Supabase cache load threw:', e.message);
+  }
 
   // ── Determine stale regions (each region uses its own TTL) ──────────────────
   const stale  = REGIONS.filter(r => {
@@ -361,6 +372,7 @@ exports.handler = async function (event) {
 
   // ── Aggregate and return ──────────────────────────────────────────────────────
   const vessels = aggregate(regionCache);
+  console.log(`[fetch-vessels] Final: ${vessels.length} vessels returning to client`);
 
   const regionStatus = {};
   REGIONS.forEach(r => {

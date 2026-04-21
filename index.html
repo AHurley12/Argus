@@ -13135,11 +13135,20 @@ function fetchShipsFromBackend() {
   }
 
   fetch(VESSELS_FN)
-    .then(function (r) { return r.ok ? r.json() : Promise.reject('HTTP ' + r.status); })
+    .then(function (r) {
+      console.log('[ArgusTracking] fetch-vessels HTTP', r.status);
+      return r.ok ? r.json() : Promise.reject('HTTP ' + r.status);
+    })
     .then(function (json) {
       if (!json || !Array.isArray(json.vessels)) {
-        console.warn('[ArgusTracking] fetch-vessels: unexpected response');
+        console.warn('[ArgusTracking] fetch-vessels: unexpected response shape —', JSON.stringify(json).slice(0, 200));
         updateStatus('SHIPS: UNAVAILABLE');
+        return;
+      }
+      console.log('[ArgusTracking] fetch-vessels: received', json.vessels.length, 'vessels | source:', json.source, '| regions:', JSON.stringify(json.regions));
+      if (json.vessels.length === 0) {
+        console.warn('[ArgusTracking] fetch-vessels: 0 vessels in response — check Netlify function logs');
+        updateStatus('SHIPS: 0 VESSELS');
         return;
       }
       lastShipFetch = Date.now();

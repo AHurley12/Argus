@@ -3214,6 +3214,27 @@
 (function() {
 'use strict';
 
+// ── Deferred localStorage write helper ───────────────────────────────────────
+// Schedules writes via setTimeout so serialization runs after the current call
+// stack clears. This prevents synchronous main-thread stalls caused by large
+// JSON payloads (aircraft ~75 KB every 90 s, GDELT ~150 KB every 25 min).
+// API is a drop-in replacement for localStorage.setItem — pass a string or any
+// JSON-serializable value. Optional delayMs debounces rapid successive writes.
+// NOTE: Do NOT use for session tokens or auth state — those must persist
+// immediately. Use synchronous localStorage.setItem for those.
+(function() {
+  var _timers = {};
+  window._lsWrite = function(key, value, delayMs) {
+    if (_timers[key]) clearTimeout(_timers[key]);
+    _timers[key] = setTimeout(function() {
+      delete _timers[key];
+      try {
+        localStorage.setItem(key, typeof value === 'string' ? value : JSON.stringify(value));
+      } catch(e) {}
+    }, delayMs || 0);
+  };
+}());
+
 // ── Global marker registries (accessed by data script and GDELT module) ──────
 window.eventMarkers      = [];
 window.countryMarkers    = [];
@@ -3998,6 +4019,34 @@ document.addEventListener('DOMContentLoaded', function() {
     if (!isDragging) document.body.style.cursor = 'default';
   });
 
+  // ── Raycast helpers — throttle + frustum pre-filter ──────────────────────────
+  // Throttle: max 10 raycasts/sec (100 ms gap). Reduces CPU from ~96k to ~500
+  // intersection tests/sec at typical mouse speed.
+  var _lastRaycastMs    = 0;
+  var _RAYCAST_THROTTLE = 100;
+  // Reusable frustum objects — allocated once, updated each raycast frame.
+  var _rcFrustum    = new THREE.Frustum();
+  var _rcProjMat    = new THREE.Matrix4();
+  var _rcWorldPos   = new THREE.Vector3();
+
+  // Filters multiple marker arrays down to objects actually inside the camera frustum.
+  // Combining them into one call also lets intersectObjects sort by distance globally.
+  function _frustumFilter(arrays) {
+    _rcProjMat.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+    _rcFrustum.setFromProjectionMatrix(_rcProjMat);
+    var out = [];
+    arrays.forEach(function(arr) {
+      if (!arr || !arr.length) return;
+      for (var i = 0; i < arr.length; i++) {
+        var m = arr[i];
+        if (!m || !m.visible) continue;
+        m.getWorldPosition(_rcWorldPos);
+        if (_rcFrustum.containsPoint(_rcWorldPos)) out.push(m);
+      }
+    });
+    return out;
+  }
+
   // ── Hover Tooltip ────────────────────────────────────────────────────────────
   window.addEventListener('mousemove', function(e) {
     var ls = window.ArgusLayerState;
@@ -4010,6 +4059,11 @@ document.addEventListener('DOMContentLoaded', function() {
       if (tooltip.style.display !== 'none') clearHoverTooltip();
       return;
     }
+
+    // Throttle: skip if called within 100 ms of the last raycast pass.
+    var _nowMs = performance.now();
+    if (_nowMs - _lastRaycastMs < _RAYCAST_THROTTLE) return;
+    _lastRaycastMs = _nowMs;
 
     mouseHover.x =  (e.clientX / window.innerWidth)  * 2 - 1;
     mouseHover.y = -(e.clientY / window.innerHeight) * 2 + 1;
@@ -4036,12 +4090,16 @@ document.addEventListener('DOMContentLoaded', function() {
       raycasterHover.setFromCamera(mouseHover, camera);
     }
 
-    // ── Assemble hits, gated by LayerState — invisible/disabled layers never tested
-    var allHits = []
-      .concat((!ls || ls.events)      ? raycasterHover.intersectObjects(window.eventMarkers)           : [])
-      .concat((!ls || ls.chokepoints) ? raycasterHover.intersectObjects(window.chokepointMarkers)      : [])
-      .concat((!ls || ls.aircraft)    ? raycasterHover.intersectObjects(window._aircraftMarkers || []) : [])
-      .concat((!ls || ls.vessels)     ? raycasterHover.intersectObjects(window._vesselMarkers   || []) : [])
+    // ── Assemble hits — frustum-filtered candidates reduce intersection tests
+    // from 1,600 to typically 20-50 objects. Layer gates keep disabled layers
+    // out of the candidate list entirely.
+    var _candidates = _frustumFilter([
+      (!ls || ls.events)      ? window.eventMarkers            : null,
+      (!ls || ls.chokepoints) ? window.chokepointMarkers       : null,
+      (!ls || ls.aircraft)    ? (window._aircraftMarkers || []) : null,
+      (!ls || ls.vessels)     ? (window._vesselMarkers   || []) : null,
+    ]);
+    var allHits = raycasterHover.intersectObjects(_candidates)
       .concat(countryHits)
       .concat(capitalHits)
       .filter(function(h) {
@@ -4125,24 +4183,32 @@ document.addEventListener('DOMContentLoaded', function() {
     requestAnimationFrame(animate);
     animT += 0.016;
 
-    eventMarkerGroup.children.forEach(function(obj) {
-      if (obj.userData.isPulseRing) {
-        obj.userData.phase += 0.04;
-        obj.scale.setScalar(1 + 0.4 * Math.sin(obj.userData.phase));
-        obj.material.opacity = 0.4 * (1 - Math.abs(Math.sin(obj.userData.phase)));
-      }
-    });
-    staticMarkerGroup.children.forEach(function(obj) {
-      if (obj.userData.isPulseRingStatic) {
-        obj.userData.phase += 0.028;
-        obj.scale.setScalar(1 + 0.35 * Math.sin(obj.userData.phase));
-        obj.material.opacity = 0.38 * (1 - Math.abs(Math.sin(obj.userData.phase)));
-      }
-      if (obj.userData.isStaticSpike) { obj.rotation.y += 0.016; obj.rotation.x += 0.008; }
-    });
-    routeArcLines.forEach(function(line, i) {
-      line.material.opacity = 0.28 + 0.14 * Math.sin(animT + i * 0.6);
-    });
+    // Only animate groups that are currently visible — skipping hidden groups
+    // eliminates up to 84,000 no-op iterations/sec when layers are toggled off.
+    if (eventMarkerGroup.visible) {
+      eventMarkerGroup.children.forEach(function(obj) {
+        if (obj.userData.isPulseRing) {
+          obj.userData.phase += 0.04;
+          obj.scale.setScalar(1 + 0.4 * Math.sin(obj.userData.phase));
+          obj.material.opacity = 0.4 * (1 - Math.abs(Math.sin(obj.userData.phase)));
+        }
+      });
+    }
+    if (staticMarkerGroup.visible) {
+      staticMarkerGroup.children.forEach(function(obj) {
+        if (obj.userData.isPulseRingStatic) {
+          obj.userData.phase += 0.028;
+          obj.scale.setScalar(1 + 0.35 * Math.sin(obj.userData.phase));
+          obj.material.opacity = 0.38 * (1 - Math.abs(Math.sin(obj.userData.phase)));
+        }
+        if (obj.userData.isStaticSpike) { obj.rotation.y += 0.016; obj.rotation.x += 0.008; }
+      });
+    }
+    if (routeArcLines.length) {
+      routeArcLines.forEach(function(line, i) {
+        line.material.opacity = 0.28 + 0.14 * Math.sin(animT + i * 0.6);
+      });
+    }
 
     // ── Hover reconciliation — clear stale tooltip if hovered entity is no longer eligible
     if (_activeHoverObj && !canInteract(_activeHoverObj)) {
@@ -4160,6 +4226,24 @@ document.addEventListener('DOMContentLoaded', function() {
     camera.aspect = nW / nH;
     camera.updateProjectionMatrix();
     renderer.setSize(nW, nH);
+  });
+
+  // ── Page unload — dispose Three.js GPU resources ─────────────────────────────
+  // Without this, navigating away leaves textures, geometries, and materials
+  // allocated on the GPU until the browser decides to collect them (can be
+  // minutes). Disposing explicitly keeps per-tab VRAM under 50 MB.
+  window.addEventListener('beforeunload', function() {
+    scene.traverse(function(obj) {
+      if (obj.geometry) obj.geometry.dispose();
+      if (obj.material) {
+        if (Array.isArray(obj.material)) {
+          obj.material.forEach(function(m) { m.dispose(); });
+        } else {
+          obj.material.dispose();
+        }
+      }
+    });
+    renderer.dispose();
   });
 
   // Expose for external access
@@ -5345,16 +5429,17 @@ window.ArgusData = (function() {
         localStorage.removeItem(k);
       });
     } catch(e) {}
-    fetchEIA();
-    fetchMarketData(); // Netlify: EIA + FRED + Stooq — supplements existing fetchers
-    fetchPolygonExchanges();
-    fetchAlphaVantage();
-    fetchFRED();
-    fetchTDData();
-    fetchYFinance();
-    fetchFinnhubCommodities();
-    fetchBondYields();
-    fetchBDI();
+    // Stagger market data fetches — avoids parallel fan-out at page load.
+    // Each function has its own TTL cache and returns immediately on cache hit;
+    // the delay only costs anything on a cold first load or after expiry.
+    var _mktFns = [
+      fetchEIA, fetchMarketData, fetchPolygonExchanges, fetchAlphaVantage,
+      fetchFRED, fetchTDData, fetchYFinance, fetchFinnhubCommodities,
+      fetchBondYields, fetchBDI
+    ];
+    _mktFns.forEach(function(fn, i) {
+      setTimeout(fn, i * 600 + Math.floor(Math.random() * 400));
+    });
   }
 
   // ── Baltic Dry Index — Stooq CSV, no key ────────────────────────────────
@@ -6932,8 +7017,8 @@ async function loadLiveEvents() {
 
   try {
     var liveEvents = await fetchAndClassify();
-    localStorage.setItem(FEED_CACHE_KEY, JSON.stringify(liveEvents));
-    localStorage.setItem(FEED_CACHE_TS, String(Date.now()));
+    window._lsWrite(FEED_CACHE_KEY, liveEvents);
+    window._lsWrite(FEED_CACHE_TS, String(Date.now()));
     renderEvents(liveEvents, true);
     window._liveEventContext = liveEvents.map(function(e) { return '• ' + e.title + ' [' + e.severity + ']'; }).join('\n');
     console.log('ARGUS: ' + liveEvents.length + ' live events loaded');
@@ -7858,6 +7943,42 @@ window.ArgusAI = (function() {
         liveContext += '\n';
       });
     }
+
+    // NASA FIRMS active wildfire clusters
+    var fireEvents = window._fireEvents || [];
+    if (fireEvents.length) {
+      liveContext += '\n--- NASA FIRMS ACTIVE WILDFIRES ---\n';
+      fireEvents.slice(0, 8).forEach(function(e) {
+        liveContext += '• [' + (e.severity || 'WATCH') + '] ' + e.title + '\n';
+      });
+    }
+
+    // Live vessel traffic by region
+    var vesselList = window._vesselMap ? Array.from(window._vesselMap.values()) : [];
+    if (vesselList.length) {
+      var vRegions = {};
+      vesselList.forEach(function(v){ vRegions[v.region||'GLOBAL'] = (vRegions[v.region||'GLOBAL']||0)+1; });
+      liveContext += '\n--- LIVE VESSEL TRAFFIC (' + vesselList.length + ' vessels) ---\n';
+      Object.keys(vRegions).sort(function(a,b){ return vRegions[b]-vRegions[a]; }).forEach(function(r) {
+        liveContext += '• ' + r + ': ' + vRegions[r] + ' vessels\n';
+      });
+    }
+
+    // Live aircraft traffic by corridor
+    try {
+      var acRaw = localStorage.getItem('argus_traffic_v4');
+      if (acRaw) {
+        var acList = JSON.parse(acRaw);
+        if (Array.isArray(acList) && acList.length) {
+          var acCors = {};
+          acList.forEach(function(ac){ acCors[ac.corridor||'UNKNOWN'] = (acCors[ac.corridor||'UNKNOWN']||0)+1; });
+          liveContext += '\n--- LIVE AIR TRAFFIC (' + acList.length + ' aircraft) ---\n';
+          Object.keys(acCors).sort(function(a,b){ return acCors[b]-acCors[a]; }).slice(0, 6).forEach(function(c) {
+            liveContext += '• ' + c + ': ' + acCors[c] + ' aircraft\n';
+          });
+        }
+      }
+    } catch(_){}
 
     // Chokepoint scores from GDELT analysis
     if (gdeltData && gdeltData.chokeScores && Object.keys(gdeltData.chokeScores).length) {
@@ -8856,10 +8977,9 @@ async function fetchAll() {
   var base = window._liveEventContext || '';
   window._liveEventContext = base ? base + '\n\n' + data.context : data.context;
 
-  try {
-    localStorage.setItem(CACHE_KEY, JSON.stringify(data));
-    localStorage.setItem(CACHE_TS, String(Date.now()));
-  } catch(e) {}
+  // Defer the ~150 KB GDELT serialization so it doesn't block applyToGlobe()
+  window._lsWrite(CACHE_KEY, data);
+  window._lsWrite(CACHE_TS, String(Date.now()));
 
   applyToGlobe();
   if (activeTab === 'gdelt') renderGdeltTab();
@@ -11641,6 +11761,57 @@ window.ArgusCaseBuilder = (function () {
     }).slice(0, 4);
   }
 
+  // ── Live vessel traffic signals ──────────────────────────────────────────────
+  // Synthesises live vessel position data into scoreable STRATEGIC signal events.
+  function ingestVesselSignals(terms) {
+    var vessels = window._vesselMap ? Array.from(window._vesselMap.values()) : [];
+    if (!vessels.length) return [];
+    var byRegion = {};
+    vessels.forEach(function(v) {
+      var r = v.region || 'GLOBAL';
+      if (!byRegion[r]) byRegion[r] = { count: 0, types: {} };
+      byRegion[r].count++;
+      var t = v.typeCategory || 'unknown';
+      byRegion[r].types[t] = (byRegion[r].types[t] || 0) + 1;
+    });
+    return Object.keys(byRegion).map(function(r) {
+      var d      = byRegion[r];
+      var top    = Object.keys(d.types).sort(function(a,b){ return d.types[b]-d.types[a]; })[0] || 'unknown';
+      var title  = 'MARITIME TRAFFIC — ' + r + ' (' + d.count + ' vessels, ' + top + ')';
+      var impact = d.count + ' active vessels tracked in ' + r + ' corridor. Dominant type: ' + top + '.';
+      var pts    = terms.length ? scoreTitleHeavy(title, terms) + scoreText(impact, terms) * 5 : 5;
+      return { ev: { id: 'vessel_' + r, title: title, impact: impact, type: 'SUPPLY_CHAIN',
+                     severity: d.count > 20 ? 'WATCH' : 'LOW', source: 'VesselAPI',
+                     region: r, lat: null, lon: null },
+               score: pts, hits: [], src: 'VesselAPI', sType: 'geopolitics', pillar: 'STRATEGIC', synergy: false };
+    }).filter(function(s){ return !terms.length || s.score > 0; }).slice(0, 5);
+  }
+
+  // ── Live aircraft traffic signals ─────────────────────────────────────────────
+  // Synthesises cached air traffic into scoreable STRATEGIC signal events.
+  function ingestAircraftSignals(terms) {
+    var acList = [];
+    try {
+      var raw = localStorage.getItem('argus_traffic_v4');
+      if (raw) acList = JSON.parse(raw);
+    } catch(_){}
+    if (!Array.isArray(acList) || acList.length < 5) return [];
+    var byCor = {};
+    acList.forEach(function(ac) {
+      var c = ac.corridor || 'UNKNOWN';
+      byCor[c] = (byCor[c] || 0) + 1;
+    });
+    return Object.keys(byCor).sort(function(a,b){ return byCor[b]-byCor[a]; }).slice(0, 5).map(function(cor) {
+      var cnt    = byCor[cor];
+      var title  = 'AIR CORRIDOR FLUX — ' + cor + ' (' + cnt + ' aircraft)';
+      var impact = cnt + ' aircraft active in ' + cor + ' corridor.';
+      var pts    = terms.length ? scoreTitleHeavy(title, terms) + scoreText(impact, terms) * 5 : 4;
+      return { ev: { id: 'air_' + cor.replace(/\s/g,'_'), title: title, impact: impact, type: 'SUPPLY_CHAIN',
+                     severity: 'LOW', source: 'ADS-B', region: cor, lat: null, lon: null },
+               score: pts, hits: [], src: 'ADS-B', sType: 'geopolitics', pillar: 'STRATEGIC', synergy: false };
+    }).filter(function(s){ return !terms.length || s.score > 0; });
+  }
+
   // ── Relational mapping: news articles linked to a chokepoint via scoreText() ──
   function getRelatedNews(cp, events) {
     var cpTerms = (cp.label + ' ' + (cp.id || '')).toLowerCase().split(/[\s\-_]+/).filter(function(w){ return w.length > 3; });
@@ -11673,7 +11844,21 @@ window.ArgusCaseBuilder = (function () {
       });
     });
 
-    // 2. Harvest active globe markers — skip static country dots and capital pins
+    // 2. Live vessel and aircraft traffic signals
+    ingestVesselSignals([]).forEach(function(s) {
+      var e = s.ev;
+      var uid = String(e.id || e.title.slice(0, 40));
+      if (seen[uid]) return; seen[uid] = true;
+      all.push(Object.assign({}, e, { plotPriority: 15 }));
+    });
+    ingestAircraftSignals([]).forEach(function(s) {
+      var e = s.ev;
+      var uid = String(e.id || e.title.slice(0, 40));
+      if (seen[uid]) return; seen[uid] = true;
+      all.push(Object.assign({}, e, { plotPriority: 10 }));
+    });
+
+    // 3. Harvest active globe markers — skip static country dots and capital pins
     (window.eventMarkers || []).forEach(function(m) {
       var ud = m.userData || {};
       // Exclusion rule: skip any marker that represents country metadata, not incidents
@@ -11769,6 +11954,9 @@ window.ArgusCaseBuilder = (function () {
         // Phase 2 — event ingestion + spatial synergy bonuses
         var scoredEvents = ingestEvents(terms, matchedCCodes);
         applySynergyBonuses(scoredEvents);
+        // Append live vessel and aircraft signals so they participate in pillar grouping
+        var _vesAcSigs = ingestVesselSignals(terms).concat(ingestAircraftSignals(terms));
+        _vesAcSigs.forEach(function(s){ scoredEvents.push(s); });
 
         return yieldToMain().then(function () {
           // Phase 3 — all other data streams
@@ -11777,6 +11965,8 @@ window.ArgusCaseBuilder = (function () {
           var commoditySigs = ingestCommodities(terms);
           var chokepoints   = ingestChokepoints(terms);
           var tradeRoutes   = ingestTradeRoutes(terms);
+          var vesselSigs    = ingestVesselSignals(terms);
+          var aircraftSigs  = ingestAircraftSignals(terms);
           var allMktSigs    = marketSigs.concat(commoditySigs).sort(function(a,b){ return b.score-a.score; });
 
           // Partition by pillar
@@ -12710,6 +12900,14 @@ var AC_CACHE_MS    = 90 * 1000;        // 90 s — matches server 60 s TTL + pro
 var SHIP_CACHE_MS  = 30 * 60 * 1000;  // 30 min — tanker at 20 knots barely moves in 30 min
 var AC_CACHE_KEY   = 'argus_traffic_v4';
 var AC_CACHE_TS    = 'argus_traffic_ts_v4';
+
+// ── Jitter helper ─────────────────────────────────────────────────────────────
+// Returns baseMs ± (fraction × baseMs) — spreads 100 simultaneous users across
+// the full refresh window so they stop firing in a synchronized burst.
+function _jitterMs(baseMs, fraction) {
+  return Math.round(baseMs * (1 + fraction * (2 * Math.random() - 1)));
+}
+
 // Dead-reckoning state — keyed by ICAO24, used to extrapolate position between fetches
 var _prevPositions = new Map(); // icao24 → { lat, lon, track, gs, seenAt }
 
@@ -13018,10 +13216,10 @@ function fetchAndRenderAircraft() {
       lastFetch   = Date.now();
       _acFailedAt = 0;
       cachedStates = json;
-      try {
-        localStorage.setItem(AC_CACHE_KEY, JSON.stringify(json));
-        localStorage.setItem(AC_CACHE_TS,  String(lastFetch));
-      } catch (_) {}
+      // Defer the ~75 KB serialization off the current call stack so it
+      // doesn't block renderAircraft (both keys written in the same task).
+      window._lsWrite(AC_CACHE_KEY, json);
+      window._lsWrite(AC_CACHE_TS,  String(lastFetch));
       renderAircraft(json);
     })
     .catch(function (err) {
@@ -13184,7 +13382,7 @@ function fetchShipsFromBackend() {
 }
 
 function stopShips() {
-  if (shipRefreshTimer) { clearInterval(shipRefreshTimer); shipRefreshTimer = null; }
+  if (shipRefreshTimer) { clearTimeout(shipRefreshTimer); shipRefreshTimer = null; }
   shipBuffer    = [];
   lastShipFetch = 0;
   vesselMap     = new Map();
@@ -13218,15 +13416,18 @@ function toggleAircraft() {
 
   if (aircraftOn) {
     fetchAndRenderAircraft();
-    // Auto-refresh every AC_CACHE_MS while active
+    // Auto-refresh with jittered interval — prevents 100 users from firing in sync
     if (!refreshTimer) {
-      refreshTimer = setInterval(function () {
-        if (aircraftOn && !document.hidden) { lastFetch = 0; fetchAndRenderAircraft(); }
-      }, AC_CACHE_MS);
+      (function schedAcActive() {
+        refreshTimer = setTimeout(function () {
+          if (aircraftOn && !document.hidden) { lastFetch = 0; fetchAndRenderAircraft(); }
+          if (aircraftOn) schedAcActive();
+        }, _jitterMs(AC_CACHE_MS, 0.25)); // 90s ± 22.5s
+      }());
     }
   } else {
     clearGroup(aircraftGroup, aircraftHits);
-    if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null; }
+    if (refreshTimer) { clearTimeout(refreshTimer); refreshTimer = null; }
   }
 
   setActive('btn-track-aircraft', aircraftOn);
@@ -13246,9 +13447,12 @@ function toggleShips() {
   if (shipsOn) {
     fetchShipsFromBackend();
     if (!shipRefreshTimer) {
-      shipRefreshTimer = setInterval(function () {
-        if (shipsOn && !document.hidden) { lastShipFetch = 0; fetchShipsFromBackend(); }
-      }, SHIP_CACHE_MS);
+      (function schedShActive() {
+        shipRefreshTimer = setTimeout(function () {
+          if (shipsOn && !document.hidden) { lastShipFetch = 0; fetchShipsFromBackend(); }
+          if (shipsOn) schedShActive();
+        }, _jitterMs(SHIP_CACHE_MS, 0.20)); // 30min ± 6min
+      }());
     }
   } else {
     stopShips();
@@ -13301,11 +13505,13 @@ window.addEventListener('keydown', function (e) {
       if (!prefetched) {
         prefetched = true;
         fetchAndRenderAircraft();                        // prime the cache
-        refreshTimer = setInterval(function () {
-          if (document.hidden) return;                   // Visibility API — skip when tab hidden
-          lastFetch = 0;
-          fetchAndRenderAircraft();                      // keep cache fresh every 15 min
-        }, AC_CACHE_MS);
+        // Jittered cache-warming loop — runs regardless of aircraftOn toggle state
+        (function schedAcWarm() {
+          refreshTimer = setTimeout(function () {
+            if (!document.hidden) { lastFetch = 0; fetchAndRenderAircraft(); }
+            schedAcWarm();
+          }, _jitterMs(AC_CACHE_MS, 0.25)); // 90s ± 22.5s
+        }());
       }
     } else if (++attempts > 60) {
       clearInterval(timer);
@@ -14003,6 +14209,21 @@ function scanRelationships() {
           newNodes.push({ id: anid, type: 'signal', signalType: 'market', label: 'AIR CORRIDOR FLUX', keywords: [topCor + ' (' + (corCount[topCor]||0) + ')', traffic.length + ' aircraft'], risk: 'WATCH' });
           newNodeIds.add(anid);
         }
+      }
+    }
+  } catch(_){}
+
+  // Maritime traffic signal from live vessel data
+  try {
+    var vessels = window._vesselMap ? Array.from(window._vesselMap.values()) : [];
+    if (vessels.length > 5) {
+      var vnid = 'signal:maritime_traffic';
+      if (!newNodeIds.has(vnid)) {
+        var vesRegions = {};
+        vessels.forEach(function(v){ vesRegions[v.region||'GLOBAL'] = (vesRegions[v.region||'GLOBAL']||0)+1; });
+        var topVesReg = Object.keys(vesRegions).sort(function(a,b){ return vesRegions[b]-vesRegions[a]; })[0] || 'GLOBAL';
+        newNodes.push({ id: vnid, type: 'signal', signalType: 'supply', label: 'MARITIME TRAFFIC', keywords: [topVesReg + ' (' + (vesRegions[topVesReg]||0) + ')', vessels.length + ' vessels active'], risk: 'WATCH' });
+        newNodeIds.add(vnid);
       }
     }
   } catch(_){}

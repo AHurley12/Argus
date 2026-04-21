@@ -1,7 +1,7 @@
 // netlify/functions/fetch-vessels.js
 // Multi-region vessel ingestion via VesselAPI.
 // 5 maritime regions / 28 corridors with stratified sampling and per-region caching.
-// Per-region TTLs tuned to ~448 VesselAPI credits/day (~10,752 credit budget over 24 days).
+// Per-region TTLs tuned to ~330 VesselAPI credits/day (~7,920 credit budget over 24 days).
 // Env: VESSELAPI_KEY, SUPABASE_URL, SUPABASE_SERVICE_KEY
 
 const { createClient } = require('@supabase/supabase-js');
@@ -60,14 +60,14 @@ function classifyVessel(rawType, name) {
 
 // ── Credit budget ──────────────────────────────────────────────────────────────
 // Each corridor fetch = 1 VesselAPI credit.  TTLs are in 30-minute increments.
-// Per-region TTLs are set to consume ~448 credits/day total:
-//   MIDDLE_EAST  (3 corridors, 1h TTL)   →  72 credits/day  [highest tactical value]
-//   ASIA_PACIFIC (9 corridors, 1.5h TTL) → 144 credits/day  [+Colombo transshipment hub]
-//   EUROPE_MED   (7 corridors, 1.5h TTL) → 112 credits/day  [+Rotterdam port approaches]
-//   AMERICAS     (6 corridors, 1.5h TTL) →  96 credits/day
-//   AFRICA       (3 corridors, 3h TTL)   →  24 credits/day
+// Per-region TTLs are set to consume ~330 credits/day total:
+//   MIDDLE_EAST  (3 corridors, 1.5h TTL) →  48 credits/day  [highest tactical value]
+//   ASIA_PACIFIC (9 corridors, 2h TTL)   → 108 credits/day
+//   EUROPE_MED   (7 corridors, 2h TTL)   →  84 credits/day
+//   AMERICAS     (6 corridors, 2h TTL)   →  72 credits/day
+//   AFRICA       (3 corridors, 4h TTL)   →  18 credits/day
 //   ──────────────────────────────────────────────────────
-//   Total                                ~448 credits/day  (~10,752 / 24-day window)
+//   Total                                ~330 credits/day  (~7,920 / 24-day window)
 
 // ── Region definitions ─────────────────────────────────────────────────────────
 // Each region contains named VesselAPI corridors (2°×2° bounding boxes).
@@ -77,7 +77,7 @@ function classifyVessel(rawType, name) {
 const REGIONS = [
   {
     name: 'ASIA_PACIFIC', target: 120, weight: 1.0,
-    ttl: 1.5 * 60 * 60 * 1000, // 1.5h — 16 refreshes/day × 9 corridors = 144 credits/day
+    ttl: 2 * 60 * 60 * 1000,   //   2h — 12 refreshes/day × 9 corridors = 108 credits/day
     corridors: [
       { name: 'Strait of Malacca',   latB: 1,    latT: 3,    lonL: 102,   lonR: 104  },
       { name: 'South China Sea',     latB: 14,   latT: 16,   lonL: 113,   lonR: 115  },
@@ -92,7 +92,7 @@ const REGIONS = [
   },
   {
     name: 'MIDDLE_EAST', target: 83, weight: 1.1,
-    ttl: 1 * 60 * 60 * 1000,   //   1h — 24 refreshes/day × 3 corridors = 72 credits/day
+    ttl: 1.5 * 60 * 60 * 1000, // 1.5h — 16 refreshes/day × 3 corridors = 48 credits/day
     corridors: [
       { name: 'Strait of Hormuz',    latB: 25,   latT: 27,   lonL: 55,    lonR: 57   },
       { name: 'Bab el-Mandeb',       latB: 11.5, latT: 13.5, lonL: 42.5,  lonR: 44.5 },
@@ -101,7 +101,7 @@ const REGIONS = [
   },
   {
     name: 'EUROPE_MED', target: 105, weight: 0.85, // suppress density bias
-    ttl: 1.5 * 60 * 60 * 1000, // 1.5h — 16 refreshes/day × 7 corridors = 112 credits/day
+    ttl: 2 * 60 * 60 * 1000,   //   2h — 12 refreshes/day × 7 corridors =  84 credits/day
     corridors: [
       { name: 'Suez Canal',          latB: 29,   latT: 31,   lonL: 31.5,  lonR: 33.5 },
       { name: 'English Channel',     latB: 50,   latT: 52,   lonL: 0,     lonR: 2    },
@@ -114,7 +114,7 @@ const REGIONS = [
   },
   {
     name: 'AMERICAS', target: 90, weight: 1.1,
-    ttl: 1.5 * 60 * 60 * 1000, // 1.5h — 16 refreshes/day × 6 corridors = 96 credits/day
+    ttl: 2 * 60 * 60 * 1000,   //   2h — 12 refreshes/day × 6 corridors =  72 credits/day
     corridors: [
       { name: 'Panama Canal',        latB: 8,    latT: 10,   lonL: -80.5, lonR: -78.5 },
       { name: 'US East Coast',       latB: 36,   latT: 38,   lonL: -76,   lonR: -74   },
@@ -126,7 +126,7 @@ const REGIONS = [
   },
   {
     name: 'AFRICA', target: 52, weight: 1.2, // overweight sparse region
-    ttl: 3 * 60 * 60 * 1000,   //   3h —  8 refreshes/day × 3 corridors = 24 credits/day
+    ttl: 4 * 60 * 60 * 1000,   //   4h —  6 refreshes/day × 3 corridors = 18 credits/day
     corridors: [
       { name: 'Cape of Good Hope',   latB: -35,  latT: -33,  lonL: 17,    lonR: 19   },
       { name: 'Gulf of Guinea',      latB: 3,    latT: 5,    lonL: 4,     lonR: 6    },

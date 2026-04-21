@@ -206,7 +206,6 @@ function normalise(v, regionName) {
   if (lat === 0 && lon === 0)    return null;
 
   const sog  = v.sog ?? v.speed ?? v.speedOverGround ?? null;
-  if (sog != null && sog < 0.5) return null;  // skip anchored / very slow
 
   const mmsi        = String(v.mmsi || v.MMSI || '');
   const name        = (v.shipName || v.name || v.vesselName || mmsi || 'VESSEL').trim();
@@ -335,7 +334,10 @@ exports.handler = async function (event) {
 
       if (raw.length === 0) {
         console.warn(`[${region.name}] 0 raw vessels — all corridors failed or empty`);
-        // Preserve stale cache on failure
+        // Still stamp the timestamp so we don't hammer the API on every request
+        if (!regionCache[region.name]) {
+          regionCache[region.name] = { vessels: [], ts: now };
+        }
         return;
       }
 

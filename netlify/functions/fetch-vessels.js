@@ -386,7 +386,12 @@ exports.handler = async function (event) {
 
   return {
     statusCode: 200,
-    headers,
+    headers: {
+      ...headers,
+      // Vessels update every 30 min server-side — cache the CDN response for 20 min.
+      // stale-while-revalidate: serve stale for 5 min extra while CDN revalidates.
+      'Cache-Control': 'public, s-maxage=1200, stale-while-revalidate=300',
+    },
     body: JSON.stringify({
       source:  stale.length ? 'live' : 'cache',
       regions: regionStatus,

@@ -3367,6 +3367,26 @@
   window._argusReqCache    = new RequestCache(0); // TTL=0 → coalesce only, no extra caching
 }());
 
+// ── Anonymous session ID ──────────────────────────────────────────────────────
+// Persistent UUID stored in localStorage. Used as user_id in the Netlify AI proxy
+// functions (ai-query.js, ai-classify.js) for per-user rate limit tracking.
+// Not auth-linked — it identifies a browser profile, not an account. This is
+// intentional: combining it with a server-side global hard cap is sufficient to
+// prevent financial runaway without requiring a full auth system.
+(function() {
+  var _UID_KEY = 'argus_uid_v1';
+  var uid = localStorage.getItem(_UID_KEY);
+  if (!uid || uid.length < 8) {
+    // Generate a random UUID v4
+    uid = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+      var r = Math.random() * 16 | 0;
+      return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+    });
+    localStorage.setItem(_UID_KEY, uid);
+  }
+  window.ArgusUID = uid;
+}());
+
 // ── Global marker registries (accessed by data script and GDELT module) ──────
 window.eventMarkers      = [];
 window.countryMarkers    = [];
@@ -6126,17 +6146,19 @@ var FEED_CACHE_KEY = 'argus_live_events_v2';
 var FEED_CACHE_TS  = 'argus_live_events_ts_v2';
 var FEED_TTL       = 30 * 60 * 1000;
 
-// ── Claude AI classification layer (optional — leave blank to use keyword-only) ─
-// Set via window.ARGUS_CLAUDE_KEY = 'sk-ant-...' before the script runs,
-// or call window.argusSetClaudeKey('sk-ant-...') at runtime.
-var _CLAUDE_KEY = (typeof window !== 'undefined' && window.ARGUS_CLAUDE_KEY) || '';
-window.argusSetClaudeKey = function(k) { _CLAUDE_KEY = k || ''; };
+// ── Claude AI classification layer ───────────────────────────────────────────
+// Calls are proxied through /.netlify/functions/ai-classify — the Anthropic API
+// key NEVER touches the browser. Rate limiting and daily caps are enforced
+// server-side in the Netlify function and backed by Supabase.
+//
+// _AI_DAILY_CAP here is a client-side pre-flight check that avoids a round-trip
+// when the user has clearly exhausted their local allowance. The server enforces
+// the real global cap (300 batches/day) independently.
+var _AI_CLASSIFY_FN    = '/.netlify/functions/ai-classify';
 var _AI_CLASS_CACHE_KEY = 'argus_ai_class_v1';
 var _AI_CLASS_CACHE_TTL = 2 * 60 * 60 * 1000; // 2 hours
-// Daily call budget — prevents a single user from firing unlimited Claude calls
-// when cache is cold. 30 batches × 20 articles = 600 classifications/user/day.
 var _AI_DAILY_KEY = 'argus_ai_daily_v1';
-var _AI_DAILY_CAP = 30;
+var _AI_DAILY_CAP = 10;  // client-side pre-flight: 10 batches/session (server cap is authoritative)
 // Max entries kept in the AI classification cache bucket.
 // Oldest entries are pruned when this is exceeded to prevent unbounded growth.
 var _AI_BUCKET_MAX = 500;
@@ -6851,7 +6873,8 @@ var _AI_CAT_MAP  = { conflict:'CONFLICT', cyber:'CYBER', disaster:'DISASTER', ec
 var _AI_SEV_MAP  = { low:'LOW', watch:'WATCH', warning:'WARNING', critical:'CRITICAL' };
 
 async function applyAIClassifications(classified) {
-  if (!_CLAUDE_KEY) return classified;
+  // AI classify is always available via the server-side proxy (ai-classify.js).
+  // No client-side key required — the guard is now the server's daily cap.
 
   // Determine which articles need AI classification (not in cache or cache expired)
   var now = Date.now();
@@ -6875,40 +6898,45 @@ async function applyAIClassifications(classified) {
   }
 
   // Batch into groups of 20
+  // Batch size: 10 articles (down from 20) — halves tokens per call, same quality
   var batches = [];
-  for (var b = 0; b < toClassify.length; b += 20) batches.push(toClassify.slice(b, b + 20));
+  for (var b = 0; b < toClassify.length; b += 10) batches.push(toClassify.slice(b, b + 10));
 
   for (var bi = 0; bi < batches.length; bi++) {
-    // Daily budget guard — stop if this user has already consumed their allocation.
+    // Client-side pre-flight: skip remaining batches if local session allowance hit.
+    // The server (ai-classify.js) enforces the authoritative global daily cap.
     var _budgetUsed = _getDailyBudget().count;
     if (_budgetUsed >= _AI_DAILY_CAP) {
-      console.warn('Argus AI classify: daily budget reached (' + _AI_DAILY_CAP + ' batches). Falling back to keyword classification.');
+      console.warn('Argus AI classify: session budget reached (' + _AI_DAILY_CAP + '). Falling back to keyword classification.');
       break;
     }
     _useDailyBudget();
 
-    // Inter-batch delay — prevents Anthropic rate-limit errors when multiple
-    // batches are needed in one refresh (300 ms gap is well inside burst limits).
-    if (bi > 0) await new Promise(function(r) { setTimeout(r, 300); });
+    // Inter-batch delay — spread load, stay inside Anthropic burst limits
+    if (bi > 0) await new Promise(function(r) { setTimeout(r, 500); });
 
     var batch = batches[bi];
-    var userMsg = batch.map(function(a) { return a.id + ': ' + a.title.slice(0, 120); }).join('\n');
+    // 70-char title truncation: sufficient for category/severity classification,
+    // ~42% fewer input tokens vs 120-char limit
+    var userMsg = batch.map(function(a) { return a.id + ': ' + a.title.slice(0, 70); }).join('\n');
     try {
-      var resp = await fetch('https://api.anthropic.com/v1/messages', {
+      var resp = await fetch(_AI_CLASSIFY_FN, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': _CLAUDE_KEY,
-          'anthropic-version': '2023-06-01',
-          'anthropic-dangerous-direct-browser-access': 'true'
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          model: 'claude-haiku-4-5-20251001',
-          max_tokens: 800,
-          system: _CLAUDE_SYS,
-          messages: [{ role: 'user', content: userMsg }]
+          payload: {
+            model:      'claude-haiku-4-5-20251001',
+            max_tokens: 300,
+            system:     _CLAUDE_SYS,
+            messages:   [{ role: 'user', content: userMsg }]
+          }
         })
       });
+      if (resp.status === 429) {
+        var errData = await resp.json().catch(function() { return {}; });
+        console.warn('Argus AI classify: server cap —', errData.code, errData.error);
+        break; // server says stop — honour it immediately
+      }
       if (!resp.ok) { console.warn('Argus AI classify: HTTP ' + resp.status); continue; }
       var rdata = await resp.json();
       var raw = (rdata.content && rdata.content[0] && rdata.content[0].text) || '[]';
@@ -8206,26 +8234,27 @@ window.ArgusAI = (function() {
       if (content && !m.querySelector('.argus-thinking')) history.push({ role: role, content: content });
     });
     try {
-      // Use live session token if available — anon key as fallback
-      var _sAnonKey = typeof SUPABASE_ANON !== "undefined" ? SUPABASE_ANON
-        : 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndidnpseHRyb2V3eHJtb254b2R4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM3OTQzNzMsImV4cCI6MjA4OTM3MDM3M30.0zp-wQ3wKpYc0f7LqFCOEea_d9HJuWnUSWgF4BAW82w';
-      var aiToken = (window.ArgusSession && window.ArgusSession.token)
-        ? window.ArgusSession.token
-        : _sAnonKey;
-      var res = await fetch('https://wbvzlxtroewxrmonxodx.supabase.co/functions/v1/ai-proxy', {
+      var res = await fetch('/.netlify/functions/ai-query', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer ' + aiToken
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          model:    'claude-sonnet-4-20250514',
-          max_tokens: 1500,
-          system:   sys,
-          tools: [{ type: 'web_search_20250305', name: 'web_search' }],
-          messages: history.concat([{ role: 'user', content: q }])
+          user_id: window.ArgusUID || 'anon-' + Date.now(),
+          payload: {
+            model:      'claude-sonnet-4-6',
+            max_tokens: 1024,
+            system:     sys,
+            messages:   history.concat([{ role: 'user', content: q }])
+          }
         })
       });
+      // Surface rate limit / cap errors as readable messages rather than crashes
+      if (res.status === 429) {
+        var limitErr = await res.json().catch(function() { return {}; });
+        var limitMsg = limitErr.error || 'Query limit reached';
+        thinking.remove();
+        addMessage('bot', '\u26A0 ' + limitMsg);
+        return;
+      }
       if (!res.ok) throw new Error('API ' + res.status);
       var data  = await res.json();
       if (data.error) throw new Error(data.error.message || JSON.stringify(data.error));

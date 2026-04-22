@@ -366,7 +366,13 @@ exports.handler = async function(event) {
 
   return {
     statusCode: 200,
-    headers,
+    headers: {
+      ...headers,
+      // Netlify CDN caches this response for 90 s — all users within that window
+      // share one response, zero additional upstream adsb.lol calls.
+      // stale-while-revalidate: serve stale for 30 s extra while CDN revalidates in bg.
+      'Cache-Control': 'public, s-maxage=90, stale-while-revalidate=30',
+    },
     body: JSON.stringify({
       source:      stale.length ? 'live' : 'cache',
       regions:     regionStatus,

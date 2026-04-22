@@ -13206,36 +13206,42 @@ function ensureGeometries() {
     _acTex = new THREE.CanvasTexture(cv);
   }());
 
-  // ── Ship sprite texture (top-down SVG ship shape) ────────────────────────────
+  // ── Ship sprite texture — bow-up hull shape (user SVG, scaled 2×) ───────────
+  // Drawn in white so SpriteMaterial.color multiplies to produce vessel-type tint.
+  // Bow points toward canvas top (north / 0°). SpriteMaterial.rotation then
+  // rotates the sprite to match the vessel's COG heading at render time.
+  //
+  // Original SVG path (32×32):
+  //   M16 1 C16 1 22 6 23 14 L23 26 Q23 31 16 31 Q9 31 9 26 L9 14 C10 6 16 1 16 1 Z
   (function () {
-    var sz = 64, cx = 32, cy = 34, s = 1.8;
+    var sz = 64;
     var cv = document.createElement('canvas');
     cv.width = cv.height = sz;
     var c = cv.getContext('2d');
 
-    // Bottom hull
-    c.beginPath(); c.moveTo(cx-12*s, cy+4*s); c.lineTo(cx-10*s, cy+8*s);
-    c.lineTo(cx+10*s, cy+8*s); c.lineTo(cx+12*s, cy+4*s); c.closePath();
-    c.fillStyle = '#047857'; c.fill();
+    // Hull — SVG path scaled 2× (all coords × 2), bow at top
+    c.beginPath();
+    c.moveTo(32, 2);
+    c.bezierCurveTo(32, 2, 44, 12, 46, 28);   // starboard bow curve
+    c.lineTo(46, 52);                           // starboard side
+    c.quadraticCurveTo(46, 62, 32, 62);        // starboard stern curve
+    c.quadraticCurveTo(18, 62, 18, 52);        // port stern curve
+    c.lineTo(18, 28);                           // port side
+    c.bezierCurveTo(20, 12, 32, 2, 32, 2);    // port bow curve back to tip
+    c.closePath();
+    c.fillStyle = '#ffffff';
+    c.fill();
 
-    // Mid hull
-    c.beginPath(); c.moveTo(cx-14*s, cy); c.lineTo(cx-12*s, cy+4*s);
-    c.lineTo(cx+12*s, cy+4*s); c.lineTo(cx+14*s, cy); c.closePath();
-    c.fillStyle = '#059669'; c.fill();
+    // Superstructure block (midship) — scaled 2×: x=26,y=30,w=12,h=14
+    c.fillStyle = 'rgba(255,255,255,0.55)';
+    c.fillRect(26, 30, 12, 14);
 
-    // Deck rail
-    var dg = c.createLinearGradient(cx, cy-2*s, cx, cy);
-    dg.addColorStop(0, '#2DD4BF'); dg.addColorStop(1, '#059669');
-    c.beginPath(); c.rect(cx-14*s, cy-2*s, 28*s, 2*s);
-    c.fillStyle = dg; c.fill();
-
-    // Superstructure
-    c.beginPath(); c.rect(cx-6*s, cy-8*s, 12*s, 6*s);
-    c.fillStyle = '#14B8A6'; c.fill();
-
-    // Bridge
-    c.beginPath(); c.rect(cx-3*s, cy-12*s, 6*s, 4*s);
-    c.fillStyle = '#5EEAD4'; c.fill();
+    // Bow circle — scaled 2×: cx=32,cy=10,r=3
+    // Provides a clear directional indicator at the pointed end
+    c.fillStyle = 'rgba(255,255,255,0.88)';
+    c.beginPath();
+    c.arc(32, 10, 3, 0, Math.PI * 2);
+    c.fill();
 
     _shTex = new THREE.CanvasTexture(cv);
   }());
@@ -13352,16 +13358,24 @@ function placeShip(lat, lon, name, sog, cog, typeCategory, mmsi, region, navStat
   var pos = AG.latLonToVector(lat, corrLon(lon), 101.5);
   var tc  = typeCategory || 'other';
 
+  // Rotate sprite so bow points in the vessel's COG direction.
+  // COG 0° = north (bow up in texture) → rotation 0.
+  // COG 90° = east → rotation -π/2 (clockwise in screen space).
+  // Matches the aircraft heading convention: rotation = -degrees × π/180.
+  // If no COG data, sprite stays bow-up (0 rad) — better than a random orientation.
+  var cogRad = (cog != null && !isNaN(cog)) ? -cog * Math.PI / 180 : 0;
+
   var mat = new THREE.SpriteMaterial({
     map:         _shTex,
     color:       new THREE.Color(SHIP_TYPE_COLORS[tc] !== undefined ? SHIP_TYPE_COLORS[tc] : SHIP_TYPE_COLORS.other),
     transparent: true,
     opacity:     0.92,
+    rotation:    cogRad,
     depthTest:   false
   });
   var sprite = new THREE.Sprite(mat);
   sprite.position.copy(pos);
-  sprite.scale.set(1.05, 1.05, 1);
+  sprite.scale.set(1.4, 1.4, 1);
 
   var label = (name || '').trim() || 'VESSEL';
   sprite.userData = {

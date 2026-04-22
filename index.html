@@ -148,23 +148,37 @@
       font-weight: 400;
     }
 
-    .header__controls { display: flex; align-items: center; gap: 4px; }
-    /* ── Touching button groups ── */
-    .btn-group { display: flex; align-items: stretch; gap: 0; height: var(--header-height); }
-    .btn-group > button { border-radius: 0; height: 100%; box-sizing: border-box; display: flex; align-items: center; white-space: nowrap; overflow: hidden; }
-    .btn-group > button:first-child { border-radius: 2px 0 0 2px; }
-    .btn-group > button:last-child  { border-radius: 0 2px 2px 0; margin-left: -1px; }
+    .header__controls { display: flex; align-items: center; gap: 12px; }
+    /* ── Compact button groups — 30 px tall, pill-adjacent shape ── */
+    .btn-group { display: flex; align-items: center; gap: 0; }
+    .btn-group > button {
+      height: 30px;
+      padding: 0 11px;
+      font-size: 12px;
+      letter-spacing: 1px;
+      font-weight: 600;
+      border-radius: 0;
+      box-sizing: border-box;
+      display: flex;
+      align-items: center;
+      white-space: nowrap;
+      overflow: hidden;
+      cursor: pointer;
+    }
+    .btn-group > button:first-child { border-radius: 3px 0 0 3px; }
+    .btn-group > button:last-child  { border-radius: 0 3px 3px 0; margin-left: -1px; }
+    .btn-group > button:only-child  { border-radius: 3px; }
 
-    .header__stat { text-align: center; margin: 0 4px; }
+    .header__stat { text-align: center; margin: 0; }
     .header__stat-label {
       font-size: 8px;
       color: var(--color-text-dim);
       letter-spacing: 2px;
       font-weight: 300;
-      margin-bottom: 3px;
+      margin-bottom: 1px;
     }
     .header__stat-value {
-      font-size: 19px;
+      font-size: 14px;
       font-weight: 700;
       font-family: var(--font-display);
     }
@@ -181,13 +195,7 @@
       background: linear-gradient(135deg, #0a1e35 0%, #0d2840 100%);
       border: 1px solid rgba(0, 204, 255, 0.45);
       color: #00ccff;
-      padding: 0 14px;
-      cursor: pointer;
-      letter-spacing: 2px;
-      font-size: 10px;
       font-family: var(--font-mono);
-      font-weight: 700;
-      border-radius: 2px;
       transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     }
     #btn-add-intelligence:hover {
@@ -201,13 +209,7 @@
       background: linear-gradient(135deg, #0a2540 0%, #0d3050 100%);
       border: 1px solid #1a4a70;
       color: var(--color-accent);
-      padding: 0 14px;
-      cursor: pointer;
-      letter-spacing: 2px;
-      font-size: 10px;
       font-family: var(--font-mono);
-      font-weight: 600;
-      border-radius: 2px;
       transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     }
     #btn-ai-query:hover {
@@ -225,13 +227,7 @@
       background: linear-gradient(135deg, #120830 0%, #1a0a40 100%);
       border: 1px solid #3a1a6a;
       color: #b464ff;
-      padding: 0 14px;
-      cursor: pointer;
-      letter-spacing: 2px;
-      font-size: 10px;
       font-family: var(--font-mono);
-      font-weight: 600;
-      border-radius: 2px;
       transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     }
     #btn-analysis-lab:hover {
@@ -2230,13 +2226,7 @@
     background: linear-gradient(135deg, #0e0520 0%, #1a0835 100%);
     border: 1px solid #3a1060;
     color: var(--nw-purple-dim);
-    padding: 0 14px;
-    cursor: pointer;
-    letter-spacing: 2px;
-    font-size: 10px;
     font-family: var(--font-mono);
-    font-weight: 600;
-    border-radius: 2px;
     transition: all 0.3s cubic-bezier(0.4,0,0.2,1);
   }
   #btn-neural-web:hover  { border-color: var(--nw-purple-dim); color: var(--nw-purple); transform: translateY(-1px); }

@@ -3426,7 +3426,7 @@ document.addEventListener('DOMContentLoaded', function() {
   // ── Scene & Camera ──────────────────────────────────────────────────────────
   const scene  = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(60, W / H, 0.1, 1000);
-  camera.position.z = 250;
+  camera.position.z = 225;
 
   // ── Raycasters ──────────────────────────────────────────────────────────────
   const raycasterClick = new THREE.Raycaster();
@@ -4141,10 +4141,11 @@ document.addEventListener('DOMContentLoaded', function() {
     e.preventDefault();
     // Scale zoom speed with distance so close-range scrolling stays granular
     // and far-range scrolling covers ground quickly
-    var zoomSpeed = e.deltaY * 0.14375 * (camera.position.z / 250);
-    // minDistance 113 = 75% of the previous 150 floor → ~25% closer to globe surface
-    // Globe radius = 100, so at z=113 the camera is 13 units above the surface — no clipping risk
-    camera.position.z = Math.max(113, Math.min(400, camera.position.z + zoomSpeed));
+    var zoomSpeed = e.deltaY * 0.14375 * (camera.position.z / 225);
+    // Zoom range scaled 10% closer across the board (initial 250→225, min 113→102, max 400→360).
+    // Globe radius = 100; at z=102 camera is 2 units above surface — no near-plane clipping risk.
+    // Coordinate accuracy (latLonToVector) is world-space and unaffected by camera distance.
+    camera.position.z = Math.max(102, Math.min(360, camera.position.z + zoomSpeed));
   }, { passive: false });
 
   // ── Hover helpers ────────────────────────────────────────────────────────────

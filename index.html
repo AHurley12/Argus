@@ -13375,7 +13375,7 @@ function placeShip(lat, lon, name, sog, cog, typeCategory, mmsi, region, navStat
   });
   var sprite = new THREE.Sprite(mat);
   sprite.position.copy(pos);
-  sprite.scale.set(1.4, 1.4, 1);
+  sprite.scale.set(1.05, 1.05, 1);
 
   var label = (name || '').trim() || 'VESSEL';
   sprite.userData = {

@@ -104,19 +104,25 @@
     /* ── Header ──────────────────────────────────────────────────────────────── */
     #header {
       position: absolute;
-      top: 0;
-      left: 0;
-      right: 0;
+      top: 0; left: 0; right: 0;
       height: var(--header-height);
       z-index: var(--z-header);
-      display: flex;
+      display: grid;
+      grid-template-columns: 1fr auto 1fr;
       align-items: center;
-      justify-content: space-between;
-      padding: 0 24px;
+      padding: 0 20px;
       background: linear-gradient(180deg, #020a15 0%, #030d1a 100%);
       border-bottom: 1px solid var(--color-border-solid);
       backdrop-filter: blur(10px);
     }
+
+    /* ── Three header zones ── */
+    .header__left  { display: flex; align-items: center; gap: 16px; justify-content: flex-start; }
+    .header__center { display: flex; align-items: center; gap: 12px; justify-content: center; }
+    .header__right { display: flex; align-items: center; gap: 10px; justify-content: flex-end; }
+
+    /* stats inside left zone */
+    .header__stats { display: flex; align-items: center; gap: 12px; }
 
     .header__brand { display: flex; align-items: center; gap: 16px; }
 
@@ -148,7 +154,120 @@
       font-weight: 400;
     }
 
+    /* legacy alias — keep for any JS that appends to header__controls */
     .header__controls { display: flex; align-items: center; gap: 12px; }
+
+    /* ── Account button (right zone) ── */
+    #btn-account {
+      display: flex; align-items: center; gap: 7px;
+      height: 30px; padding: 0 11px;
+      background: linear-gradient(135deg, #060f1e 0%, #0a1628 100%);
+      border: 1px solid #1a3a5a;
+      color: #7aafcc;
+      font-family: var(--font-mono);
+      font-size: 12px; font-weight: 600; letter-spacing: 1px;
+      border-radius: 3px; cursor: pointer;
+      transition: border-color 0.2s, color 0.2s, box-shadow 0.2s;
+      white-space: nowrap;
+    }
+    #btn-account:hover { border-color: #2a6a90; color: #99ccee; box-shadow: 0 0 8px rgba(0,170,255,0.12); }
+    #btn-account.is-open { border-color: var(--color-accent); color: #00ccff; box-shadow: 0 0 12px rgba(0,170,255,0.18); }
+    #btn-account .acct-dot {
+      width: 7px; height: 7px; border-radius: 50%;
+      background: #3a6a8a; flex-shrink: 0;
+      transition: background 0.2s, box-shadow 0.2s;
+    }
+
+    /* ── Account panel dropdown ── */
+    #panel-account {
+      position: fixed;
+      top: calc(var(--header-height) + 6px);
+      right: 20px;
+      width: 288px;
+      background: #020c1a;
+      border: 1px solid #1a3a5a;
+      border-radius: 4px;
+      z-index: calc(var(--z-header) + 5);
+      box-shadow: 0 8px 32px rgba(0,0,0,0.6), 0 0 1px rgba(0,170,255,0.1);
+      display: none;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    #panel-account.is-open { display: flex; }
+
+    .acct-tab-row {
+      display: flex; gap: 0;
+      border-bottom: 1px solid #0d2035;
+      flex-shrink: 0;
+    }
+    .acct-tab {
+      flex: 1; height: 34px;
+      background: none; border: none;
+      border-bottom: 2px solid transparent;
+      color: #3a6a8a;
+      font-family: var(--font-mono); font-size: 10px;
+      letter-spacing: 2px; font-weight: 600;
+      cursor: pointer; transition: color 0.15s, border-color 0.15s;
+    }
+    .acct-tab:hover { color: #6a9fcc; }
+    .acct-tab.is-active { color: var(--color-accent); border-bottom-color: var(--color-accent); }
+
+    .acct-pane { display: none; flex-direction: column; padding: 16px; gap: 12px; }
+    .acct-pane.is-active { display: flex; }
+
+    .acct-field-label {
+      font-size: 8px; letter-spacing: 2px; color: #2a5070;
+      font-weight: 600; margin-bottom: 4px; font-family: var(--font-mono);
+    }
+    .acct-field-value {
+      font-size: 12px; color: #99ccee; font-family: var(--font-secondary);
+      word-break: break-all;
+    }
+    .acct-row { display: flex; flex-direction: column; }
+    .acct-row-inline { display: flex; align-items: center; gap: 8px; }
+
+    /* tier pill */
+    .acct-tier-pill {
+      display: inline-block; padding: 2px 9px;
+      font-size: 9px; letter-spacing: 2px; font-weight: 700;
+      font-family: var(--font-mono); border-radius: 2px;
+    }
+    /* verified / unverified badges */
+    .acct-badge-ok {
+      font-size: 8px; letter-spacing: 1px; padding: 1px 6px;
+      background: rgba(0,255,136,0.1); border: 1px solid rgba(0,255,136,0.3);
+      color: #00ff88; border-radius: 2px; font-family: var(--font-mono);
+    }
+    .acct-badge-warn {
+      font-size: 8px; letter-spacing: 1px; padding: 1px 6px;
+      background: rgba(255,170,0,0.1); border: 1px solid rgba(255,170,0,0.3);
+      color: #ffaa00; border-radius: 2px; font-family: var(--font-mono); cursor: pointer;
+    }
+    .acct-badge-warn:hover { background: rgba(255,170,0,0.18); }
+
+    .acct-divider { height: 1px; background: #0d2035; margin: 4px 0; flex-shrink: 0; }
+
+    /* settings buttons */
+    .acct-btn {
+      height: 30px; padding: 0 12px; border-radius: 3px; cursor: pointer;
+      font-family: var(--font-mono); font-size: 11px; letter-spacing: 1px; font-weight: 600;
+      transition: all 0.2s; border: 1px solid; display: inline-flex; align-items: center; gap: 6px;
+    }
+    .acct-btn--danger {
+      background: rgba(180,30,30,0.12); border-color: #5a1a1a; color: #ee6666;
+    }
+    .acct-btn--danger:hover { background: rgba(180,30,30,0.22); border-color: #992222; color: #ff8888; }
+    .acct-btn--ghost {
+      background: rgba(0,100,180,0.08); border-color: #1a3a5a; color: #5a9acc;
+    }
+    .acct-btn--ghost:hover { background: rgba(0,100,180,0.16); border-color: #2a6a90; color: #88bbdd; }
+
+    .acct-feedback {
+      font-size: 10px; letter-spacing: 1px; font-family: var(--font-mono);
+      padding: 6px 0; min-height: 18px;
+    }
+    .acct-feedback.ok   { color: #00ff88; }
+    .acct-feedback.err  { color: #ff6666; }
     /* ── Compact button groups — 30 px tall, pill-adjacent shape ── */
     .btn-group { display: flex; align-items: center; gap: 0; }
     .btn-group > button {
@@ -2669,26 +2788,33 @@
 
   <!-- ── Header ──────────────────────────────────────────────────────────────── -->
   <header id="header" role="banner">
-    <div class="header__brand">
-      <div id="logo" aria-label="ARGUS">ARGUS</div>
-      <div class="header__tagline">
-        <div class="header__tagline-sub">FORTUNE FAVORS THE INFORMED</div>
-        <div class="header__tagline-version">v.beta</div>
+    <!-- LEFT — brand + stats -->
+    <div class="header__left">
+      <div class="header__brand">
+        <div id="logo" aria-label="ARGUS">ARGUS</div>
+        <div class="header__tagline">
+          <div class="header__tagline-sub">FORTUNE FAVORS THE INFORMED</div>
+          <div class="header__tagline-version">v.beta</div>
+        </div>
+      </div>
+      <div class="header__stats">
+        <div class="header__stat" aria-label="Total events">
+          <div class="header__stat-label">EVENTS</div>
+          <div class="header__stat-value" id="ev-count" style="color:var(--color-orange)"></div>
+        </div>
+        <div class="header__stat" aria-label="Critical events">
+          <div class="header__stat-label">CRITICAL</div>
+          <div class="header__stat-value" id="crit-count" style="color:var(--color-red)"></div>
+        </div>
+        <div class="header__stat" aria-label="Local time">
+          <div class="header__stat-label" id="tz-label">LOCAL</div>
+          <div id="utc-display"></div>
+        </div>
       </div>
     </div>
-    <div class="header__controls">
-      <div class="header__stat" aria-label="Total events">
-        <div class="header__stat-label">EVENTS</div>
-        <div class="header__stat-value" id="ev-count" style="color: var(--color-orange)"></div>
-      </div>
-      <div class="header__stat" aria-label="Critical events">
-        <div class="header__stat-label">CRITICAL</div>
-        <div class="header__stat-value" id="crit-count" style="color: var(--color-red)"></div>
-      </div>
-      <div class="header__stat" aria-label="Local time">
-        <div class="header__stat-label" id="tz-label">LOCAL</div>
-        <div id="utc-display"></div>
-      </div>
+
+    <!-- CENTER — action buttons -->
+    <div class="header__center">
       <div class="btn-group btn-group--blue">
         <button id="btn-add-intelligence" onclick="ArgusEvents.openModal()" aria-label="Add intelligence report">⊕ ADD INTELLIGENCE</button>
         <button id="btn-ai-query" onclick="ArgusUI.toggleAI()" aria-label="Open AI query panel">◈ AI QUERY</button>
@@ -2698,7 +2824,66 @@
         <button id="btn-analysis-lab" onclick="ArgusCaseBuilder.toggleDrawer()" aria-label="Open Analysis Lab — advanced tools">▦ ANALYSIS LAB</button>
       </div>
     </div>
+
+    <!-- RIGHT — account slot (populated by renderSessionUI) -->
+    <div class="header__right" id="header-right-zone">
+      <div id="header-user-slot" style="display:none"></div>
+      <button id="btn-account" onclick="ArgusAccount.toggle()" aria-label="Account and settings" aria-haspopup="true" aria-expanded="false">
+        <span class="acct-dot" id="acct-status-dot"></span>
+        <span id="acct-btn-label">ACCOUNT</span>
+        <span style="font-size:9px;opacity:0.5">▾</span>
+      </button>
+    </div>
   </header>
+
+  <!-- ── Account panel dropdown ─────────────────────────────────────────────── -->
+  <div id="panel-account" role="dialog" aria-label="Account settings" aria-modal="false">
+    <div class="acct-tab-row">
+      <button class="acct-tab is-active" id="acct-tab-profile"  onclick="ArgusAccount.tab('profile')">PROFILE</button>
+      <button class="acct-tab"           id="acct-tab-settings" onclick="ArgusAccount.tab('settings')">SETTINGS</button>
+    </div>
+
+    <!-- PROFILE pane -->
+    <div class="acct-pane is-active" id="acct-pane-profile">
+      <div class="acct-row">
+        <div class="acct-field-label">EMAIL</div>
+        <div class="acct-row-inline">
+          <div class="acct-field-value" id="acct-email">—</div>
+          <span id="acct-email-badge"></span>
+        </div>
+      </div>
+      <div class="acct-row">
+        <div class="acct-field-label">ACCESS TIER</div>
+        <div><span class="acct-tier-pill" id="acct-tier-pill">—</span></div>
+      </div>
+      <div class="acct-row">
+        <div class="acct-field-label">MEMBER SINCE</div>
+        <div class="acct-field-value" id="acct-member-since">—</div>
+      </div>
+      <div class="acct-row">
+        <div class="acct-field-label">LAST ACTIVE</div>
+        <div class="acct-field-value" id="acct-last-seen">—</div>
+      </div>
+    </div>
+
+    <!-- SETTINGS pane -->
+    <div class="acct-pane" id="acct-pane-settings">
+      <!-- Authentication section -->
+      <div class="acct-field-label" style="margin-bottom:8px">AUTHENTICATION</div>
+      <button class="acct-btn acct-btn--danger" id="acct-btn-signout" onclick="ArgusAccount.signOut()">
+        ⏻ SIGN OUT
+      </button>
+      <div class="acct-divider"></div>
+      <!-- Password reset — shown only for email-identity users -->
+      <div id="acct-pw-section" style="display:none;flex-direction:column;gap:8px">
+        <div class="acct-field-label">CHANGE PASSWORD</div>
+        <button class="acct-btn acct-btn--ghost" id="acct-btn-pwreset" onclick="ArgusAccount.sendPasswordReset()">
+          ✉ SEND RESET EMAIL
+        </button>
+        <div class="acct-feedback" id="acct-pw-feedback"></div>
+      </div>
+    </div>
+  </div>
 
   <!-- ── Event submit toast — shown after manual event sent to review queue ── -->
   <div id="eq-submit-toast">◈ EVENT SUBMITTED — AWAITING ADMIN REVIEW</div>
@@ -10134,42 +10319,24 @@ return { getCountryData: getCountryData, getDisasters: getDisasters, init: init 
         '">' + badge.label + '</span>';
     }
 
-    // ── Header user indicator ────────────────────────────────────────────────
-    var header = document.querySelector('#header > div:last-child');
-    if (header) {
-      var userEl = document.createElement('div');
-      userEl.id = 'header-user-slot';
-      userEl.style.cssText = 'font-family:var(--font-secondary,\'DM Mono\',monospace);font-size:9px;letter-spacing:2px;color:#3a6a8a;display:flex;align-items:center;gap:8px;';
+    // ── Header account button — update dot colour and label ─────────────────
+    var dot   = document.getElementById('acct-status-dot');
+    var label = document.getElementById('acct-btn-label');
+    if (dot && badge) {
+      dot.style.background  = badge.dot;
+      dot.style.boxShadow   = '0 0 5px ' + badge.glow;
+    }
+    if (label) {
+      label.textContent = email ? email.split('@')[0].toUpperCase() : 'ACCOUNT';
+    }
 
-      if (email) {
-        var badgeHtml = badge
-          ? '<span style="' +
-              'background:' + badge.bg + ';' +
-              'color:' + badge.color + ';' +
-              'font-size:8px;letter-spacing:2px;font-weight:700;' +
-              'padding:2px 6px;' +
-              'box-shadow:0 0 6px ' + badge.glow + ';' +
-            '">' + badge.label + '</span>'
-          : '';
-
-        userEl.innerHTML =
-          '<span style="width:6px;height:6px;border-radius:50%;background:' + (badge ? badge.dot : '#3a6a8a') + ';display:inline-block;box-shadow:0 0 4px ' + (badge ? badge.glow : 'none') + '"></span>' +
-          '<span style="color:#7aafcc;">' + email.split('@')[0].toUpperCase() + '</span>' +
-          badgeHtml +
-          '<button onclick="ArgusAuth.signOut()" style="background:none;border:1px solid #0f2d48;color:#3a6a8a;font-family:inherit;font-size:8px;letter-spacing:2px;padding:2px 7px;cursor:pointer;transition:border-color 0.2s,color 0.2s;" onmouseover="this.style.borderColor=\'#1a4a70\';this.style.color=\'#7aafcc\'" onmouseout="this.style.borderColor=\'#0f2d48\';this.style.color=\'#3a6a8a\'">OUT</button>';
-      } else {
-        // Guest — show a login button in the same slot
-        userEl.innerHTML =
-          '<span style="width:6px;height:6px;border-radius:50%;background:#1a3a5a;display:inline-block;"></span>' +
-          '<span style="color:#2a5a7a;">GUEST</span>' +
-          '<button onclick="window.location.href=\'login.html\'" ' +
-            'style="background:linear-gradient(135deg,#0a1e35 0%,#0d2840 100%);border:1px solid rgba(0,204,255,0.4);color:#00ccff;font-family:inherit;font-size:8px;letter-spacing:2px;font-weight:700;padding:2px 10px;cursor:pointer;border-radius:2px;transition:border-color 0.2s,box-shadow 0.2s;" ' +
-            'onmouseover="this.style.borderColor=\'rgba(0,204,255,0.75)\';this.style.boxShadow=\'0 0 10px rgba(0,204,255,0.2)\';" ' +
-            'onmouseout="this.style.borderColor=\'rgba(0,204,255,0.4)\';this.style.boxShadow=\'none\';"' +
-          '>LOG IN</button>';
-      }
-
-      header.insertBefore(userEl, header.firstChild);
+    // Guest state: swap account button for a compact LOGIN button
+    var btnAccount = document.getElementById('btn-account');
+    if (btnAccount && !email) {
+      btnAccount.onclick    = function() { window.location.href = 'login.html'; };
+      btnAccount.innerHTML  = '<span style="font-size:9px;opacity:0.5">→</span> LOG IN';
+      btnAccount.style.borderColor = 'rgba(0,204,255,0.4)';
+      btnAccount.style.color       = '#00ccff';
     }
   }
 
@@ -10179,6 +10346,242 @@ return { getCountryData: getCountryData, getDisasters: getDisasters, init: init 
       window.location.href = 'login.html';
     }
   };
+
+  // ── ArgusAccount — account panel controller ──────────────────────────────
+  window.ArgusAccount = (function() {
+    var _open = false;
+    var _profileLoaded = false;
+
+    // ── Tier badge config (mirrors renderSessionUI BADGES) ───────────────────
+    var TIER_STYLES = {
+      owner:  { bg: 'linear-gradient(135deg,#ff9900 0%,#ffcc00 100%)', color: '#040d18', glow: 'rgba(255,204,0,0.5)' },
+      admin:  { bg: 'linear-gradient(135deg,#cc2200 0%,#ff4422 100%)', color: '#fff',    glow: 'rgba(255,68,34,0.5)' },
+      pro:    { bg: 'linear-gradient(135deg,#0077cc 0%,#00aaff 100%)', color: '#fff',    glow: 'rgba(0,170,255,0.5)' },
+      viewer: { bg: 'rgba(30,50,70,0.8)',                               color: '#5a9acc', glow: 'none' },
+    };
+
+    // ── Relative time helper ─────────────────────────────────────────────────
+    function relTime(isoStr) {
+      if (!isoStr) return '—';
+      var diff = Math.floor((Date.now() - new Date(isoStr).getTime()) / 1000);
+      if (diff < 60)       return 'just now';
+      if (diff < 3600)     return Math.floor(diff / 60) + ' min ago';
+      if (diff < 86400)    return Math.floor(diff / 3600) + ' hr ago';
+      if (diff < 2592000)  return Math.floor(diff / 86400) + ' days ago';
+      return new Date(isoStr).toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+    }
+
+    // ── MMM YYYY formatter ───────────────────────────────────────────────────
+    function fmtMonth(isoStr) {
+      if (!isoStr) return '—';
+      return new Date(isoStr).toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+    }
+
+    // ── Populate Profile pane from session + Supabase profiles row ───────────
+    async function loadProfile() {
+      if (_profileLoaded) return;
+      _profileLoaded = true;
+
+      var sess  = window.ArgusSession;
+      var email = sess.email || '—';
+
+      // Email field
+      var emailEl = document.getElementById('acct-email');
+      if (emailEl) emailEl.textContent = email;
+
+      // Email verified badge — read from stored session JSON
+      var stored = null;
+      try { stored = JSON.parse(localStorage.getItem('argus_session')); } catch(e) {}
+      var user           = stored && stored.user;
+      var confirmedAt    = user && user.email_confirmed_at;
+      var badgeEl        = document.getElementById('acct-email-badge');
+      if (badgeEl) {
+        if (confirmedAt) {
+          badgeEl.className   = 'acct-badge-ok';
+          badgeEl.textContent = '✓ VERIFIED';
+        } else {
+          badgeEl.className   = 'acct-badge-warn';
+          badgeEl.title       = 'Resend confirmation email';
+          badgeEl.textContent = '⚠ UNVERIFIED';
+          badgeEl.onclick     = function() { resendConfirmation(email); };
+        }
+      }
+
+      // Tier pill
+      var tier      = sess.tier || 'viewer';
+      var ts        = TIER_STYLES[tier] || TIER_STYLES.viewer;
+      var tierEl    = document.getElementById('acct-tier-pill');
+      if (tierEl) {
+        tierEl.textContent    = tier.toUpperCase();
+        tierEl.style.background  = ts.bg;
+        tierEl.style.color       = ts.color;
+        tierEl.style.boxShadow   = ts.glow !== 'none' ? '0 0 6px ' + ts.glow : 'none';
+      }
+
+      // Password section — only if user has an email identity
+      var hasEmailIdentity = user && Array.isArray(user.identities) &&
+        user.identities.some(function(id) { return id.provider === 'email'; });
+      var pwSection = document.getElementById('acct-pw-section');
+      if (pwSection && hasEmailIdentity) pwSection.style.display = 'flex';
+
+      // Fetch created_at and last_seen from profiles table
+      if (!sess.userId || !sess.token) return;
+      try {
+        var r = await fetch(
+          'https://wbvzlxtroewxrmonxodx.supabase.co/rest/v1/profiles' +
+          '?select=created_at,last_seen&id=eq.' + sess.userId,
+          {
+            headers: {
+              'apikey':        'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndidnpseHRyb2V3eHJtb254b2R4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM3OTQzNzMsImV4cCI6MjA4OTM3MDM3M30.0zp-wQ3wKpYc0f7LqFCOEea_d9HJuWnUSWgF4BAW82w',
+              'Authorization': 'Bearer ' + sess.token,
+            }
+          }
+        );
+        var rows = await r.json();
+        if (rows && rows[0]) {
+          var ms = document.getElementById('acct-member-since');
+          var ls = document.getElementById('acct-last-seen');
+          if (ms) ms.textContent = fmtMonth(rows[0].created_at);
+          if (ls) ls.textContent = relTime(rows[0].last_seen);
+        }
+      } catch(e) { console.warn('ArgusAccount: profile fetch failed', e); }
+    }
+
+    // ── Resend confirmation email ────────────────────────────────────────────
+    async function resendConfirmation(email) {
+      try {
+        var r = await fetch('https://wbvzlxtroewxrmonxodx.supabase.co/auth/v1/resend', {
+          method: 'POST',
+          headers: {
+            'apikey':       'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndidnpseHRyb2V3eHJtb254b2R4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM3OTQzNzMsImV4cCI6MjA4OTM3MDM3M30.0zp-wQ3wKpYc0f7LqFCOEea_d9HJuWnUSWgF4BAW82w',
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ type: 'signup', email: email })
+        });
+        var badgeEl = document.getElementById('acct-email-badge');
+        if (r.ok) {
+          if (badgeEl) { badgeEl.className = 'acct-badge-ok'; badgeEl.textContent = '✉ SENT'; badgeEl.onclick = null; }
+        } else {
+          if (badgeEl) { badgeEl.textContent = '⚠ RETRY'; }
+        }
+      } catch(e) { console.warn('ArgusAccount: resend failed', e); }
+    }
+
+    // ── Public: toggle open/close ────────────────────────────────────────────
+    function toggle() {
+      _open ? close() : open();
+    }
+
+    function open() {
+      _open = true;
+      var panel = document.getElementById('panel-account');
+      var btn   = document.getElementById('btn-account');
+      if (panel) panel.classList.add('is-open');
+      if (btn)   { btn.classList.add('is-open'); btn.setAttribute('aria-expanded', 'true'); }
+      loadProfile();
+      // Close on outside click
+      setTimeout(function() {
+        document.addEventListener('click', _outsideClick, { once: true, capture: true });
+      }, 0);
+    }
+
+    function close() {
+      _open = false;
+      var panel = document.getElementById('panel-account');
+      var btn   = document.getElementById('btn-account');
+      if (panel) panel.classList.remove('is-open');
+      if (btn)   { btn.classList.remove('is-open'); btn.setAttribute('aria-expanded', 'false'); }
+    }
+
+    function _outsideClick(e) {
+      var panel = document.getElementById('panel-account');
+      var btn   = document.getElementById('btn-account');
+      if (panel && !panel.contains(e.target) && btn && !btn.contains(e.target)) {
+        close();
+      } else if (_open) {
+        // Clicked inside — re-attach listener
+        setTimeout(function() {
+          document.addEventListener('click', _outsideClick, { once: true, capture: true });
+        }, 0);
+      }
+    }
+
+    // ── Public: sub-tab switch ───────────────────────────────────────────────
+    function tab(name) {
+      ['profile', 'settings'].forEach(function(t) {
+        var pane    = document.getElementById('acct-pane-' + t);
+        var tabBtn  = document.getElementById('acct-tab-' + t);
+        var active  = t === name;
+        if (pane)   { if (active) pane.classList.add('is-active');   else pane.classList.remove('is-active'); }
+        if (tabBtn) { if (active) tabBtn.classList.add('is-active'); else tabBtn.classList.remove('is-active'); }
+      });
+    }
+
+    // ── Public: sign out ─────────────────────────────────────────────────────
+    function signOut() {
+      // Best-effort server-side invalidation, then clear local state
+      var sess = window.ArgusSession;
+      if (sess && sess.token) {
+        fetch('https://wbvzlxtroewxrmonxodx.supabase.co/auth/v1/logout', {
+          method: 'POST',
+          headers: {
+            'apikey':        'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndidnpseHRyb2V3eHJtb254b2R4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM3OTQzNzMsImV4cCI6MjA4OTM3MDM3M30.0zp-wQ3wKpYc0f7LqFCOEea_d9HJuWnUSWgF4BAW82w',
+            'Authorization': 'Bearer ' + sess.token,
+          }
+        }).catch(function() {});
+      }
+      localStorage.removeItem('argus_session');
+      window.location.href = 'login.html';
+    }
+
+    // ── Public: send password reset email ────────────────────────────────────
+    async function sendPasswordReset() {
+      var feedbackEl = document.getElementById('acct-pw-feedback');
+      var btnEl      = document.getElementById('acct-btn-pwreset');
+      var email      = window.ArgusSession && window.ArgusSession.email;
+      if (!email) return;
+      if (btnEl) btnEl.disabled = true;
+      if (feedbackEl) { feedbackEl.className = 'acct-feedback'; feedbackEl.textContent = 'Sending…'; }
+      try {
+        var r = await fetch('https://wbvzlxtroewxrmonxodx.supabase.co/auth/v1/recover', {
+          method: 'POST',
+          headers: {
+            'apikey':       'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndidnpseHRyb2V3eHJtb254b2R4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM3OTQzNzMsImV4cCI6MjA4OTM3MDM3M30.0zp-wQ3wKpYc0f7LqFCOEea_d9HJuWnUSWgF4BAW82w',
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ email: email })
+        });
+        if (r.ok || r.status === 200) {
+          if (feedbackEl) { feedbackEl.className = 'acct-feedback ok'; feedbackEl.textContent = '✓ Reset email sent to ' + email; }
+        } else {
+          var err = await r.json().catch(function() { return {}; });
+          if (feedbackEl) { feedbackEl.className = 'acct-feedback err'; feedbackEl.textContent = '⚠ ' + (err.message || 'Request failed'); }
+          if (btnEl) btnEl.disabled = false;
+        }
+      } catch(e) {
+        if (feedbackEl) { feedbackEl.className = 'acct-feedback err'; feedbackEl.textContent = '⚠ Network error'; }
+        if (btnEl) btnEl.disabled = false;
+      }
+    }
+
+    // ── Refresh profile pane when auth state changes (e.g. email confirmed) ──
+    // Poll for email_confirmed_at change — simple approach with no SDK dependency.
+    // Checks once per 30s while the panel is open.
+    setInterval(function() {
+      if (!_open) return;
+      var stored = null;
+      try { stored = JSON.parse(localStorage.getItem('argus_session')); } catch(e) {}
+      var confirmedAt = stored && stored.user && stored.user.email_confirmed_at;
+      var badgeEl = document.getElementById('acct-email-badge');
+      if (confirmedAt && badgeEl && badgeEl.className !== 'acct-badge-ok') {
+        badgeEl.className   = 'acct-badge-ok';
+        badgeEl.textContent = '✓ VERIFIED';
+        badgeEl.onclick     = null;
+      }
+    }, 30000);
+
+    return { toggle: toggle, open: open, close: close, tab: tab, signOut: signOut, sendPasswordReset: sendPasswordReset };
+  }());
 
   // Refresh token every 50 minutes to prevent mid-session expiry
   setInterval(function() {

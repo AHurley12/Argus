@@ -14443,6 +14443,7 @@ document.addEventListener('visibilitychange', function () {
         <button class="nw-chip" data-btype="disasters">🌪 DIS</button>
         <button class="nw-chip" data-btype="news">📰 NEWS</button>
         <button class="nw-chip" data-btype="companies">🏢 CO</button>
+        <button class="nw-chip" data-btype="chokepoints">◇ CPT</button>
         <button class="nw-chip" data-btype="vessels">🚢 VES</button>
         <button class="nw-chip" data-btype="flights">✈ FLT</button>
       </div>
@@ -14684,6 +14685,8 @@ var state = {
   linkMode:    { active: false, sourceNode: null },
   manualEdges: [],      // user-created edges (persist across rebuilds)
   builderType: 'events',
+  selectedChokepoint: null,  // id of chokepoint selected for vessel drill-down
+  analyticsTimeRange: '24h', // '1h' | '24h' | '7d'
 };
 
 // --- 2.1 Controlled state mutations ---
@@ -15252,10 +15255,11 @@ function getNodeRadius(n) {
   if (n.type === 'entity')   return 13 + (RISK_WEIGHTS[n.risk] || 1);
   if (n.type === 'signal')   return 15;
   if (n.type === 'note')     return 13;
-  if (n.type === 'vessel')   return 12 + (RISK_WEIGHTS[n.risk] || 1);
-  if (n.type === 'company')  return 13 + (RISK_WEIGHTS[n.risk] || 1);
-  if (n.type === 'news')     return 12 + (RISK_WEIGHTS[n.risk] || 1);
-  if (n.type === 'aircraft') return 11;
+  if (n.type === 'vessel')     return 12 + (RISK_WEIGHTS[n.risk] || 1);
+  if (n.type === 'company')    return 13 + (RISK_WEIGHTS[n.risk] || 1);
+  if (n.type === 'news')       return 12 + (RISK_WEIGHTS[n.risk] || 1);
+  if (n.type === 'aircraft')   return 11;
+  if (n.type === 'chokepoint') return 16 + (RISK_WEIGHTS[n.risk] || 1) * 2;
   return 14 + (RISK_WEIGHTS[n.risk] || 1) * 2;
 }
 
@@ -15532,6 +15536,31 @@ function drawNode(ctx, n, pos, hovered, selected) {
     ctx.stroke();
     ctx.restore();
 
+  } else if (n.type === 'chokepoint') {
+    // Diamond shape (rotated square) — matches ◇ icon
+    var cp_col = '#ffaa33';
+    ctx.beginPath();
+    ctx.moveTo(pos.x,         pos.y - r * 1.2);
+    ctx.lineTo(pos.x + r,     pos.y);
+    ctx.lineTo(pos.x,         pos.y + r * 1.2);
+    ctx.lineTo(pos.x - r,     pos.y);
+    ctx.closePath();
+    ctx.fillStyle = hexToRgba(cp_col, 0.13);
+    ctx.fill();
+    ctx.strokeStyle = cp_col;
+    ctx.lineWidth = hovered ? 2.2 : 1.4;
+    ctx.stroke();
+    // Inner diamond ring
+    ctx.beginPath();
+    ctx.moveTo(pos.x,         pos.y - r * 0.6);
+    ctx.lineTo(pos.x + r * 0.5, pos.y);
+    ctx.lineTo(pos.x,         pos.y + r * 0.6);
+    ctx.lineTo(pos.x - r * 0.5, pos.y);
+    ctx.closePath();
+    ctx.strokeStyle = hexToRgba(cp_col, 0.4);
+    ctx.lineWidth = 0.7;
+    ctx.stroke();
+
   } else if (n.type === 'company') {
     // Square with inner ring
     ctx.beginPath();
@@ -15593,10 +15622,11 @@ function drawNodeLabel(ctx, n, pos) {
   ctx.fillStyle = n.type === 'country' ? '#c0ddf8'
     : n.type === 'topic'   ? '#4a7da8'
     : n.type === 'note'    ? '#ffe066'
-    : n.type === 'vessel'   ? '#00ccff'
-    : n.type === 'aircraft' ? '#66ddff'
-    : n.type === 'company'  ? '#ff99aa'
-    : n.type === 'news'     ? '#cc88ff'
+    : n.type === 'vessel'     ? '#00ccff'
+    : n.type === 'aircraft'   ? '#66ddff'
+    : n.type === 'company'    ? '#ff99aa'
+    : n.type === 'news'       ? '#cc88ff'
+    : n.type === 'chokepoint' ? '#ffaa33'
     : '#8899bb';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'top';
@@ -15609,10 +15639,11 @@ function nodeColor(n) {
   if (n.type === 'entity')   return n.entityType === 'country' ? '#0099ff' : (n.entityType === 'company' ? '#b464ff' : '#ffcc00');
   if (n.type === 'signal')   return n.signalType === 'market' ? '#ff9933' : '#ff4488';
   if (n.type === 'note')     return '#ffe066';
-  if (n.type === 'vessel')   return '#00ccff';
-  if (n.type === 'company')  return '#ff99aa';
-  if (n.type === 'news')     return '#cc88ff';
-  if (n.type === 'aircraft') return '#66ddff';
+  if (n.type === 'vessel')     return '#00ccff';
+  if (n.type === 'company')    return '#ff99aa';
+  if (n.type === 'news')       return '#cc88ff';
+  if (n.type === 'aircraft')   return '#66ddff';
+  if (n.type === 'chokepoint') return '#ffaa33';
   return RISK_COLORS[n.risk] || '#4a7da8';
 }
 
@@ -15944,6 +15975,20 @@ function showInspector(node) {
       node.altitude != null ? field('ALTITUDE', node.altitude + ' ft') : '',
       node.lat != null && node.lon != null ? field('POSITION', node.lat.toFixed(2) + '°, ' + node.lon.toFixed(2) + '°') : '',
       acLinks.length ? field('RELATIONSHIPS', acLinks.length + ' edges') : '',
+    ].join('');
+
+  } else if (node.type === 'chokepoint') {
+    var cpAnalyticsHtml = buildChokepointAnalyticsHtml(node.label);
+    var cpLinks = (state.relEdges||[]).concat(state.manualEdges||[]).filter(function(e){ return e.source===node.id||e.target===node.id; });
+    body.innerHTML = [
+      '<div style="font-size:8px;letter-spacing:2px;color:#ffaa33;margin-bottom:8px">◇ CHOKEPOINT</div>',
+      field('NAME', node.label),
+      field('RISK', '<span style="color:' + (RISK_COLORS[node.risk]||'#4a7da8') + '">' + (node.risk || '—') + '</span>'),
+      node.traffic ? field('TRAFFIC', node.traffic) : '',
+      node.volume  ? field('VOLUME',  node.volume)  : '',
+      node.status  ? field('STATUS',  '<span style="color:#c0ddf8;line-height:1.5">' + node.status + '</span>') : '',
+      cpLinks.length ? field('RELATIONSHIPS', cpLinks.length + ' edges') : '',
+      cpAnalyticsHtml,
     ].join('');
 
   } else if (node.type === 'company') {
@@ -16329,18 +16374,25 @@ function computeAllChokepointAnalytics() {
   return _cpCache;
 }
 
-// ── Time-range comparison (baseline stored in localStorage) ───────────────────
-var NW_ANALYTICS_BASE_KEY = 'argus_nw_analytics_base';
+// ── Time-range comparison (multi-baseline, stored in localStorage) ────────────
+// Each range key stores the oldest baseline we have captured within that window.
+// TTLs: '1h' refreshes after 1h, '24h' after 24h, '7d' after 7d.
+var NW_BASE_KEYS = {
+  '1h':  { key: 'argus_base_1h',  ttl: 60  * 60 * 1000 },
+  '24h': { key: 'argus_base_24h', ttl: 24  * 60 * 60 * 1000 },
+  '7d':  { key: 'argus_base_7d',  ttl: 7   * 24 * 60 * 60 * 1000 },
+};
 
-function getOrSetAnalyticsBaseline(currentShips, currentFlights) {
+function getOrSetAnalyticsBaseline(currentShips, currentFlights, timeRange) {
+  var tr     = timeRange || state.analyticsTimeRange || '24h';
+  var cfg    = NW_BASE_KEYS[tr] || NW_BASE_KEYS['24h'];
   var nowMs  = Date.now();
   var stored = null;
-  try { stored = JSON.parse(localStorage.getItem(NW_ANALYTICS_BASE_KEY) || 'null'); } catch(_){}
+  try { stored = JSON.parse(localStorage.getItem(cfg.key) || 'null'); } catch(_){}
 
-  if (!stored || (nowMs - stored.ts) > 3600000) {
-    // Store new baseline every hour
+  if (!stored || (nowMs - stored.ts) > cfg.ttl) {
     stored = { ts: nowMs, ships: currentShips, flights: currentFlights };
-    try { localStorage.setItem(NW_ANALYTICS_BASE_KEY, JSON.stringify(stored)); } catch(_){}
+    try { localStorage.setItem(cfg.key, JSON.stringify(stored)); } catch(_){}
   }
   return stored;
 }
@@ -16410,14 +16462,18 @@ function renderAnalytics() {
 
   var snap      = collectTrackingSnapshot();
   var analytics = computeAllChokepointAnalytics();
-  var baseline  = getOrSetAnalyticsBaseline(snap.ships.length, snap.flights.length);
+  var baseline  = getOrSetAnalyticsBaseline(snap.ships.length, snap.flights.length, state.analyticsTimeRange);
 
   var noData = !snap.ships.length && !snap.flights.length;
 
-  // ── Time range selector UI ────────────────────────────────────────────────────
-  // Since we have single-snapshot live data (not historical timeseries), the
-  // "previous" count is from the baseline captured when Neural Web was opened.
-  // We store & display delta honestly rather than fabricating history.
+  // ── Time range selector ───────────────────────────────────────────────────────
+  var TR_LABELS = { '1h': '1H', '24h': '24H', '7d': '7D' };
+  var trHtml = '<div style="display:flex;gap:4px;margin-bottom:10px">' +
+    Object.keys(TR_LABELS).map(function(tr) {
+      var active = state.analyticsTimeRange === tr;
+      return '<button data-nw-tr="' + tr + '" style="flex:1;background:' + (active ? '#2a1050' : 'none') + ';border:1px solid ' + (active ? '#7755cc' : '#2a1050') + ';color:' + (active ? '#cc99ff' : '#4a7da8') + ';font-size:7px;letter-spacing:1.5px;padding:3px 0;cursor:pointer;border-radius:2px">' + TR_LABELS[tr] + '</button>';
+    }).join('') + '</div>';
+
   var baseAgeMin = Math.round((Date.now() - baseline.ts) / 60000);
   var baseAgeStr = baseAgeMin < 60
     ? baseAgeMin + 'm ago'
@@ -16433,11 +16489,13 @@ function renderAnalytics() {
 
   // ── Global summary ────────────────────────────────────────────────────────────
   var html = '';
+  html += trHtml;
   html += '<div style="font-size:7px;letter-spacing:2px;color:var(--nw-purple);margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid #1a0840">⬡ LIVE TRACKING OVERVIEW</div>';
 
   if (noData) {
     html += '<div style="padding:20px 0;text-align:center;font-size:8px;letter-spacing:1.5px;color:var(--nw-purple-dim);opacity:0.5;line-height:2">ENABLE SHIP OR<br>AIRCRAFT LAYER<br>TO LOAD DATA</div>';
     body.innerHTML = html;
+    _bindAnalyticsTimeRange(body);
     return;
   }
 
@@ -16514,12 +16572,24 @@ function renderAnalytics() {
   }
 
   // ── Snapshot note ─────────────────────────────────────────────────────────────
+  var TR_LABEL_MAP = { '1h': '1 HOUR', '24h': '24 HOURS', '7d': '7 DAYS' };
   html += '<div style="margin-top:10px;font-size:7px;letter-spacing:0.5px;color:#2a4060;opacity:0.7;line-height:1.6">';
-  html += 'LIVE SNAPSHOT · BASELINE CAPTURED ' + baseAgeStr.toUpperCase();
-  html += '<br>DELTA REFLECTS CHANGE SINCE NEURAL WEB OPENED';
+  html += 'LIVE SNAPSHOT · BASELINE FROM ' + baseAgeStr.toUpperCase();
+  html += '<br>DELTA WINDOW: ' + (TR_LABEL_MAP[state.analyticsTimeRange] || state.analyticsTimeRange);
   html += '</div>';
 
   body.innerHTML = html;
+  _bindAnalyticsTimeRange(body);
+}
+
+function _bindAnalyticsTimeRange(body) {
+  (body || document.getElementById('nw-analytics-body') || { querySelectorAll: function(){return [];} })
+    .querySelectorAll('[data-nw-tr]').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        state.analyticsTimeRange = this.dataset.nwTr;
+        renderAnalytics();
+      });
+    });
 }
 
 // ── Country selector ──────────────────────────────────────────────────────────
@@ -16683,6 +16753,7 @@ function wireFilters() {
       document.querySelectorAll('#nw-builder-tabs .nw-chip').forEach(function(b){ b.classList.remove('is-on'); });
       this.classList.add('is-on');
       state.builderType = this.dataset.btype;
+      if (state.builderType !== 'vessels') state.selectedChokepoint = null;
       var q = (document.getElementById('nw-builder-search') || {}).value || '';
       renderNodeCandidates(state.builderType, q);
     });
@@ -16792,7 +16863,7 @@ window.addEventListener('keydown', function(e) {
 // LAYER 5 — INTERACTIVE GRAPH BUILDER: Node candidates + Drag-drop + Link mode
 // ═══════════════════════════════════════════════════════════════════════════════
 
-var BUILDER_ICONS = { events:'🌍', disasters:'🌪', news:'📰', companies:'🏢', vessels:'🚢', flights:'✈' };
+var BUILDER_ICONS = { events:'🌍', disasters:'🌪', news:'📰', companies:'🏢', chokepoints:'◇', vessels:'🚢', flights:'✈' };
 
 // ── Node candidate search by type ────────────────────────────────────────────
 function buildNodeCandidates(type, query) {
@@ -16852,6 +16923,27 @@ function buildNodeCandidates(type, query) {
       results.push({ id: cid, type: 'company', label: co.charAt(0).toUpperCase() + co.slice(1), badge: 'CORP', badgeColor: '#ff99aa', entityType: 'company', risk: 'LOW', keywords: [co] });
     });
 
+  } else if (type === 'chokepoints') {
+    var analytics_cpt = computeAllChokepointAnalytics();
+    var RISK_COL_B = { CRITICAL:'#ff0044', WARNING:'#ff9933', WATCH:'#ffcc00', LOW:'#00ff88' };
+    (window.CHOKEPOINTS_DATA || []).forEach(function(cp) {
+      if (ql && cp.label.toLowerCase().indexOf(ql) === -1) return;
+      var cid = 'chokepoint:' + cp.id;
+      if (state.graph.nodes.some(function(n){ return n.id === cid; })) return;
+      var d = analytics_cpt[cp.id] || {};
+      var rCol = RISK_COL_B[cp.risk] || '#4a7da8';
+      results.push({
+        id: cid, type: 'chokepoint', label: cp.label,
+        badge: cp.risk, badgeColor: rCol,
+        risk: cp.risk, traffic: cp.traffic, volume: cp.volume, status: cp.status,
+        chokepointId: cp.id, rawLat: cp.rawLat, rawLon: cp.rawLon,
+        shipCount: d.shipCount || 0, flightCount: d.flightCount || 0,
+        keywords: [cp.label.toLowerCase(), cp.risk.toLowerCase()],
+        // store drill-down count for display
+        _vesselCount: d.shipCount || 0,
+      });
+    });
+
   } else if (type === 'vessels') {
     var vesPool = [];
     try {
@@ -16859,24 +16951,67 @@ function buildNodeCandidates(type, query) {
       if (vc2) vesPool = JSON.parse(vc2) || [];
     } catch(_) {}
     if (!Array.isArray(vesPool)) vesPool = [];
+    // Pull from live vessel markers
+    (window._vesselMarkers || []).forEach(function(s) {
+      var ud = s && s.userData;
+      if (ud && ud.isShip && ud.lat != null) {
+        vesPool.push({ name: ud.title || ud.name || '', lat: ud.lat, lon: ud.lon,
+                       type: ud.typeCategory || 'other', typeCategory: ud.typeCategory });
+      }
+    });
     if (window._vesselData && Array.isArray(window._vesselData)) vesPool = vesPool.concat(window._vesselData);
-    if (!vesPool.length) {
-      vesPool = [
-        { id:'vessel_suez',      name:'SUEZ CANAL ROUTE',    type:'ROUTE' },
-        { id:'vessel_hormuz',    name:'STRAIT OF HORMUZ',     type:'ROUTE' },
-        { id:'vessel_malacca',   name:'STRAIT OF MALACCA',    type:'ROUTE' },
-        { id:'vessel_taiwan',    name:'TAIWAN STRAIT',        type:'ROUTE' },
-        { id:'vessel_bosphorus', name:'BOSPHORUS STRAIT',     type:'ROUTE' },
-        { id:'vessel_bab',       name:'BAB-EL-MANDEB STRAIT', type:'ROUTE' },
-        { id:'vessel_panama',    name:'PANAMA CANAL ROUTE',   type:'ROUTE' },
+
+    // Spatial assignment: tag each vessel with nearest chokepoint within 450km
+    var VES_RADIUS_KM = 450;
+    var cpList = window.CHOKEPOINTS_DATA || [];
+    vesPool.forEach(function(v) {
+      if (v._cpId !== undefined) return; // already tagged
+      var vlat = parseFloat(v.lat || v.LAT || 0);
+      var vlon = parseFloat(v.lon || v.LON || 0);
+      if (!vlat && !vlon) { v._cpId = null; return; }
+      var bestCp = null, bestDist = Infinity;
+      cpList.forEach(function(cp) {
+        var d = haversineKm(cp.rawLat, cp.rawLon, vlat, vlon);
+        if (d < VES_RADIUS_KM && d < bestDist) { bestDist = d; bestCp = cp; }
+      });
+      v._cpId    = bestCp ? bestCp.id    : null;
+      v._cpLabel = bestCp ? bestCp.label : null;
+      v._lat = vlat; v._lon = vlon;
+    });
+
+    // Filter by selected chokepoint if drilling down
+    var filteredPool = vesPool;
+    if (state.selectedChokepoint) {
+      filteredPool = vesPool.filter(function(v){ return v._cpId === state.selectedChokepoint; });
+    }
+
+    if (!filteredPool.length && !state.selectedChokepoint) {
+      // Static fallback when no live data and no drill-down active
+      filteredPool = [
+        { id:'vessel_suez',      name:'SUEZ CANAL ROUTE',    type:'ROUTE', _cpId:'suez'      },
+        { id:'vessel_hormuz',    name:'STRAIT OF HORMUZ',     type:'ROUTE', _cpId:'hormuz'    },
+        { id:'vessel_malacca',   name:'STRAIT OF MALACCA',    type:'ROUTE', _cpId:'malacca'   },
+        { id:'vessel_taiwan',    name:'TAIWAN STRAIT',        type:'ROUTE', _cpId:'taiwan_cp' },
+        { id:'vessel_bosphorus', name:'BOSPHORUS STRAIT',     type:'ROUTE', _cpId:'bosphorus' },
+        { id:'vessel_bab',       name:'BAB-EL-MANDEB STRAIT', type:'ROUTE', _cpId:'bab_cp'    },
+        { id:'vessel_panama',    name:'PANAMA CANAL ROUTE',   type:'ROUTE', _cpId:'panama_cp' },
       ];
     }
-    vesPool.slice(0, 100).forEach(function(v) {
+    filteredPool.slice(0, 100).forEach(function(v) {
       var vname = v.name || v.shipname || v.vessel || v.SHIPNAME || '';
       if (!vname || (ql && vname.toLowerCase().indexOf(ql) === -1)) return;
       var vid = v.id || ('vessel:' + vname.replace(/\s+/g,'_'));
       if (state.graph.nodes.some(function(n){ return n.id === vid; })) return;
-      results.push({ id: vid, type: 'vessel', label: vname, badge: v.type || 'VESSEL', badgeColor: '#00ccff', risk: 'WATCH', keywords: [vname.toLowerCase()] });
+      var cat = (v.typeCategory || v.type || 'other').toLowerCase();
+      var CAT_COLORS = { cargo:'#4488ff', tanker:'#ff9933', military:'#ff4444', passenger:'#00ff88', fishing:'#ffcc00', other:'#5577aa' };
+      results.push({
+        id: vid, type: 'vessel', label: vname,
+        badge: cat.toUpperCase(), badgeColor: CAT_COLORS[cat] || '#00ccff',
+        risk: 'WATCH', keywords: [vname.toLowerCase()],
+        lat: v._lat || null, lon: v._lon || null,
+        typeCategory: cat,
+        chokepointId: v._cpId, chokepointLabel: v._cpLabel,
+      });
     });
 
   } else if (type === 'flights') {
@@ -16945,30 +17080,99 @@ function renderNodeCandidates(type, query) {
   _candidateCache = {};
   results.forEach(function(r){ _candidateCache[r.id] = r; });
 
+  var icon = BUILDER_ICONS[type] || '·';
+  var html = '';
+
+  // ── Vessels: back button when drilling into a chokepoint ──────────────────
+  if (type === 'vessels' && state.selectedChokepoint) {
+    var cpObj = (window.CHOKEPOINTS_DATA || []).find(function(c){ return c.id === state.selectedChokepoint; });
+    var cpLbl = cpObj ? cpObj.label : state.selectedChokepoint;
+    html += '<div style="display:flex;align-items:center;gap:6px;padding:6px 10px 4px;border-bottom:1px solid #1a0840">' +
+      '<button data-nw-back-vessels style="background:none;border:1px solid #2a1050;color:#7755cc;font-size:7px;letter-spacing:1px;padding:2px 6px;cursor:pointer;border-radius:2px">← BACK</button>' +
+      '<span style="font-size:7px;letter-spacing:1px;color:#4a7da8;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">◇ ' + cpLbl.toUpperCase() + '</span>' +
+      '</div>';
+  }
+
   if (!results.length) {
-    el.innerHTML = '<div style="padding:20px 14px;font-size:8px;letter-spacing:1.5px;color:var(--nw-purple-dim);opacity:0.5;text-align:center">' + (state.selectedCountry ? 'NO RESULTS' : 'SELECT A COUNTRY FIRST') + '</div>';
+    html += '<div style="padding:20px 14px;font-size:8px;letter-spacing:1.5px;color:var(--nw-purple-dim);opacity:0.5;text-align:center">' +
+      (state.selectedChokepoint ? 'NO VESSELS IN RANGE' : (state.selectedCountry ? 'NO RESULTS' : 'SELECT A COUNTRY FIRST')) + '</div>';
+    el.innerHTML = html;
+    _bindCandidateEvents(el, type);
     return;
   }
-  var icon = BUILDER_ICONS[type] || '·';
-  el.innerHTML = results.map(function(r) {
-    var bc = r.badgeColor || '#4a7da8';
-    return '<div class="nw-candidate" draggable="true" data-nid="' + r.id + '" title="Drag to canvas or click to add">' +
-      '<span class="nw-candidate-icon">' + icon + '</span>' +
-      '<span class="nw-candidate-label">' + r.label.slice(0, 80) + '</span>' +
-      '<span class="nw-candidate-meta" style="background:' + hexToRgba(bc,0.15) + ';color:' + bc + ';border:1px solid ' + hexToRgba(bc,0.4) + '">' + r.badge + '</span>' +
-      '</div>';
-  }).join('');
 
+  // ── Chokepoints: show vessel count + drill-in button beside each ──────────
+  if (type === 'chokepoints') {
+    html += results.map(function(r) {
+      var bc = r.badgeColor || '#4a7da8';
+      var vesCount = r._vesselCount || 0;
+      return '<div class="nw-candidate" draggable="true" data-nid="' + r.id + '" title="Drag to add, or use ▸ to browse vessels">' +
+        '<span class="nw-candidate-icon">' + icon + '</span>' +
+        '<span class="nw-candidate-label" style="flex:1">' + r.label.slice(0, 60) + '</span>' +
+        '<span style="font-size:7px;color:#4a7da8;margin-right:4px;flex-shrink:0">' + (vesCount ? '⚓' + vesCount : '') + '</span>' +
+        '<span class="nw-candidate-meta" style="background:' + hexToRgba(bc,0.15) + ';color:' + bc + ';border:1px solid ' + hexToRgba(bc,0.4) + '">' + r.badge + '</span>' +
+        '<button data-nw-drill="' + r.chokepointId + '" title="Browse vessels at this chokepoint" ' +
+          'style="margin-left:4px;background:none;border:1px solid #2a1050;color:#7755cc;font-size:8px;padding:1px 5px;cursor:pointer;border-radius:2px;flex-shrink:0">▸</button>' +
+        '</div>';
+    }).join('');
+  } else {
+    html += results.map(function(r) {
+      var bc = r.badgeColor || '#4a7da8';
+      var sub = (type === 'vessels' && r.chokepointLabel)
+        ? '<span style="font-size:6px;color:#2a4060;display:block;margin-top:1px">◇ ' + r.chokepointLabel + '</span>'
+        : '';
+      return '<div class="nw-candidate" draggable="true" data-nid="' + r.id + '" title="Drag to canvas or click to add">' +
+        '<span class="nw-candidate-icon">' + icon + '</span>' +
+        '<span class="nw-candidate-label" style="flex:1">' + r.label.slice(0, 80) + sub + '</span>' +
+        '<span class="nw-candidate-meta" style="background:' + hexToRgba(bc,0.15) + ';color:' + bc + ';border:1px solid ' + hexToRgba(bc,0.4) + '">' + r.badge + '</span>' +
+        '</div>';
+    }).join('');
+  }
+
+  el.innerHTML = html;
+  _bindCandidateEvents(el, type);
+}
+
+function _bindCandidateEvents(el, type) {
+  // Drag + click to add
   el.querySelectorAll('.nw-candidate[draggable]').forEach(function(item) {
     item.addEventListener('dragstart', function(e) {
       var data = _candidateCache[this.dataset.nid];
       if (data) { e.dataTransfer.setData('text/plain', JSON.stringify(data)); e.dataTransfer.effectAllowed = 'copy'; }
     });
-    item.addEventListener('click', function() {
+    item.addEventListener('click', function(e) {
+      // Don't add node if the drill or back button was clicked
+      if (e.target.dataset.nwDrill || e.target.dataset.nwBackVessels !== undefined) return;
       var data = _candidateCache[this.dataset.nid];
       if (data) addManualNode(data, null, null);
     });
   });
+
+  // Chokepoint drill-down: switch to vessels view filtered by this chokepoint
+  el.querySelectorAll('[data-nw-drill]').forEach(function(btn) {
+    btn.addEventListener('click', function(e) {
+      e.stopPropagation();
+      state.selectedChokepoint = this.dataset.nwDrill;
+      // Switch builder tab to vessels
+      document.querySelectorAll('#nw-builder-tabs .nw-chip').forEach(function(b){ b.classList.remove('is-on'); });
+      var vesBtn = document.querySelector('#nw-builder-tabs .nw-chip[data-btype="vessels"]');
+      if (vesBtn) vesBtn.classList.add('is-on');
+      state.builderType = 'vessels';
+      var q = (document.getElementById('nw-builder-search') || {}).value || '';
+      renderNodeCandidates('vessels', q);
+    });
+  });
+
+  // Back button: clear selected chokepoint
+  var backBtn = el.querySelector('[data-nw-back-vessels]');
+  if (backBtn) {
+    backBtn.addEventListener('click', function(e) {
+      e.stopPropagation();
+      state.selectedChokepoint = null;
+      var q = (document.getElementById('nw-builder-search') || {}).value || '';
+      renderNodeCandidates('vessels', q);
+    });
+  }
 }
 
 // ── Add a node to the graph (from drag-drop or click) ────────────────────────

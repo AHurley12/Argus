@@ -4380,6 +4380,7 @@ document.addEventListener('DOMContentLoaded', function() {
   var _rcFrustum    = new THREE.Frustum();
   var _rcProjMat    = new THREE.Matrix4();
   var _rcWorldPos   = new THREE.Vector3();
+  var _rcMouseShift = new THREE.Vector2(); // reused for capital/country ray shifts
 
   // Filters multiple marker arrays down to objects actually inside the camera frustum.
   // Combining them into one call also lets intersectObjects sort by distance globally.
@@ -4421,22 +4422,22 @@ document.addEventListener('DOMContentLoaded', function() {
     mouseHover.y = -(e.clientY / window.innerHeight) * 2 + 1;
     raycasterHover.setFromCamera(mouseHover, camera);
 
-    // Capital markers: shift ray upward ~24px to lower the hot zone on screen
+    // Capital + country markers use the same +24px upward ray shift for consistent hot zones.
+    // NDC shift computed once; _rcMouseShift is a module-level Vector2 reused each frame.
+    var _yShiftNDC = 24 / window.innerHeight * 2;
+
     var capitalHits = [];
     if (!ls || ls.capitals) {
-      var cursorNDC    = 24 / window.innerHeight * 2;
-      var shiftedMouse = new THREE.Vector2(mouseHover.x, mouseHover.y + cursorNDC);
-      raycasterHover.setFromCamera(shiftedMouse, camera);
+      _rcMouseShift.set(mouseHover.x, mouseHover.y + _yShiftNDC);
+      raycasterHover.setFromCamera(_rcMouseShift, camera);
       capitalHits = raycasterHover.intersectObjects(capitalMarkers);
       raycasterHover.setFromCamera(mouseHover, camera);
     }
 
-    // Country hit meshes: invisible spheres, same upward shift for consistent hot zone
     var countryHits = [];
     if (!ls || ls.countries) {
-      var cndcShift      = 24 / window.innerHeight * 2;
-      var countryShifted = new THREE.Vector2(mouseHover.x, mouseHover.y + cndcShift);
-      raycasterHover.setFromCamera(countryShifted, camera);
+      _rcMouseShift.set(mouseHover.x, mouseHover.y + _yShiftNDC);
+      raycasterHover.setFromCamera(_rcMouseShift, camera);
       raycasterHover.params.Mesh = { threshold: 0 };
       countryHits = raycasterHover.intersectObjects(window.countryHitMeshes || window.countryMarkers);
       raycasterHover.setFromCamera(mouseHover, camera);
@@ -18095,6 +18096,7 @@ window.ArgusSelection = (function () {
   var _panelOpen  = false;
   var _trackRing  = null;   // THREE.Mesh ring around locked entity
   var _panel      = null;   // disambiguation DOM element
+  var _panelOc    = null;   // outside-click handler ref — kept so _closePanel can remove it
 
   // ── Helpers ────────────────────────────────────────────────────────────────
   function _all() {
@@ -18299,21 +18301,25 @@ window.ArgusSelection = (function () {
     panel.style.top     = Math.max(8, Math.min(py - 10, H - ph - 8)) + 'px';
     panel.style.display = 'block';
 
-    // Close on outside click
+    // Outside-click closes panel. Store handler ref so _closePanel can remove it
+    // even when the panel is closed by a row click rather than an outside click —
+    // otherwise the self-removing pattern leaks one listener per open/close cycle.
+    if (_panelOc) document.removeEventListener('click', _panelOc);
     setTimeout(function () {
-      document.addEventListener('click', function _oc(ev) {
+      _panelOc = function (ev) {
         if (_panel && !_panel.contains(ev.target)) {
           _closePanel();
           if (!_locked) _restore();
         }
-        document.removeEventListener('click', _oc);
-      });
+      };
+      document.addEventListener('click', _panelOc);
     }, 120);
   }
 
   function _closePanel() {
     if (_panel) _panel.style.display = 'none';
     _panelOpen = false;
+    if (_panelOc) { document.removeEventListener('click', _panelOc); _panelOc = null; }
   }
 
   // ── Lock / unlock ──────────────────────────────────────────────────────────

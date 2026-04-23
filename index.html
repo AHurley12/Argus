@@ -4470,7 +4470,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     if (unique.length > 0) {
       _activeHoverObj = unique[0].object;
-      if (window.ArgusSelection) ArgusSelection.onHover(e.clientX, e.clientY, unique);
+      if (window.ArgusSelection) ArgusSelection.onHover(e.clientX, e.clientY);
       var rows = unique.map(function(h) { return buildTooltipRow(h.object.userData); }).join('');
       var hdr  = unique.length > 1 ? '<div style="color:#4a7da8;font-size:8px;letter-spacing:2px;margin-bottom:5px">' + unique.length + ' MARKERS</div>' : '';
 
@@ -4493,7 +4493,9 @@ document.addEventListener('DOMContentLoaded', function() {
       document.body.style.cursor = 'pointer';
     } else {
       _activeHoverObj = null;
-      if (window.ArgusSelection) ArgusSelection.onHoverClear();
+      // Still run screen-space hover even with no raycast hit — covers congested areas
+      // where sprites are missed by 3D raycasting but visible to the user.
+      if (window.ArgusSelection) ArgusSelection.onHover(e.clientX, e.clientY);
       tooltip.style.display = 'none';
       if (!isDragging) document.body.style.cursor = 'grab';
     }
@@ -4518,12 +4520,21 @@ document.addEventListener('DOMContentLoaded', function() {
       .filter(function(h) { return isFacingCamera(h.object) && canInteract(h.object); });
     if (evHits.length) {
       var _topHit = evHits[0].object;
-      // Vessel/aircraft clicks → selection system (disambiguation + lock)
+      // Vessel/aircraft hits → always route through selection system first.
+      // ArgusSelection uses screen-space search which handles dense overlap better
+      // than the 3D raycaster's single nearest-in-depth winner.
       if ((_topHit.userData.isAircraft || _topHit.userData.isShip) && window.ArgusSelection) {
         if (ArgusSelection.onClick(e.clientX, e.clientY)) return;
       }
       ArgusUI.showEventDetail(_topHit.userData);
       return;
+    }
+
+    // No 3D raycast hit — sprites in congested areas can be missed entirely
+    // (multiple sprites at same depth, or cursor between sprite centers).
+    // Fall back to screen-space search which catches these cases.
+    if (window.ArgusSelection && ((!cls || cls.aircraft) || (!cls || cls.vessels))) {
+      if (ArgusSelection.onClick(e.clientX, e.clientY)) return;
     }
 
     if (!cls || cls.chokepoints) {
@@ -18069,10 +18080,10 @@ window.ArgusSelection = (function () {
 
   // ── Config ─────────────────────────────────────────────────────────────────
   var CFG = {
-    SCREEN_RADIUS:    20,    // px — gather candidates within this circle
+    SCREEN_RADIUS:    24,    // px — gather candidates within this circle
     BUCKET_SIZE:      36,    // px — spatial grid cell size
-    DIM_OPACITY:      0.15,  // opacity for non-selected entities
-    HIGHLIGHT_SCALE:  1.38,  // multiplier on top of base scale for selected entity
+    DIM_OPACITY:      0.12,  // opacity for non-selected entities
+    HIGHLIGHT_SCALE:  1.45,  // multiplier on top of base scale for selected entity
     MAX_PANEL_ROWS:   8,     // max rows in disambiguation panel
     BASE_SCALE_AC:    1.75,  // matches placeAircraft scale
     BASE_SCALE_SH:    1.05,  // matches placeShip scale
@@ -18096,10 +18107,14 @@ window.ArgusSelection = (function () {
   function _baseScale(s)   { return s.userData.isAircraft ? CFG.BASE_SCALE_AC : CFG.BASE_SCALE_SH; }
   function _baseOpacity(s) { return s.userData.stale ? 0.45 : 0.92; }
 
-  // ── Screen-space projection (reuses one vector) ────────────────────────────
-  var _rv = new THREE.Vector3();
-  function _toScreen(worldPos, cam, W, H) {
-    _rv.copy(worldPos).project(cam);
+  // ── Screen-space projection — MUST use getWorldPosition, not .position ───────
+  // Sprites live in aircraftGroup → eventMarkerGroup → globeGroup (PI Y-rotation).
+  // .position is local to the parent group; projecting it gives wrong screen coords.
+  var _wp = new THREE.Vector3(); // world position scratch
+  var _rv = new THREE.Vector3(); // NDC scratch
+  function _toScreen(sprite, cam, W, H) {
+    sprite.getWorldPosition(_wp);
+    _rv.copy(_wp).project(cam);
     return { x: (_rv.x * 0.5 + 0.5) * W, y: (1 - (_rv.y * 0.5 + 0.5)) * H, z: _rv.z };
   }
 
@@ -18114,8 +18129,8 @@ window.ArgusSelection = (function () {
     for (var i = 0; i < markers.length; i++) {
       var s = markers[i];
       if (!s.visible || !s.parent || !s.parent.visible) continue;
-      var sc = _toScreen(s.position, cam, W, H);
-      if (sc.z > 1 || sc.z < -1) continue;         // clip
+      var sc = _toScreen(s, cam, W, H);  // pass sprite, not .position
+      if (sc.z > 1 || sc.z < -1) continue;  // outside clip planes = back of globe or far clip
       s._scx = sc.x; s._scy = sc.y;
       var bx = Math.floor(sc.x / B), by = Math.floor(sc.y / B);
       var k  = bx + ',' + by;
@@ -18319,25 +18334,19 @@ window.ArgusSelection = (function () {
 
   // ── Public API ─────────────────────────────────────────────────────────────
 
-  // Call from hover handler; hits = raycast result array (already filtered)
-  function onHover(mx, my, hits) {
+  // Call from hover handler — runs screen-space search independently of raycast results.
+  // Does NOT gate on hasTraffic: raycast often misses sprites in congested areas.
+  function onHover(mx, my) {
     if (_locked || _panelOpen) return;
-    var G   = window.ArgusGlobe;
+    var ls = window.ArgusLayerState;
+    var anyTrafficLayer = !ls || ls.aircraft || ls.vessels;
+    if (!anyTrafficLayer) { if (_dimmed) _restore(); return; }
+    var G = window.ArgusGlobe;
     if (!G) return;
-    var hasTraffic = hits && hits.some(function (h) {
-      return h.object.userData.isAircraft || h.object.userData.isShip;
-    });
-    if (!hasTraffic) { if (_dimmed) _restore(); return; }
-    var W  = window.innerWidth, H = window.innerHeight;
+    var W = window.innerWidth, H = window.innerHeight;
     var cs = _candidates(mx, my, G.camera, W, H);
     if (!cs.length) { if (_dimmed) _restore(); return; }
     _applyDim(cs[0].sprite);
-  }
-
-  // Call from hover-clear path (no hits)
-  function onHoverClear() {
-    if (_locked || _panelOpen) return;
-    if (_dimmed) _restore();
   }
 
   // Call from click handler when click hits vessel/aircraft area
@@ -18373,7 +18382,7 @@ window.ArgusSelection = (function () {
   // Init — keyboard ESC to unlock
   document.addEventListener('keydown', function (e) { if (e.key === 'Escape') unlock(); });
 
-  return { onHover: onHover, onHoverClear: onHoverClear, onClick: onClick, tick: tick, unlock: unlock };
+  return { onHover: onHover, onClick: onClick, tick: tick, unlock: unlock };
 }());
 </script>
 </body>

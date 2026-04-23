@@ -866,10 +866,10 @@ async function handleReset() {
   setBtnText('form-reset', 'SENDING...', true);
   hideMessage();
   try {
-    var res  = await fetch(SUPABASE_URL + '/auth/v1/recover', {
+    var res  = await fetch(SUPABASE_URL + '/auth/v1/recover?redirect_to=' + encodeURIComponent('https://argusintel.live/reset-password.html'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'apikey': SUPABASE_ANON },
-      body: JSON.stringify({ email: email, redirect_to: 'https://argusintel.live/reset-password.html' })
+      body: JSON.stringify({ email: email })
     });
     var data = await res.json().catch(function() { return {}; });
     if (!res.ok) {

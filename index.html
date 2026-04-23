@@ -12752,7 +12752,7 @@ window.ArgusCaseBuilder = (function () {
           var allMktSigs    = marketSigs.concat(commoditySigs).sort(function(a,b){ return b.score-a.score; });
 
           // Partition by pillar
-          var kineticEvts    = scoredEvents.filter(function(e){ return e.pillar==='KINETIC'; }).slice(0,6);
+          var kineticEvts    = mergeFireClusters(scoredEvents.filter(function(e){ return e.pillar==='KINETIC'; })).slice(0,6);
           var economicEvts   = scoredEvents.filter(function(e){ return e.pillar==='ECONOMIC'; }).slice(0,4);
           var humanitarianEv = scoredEvents.filter(function(e){ return e.pillar==='HUMANITARIAN'; }).slice(0,4);
           var strategicEvts  = scoredEvents.filter(function(e){ return e.pillar==='STRATEGIC'; }).slice(0,4);
@@ -12912,6 +12912,328 @@ window.ArgusCaseBuilder = (function () {
     { key:'STRATEGIC',    label:'[ ▤ STRATEGIC ]',    col:'#4a7da8', desc:'Chokepoints · Supply Chain'     },
   ];
 
+  // ── Timeline filter state ─────────────────────────────────────────────────────
+  var _tlFilter = 'all';  // 'all' | 'events' | 'flights' | 'vessels'
+
+  // ── Correlation cache (keyed by case id) ─────────────────────────────────────
+  var _corrCache = {};
+
+  // ── Vessels near a lat/lon (from live data) ───────────────────────────────────
+  function getVesselsNear(lat, lon, distKm) {
+    if (lat == null || lon == null) return [];
+    var list = [];
+    (window._vesselMarkers || []).forEach(function(s) {
+      var ud = s && s.userData;
+      if (!ud || !ud.isShip || ud.lat == null) return;
+      if (hav(lat, lon, ud.lat, ud.lon) <= distKm)
+        list.push({ name: ud.title || '', category: ud.typeCategory || 'other', lat: ud.lat, lon: ud.lon });
+    });
+    // Also from vesselMap if markers sparse
+    if (!list.length) {
+      var vm = window._vesselMap ? Array.from(window._vesselMap.values()) : [];
+      vm.forEach(function(v) {
+        if (v.lat == null || v.lon == null) return;
+        if (hav(lat, lon, v.lat, v.lon) <= distKm)
+          list.push({ name: v.name || v.shipname || '', category: v.typeCategory || 'other', lat: v.lat, lon: v.lon });
+      });
+    }
+    return list;
+  }
+
+  // ── Flights near a lat/lon (from live data) ───────────────────────────────────
+  function getFlightsNear(lat, lon, distKm) {
+    if (lat == null || lon == null) return [];
+    var list = [];
+    (window._aircraftMarkers || []).forEach(function(s) {
+      var ud = s && s.userData;
+      if (!ud || !ud.isAircraft || ud.lat == null) return;
+      if (hav(lat, lon, ud.lat, ud.lon) <= distKm)
+        list.push({ callsign: ud.title || '', flightType: ud.flightType || 'unknown', lat: ud.lat, lon: ud.lon });
+    });
+    // Supplement from localStorage cache
+    if (!list.length) {
+      try {
+        var raw = localStorage.getItem('argus_traffic_v4');
+        var ac  = raw ? JSON.parse(raw) : [];
+        if (!Array.isArray(ac)) ac = ac.aircraft || [];
+        ac.forEach(function(a) {
+          if (a.lat == null || a.lon == null) return;
+          if (hav(lat, lon, a.lat, a.lon) <= distKm)
+            list.push({ callsign: a.cs || a.callsign || '', flightType: a.flightType || 'unknown', lat: a.lat, lon: a.lon });
+        });
+      } catch(_) {}
+    }
+    return list;
+  }
+
+  // ── Category distribution (returns {cat: pct}) ────────────────────────────────
+  function distPct(items, keyFn) {
+    if (!items.length) return {};
+    var counts = {};
+    items.forEach(function(x) { var k = keyFn(x); counts[k] = (counts[k] || 0) + 1; });
+    var total  = items.length;
+    var out    = {};
+    Object.keys(counts).forEach(function(k) { out[k] = Math.round(counts[k] / total * 100); });
+    return out;
+  }
+
+  // ── Mini HTML progress bar (inline, consistent width) ─────────────────────────
+  function intelBar(pct, color) {
+    var clamped = Math.max(0, Math.min(100, pct || 0));
+    return '<span style="display:inline-flex;align-items:center;gap:5px;vertical-align:middle">' +
+      '<span style="display:inline-block;width:64px;height:4px;background:rgba(42,16,64,0.7);border-radius:2px;overflow:hidden;flex-shrink:0">' +
+        '<span style="display:block;width:' + clamped + '%;height:100%;background:' + color + ';border-radius:2px"></span>' +
+      '</span>' +
+      '<span style="font-size:7px;color:' + color + ';min-width:24px;text-align:right">' + clamped + '%</span>' +
+    '</span>';
+  }
+
+  // ── Compute multi-factor intelligence score for a case ────────────────────────
+  // score = (eventSeverity * 0.35) + (chokepointProximity * 0.25) + (economicSensitivity * 0.25) + (clusterDensity * 0.15)
+  function computeIntelScore(c) {
+    // 1. Event severity weight (0-100)
+    var sevScore = 0;
+    var allEvts  = (c.kineticEvts||[]).concat(c.economicEvts||[]).concat(c.humanitarianEv||[]).concat(c.strategicEvts||[]);
+    if (allEvts.length) {
+      var sevW = { CRITICAL: 100, WARNING: 70, WATCH: 40, LOW: 15 };
+      sevScore = allEvts.reduce(function(s, e) { return s + (sevW[(e.ev||e).severity] || 15); }, 0) / allEvts.length;
+    }
+    // 2. Chokepoint proximity (0-100): score based on whether matched chokepoints are CRITICAL/WARNING
+    var cpScore = 0;
+    if (c.chokepoints && c.chokepoints.length) {
+      var cpW = { CRITICAL: 100, WARNING: 70, WATCH: 40, LOW: 10 };
+      cpScore = c.chokepoints.reduce(function(s, cp) { return s + (cpW[cp.risk] || 10); }, 0) / c.chokepoints.length;
+    }
+    // 3. Economic sensitivity (0-100): based on market signal count + commodity hits
+    var econScore = Math.min(100, ((c.marketSignals||[]).length * 12) + ((c.commoditySigs||[]).length * 10));
+    // 4. Cluster density (0-100): events per case normalized to 10 = 100
+    var densityScore = Math.min(100, allEvts.length * 10);
+
+    var total = Math.round(sevScore * 0.35 + cpScore * 0.25 + econScore * 0.25 + densityScore * 0.15);
+    return { total: Math.min(99, total), sevScore: Math.round(sevScore), cpScore: Math.round(cpScore), econScore: Math.round(econScore), densityScore: Math.round(densityScore) };
+  }
+
+  // ── Build WHY THIS MATTERS block ─────────────────────────────────────────────
+  function buildWhyThisMatters(c) {
+    var scores = computeIntelScore(c);
+
+    // Supply chain disruption risk: presence of critical chokepoints or shipping events
+    var cpCritical  = (c.chokepoints || []).some(function(cp) { return cp.risk === 'CRITICAL'; });
+    var cpWarning   = (c.chokepoints || []).some(function(cp) { return cp.risk === 'WARNING'; });
+    var allEvtText  = (c.kineticEvts||[]).concat(c.economicEvts||[]).concat(c.strategicEvts||[])
+      .map(function(e) { return ((e.ev||e).title || '') + ' ' + ((e.ev||e).impact || ''); }).join(' ').toLowerCase();
+    var scRisk      = cpCritical ? 'CRITICAL' : cpWarning ? 'HIGH' : (allEvtText.indexOf('shipping') !== -1 || allEvtText.indexOf('vessel') !== -1) ? 'MEDIUM' : 'LOW';
+    var scCol       = { CRITICAL:'#ff0044', HIGH:'#ff9933', MEDIUM:'#ffcc00', LOW:'#00ff88' }[scRisk] || '#4a7da8';
+
+    // Regional escalation probability: based on conflict events + severity
+    var conflictCt  = (c.kineticEvts||[]).filter(function(e){ return (e.ev||e).type === 'CONFLICT'; }).length;
+    var escalation  = scores.sevScore > 70 || conflictCt >= 2 ? 'HIGH' : scores.sevScore > 40 || conflictCt >= 1 ? 'MEDIUM' : 'LOW';
+    var escCol      = { HIGH:'#ff4466', MEDIUM:'#ffcc00', LOW:'#00ff88' }[escalation];
+
+    // Economic sensitivity: detect exposed sectors from event text + market signals
+    var sectors = [];
+    if (allEvtText.indexOf('oil') !== -1 || allEvtText.indexOf('crude') !== -1 || allEvtText.indexOf('brent') !== -1) sectors.push('OIL');
+    if (allEvtText.indexOf('ship') !== -1 || allEvtText.indexOf('maritime') !== -1 || allEvtText.indexOf('vessel') !== -1) sectors.push('SHIPPING');
+    if (allEvtText.indexOf('air') !== -1 || allEvtText.indexOf('flight') !== -1 || allEvtText.indexOf('aviation') !== -1) sectors.push('AIRSPACE');
+    if (allEvtText.indexOf('gas') !== -1 || allEvtText.indexOf('pipeline') !== -1 || allEvtText.indexOf('lng') !== -1) sectors.push('GAS');
+    if (allEvtText.indexOf('grain') !== -1 || allEvtText.indexOf('wheat') !== -1 || allEvtText.indexOf('food') !== -1) sectors.push('FOOD');
+    if (allEvtText.indexOf('semiconductor') !== -1 || allEvtText.indexOf('chip') !== -1) sectors.push('TECH');
+    if ((c.marketSignals||[]).length) {
+      (c.marketSignals).slice(0,3).forEach(function(s){ if (s.label && sectors.indexOf(s.label.toUpperCase()) === -1) sectors.push(s.label.toUpperCase()); });
+    }
+    if (!sectors.length) sectors.push('GENERAL');
+
+    // Proximity to live traffic (use case lat/lon if available)
+    var nearVessels = c.lat != null ? getVesselsNear(c.lat, c.lon, 600).length : 0;
+    var nearFlights = c.lat != null ? getFlightsNear(c.lat, c.lon, 600).length : 0;
+
+    var h = '<div style="margin-top:8px;padding:7px 9px;background:rgba(255,170,0,0.04);border:1px solid rgba(255,170,0,0.15);border-radius:3px">';
+    h += '<div style="font-size:7px;letter-spacing:2px;color:#ffaa33;margin-bottom:6px">⚠ WHY THIS MATTERS</div>';
+    h += '<div style="display:flex;flex-direction:column;gap:4px">';
+    h += '<div style="font-size:8px;display:flex;justify-content:space-between;align-items:center">' +
+         '<span style="color:#4a7da8;letter-spacing:0.5px">Supply Chain Disruption Risk</span>' +
+         '<span style="color:' + scCol + ';font-weight:700;letter-spacing:1px">' + scRisk + '</span></div>';
+    h += '<div style="font-size:8px;display:flex;justify-content:space-between;align-items:center">' +
+         '<span style="color:#4a7da8;letter-spacing:0.5px">Regional Escalation Probability</span>' +
+         '<span style="color:' + escCol + ';font-weight:700;letter-spacing:1px">' + escalation + '</span></div>';
+    h += '<div style="font-size:8px;display:flex;justify-content:space-between;align-items:flex-start">' +
+         '<span style="color:#4a7da8;letter-spacing:0.5px">Economic Sensitivity</span>' +
+         '<span style="color:#ff9933;font-size:7px;text-align:right;max-width:140px;line-height:1.5">' + sectors.slice(0,4).join(' / ') + '</span></div>';
+    if (nearVessels || nearFlights) {
+      h += '<div style="font-size:8px;display:flex;justify-content:space-between">' +
+           '<span style="color:#4a7da8;letter-spacing:0.5px">Live Traffic Exposure</span>' +
+           '<span style="color:#c5d7e8;font-size:7px">⚓ ' + nearVessels + ' vessels · ✈ ' + nearFlights + ' flights within 600km</span></div>';
+    }
+    h += '</div>';
+    // Score breakdown bar
+    h += '<div style="margin-top:8px;padding-top:6px;border-top:1px solid rgba(255,170,0,0.1)">';
+    h += '<div style="font-size:7px;letter-spacing:1.5px;color:#4a7da8;margin-bottom:5px">INTEL SCORE BREAKDOWN</div>';
+    h += '<div style="display:flex;flex-direction:column;gap:3px">';
+    var scoreRows = [
+      { label: 'EVENT SEVERITY',   val: scores.sevScore,   col: '#ff4466' },
+      { label: 'CHKPT PROXIMITY',  val: scores.cpScore,    col: '#ffaa33' },
+      { label: 'ECONOMIC EXPOSURE',val: scores.econScore,  col: '#ff9933' },
+      { label: 'CLUSTER DENSITY',  val: scores.densityScore, col: '#4488ff' },
+    ];
+    scoreRows.forEach(function(r) {
+      h += '<div style="display:flex;align-items:center;gap:6px">' +
+           '<span style="font-size:7px;color:#2a4a6a;width:110px;flex-shrink:0;letter-spacing:0.5px">' + r.label + '</span>' +
+           intelBar(r.val, r.col) +
+           '</div>';
+    });
+    h += '</div></div></div>';
+    return h;
+  }
+
+  // ── Traffic composition block (vessels + flights) ─────────────────────────────
+  function buildTrafficComposition(c) {
+    // Gather vessels near case lat/lon or from case vessel signals
+    var nearV  = c.lat != null ? getVesselsNear(c.lat, c.lon, 700) : [];
+    var nearF  = c.lat != null ? getFlightsNear(c.lat, c.lon, 700) : [];
+    if (!nearV.length && !nearF.length) return '';
+
+    var SHIP_COL = { cargo:'#4488ff', tanker:'#ff9933', military:'#ff4444', passenger:'#00ff88', fishing:'#ffcc00', other:'#5577aa' };
+    var FLT_COL  = { commercial:'#66ddff', cargo:'#4488ff', military:'#ff4444', unknown:'#5577aa' };
+
+    var h = '<div style="margin-top:8px;padding:7px 9px;background:rgba(0,180,255,0.03);border:1px solid rgba(0,180,255,0.12);border-radius:3px">';
+    h += '<div style="font-size:7px;letter-spacing:2px;color:#00ccff;margin-bottom:6px">◈ TRAFFIC COMPOSITION — ' + (nearV.length + nearF.length) + ' TRACKED WITHIN 700km</div>';
+
+    if (nearV.length) {
+      var vDist = distPct(nearV, function(x) { return x.category; });
+      h += '<div style="font-size:7px;color:#4a7da8;letter-spacing:1px;margin-bottom:3px">VESSEL MIX (' + nearV.length + ')</div>';
+      Object.keys(vDist).sort(function(a,b){ return vDist[b]-vDist[a]; }).forEach(function(k) {
+        h += '<div style="display:flex;align-items:center;gap:6px;margin-bottom:2px">' +
+             '<span style="font-size:7px;color:#2a4a6a;width:72px;flex-shrink:0">' + k.toUpperCase() + '</span>' +
+             intelBar(vDist[k], SHIP_COL[k] || '#5577aa') + '</div>';
+      });
+    }
+    if (nearF.length) {
+      var fDist = distPct(nearF, function(x) { return x.flightType; });
+      h += '<div style="font-size:7px;color:#4a7da8;letter-spacing:1px;margin-top:5px;margin-bottom:3px">FLIGHT MIX (' + nearF.length + ')</div>';
+      Object.keys(fDist).sort(function(a,b){ return fDist[b]-fDist[a]; }).forEach(function(k) {
+        h += '<div style="display:flex;align-items:center;gap:6px;margin-bottom:2px">' +
+             '<span style="font-size:7px;color:#2a4a6a;width:72px;flex-shrink:0">' + k.toUpperCase() + '</span>' +
+             intelBar(fDist[k], FLT_COL[k] || '#5577aa') + '</div>';
+      });
+    }
+    h += '</div>';
+    return h;
+  }
+
+  // ── Merge nearby fire/disaster clusters into regional groups ──────────────────
+  function mergeFireClusters(evts) {
+    if (!evts.length) return evts;
+    var MERGE_RADIUS_KM = 800;
+    var grouped = [], used = {};
+    evts.forEach(function(e, i) {
+      if (used[i]) return;
+      var ev = e.ev || e;
+      if (ev.lat == null) { grouped.push(e); used[i] = true; return; }
+      var cluster = [i];
+      evts.forEach(function(f, j) {
+        if (i === j || used[j]) return;
+        var fv = f.ev || f;
+        if (fv.lat != null && hav(ev.lat, ev.lon, fv.lat, fv.lon) <= MERGE_RADIUS_KM) cluster.push(j);
+      });
+      if (cluster.length === 1) { grouped.push(e); used[i] = true; return; }
+      // Build merged super-event
+      cluster.forEach(function(k) { used[k] = true; });
+      var mergedItems = cluster.map(function(k) { return evts[k]; });
+      var totalDet    = mergedItems.reduce(function(s, x) {
+        var cnt = (x.ev || x)._detections || ((x.ev || x).title || '').match(/(\d+)\s*detect/i);
+        return s + (cnt ? parseInt(Array.isArray(cnt) ? cnt[1] : cnt, 10) : 1);
+      }, 0);
+      var worstSev    = mergedItems.reduce(function(best, x) {
+        var s = (x.ev || x).severity || 'LOW';
+        return ({ CRITICAL:4, WARNING:3, WATCH:2, LOW:1 }[s] || 1) > ({ CRITICAL:4, WARNING:3, WATCH:2, LOW:1 }[best] || 1) ? s : best;
+      }, 'LOW');
+      var country     = extractCountry(ev);
+      var mergedEv    = Object.assign({}, ev, {
+        title:      '🔥 Fire Cluster — ' + country + ' (' + cluster.length + ' zones)',
+        severity:   worstSev,
+        _detections: totalDet,
+        _clusterSize: cluster.length,
+        _isMerged:  true,
+      });
+      grouped.push(Object.assign({}, e, { ev: mergedEv, score: mergedItems.reduce(function(s,x){ return s+x.score; }, 0) }));
+    });
+    return grouped;
+  }
+
+  // ── Spatial correlation detector ──────────────────────────────────────────────
+  function detectCorrelations(cases) {
+    var CP_RADIUS    = 500;  // km — event near chokepoint
+    var TRAFFIC_KM   = 450;  // km — vessel/flight proximity to event
+    var correlations = [];
+    var cps          = window.CHOKEPOINTS_DATA || [];
+
+    cases.forEach(function(c) {
+      var allEvts = (c.kineticEvts||[]).concat(c.economicEvts||[]).concat(c.humanitarianEv||[]).concat(c.strategicEvts||[]);
+      allEvts.forEach(function(item) {
+        var ev = item.ev || item;
+        if (ev.lat == null || ev.lon == null) return;
+
+        // A. Spatial: event near a chokepoint
+        cps.forEach(function(cp) {
+          var d = hav(ev.lat, ev.lon, cp.rawLat, cp.rawLon);
+          if (d <= CP_RADIUS) {
+            correlations.push({
+              type: 'spatial',
+              message: (ev.title || '').slice(0, 50) + ' is ' + Math.round(d) + 'km from ' + cp.label,
+              severity: cp.risk,
+              caseId: c.id,
+            });
+          }
+        });
+
+        // B. Proximity: vessels + flights near event
+        var nearV = getVesselsNear(ev.lat, ev.lon, TRAFFIC_KM);
+        var nearF = getFlightsNear(ev.lat, ev.lon, TRAFFIC_KM);
+        if (nearV.length >= 3 || nearF.length >= 3) {
+          correlations.push({
+            type: 'traffic',
+            message: (nearV.length ? '⚓ ' + nearV.length + ' vessels' : '') +
+                     (nearV.length && nearF.length ? ' + ' : '') +
+                     (nearF.length ? '✈ ' + nearF.length + ' flights' : '') +
+                     ' detected within ' + TRAFFIC_KM + 'km of ' + (ev.title || '').slice(0, 40),
+            severity: nearV.length + nearF.length > 10 ? 'WARNING' : 'WATCH',
+            caseId: c.id,
+          });
+        }
+      });
+    });
+
+    // Deduplicate by message prefix
+    var seen = {}, out = [];
+    correlations.forEach(function(cor) {
+      var key = cor.type + '|' + cor.message.slice(0, 30);
+      if (!seen[key]) { seen[key] = true; out.push(cor); }
+    });
+    return out.slice(0, 12);
+  }
+
+  // ── Compute impact scores (0–100) for economic / humanitarian / strategic ──────
+  function computeImpactScores(ev, nearV, nearF) {
+    var text  = ((ev.title || '') + ' ' + (ev.impact || '') + ' ' + (ev.description || '')).toLowerCase();
+    var ECON_KW = ['oil','gas','trade','shipping','sanction','inflation','market','supply','export','tariff','pipeline','freight','port','crude'];
+    var HUM_KW  = ['death','casualt','displaced','refugee','famine','evacuat','civilian','wounded','killed','relief','epidemic','children','flood'];
+
+    // Economic: keyword hits + nearby vessels carrying trade cargo
+    var econKwHits = ECON_KW.filter(function(k){ return text.indexOf(k) !== -1; }).length;
+    var cargoV     = (nearV || []).filter(function(v){ return v.category === 'cargo' || v.category === 'tanker'; }).length;
+    var economic   = Math.min(100, econKwHits * 12 + cargoV * 6);
+
+    // Humanitarian: keyword hits + population text
+    var humKwHits  = HUM_KW.filter(function(k){ return text.indexOf(k) !== -1; }).length;
+    var humanitarian = Math.min(100, humKwHits * 15);
+
+    // Strategic: chokepoint proximity already scored at case level — use event type
+    var sevW = { CRITICAL: 90, WARNING: 65, WATCH: 40, LOW: 15 };
+    var strategic = Math.min(100, (sevW[ev.severity] || 15) + ((nearV||[]).length + (nearF||[]).length) * 2);
+
+    return { economic: economic, humanitarian: humanitarian, strategic: strategic };
+  }
+
   // ── Mode 1: Brief — Four Intelligence Pillars ─────────────────────────────────
   function renderBrief() {
     var el = document.getElementById('cb-brief');
@@ -12939,7 +13261,8 @@ window.ArgusCaseBuilder = (function () {
       // Header
       html += '<div style="display:flex;justify-content:space-between;align-items:flex-start">';
       html += '<span style="font-size:8px;letter-spacing:1.5px;color:'+idCol+';font-weight:700">'+c.id+(c.pinned?' ◈':'')+'</span>';
-      html += '<span style="font-size:8px;color:#ff9933">SCORE '+c.score+_toneBadge+'</span></div>';
+      var _is = computeIntelScore(c);
+      html += '<span style="font-size:8px;color:#ff9933">INTEL <span style="color:#ffcc00">'+_is.total+'</span><span style="color:#2a4a6a;font-size:7px"> /99</span>'+_toneBadge+'</span></div>';
       html += '<div style="font-size:10px;color:#ddeeff;margin:3px 0 5px">'+hlKw(esc(c.title),_activeKw)+'</div>';
       if (c.hits&&c.hits.length) { c.hits.slice(0,6).forEach(function(k){ html+='<span class="kw-badge">⬡ '+k+'</span>'; }); html+='<br style="margin-bottom:4px">'; }
 
@@ -13008,6 +13331,28 @@ window.ArgusCaseBuilder = (function () {
         if (hasSEv) c.strategicEvts.slice(0,2).forEach(function(e){ html+='<div class="cb-dim-row" style="color:#4a7da8aa">▸ '+hlKw(esc((e.ev.title||'').slice(0,60)),_activeKw)+'</div>'; });
       }
 
+      // ── WHY THIS MATTERS block ──────────────────────────────────────────────
+      html += buildWhyThisMatters(c);
+
+      // ── Traffic composition ──────────────────────────────────────────────────
+      html += buildTrafficComposition(c);
+
+      // ── Suggested analyst prompts ────────────────────────────────────────────
+      var suggestions = [];
+      if ((c.chokepoints||[]).length) suggestions.push('Assess chokepoint disruption risk for ' + c.chokepoints[0].label);
+      if ((c.kineticEvts||[]).some(function(e){ return ((e.ev||e).type||'').toUpperCase() === 'CONFLICT'; })) suggestions.push('Monitor regional escalation indicators in ' + c.region);
+      if ((c.matchedCountries||[]).length > 1) suggestions.push('Track rerouting patterns across ' + c.matchedCountries.slice(0,2).map(function(x){return x.label;}).join(' & '));
+      if ((c.marketSignals||[]).length) suggestions.push('Cross-reference ' + (c.marketSignals[0].label||'commodity') + ' price movement with event timeline');
+      if ((c.humData||[]).length) suggestions.push('Evaluate humanitarian corridor access in affected zone');
+      if (suggestions.length) {
+        html += '<div style="margin-top:8px;padding:6px 8px;background:rgba(180,100,255,0.04);border:1px solid rgba(180,100,255,0.12);border-radius:3px">';
+        html += '<div style="font-size:7px;letter-spacing:2px;color:#b464ff;margin-bottom:5px">[ SUGGESTED ANALYST PROMPTS ]</div>';
+        suggestions.slice(0,3).forEach(function(s) {
+          html += '<div style="font-size:7.5px;color:#4a7da8;padding:2px 0;line-height:1.5">· ' + esc(s) + '</div>';
+        });
+        html += '</div>';
+      }
+
       // ── Analyst Notes (persistent by query-hash + date) ──────────────────────
       var savedNotes = loadNotes(c.id);
       var dateTag    = new Date().toISOString().slice(0,10);
@@ -13022,6 +13367,26 @@ window.ArgusCaseBuilder = (function () {
     el.querySelectorAll('.case-notes').forEach(function(ta){
       ta.addEventListener('input', function(){ saveNotes(ta.dataset.cid, ta.value); });
     });
+
+    // ── CORRELATION ENGINE — detect spatial + traffic correlations ────────────
+    var correlations = detectCorrelations(_cases);
+    if (correlations.length) {
+      var corrDiv = document.createElement('div');
+      corrDiv.style.cssText = 'margin-top:10px;padding:8px 10px;background:rgba(255,80,0,0.04);border:1px solid rgba(255,80,0,0.15);border-radius:3px';
+      var corrHdr = document.createElement('div');
+      corrHdr.style.cssText = 'font-size:7px;letter-spacing:2px;color:#ff8833;margin-bottom:6px';
+      corrHdr.textContent = '⚠ CORRELATION DETECTED — ' + correlations.length + ' SIGNAL(S)';
+      corrDiv.appendChild(corrHdr);
+      var SEV_C = { CRITICAL:'#ff0044', WARNING:'#ff9933', WATCH:'#ffcc00', LOW:'#00ff88' };
+      correlations.forEach(function(cor) {
+        var row = document.createElement('div');
+        row.style.cssText = 'font-size:7.5px;color:#c5d7e8;padding:2px 0;border-bottom:1px solid rgba(255,80,0,0.08);line-height:1.5';
+        row.innerHTML = '<span style="color:' + (SEV_C[cor.severity]||'#ff9933') + ';margin-right:4px">' +
+          (cor.type === 'spatial' ? '◈' : '⬡') + '</span>' + esc(cor.message);
+        corrDiv.appendChild(row);
+      });
+      el.appendChild(corrDiv);
+    }
 
     // ── GLOBAL BRIEFING FEED — appended below case cards ─────────────────────
     // Renders _globalBrief as a high-density scrollable feed sorted by SEV → Recency.
@@ -13297,7 +13662,7 @@ window.ArgusCaseBuilder = (function () {
     document.getElementById('cb-net-reset')   && document.getElementById('cb-net-reset').addEventListener('click',   function (e) { e.stopPropagation(); _net.scale = 1; _net.ox = 0; _net.oy = 0; renderNetwork(); });
   }
 
-  // ── Mode 3: Timeline (vertical, day-grouped, cross-linked to tree) ───────────
+  // ── Mode 3: Timeline (vertical, day-grouped, filters, flights+vessels, spikes) ──
   function renderTimeline() {
     var el = document.getElementById('cb-timeline');
     if (!el) return;
@@ -13306,12 +13671,13 @@ window.ArgusCaseBuilder = (function () {
       return;
     }
 
-    var MO  = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
-    var evts = [];
-    var seen = {};
+    var MO   = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
+    var nowMs = Date.now();
+    var evts  = [];
+    var seen  = {};
 
+    // ── Collect events from all cases ────────────────────────────────────────
     _cases.forEach(function(c) {
-      // Collect from all pillar arrays
       var allItems = (c.kineticEvts||[]).concat(c.economicEvts||[]).concat(c.humanitarianEv||[]).concat(c.strategicEvts||[]);
       allItems.forEach(function(item) {
         var ev  = item.ev || item;
@@ -13321,9 +13687,8 @@ window.ArgusCaseBuilder = (function () {
         var t   = ev.pubDate ? new Date(ev.pubDate).getTime() : c.ts;
         var cat = categorizeEvent(ev);
         evts.push({ ts: isNaN(t) ? c.ts : t, title: ev.title, sev: ev.severity || 'LOW',
-                    src: ev.source || c.type, pillar: pillarOf(ev), cat: cat, eid: uid });
+                    src: ev.source || c.type, pillar: pillarOf(ev), cat: cat, eid: uid, kind: 'event' });
       });
-      // Also legacy news array
       (c.news || []).forEach(function(n) {
         if (!n || !n.title) return;
         var uid = evSlug(n.title);
@@ -13331,51 +13696,161 @@ window.ArgusCaseBuilder = (function () {
         var t   = n.pubDate ? new Date(n.pubDate).getTime() : c.ts;
         var cat = categorizeEvent(n);
         evts.push({ ts: isNaN(t) ? c.ts : t, title: n.title, sev: n.severity || 'LOW',
-                    src: n.source || 'NEWS', pillar: pillarOf(n), cat: cat, eid: uid });
+                    src: n.source || 'NEWS', pillar: pillarOf(n), cat: cat, eid: uid, kind: 'event' });
       });
+    });
+
+    // ── Collect vessel signals ────────────────────────────────────────────────
+    var vesSignals = ingestVesselSignals([]);
+    vesSignals.forEach(function(s) {
+      var ev  = s.ev;
+      var uid = evSlug(ev.title);
+      if (seen[uid]) return; seen[uid] = true;
+      evts.push({ ts: nowMs, title: ev.title, sev: ev.severity || 'LOW',
+                  src: 'VesselAPI', pillar: 'STRATEGIC', cat: { economic: true, humanitarian: false },
+                  eid: uid, kind: 'vessel' });
+    });
+
+    // ── Collect flight signals ────────────────────────────────────────────────
+    var acSignals = ingestAircraftSignals([]);
+    acSignals.forEach(function(s) {
+      var ev  = s.ev;
+      var uid = evSlug(ev.title);
+      if (seen[uid]) return; seen[uid] = true;
+      evts.push({ ts: nowMs, title: ev.title, sev: ev.severity || 'LOW',
+                  src: 'ADS-B', pillar: 'STRATEGIC', cat: { economic: true, humanitarian: false },
+                  eid: uid, kind: 'flight' });
     });
 
     evts.sort(function(a, b) { return b.ts - a.ts; });
 
-    // Group by UTC date
+    // ── Spike detection (rolling window: count in last 24h vs 7d average) ────
+    var spikes = {};
+    var window24h  = evts.filter(function(e) { return (nowMs - e.ts) < 86400000; });
+    var window7d   = evts.filter(function(e) { return (nowMs - e.ts) < 604800000; });
+    var dayAvg     = window7d.length / 7;
+    var dayCount   = window24h.length;
+    var spikeRatio = dayAvg > 0 ? dayCount / dayAvg : 0;
+    var globalSpike = spikeRatio > 1.5 && dayCount > 3;
+
+    // Per-source spike detection
+    var srcCounts24 = {}, srcCounts7d = {};
+    window24h.forEach(function(e) { srcCounts24[e.kind] = (srcCounts24[e.kind] || 0) + 1; });
+    window7d.forEach(function(e)  { srcCounts7d[e.kind] = (srcCounts7d[e.kind] || 0) + 1; });
+    ['event','vessel','flight'].forEach(function(kind) {
+      var avg = (srcCounts7d[kind] || 0) / 7;
+      var cnt = srcCounts24[kind] || 0;
+      if (avg > 0 && cnt / avg > 1.4 && cnt > 2) {
+        var pct = Math.round((cnt / avg - 1) * 100);
+        spikes[kind] = { count: cnt, pct: pct };
+      }
+    });
+
+    // ── Apply filter ──────────────────────────────────────────────────────────
+    var filtered = _tlFilter === 'all' ? evts :
+                   evts.filter(function(e) { return e.kind === _tlFilter; });
+
+    // ── Filter chips HTML ─────────────────────────────────────────────────────
+    var filters  = [
+      { id: 'all',     label: 'ALL', col: '#b464ff' },
+      { id: 'event',   label: 'EVENTS', col: '#ff4466' },
+      { id: 'flight',  label: 'FLIGHTS', col: '#66ddff' },
+      { id: 'vessel',  label: 'VESSELS', col: '#00ccff' },
+    ];
+    var chipHtml = '<div style="display:flex;gap:4px;padding:6px 0 8px;border-bottom:1px solid #0a1a2a;margin-bottom:2px;flex-wrap:wrap">';
+    filters.forEach(function(f) {
+      var active = _tlFilter === f.id;
+      chipHtml += '<button data-tl-filter="' + f.id + '" style="' +
+        'background:' + (active ? hexToRgbaLite(f.col, 0.15) : 'none') + ';' +
+        'border:1px solid ' + (active ? f.col : '#1a2a3a') + ';' +
+        'color:' + (active ? f.col : '#2a4a6a') + ';' +
+        'font-size:7px;letter-spacing:1.5px;padding:2px 8px;cursor:pointer;border-radius:2px">' +
+        f.label + (evts.filter(function(e){ return f.id==='all' || e.kind===f.id; }).length ? ' (' + evts.filter(function(e){ return f.id==='all' || e.kind===f.id; }).length + ')' : '') +
+        '</button>';
+    });
+    chipHtml += '</div>';
+
+    // ── Spike alert banners ───────────────────────────────────────────────────
+    var spikeHtml = '';
+    if (globalSpike) {
+      spikeHtml += '<div style="padding:4px 8px;margin-bottom:4px;background:rgba(255,80,0,0.08);border:1px solid rgba(255,80,0,0.2);border-radius:2px;font-size:7.5px;color:#ff8833">' +
+        '⚠ ACTIVITY SURGE — ' + Math.round((spikeRatio - 1) * 100) + '% above 7-day average</div>';
+    }
+    if (spikes.vessel) {
+      // Find region with most vessel activity
+      var topVesRegion = '';
+      var vm = window._vesselMap ? Array.from(window._vesselMap.values()) : [];
+      var byReg = {}; vm.forEach(function(v){ var r = v.region || 'GLOBAL'; byReg[r] = (byReg[r]||0)+1; });
+      var topR = Object.keys(byReg).sort(function(a,b){ return byReg[b]-byReg[a]; })[0];
+      if (topR) topVesRegion = ' — ' + topR;
+      spikeHtml += '<div style="padding:4px 8px;margin-bottom:4px;background:rgba(0,180,255,0.06);border:1px solid rgba(0,180,255,0.2);border-radius:2px;font-size:7.5px;color:#00ccff">' +
+        '⚠ Vessel Congestion' + topVesRegion + ' (+' + spikes.vessel.pct + '% vs avg)</div>';
+    }
+    if (spikes.flight) {
+      spikeHtml += '<div style="padding:4px 8px;margin-bottom:4px;background:rgba(100,200,255,0.06);border:1px solid rgba(100,200,255,0.15);border-radius:2px;font-size:7.5px;color:#66ddff">' +
+        '⚠ Flight Surge (+' + spikes.flight.pct + '% vs avg)</div>';
+    }
+
+    // ── Group by UTC date ─────────────────────────────────────────────────────
     var days = [], dayMap = {};
-    evts.slice(0, 60).forEach(function(e) {
+    filtered.slice(0, 80).forEach(function(e) {
       var d   = new Date(e.ts);
-      var key = isNaN(d.getTime()) ? 'UNKNOWN DATE' :
+      var key = isNaN(d.getTime()) ? 'LIVE' :
                 d.getUTCDate() + ' ' + MO[d.getUTCMonth()] + ' ' + d.getUTCFullYear();
       if (!dayMap[key]) { dayMap[key] = []; days.push(key); }
       dayMap[key].push(e);
     });
 
     var PILLAR_COL = { KINETIC:'#ff0044', ECONOMIC:'#ff9933', HUMANITARIAN:'#ffcc00', STRATEGIC:'#4a7da8' };
-    var html = '';
+    var KIND_COL   = { event: '#b464ff', vessel: '#00ccff', flight: '#66ddff' };
+    var KIND_ICON  = { event: '◉', vessel: '⚓', flight: '✈' };
+    var html = chipHtml + spikeHtml;
+
     days.forEach(function(day) {
       html += '<div class="cb-tl-day-hdr">— ' + day + ' —</div>';
       dayMap[day].forEach(function(e) {
         var d     = new Date(e.ts);
-        var hhmm  = isNaN(d.getTime()) ? '——' :
+        var hhmm  = isNaN(d.getTime()) ? 'LIVE' :
                     String(d.getUTCHours()).padStart(2,'0') + ':' + String(d.getUTCMinutes()).padStart(2,'0');
-        var col   = sevCol(e.sev);
+        var col   = e.kind === 'event' ? sevCol(e.sev) : (KIND_COL[e.kind] || '#4a7da8');
         var pCol  = PILLAR_COL[e.pillar] || '#4a7da8';
-        html += '<div class="cb-tl-row" id="tl-' + e.eid + '" data-eid="' + e.eid + '" onclick="ArgusCaseBuilder._syncTree(\'' + e.eid + '\')">';
+        var kIcon = KIND_ICON[e.kind] || '◉';
+        var kCol  = KIND_COL[e.kind] || '#b464ff';
+        html += '<div class="cb-tl-row" id="tl-' + e.eid + '" data-eid="' + e.eid + '"' +
+                (e.kind === 'event' ? ' onclick="ArgusCaseBuilder._syncTree(\'' + e.eid + '\')"' : '') + '>';
         html += '<div class="cb-tl-ts">' + hhmm + '</div>';
-        html += '<div class="cb-tl-dot" style="background:' + col + '44;border-color:' + col + '"></div>';
+        html += '<div class="cb-tl-dot" style="background:' + col + '33;border-color:' + col + '"></div>';
         html += '<div class="cb-tl-body">';
         html += '<div class="cb-tl-title">' + esc(e.title.slice(0, 68)) + '</div>';
         html += '<div class="cb-tl-src">' + esc(e.src) + ' · <span style="color:' + col + '">' + e.sev + '</span></div>';
         html += '<div class="cb-tl-tags">';
+        html += '<span class="cb-tl-tag" style="color:' + kCol + ';border-color:' + kCol + '33">' + kIcon + ' ' + e.kind.toUpperCase() + '</span>';
         html += '<span class="cb-tl-tag" style="color:' + pCol + ';border-color:' + pCol + '44">' + e.pillar + '</span>';
-        if (e.cat.economic)     html += '<span class="cb-tl-tag" style="color:#ff9933;border-color:#ff993344">ECONOMIC</span>';
-        if (e.cat.humanitarian) html += '<span class="cb-tl-tag" style="color:#ffcc00;border-color:#ffcc0044">HUMANITARIAN</span>';
+        if (e.cat.economic)     html += '<span class="cb-tl-tag" style="color:#ff9933;border-color:#ff993344">ECON</span>';
+        if (e.cat.humanitarian) html += '<span class="cb-tl-tag" style="color:#ffcc00;border-color:#ffcc0044">HUM</span>';
         html += '</div>';
         html += '</div></div>';
       });
     });
 
     el.innerHTML = html || '<div style="padding:10px;font-size:9px;color:#2a4a6a">NO EVENTS</div>';
+
+    // Wire filter chips
+    el.querySelectorAll('[data-tl-filter]').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        _tlFilter = this.dataset.tlFilter;
+        renderTimeline();
+      });
+    });
   }
 
-  // ── Mode 4: Impact Decision Tree ──────────────────────────────────────────────
+  // ── hexToRgba lite (used only inside ArgusCaseBuilder) ───────────────────────
+  function hexToRgbaLite(hex, alpha) {
+    var r = parseInt(hex.slice(1,3),16), g = parseInt(hex.slice(3,5),16), b = parseInt(hex.slice(5,7),16);
+    return 'rgba(' + r + ',' + g + ',' + b + ',' + alpha + ')';
+  }
+
+  // ── Mode 4: Impact Decision Tree — relational geographic mapping ─────────────
   function renderTree() {
     var el = document.getElementById('cb-tree');
     if (!el) return;
@@ -13384,43 +13859,68 @@ window.ArgusCaseBuilder = (function () {
       return;
     }
 
-    // Collect & deduplicate all events from all cases
+    var PROX_KM    = 450;  // proximity radius for vessel/flight linkage
     var tree = {}, seen = {};
+
+    // ── Collect all events, assign to country, proximity-link traffic ──────────
     _cases.forEach(function(c) {
       var allItems = (c.kineticEvts||[]).concat(c.economicEvts||[]).concat(c.humanitarianEv||[]).concat(c.strategicEvts||[]);
-      // Also legacy news
       (c.news || []).forEach(function(n){ if (n && n.title) allItems.push({ ev: n }); });
       allItems.forEach(function(item) {
         var ev = item.ev || item;
         if (!ev || !ev.title) return;
         var uid = evSlug(ev.title);
         if (seen[uid]) return; seen[uid] = true;
-        var cat = categorizeEvent(ev);
-        if (!tree[cat.country]) tree[cat.country] = [];
-        tree[cat.country].push({ ev: ev, cat: cat, eid: uid });
+        var cat     = categorizeEvent(ev);
+        var nearV   = getVesselsNear(ev.lat, ev.lon, PROX_KM);
+        var nearF   = getFlightsNear(ev.lat, ev.lon, PROX_KM);
+        var scores  = computeImpactScores(ev, nearV, nearF);
+        var country = cat.country;
+        if (!tree[country]) tree[country] = { evts: [], nearV: [], nearF: [], econScore: 0, humScore: 0, stratScore: 0 };
+        tree[country].evts.push({ ev: ev, cat: cat, eid: uid, nearV: nearV, nearF: nearF, scores: scores });
+        // Aggregate proximity traffic at country level
+        nearV.forEach(function(v) { if (!tree[country].nearV.some(function(x){ return x.name === v.name; })) tree[country].nearV.push(v); });
+        nearF.forEach(function(f) { if (!tree[country].nearF.some(function(x){ return x.callsign === f.callsign; })) tree[country].nearF.push(f); });
+        // Aggregate impact scores (take max across events)
+        tree[country].econScore  = Math.max(tree[country].econScore,  scores.economic);
+        tree[country].humScore   = Math.max(tree[country].humScore,   scores.humanitarian);
+        tree[country].stratScore = Math.max(tree[country].stratScore, scores.strategic);
       });
     });
 
-    // Sort countries by event count desc
-    var countries = Object.keys(tree).sort(function(a, b){ return tree[b].length - tree[a].length; });
+    var countries = Object.keys(tree).sort(function(a, b) {
+      return (tree[b].evts.length * 10 + tree[b].econScore + tree[b].humScore + tree[b].stratScore) -
+             (tree[a].evts.length * 10 + tree[a].econScore + tree[a].humScore + tree[a].stratScore);
+    });
     if (!countries.length) {
       el.innerHTML = '<div style="padding:10px;font-size:9px;color:#2a4a6a">NO EVENTS CATEGORIZED</div>';
       return;
     }
 
     var PILLAR_ICON = { KINETIC:'◉', ECONOMIC:'⬡', HUMANITARIAN:'◈', STRATEGIC:'▤' };
+    var SHIP_COL  = { cargo:'#4488ff', tanker:'#ff9933', military:'#ff4444', passenger:'#00ff88', fishing:'#ffcc00', other:'#5577aa' };
+    var FLT_COL   = { commercial:'#66ddff', cargo:'#4488ff', military:'#ff4444', unknown:'#5577aa' };
     var html = '';
-    countries.forEach(function(country) {
-      var evts = tree[country];
-      var econCount = evts.filter(function(x){ return x.cat.economic; }).length;
-      var humCount  = evts.filter(function(x){ return x.cat.humanitarian; }).length;
-      var cid = 'ct-c-' + country.replace(/\W+/g, '_');
+
+    countries.slice(0, 12).forEach(function(country) {
+      var d = tree[country];
+      var evts       = d.evts;
+      var econCount  = evts.filter(function(x){ return x.cat.economic; }).length;
+      var humCount   = evts.filter(function(x){ return x.cat.humanitarian; }).length;
+      var cid        = 'ct-c-' + country.replace(/\W+/g, '_');
+      var topSev     = evts.reduce(function(best, x) {
+        var s = x.ev.severity || 'LOW';
+        return ({ CRITICAL:4, WARNING:3, WATCH:2, LOW:1 }[s] || 1) > ({ CRITICAL:4, WARNING:3, WATCH:2, LOW:1 }[best] || 1) ? s : best;
+      }, 'LOW');
+      var cCol = sevCol(topSev);
 
       html += '<div class="ct-country" id="' + cid + '">';
       html += '<div class="ct-country-hdr" onclick="this.parentNode.classList.toggle(\'open\')">';
-      html += '<span class="ct-country-name">◈ ' + esc(country) + '</span>';
+      html += '<span class="ct-country-name" style="color:' + cCol + '">◈ ' + esc(country) + '</span>';
       html += '<span class="ct-country-stats">';
       html +=   '<span class="ct-badge">' + evts.length + ' EVT</span>';
+      if (d.nearV.length) html += '<span class="ct-badge" style="color:#00ccff;border-color:#00ccff44">⚓' + d.nearV.length + '</span>';
+      if (d.nearF.length) html += '<span class="ct-badge" style="color:#66ddff;border-color:#66ddff44">✈' + d.nearF.length + '</span>';
       if (econCount) html += '<span class="ct-badge econ">⚡ ECON</span>';
       if (humCount)  html += '<span class="ct-badge hum">◉ HUM</span>';
       html += '</span>';
@@ -13428,26 +13928,94 @@ window.ArgusCaseBuilder = (function () {
       html += '</div>';
 
       html += '<div class="ct-events">';
+
+      // ── Region sub-panel ─────────────────────────────────────────────────
+      html += '<div style="padding:6px 10px;border-bottom:1px solid #0a1a2a">';
+      html += '<div style="font-size:7px;letter-spacing:2px;color:#4a7da8;margin-bottom:4px">◈ REGION</div>';
+
+      // Events list
+      evts.slice(0, 6).forEach(function(item) {
+        var ev = item.ev, col = sevCol(ev.severity || 'LOW');
+        html += '<div style="font-size:7.5px;color:' + col + ';padding:1px 0">' + (PILLAR_ICON[pillarOf(ev)]||'▸') + ' ' + esc((ev.title||'').slice(0,60)) + '</div>';
+      });
+
+      // Nearby vessels
+      if (d.nearV.length) {
+        var vDist = distPct(d.nearV, function(x){ return x.category; });
+        html += '<div style="margin-top:5px;font-size:7px;color:#00ccff;letter-spacing:1px">⚓ NEARBY VESSELS (' + d.nearV.length + ')</div>';
+        var vRisk = d.nearV.some(function(v){ return v.category === 'military'; }) ? 'ELEVATED' :
+                    d.nearV.length > 10 ? 'CONGESTION' : 'NOMINAL';
+        html += '<div style="font-size:7px;color:#2a4a6a;margin-bottom:2px">STATUS: <span style="color:#00ccff">' + vRisk + '</span></div>';
+        Object.keys(vDist).sort(function(a,b){ return vDist[b]-vDist[a]; }).slice(0,3).forEach(function(k) {
+          html += '<div style="display:flex;align-items:center;gap:5px;margin-bottom:2px">' +
+                  '<span style="font-size:7px;color:#2a4a6a;width:64px;flex-shrink:0">' + k.toUpperCase() + '</span>' +
+                  intelBar(vDist[k], SHIP_COL[k] || '#5577aa') + '</div>';
+        });
+      }
+
+      // Nearby flights
+      if (d.nearF.length) {
+        var fDist = distPct(d.nearF, function(x){ return x.flightType; });
+        html += '<div style="margin-top:5px;font-size:7px;color:#66ddff;letter-spacing:1px">✈ NEARBY FLIGHTS (' + d.nearF.length + ')</div>';
+        var fRisk = d.nearF.some(function(f){ return f.flightType === 'military'; }) ? 'MILITARY PRESENCE' :
+                    d.nearF.length > 8 ? 'ELEVATED' : 'NOMINAL';
+        html += '<div style="font-size:7px;color:#2a4a6a;margin-bottom:2px">STATUS: <span style="color:#66ddff">' + fRisk + '</span></div>';
+        Object.keys(fDist).sort(function(a,b){ return fDist[b]-fDist[a]; }).slice(0,3).forEach(function(k) {
+          html += '<div style="display:flex;align-items:center;gap:5px;margin-bottom:2px">' +
+                  '<span style="font-size:7px;color:#2a4a6a;width:64px;flex-shrink:0">' + k.toUpperCase() + '</span>' +
+                  intelBar(fDist[k], FLT_COL[k] || '#5577aa') + '</div>';
+        });
+      }
+      html += '</div>';
+
+      // ── Impact scoring panel ─────────────────────────────────────────────
+      html += '<div style="padding:6px 10px;border-bottom:1px solid #0a1a2a">';
+      html += '<div style="font-size:7px;letter-spacing:2px;color:#4a7da8;margin-bottom:5px">⬡ IMPACT ASSESSMENT</div>';
+      var impactRows = [
+        { label: 'Economic',      val: d.econScore,  col: '#ff9933', icon: '⚡' },
+        { label: 'Humanitarian',  val: d.humScore,   col: '#ffcc00', icon: '◈' },
+        { label: 'Strategic',     val: d.stratScore, col: '#4a7da8', icon: '▤' },
+      ];
+      impactRows.forEach(function(r) {
+        var level = r.val >= 70 ? 'HIGH' : r.val >= 40 ? 'MEDIUM' : r.val >= 15 ? 'LOW' : 'MINIMAL';
+        html += '<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">' +
+                '<span style="font-size:7px;color:' + r.col + ';width:80px;flex-shrink:0;letter-spacing:0.5px">' + r.icon + ' ' + r.label.toUpperCase() + '</span>' +
+                intelBar(r.val, r.col) +
+                '<span style="font-size:7px;color:' + r.col + ';margin-left:2px;flex-shrink:0">' + level + '</span></div>';
+      });
+      html += '</div>';
+
+      // ── Per-event detail cards (expandable) ──────────────────────────────
+      html += '<div style="padding:4px 10px">';
+      html += '<div style="font-size:7px;letter-spacing:2px;color:#2a4a6a;margin-bottom:4px">▸ EVENT DETAIL</div>';
       evts.forEach(function(item) {
-        var ev  = item.ev;
-        var cat = item.cat;
+        var ev  = item.ev, cat = item.cat;
         var col = sevCol(ev.severity || 'LOW');
         var pIcon = PILLAR_ICON[pillarOf(ev)] || '▸';
         html += '<div class="ct-event" data-eid="' + item.eid + '">';
         html += '<div class="ct-event-hdr" onclick="event.stopPropagation();this.parentNode.classList.toggle(\'open\')">';
         html +=   '<span style="color:' + col + ';font-size:8px;flex-shrink:0">' + pIcon + '</span>';
-        html +=   '<span class="ct-event-title">' + esc(ev.title.slice(0, 65)) + '</span>';
+        html +=   '<span class="ct-event-title">' + esc((ev.title||'').slice(0, 62)) + '</span>';
         html +=   '<span class="ct-chevron small">▶</span>';
         html += '</div>';
         html += '<div class="ct-impacts">';
         html +=   '<div class="ct-impact ' + (cat.economic ? 'yes' : 'no') + '">⚡ ECONOMIC: <span>' + (cat.economic ? 'YES' : 'NO') + '</span></div>';
-        html +=   '<div class="ct-impact ' + (cat.humanitarian ? 'yes' : 'no') + '">◉ HUMANITARIAN: <span>' + (cat.humanitarian ? 'YES' : 'NO') + '</span></div>';
+        html +=   '<div class="ct-impact ' + (cat.humanitarian ? 'yes' : 'no') + '">◈ HUMANITARIAN: <span>' + (cat.humanitarian ? 'YES' : 'NO') + '</span></div>';
         html +=   '<div class="ct-impact">▸ TYPE: <span>' + esc(cat.type) + '</span></div>';
-        if (ev.source) html += '<div class="ct-impact">▸ SOURCE: <span>' + esc(ev.source) + '</span></div>';
+        if (ev.source)   html += '<div class="ct-impact">▸ SOURCE: <span>' + esc(ev.source) + '</span></div>';
         if (ev.severity) html += '<div class="ct-impact">▸ SEVERITY: <span style="color:' + col + '">' + esc(ev.severity) + '</span></div>';
+        if (item.nearV.length) html += '<div class="ct-impact">⚓ VESSELS LINKED: <span style="color:#00ccff">' + item.nearV.length + ' within ' + PROX_KM + 'km</span></div>';
+        if (item.nearF.length) html += '<div class="ct-impact">✈ FLIGHTS LINKED: <span style="color:#66ddff">' + item.nearF.length + ' within ' + PROX_KM + 'km</span></div>';
+        html += '<div style="display:flex;gap:4px;margin-top:4px;flex-wrap:wrap">';
+        html +=   '<span style="font-size:7px;color:#2a4a6a">ECON:</span>' + intelBar(item.scores.economic, '#ff9933');
+        html +=   '<span style="font-size:7px;color:#2a4a6a;margin-left:6px">HUM:</span>'  + intelBar(item.scores.humanitarian, '#ffcc00');
+        html +=   '<span style="font-size:7px;color:#2a4a6a;margin-left:6px">STRAT:</span>' + intelBar(item.scores.strategic, '#4a7da8');
+        html += '</div>';
         html += '</div>';
         html += '</div>'; // ct-event
       });
+      html += '</div>';
+
       html += '</div>'; // ct-events
       html += '</div>'; // ct-country
     });

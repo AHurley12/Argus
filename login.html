@@ -840,7 +840,7 @@ async function handleRegister() {
       headers: { 'Content-Type': 'application/json', 'apikey': SUPABASE_ANON },
       body: JSON.stringify({
         email: email, password: pass,
-        options: { emailRedirectTo: 'https://ahurley12.github.io/Argus/login.html' }
+        options: { emailRedirectTo: 'https://argusintel.live/login.html' }
       })
     });
     var data = await res.json();
@@ -869,7 +869,7 @@ async function handleReset() {
     var res = await fetch(SUPABASE_URL + '/auth/v1/recover', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'apikey': SUPABASE_ANON },
-      body: JSON.stringify({ email: email })
+      body: JSON.stringify({ email: email, options: { redirectTo: 'https://argusintel.live/reset-password.html' } })
     });
     // Supabase returns 200 regardless of whether the email exists (security)
     showMessage('RESET LINK SENT — CHECK YOUR EMAIL INBOX.', false);

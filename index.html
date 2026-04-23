@@ -10654,7 +10654,7 @@ return { getCountryData: getCountryData, getDisasters: getDisasters, init: init 
             'apikey':       'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndidnpseHRyb2V3eHJtb254b2R4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM3OTQzNzMsImV4cCI6MjA4OTM3MDM3M30.0zp-wQ3wKpYc0f7LqFCOEea_d9HJuWnUSWgF4BAW82w',
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({ email: email })
+          body: JSON.stringify({ email: email, options: { redirectTo: 'https://argusintel.live/reset-password.html' } })
         });
         if (r.ok || r.status === 200) {
           if (feedbackEl) { feedbackEl.className = 'acct-feedback ok'; feedbackEl.textContent = '✓ Reset email sent to ' + email; }
@@ -14444,6 +14444,7 @@ document.addEventListener('visibilitychange', function () {
         <button class="nw-chip" data-btype="news">📰 NEWS</button>
         <button class="nw-chip" data-btype="companies">🏢 CO</button>
         <button class="nw-chip" data-btype="vessels">🚢 VES</button>
+        <button class="nw-chip" data-btype="flights">✈ FLT</button>
       </div>
       <div id="nw-builder-head">
         <input id="nw-builder-search" type="text" placeholder="Search nodes to add…" autocomplete="off" spellcheck="false" />
@@ -14482,6 +14483,7 @@ document.addEventListener('visibilitychange', function () {
       <button class="nw-tab-btn is-active" data-tab="inspect">INSPECT</button>
       <button class="nw-tab-btn"           data-tab="timeline">TIMELINE</button>
       <button class="nw-tab-btn"           data-tab="notes">NOTES</button>
+      <button class="nw-tab-btn"           data-tab="analytics">ANALYTICS</button>
     </div>
 
     <!-- Inspector pane -->
@@ -14504,6 +14506,15 @@ document.addEventListener('visibilitychange', function () {
           <button class="nw-export-btn primary" id="btn-nw-export-json">↓ JSON</button>
           <button class="nw-export-btn primary" id="btn-nw-export-md">↓ MARKDOWN</button>
           <button class="nw-export-btn"         id="btn-nw-notes-clear">✕ CLEAR</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Analytics pane -->
+    <div id="nw-pane-analytics" class="nw-tab-pane">
+      <div id="nw-analytics-body" style="flex:1;overflow-y:auto;padding:12px 14px;scrollbar-width:thin;scrollbar-color:var(--nw-purple-faint) transparent">
+        <div id="nw-analytics-placeholder" style="padding:24px 0;text-align:center;font-size:8px;letter-spacing:2px;color:var(--nw-purple-dim);opacity:0.6;line-height:2">
+          ENABLE SHIP OR<br>AIRCRAFT LAYER<br>TO SEE ANALYTICS
         </div>
       </div>
     </div>
@@ -15476,6 +15487,51 @@ function drawNode(ctx, n, pos, hovered, selected) {
     ctx.lineWidth = hovered ? 2 : 1.2;
     ctx.stroke();
 
+  } else if (n.type === 'aircraft') {
+    // Top-down airplane silhouette — fuselage + swept wings + tail
+    var ac_col = '#66ddff';
+    ctx.save();
+    ctx.translate(pos.x, pos.y);
+    // Fuselage
+    ctx.beginPath();
+    ctx.ellipse(0, 0, r * 0.28, r * 0.95, 0, 0, Math.PI * 2);
+    ctx.fillStyle = hexToRgba(ac_col, 0.22);
+    ctx.fill();
+    ctx.strokeStyle = ac_col;
+    ctx.lineWidth = hovered ? 1.8 : 1.1;
+    ctx.stroke();
+    // Wings
+    ctx.beginPath();
+    ctx.moveTo(-r * 0.28, -r * 0.12);
+    ctx.lineTo(-r * 1.1, r * 0.28);
+    ctx.lineTo(-r * 0.9, r * 0.38);
+    ctx.lineTo(0, r * 0.08);
+    ctx.lineTo(r * 0.9, r * 0.38);
+    ctx.lineTo(r * 1.1, r * 0.28);
+    ctx.lineTo(r * 0.28, -r * 0.12);
+    ctx.closePath();
+    ctx.fillStyle = hexToRgba(ac_col, 0.18);
+    ctx.fill();
+    ctx.strokeStyle = ac_col;
+    ctx.lineWidth = hovered ? 1.6 : 0.9;
+    ctx.stroke();
+    // Tail fins
+    ctx.beginPath();
+    ctx.moveTo(-r * 0.18, r * 0.6);
+    ctx.lineTo(-r * 0.55, r * 0.9);
+    ctx.lineTo(-r * 0.38, r * 0.95);
+    ctx.lineTo(0, r * 0.7);
+    ctx.lineTo(r * 0.38, r * 0.95);
+    ctx.lineTo(r * 0.55, r * 0.9);
+    ctx.lineTo(r * 0.18, r * 0.6);
+    ctx.closePath();
+    ctx.fillStyle = hexToRgba(ac_col, 0.24);
+    ctx.fill();
+    ctx.strokeStyle = ac_col;
+    ctx.lineWidth = 0.8;
+    ctx.stroke();
+    ctx.restore();
+
   } else if (n.type === 'company') {
     // Square with inner ring
     ctx.beginPath();
@@ -15537,9 +15593,10 @@ function drawNodeLabel(ctx, n, pos) {
   ctx.fillStyle = n.type === 'country' ? '#c0ddf8'
     : n.type === 'topic'   ? '#4a7da8'
     : n.type === 'note'    ? '#ffe066'
-    : n.type === 'vessel'  ? '#00ccff'
-    : n.type === 'company' ? '#ff99aa'
-    : n.type === 'news'    ? '#cc88ff'
+    : n.type === 'vessel'   ? '#00ccff'
+    : n.type === 'aircraft' ? '#66ddff'
+    : n.type === 'company'  ? '#ff99aa'
+    : n.type === 'news'     ? '#cc88ff'
     : '#8899bb';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'top';
@@ -15864,11 +15921,29 @@ function showInspector(node) {
 
   } else if (node.type === 'vessel') {
     var vesLinks = (state.relEdges||[]).concat(state.manualEdges||[]).filter(function(e){ return e.source===node.id||e.target===node.id; });
+    // Attempt chokepoint analytics if this node represents a known chokepoint/route
+    var vesAnalyticsHtml = buildChokepointAnalyticsHtml(node.label);
     body.innerHTML = [
       '<div style="font-size:8px;letter-spacing:2px;color:#00ccff;margin-bottom:8px">🚢 VESSEL / ROUTE</div>',
       field('NAME', node.label),
       field('TYPE', node.badge || 'VESSEL'),
       vesLinks.length ? field('RELATIONSHIPS', vesLinks.length + ' edges') : '',
+      vesAnalyticsHtml,
+    ].join('');
+
+  } else if (node.type === 'aircraft') {
+    var acLinks = (state.relEdges||[]).concat(state.manualEdges||[]).filter(function(e){ return e.source===node.id||e.target===node.id; });
+    var ftLabel = { commercial:'COMMERCIAL', cargo:'CARGO', military:'MILITARY', unknown:'UNCLASSIFIED' };
+    var ftCol   = { commercial:'#66ddff', cargo:'#4488ff', military:'#ff4444', unknown:'#5577aa' };
+    var ft4 = (node.flightType || 'unknown').toLowerCase();
+    body.innerHTML = [
+      '<div style="font-size:8px;letter-spacing:2px;color:#66ddff;margin-bottom:8px">✈ FLIGHT NODE</div>',
+      field('CALLSIGN / ID', node.label),
+      field('FLIGHT TYPE', '<span style="color:' + (ftCol[ft4]||'#5577aa') + '">' + (ftLabel[ft4]||ft4.toUpperCase()) + '</span>'),
+      node.region   ? field('REGION', node.region)             : '',
+      node.altitude != null ? field('ALTITUDE', node.altitude + ' ft') : '',
+      node.lat != null && node.lon != null ? field('POSITION', node.lat.toFixed(2) + '°, ' + node.lon.toFixed(2) + '°') : '',
+      acLinks.length ? field('RELATIONSHIPS', acLinks.length + ' edges') : '',
     ].join('');
 
   } else if (node.type === 'company') {
@@ -16127,10 +16202,324 @@ function switchTab(tab) {
     pane.classList.toggle('is-active', pane.id === 'nw-pane-' + tab);
   });
   if (tab === 'timeline') renderTimeline();
+  if (tab === 'analytics') renderAnalytics();
   if (tab === 'notes') {
     var ta = document.getElementById('nw-notes-input');
     if (ta && !ta.value) ta.value = loadNotes();
   }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// NEURAL WEB — CHOKEPOINT ANALYTICS + FLIGHT INTEGRATION
+// Additive layer: haversine spatial filter → category distribution → UI render
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// ── Haversine great-circle distance in km ─────────────────────────────────────
+function haversineKm(lat1, lon1, lat2, lon2) {
+  var R = 6371;
+  var dLat = (lat2 - lat1) * Math.PI / 180;
+  var dLon = (lon2 - lon1) * Math.PI / 180;
+  var a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+    Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+// ── Collect current tracking snapshot ────────────────────────────────────────
+// Returns { ships: [{lat,lon,category},...], flights: [{lat,lon,category},...] }
+function collectTrackingSnapshot() {
+  var ships   = [];
+  var flights = [];
+
+  // From live markers (most up-to-date)
+  var acMarkers  = window._aircraftMarkers || [];
+  var shMarkers  = window._vesselMarkers   || [];
+
+  acMarkers.forEach(function(s) {
+    var ud = s && s.userData;
+    if (ud && ud.isAircraft && ud.lat != null && ud.lon != null) {
+      flights.push({ lat: ud.lat, lon: ud.lon, category: (ud.flightType || 'unknown').toLowerCase() });
+    }
+  });
+
+  shMarkers.forEach(function(s) {
+    var ud = s && s.userData;
+    if (ud && ud.isShip && ud.lat != null && ud.lon != null) {
+      ships.push({ lat: ud.lat, lon: ud.lon, category: (ud.typeCategory || 'other').toLowerCase() });
+    }
+  });
+
+  // Supplement from normalized tracking data if markers are sparse
+  if ((ships.length + flights.length) === 0) {
+    (window._trackingData || []).forEach(function(t) {
+      if (t.lat == null || t.lon == null) return;
+      if (t.type === 'aircraft') {
+        flights.push({ lat: t.lat, lon: t.lon, category: (t.flightType || 'unknown').toLowerCase() });
+      } else if (t.type === 'vessel') {
+        ships.push({ lat: t.lat, lon: t.lon, category: (t.typeCategory || 'other').toLowerCase() });
+      }
+    });
+  }
+
+  // Supplement flights from localStorage cache
+  if (!flights.length) {
+    try {
+      var lsRaw = localStorage.getItem('argus_traffic_v4');
+      if (lsRaw) {
+        var lsJson = JSON.parse(lsRaw);
+        var lsAc   = Array.isArray(lsJson) ? lsJson : (Array.isArray(lsJson.aircraft) ? lsJson.aircraft : []);
+        lsAc.forEach(function(ac) {
+          if (ac.lat != null && ac.lon != null) {
+            flights.push({ lat: ac.lat, lon: ac.lon, category: (ac.flightType || 'unknown').toLowerCase() });
+          }
+        });
+      }
+    } catch(_){}
+  }
+
+  return { ships: ships, flights: flights };
+}
+
+// ── Category distribution → percentage map ────────────────────────────────────
+function categoryDistribution(items) {
+  if (!items.length) return {};
+  var counts = {};
+  items.forEach(function(i) { counts[i.category] = (counts[i.category] || 0) + 1; });
+  var total = items.length;
+  var pct   = {};
+  Object.keys(counts).forEach(function(k) { pct[k] = Math.round(counts[k] / total * 100); });
+  return pct;
+}
+
+// ── Per-chokepoint spatial analytics (cached) ─────────────────────────────────
+var _cpCache = {};
+var _cpCacheKey = '';
+
+function computeAllChokepointAnalytics() {
+  var snap    = collectTrackingSnapshot();
+  var cacheKey = snap.ships.length + '_' + snap.flights.length;
+
+  if (_cpCacheKey === cacheKey && Object.keys(_cpCache).length) return _cpCache;
+  _cpCacheKey = cacheKey;
+  _cpCache    = {};
+
+  var RADIUS_KM = 450;  // broad enough to capture approaching + in-strait + departing traffic
+
+  (window.CHOKEPOINTS_DATA || []).forEach(function(cp) {
+    var nearShips   = snap.ships.filter(function(s) {
+      return haversineKm(cp.rawLat, cp.rawLon, s.lat, s.lon) <= RADIUS_KM;
+    });
+    var nearFlights = snap.flights.filter(function(f) {
+      return haversineKm(cp.rawLat, cp.rawLon, f.lat, f.lon) <= RADIUS_KM;
+    });
+
+    _cpCache[cp.id] = {
+      id:          cp.id,
+      label:       cp.label,
+      shipCount:   nearShips.length,
+      flightCount: nearFlights.length,
+      shipDist:    categoryDistribution(nearShips),
+      flightDist:  categoryDistribution(nearFlights),
+      // global (for reference)
+      globalShips:   snap.ships.length,
+      globalFlights: snap.flights.length,
+    };
+  });
+
+  return _cpCache;
+}
+
+// ── Time-range comparison (baseline stored in localStorage) ───────────────────
+var NW_ANALYTICS_BASE_KEY = 'argus_nw_analytics_base';
+
+function getOrSetAnalyticsBaseline(currentShips, currentFlights) {
+  var nowMs  = Date.now();
+  var stored = null;
+  try { stored = JSON.parse(localStorage.getItem(NW_ANALYTICS_BASE_KEY) || 'null'); } catch(_){}
+
+  if (!stored || (nowMs - stored.ts) > 3600000) {
+    // Store new baseline every hour
+    stored = { ts: nowMs, ships: currentShips, flights: currentFlights };
+    try { localStorage.setItem(NW_ANALYTICS_BASE_KEY, JSON.stringify(stored)); } catch(_){}
+  }
+  return stored;
+}
+
+function pctChange(current, previous) {
+  if (!previous) return null;
+  return Math.round((current - previous) / previous * 100);
+}
+
+// ── Mini bar chart (text-based, fits in 180px panel) ─────────────────────────
+function miniBar(pct, color) {
+  var filled = Math.max(0, Math.min(20, Math.round(pct / 5)));
+  var bar = '';
+  for (var i = 0; i < 20; i++) bar += (i < filled ? '█' : '░');
+  return '<span style="font-family:monospace;font-size:8px;color:' + color + ';letter-spacing:0">' + bar + '</span>&nbsp;' + pct + '%';
+}
+
+// ── Chokepoint analytics HTML for the vessel inspector ────────────────────────
+function buildChokepointAnalyticsHtml(nodeLabel) {
+  var snap = collectTrackingSnapshot();
+  if (!snap.ships.length && !snap.flights.length) return '';
+
+  // Match node label to a known chokepoint
+  var cp = (window.CHOKEPOINTS_DATA || []).find(function(c) {
+    var lbl = c.label.toLowerCase();
+    var nl  = (nodeLabel || '').toLowerCase();
+    return nl.indexOf(lbl) !== -1 || lbl.indexOf(nl.replace(' route','').replace(' strait','')) !== -1;
+  });
+  if (!cp) return '';
+
+  var analytics = computeAllChokepointAnalytics();
+  var d = analytics[cp.id];
+  if (!d) return '';
+
+  var RADIUS_KM = 450;
+  var html = '<div style="margin-top:10px;padding-top:8px;border-top:1px solid #1a0840">';
+  html += '<div style="font-size:7px;letter-spacing:2px;color:#00ccff;margin-bottom:6px">◈ CHOKEPOINT ANALYTICS <span style="color:#2a4060;font-size:6px">(' + RADIUS_KM + 'km radius)</span></div>';
+  html += field('SHIPS NEARBY', d.shipCount + (d.globalShips ? ' <span style="color:#2a4060;font-size:8px">of ' + d.globalShips + ' tracked</span>' : ''));
+  html += field('FLIGHTS NEARBY', d.flightCount + (d.globalFlights ? ' <span style="color:#2a4060;font-size:8px">of ' + d.globalFlights + ' tracked</span>' : ''));
+
+  // Ship category distribution
+  if (d.shipCount > 0 && Object.keys(d.shipDist).length) {
+    var SHIP_COLORS = { cargo:'#4488ff', tanker:'#ff9933', military:'#ff4444', passenger:'#00ff88', fishing:'#ffcc00', other:'#5577aa' };
+    var sdHtml = Object.keys(d.shipDist).sort(function(a,b){ return d.shipDist[b]-d.shipDist[a]; }).map(function(k) {
+      return '<div style="margin-bottom:3px"><span style="color:#4a7da8;width:70px;display:inline-block">' + k.toUpperCase() + '</span>' + miniBar(d.shipDist[k], SHIP_COLORS[k]||'#5577aa') + '</div>';
+    }).join('');
+    html += field('SHIP TYPES', sdHtml);
+  }
+
+  // Flight category distribution
+  if (d.flightCount > 0 && Object.keys(d.flightDist).length) {
+    var FLT_COLORS = { commercial:'#66ddff', cargo:'#4488ff', military:'#ff4444', unknown:'#5577aa' };
+    var fdHtml = Object.keys(d.flightDist).sort(function(a,b){ return d.flightDist[b]-d.flightDist[a]; }).map(function(k) {
+      return '<div style="margin-bottom:3px"><span style="color:#4a7da8;width:70px;display:inline-block">' + k.toUpperCase() + '</span>' + miniBar(d.flightDist[k], FLT_COLORS[k]||'#5577aa') + '</div>';
+    }).join('');
+    html += field('FLIGHT TYPES', fdHtml);
+  }
+
+  html += '</div>';
+  return html;
+}
+
+// ── Main analytics panel renderer ─────────────────────────────────────────────
+function renderAnalytics() {
+  var body = document.getElementById('nw-analytics-body');
+  if (!body) return;
+
+  var snap      = collectTrackingSnapshot();
+  var analytics = computeAllChokepointAnalytics();
+  var baseline  = getOrSetAnalyticsBaseline(snap.ships.length, snap.flights.length);
+
+  var noData = !snap.ships.length && !snap.flights.length;
+
+  // ── Time range selector UI ────────────────────────────────────────────────────
+  // Since we have single-snapshot live data (not historical timeseries), the
+  // "previous" count is from the baseline captured when Neural Web was opened.
+  // We store & display delta honestly rather than fabricating history.
+  var baseAgeMin = Math.round((Date.now() - baseline.ts) / 60000);
+  var baseAgeStr = baseAgeMin < 60
+    ? baseAgeMin + 'm ago'
+    : Math.round(baseAgeMin / 60) + 'h ago';
+
+  var shipChange    = pctChange(snap.ships.length,   baseline.ships);
+  var flightChange  = pctChange(snap.flights.length, baseline.flights);
+  var chgFmt = function(v, n) {
+    if (v === null || !n) return '<span style="color:#2a4060">N/A</span>';
+    var col = v > 0 ? '#00ff88' : (v < 0 ? '#ff4466' : '#4a7da8');
+    return '<span style="color:' + col + '">' + (v > 0 ? '+' : '') + v + '%</span> vs ' + baseAgeStr;
+  };
+
+  // ── Global summary ────────────────────────────────────────────────────────────
+  var html = '';
+  html += '<div style="font-size:7px;letter-spacing:2px;color:var(--nw-purple);margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid #1a0840">⬡ LIVE TRACKING OVERVIEW</div>';
+
+  if (noData) {
+    html += '<div style="padding:20px 0;text-align:center;font-size:8px;letter-spacing:1.5px;color:var(--nw-purple-dim);opacity:0.5;line-height:2">ENABLE SHIP OR<br>AIRCRAFT LAYER<br>TO LOAD DATA</div>';
+    body.innerHTML = html;
+    return;
+  }
+
+  html += field('VESSELS TRACKED',
+    snap.ships.length + '&nbsp;&nbsp;' + chgFmt(shipChange, snap.ships.length));
+  html += field('FLIGHTS TRACKED',
+    snap.flights.length + '&nbsp;&nbsp;' + chgFmt(flightChange, snap.flights.length));
+
+  // ── Global category distributions ────────────────────────────────────────────
+  if (snap.ships.length > 0) {
+    var SHIP_COLORS2 = { cargo:'#4488ff', tanker:'#ff9933', military:'#ff4444', passenger:'#00ff88', fishing:'#ffcc00', other:'#5577aa' };
+    var gShipDist = categoryDistribution(snap.ships);
+    var gsHtml = Object.keys(gShipDist).sort(function(a,b){ return gShipDist[b]-gShipDist[a]; }).map(function(k) {
+      return '<div style="margin-bottom:4px"><span style="color:#4a7da8;display:inline-block;width:72px;font-size:8px">' + k.toUpperCase() + '</span>' + miniBar(gShipDist[k], SHIP_COLORS2[k]||'#5577aa') + '</div>';
+    }).join('');
+    html += field('VESSEL TYPES', gsHtml);
+  }
+
+  if (snap.flights.length > 0) {
+    var FLT_COLORS2 = { commercial:'#66ddff', cargo:'#4488ff', military:'#ff4444', unknown:'#5577aa' };
+    var gFlightDist = categoryDistribution(snap.flights);
+    var gfHtml = Object.keys(gFlightDist).sort(function(a,b){ return gFlightDist[b]-gFlightDist[a]; }).map(function(k) {
+      return '<div style="margin-bottom:4px"><span style="color:#4a7da8;display:inline-block;width:72px;font-size:8px">' + k.toUpperCase() + '</span>' + miniBar(gFlightDist[k], FLT_COLORS2[k]||'#5577aa') + '</div>';
+    }).join('');
+    html += field('FLIGHT TYPES', gfHtml);
+  }
+
+  // ── Per-chokepoint volume table ───────────────────────────────────────────────
+  var cpKeys = Object.keys(analytics);
+  if (cpKeys.length) {
+    html += '<div style="font-size:7px;letter-spacing:2px;color:var(--nw-purple);margin:12px 0 6px;padding-top:8px;border-top:1px solid #1a0840">◈ CHOKEPOINT VOLUMES <span style="color:#2a4060;font-size:6px">(450km radius)</span></div>';
+
+    // Sort chokepoints by total activity desc
+    var sortedCps = cpKeys.map(function(k){ return analytics[k]; })
+      .sort(function(a,b){ return (b.shipCount + b.flightCount) - (a.shipCount + a.flightCount) });
+
+    var RISK_COL2 = { CRITICAL:'#ff0044', WARNING:'#ff9933', WATCH:'#ffcc00', LOW:'#00ff88' };
+    sortedCps.forEach(function(d2) {
+      var cpData = (window.CHOKEPOINTS_DATA || []).find(function(c){ return c.id === d2.id; });
+      var rCol   = cpData ? (RISK_COL2[cpData.risk] || '#4a7da8') : '#4a7da8';
+      var total  = d2.shipCount + d2.flightCount;
+      if (!total && !d2.globalShips && !d2.globalFlights) return;
+
+      html += '<div style="padding:6px 0;border-bottom:1px solid rgba(42,16,64,0.5)">';
+      html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px">';
+      html += '<span style="font-size:8px;color:' + rCol + ';letter-spacing:0.5px">' + d2.label + '</span>';
+      html += '<span style="font-size:7px;color:#2a4060">' + (cpData ? cpData.risk : '') + '</span>';
+      html += '</div>';
+      html += '<div style="display:flex;gap:12px">';
+      html += '<span style="font-size:8px;color:#4a7da8">⚓ <span style="color:#00ccff">' + d2.shipCount + '</span> ships</span>';
+      html += '<span style="font-size:8px;color:#4a7da8">✈ <span style="color:#66ddff">' + d2.flightCount + '</span> flights</span>';
+      html += '</div>';
+
+      // Compact category bars for chokepoints with data
+      if (d2.shipCount > 0 && Object.keys(d2.shipDist).length) {
+        var CP_SHIP_COL = { cargo:'#4488ff', tanker:'#ff9933', military:'#ff4444', passenger:'#00ff88', fishing:'#ffcc00', other:'#5577aa' };
+        html += '<div style="margin-top:3px">';
+        Object.keys(d2.shipDist).sort(function(a,b){ return d2.shipDist[b]-d2.shipDist[a]; }).slice(0,3).forEach(function(k) {
+          html += '<div style="font-size:7px;color:#2a4060;margin-bottom:1px"><span style="color:#4a7da8;display:inline-block;width:56px">' + k + '</span>' + miniBar(d2.shipDist[k], CP_SHIP_COL[k]||'#5577aa') + '</div>';
+        });
+        html += '</div>';
+      }
+      if (d2.flightCount > 0 && Object.keys(d2.flightDist).length) {
+        var CP_FLT_COL = { commercial:'#66ddff', cargo:'#4488ff', military:'#ff4444', unknown:'#5577aa' };
+        html += '<div style="margin-top:2px">';
+        Object.keys(d2.flightDist).sort(function(a,b){ return d2.flightDist[b]-d2.flightDist[a]; }).slice(0,3).forEach(function(k) {
+          html += '<div style="font-size:7px;color:#2a4060;margin-bottom:1px"><span style="color:#4a7da8;display:inline-block;width:56px">' + k + '</span>' + miniBar(d2.flightDist[k], CP_FLT_COL[k]||'#5577aa') + '</div>';
+        });
+        html += '</div>';
+      }
+
+      html += '</div>';
+    });
+  }
+
+  // ── Snapshot note ─────────────────────────────────────────────────────────────
+  html += '<div style="margin-top:10px;font-size:7px;letter-spacing:0.5px;color:#2a4060;opacity:0.7;line-height:1.6">';
+  html += 'LIVE SNAPSHOT · BASELINE CAPTURED ' + baseAgeStr.toUpperCase();
+  html += '<br>DELTA REFLECTS CHANGE SINCE NEURAL WEB OPENED';
+  html += '</div>';
+
+  body.innerHTML = html;
 }
 
 // ── Country selector ──────────────────────────────────────────────────────────
@@ -16403,7 +16792,7 @@ window.addEventListener('keydown', function(e) {
 // LAYER 5 — INTERACTIVE GRAPH BUILDER: Node candidates + Drag-drop + Link mode
 // ═══════════════════════════════════════════════════════════════════════════════
 
-var BUILDER_ICONS = { events:'🌍', disasters:'🌪', news:'📰', companies:'🏢', vessels:'🚢' };
+var BUILDER_ICONS = { events:'🌍', disasters:'🌪', news:'📰', companies:'🏢', vessels:'🚢', flights:'✈' };
 
 // ── Node candidate search by type ────────────────────────────────────────────
 function buildNodeCandidates(type, query) {
@@ -16488,6 +16877,58 @@ function buildNodeCandidates(type, query) {
       var vid = v.id || ('vessel:' + vname.replace(/\s+/g,'_'));
       if (state.graph.nodes.some(function(n){ return n.id === vid; })) return;
       results.push({ id: vid, type: 'vessel', label: vname, badge: v.type || 'VESSEL', badgeColor: '#00ccff', risk: 'WATCH', keywords: [vname.toLowerCase()] });
+    });
+
+  } else if (type === 'flights') {
+    var flPool = [];
+    // Pull from localStorage snapshot (primary source)
+    try {
+      var flRaw = localStorage.getItem('argus_traffic_v4');
+      if (flRaw) {
+        var flJson = JSON.parse(flRaw);
+        flPool = Array.isArray(flJson) ? flJson : (Array.isArray(flJson.aircraft) ? flJson.aircraft : []);
+      }
+    } catch(_){}
+    // Also pull from live markers in memory
+    var liveAcArr = window._aircraftMarkers || [];
+    liveAcArr.forEach(function(s) {
+      var ud = s.userData;
+      if (ud && ud.isAircraft && ud.lat != null) {
+        flPool.push({ icao24: ud.icao24, cs: ud.title, lat: ud.lat, lon: ud.lon,
+                      flightType: ud.flightType, alt: ud.alt, region: ud.region });
+      }
+    });
+    // Fallback: major air corridors as static nodes
+    if (!flPool.length) {
+      flPool = [
+        { id:'ac_north_atlantic', cs:'NORTH ATLANTIC CORRIDOR', flightType:'commercial', region:'NAT'      },
+        { id:'ac_transpacific',   cs:'TRANS-PACIFIC CORRIDOR',  flightType:'commercial', region:'PACIFIC'  },
+        { id:'ac_europe_asia',    cs:'EUROPE-ASIA CORRIDOR',    flightType:'cargo',      region:'EUR-ASIA' },
+        { id:'ac_middle_east',    cs:'MIDDLE EAST CORRIDOR',    flightType:'commercial', region:'MID-EAST' },
+        { id:'ac_nato_corridor',  cs:'NATO AIR CORRIDOR',       flightType:'military',   region:'EUROPE'   },
+        { id:'ac_polar_route',    cs:'POLAR ROUTE',             flightType:'commercial', region:'ARCTIC'   },
+      ];
+    }
+    var FT_COLORS_B = { commercial:'#66ddff', cargo:'#4488ff', military:'#ff4444', unknown:'#5577aa' };
+    var flSeen = new Set();
+    flPool.slice(0, 150).forEach(function(ac) {
+      var cs3 = (ac.cs || ac.callsign || '').trim();
+      if (!cs3 || flSeen.has(cs3)) return;
+      flSeen.add(cs3);
+      if (ql && cs3.toLowerCase().indexOf(ql) === -1) return;
+      var fid3 = ac.id || ('aircraft:' + (ac.icao24 || cs3.replace(/[^a-z0-9]/gi,'_')));
+      if (state.graph.nodes.some(function(n){ return n.id === fid3; })) return;
+      var ft3   = (ac.flightType || 'unknown').toLowerCase();
+      var bc3   = FT_COLORS_B[ft3] || '#5577aa';
+      results.push({
+        id: fid3, type: 'aircraft', label: cs3,
+        badge: ft3.toUpperCase(), badgeColor: bc3,
+        flightType: ft3, risk: 'LOW',
+        lat: ac.lat || null, lon: ac.lon || null,
+        region: ac.region || '',
+        altitude: ac.alt || null,
+        keywords: [cs3.toLowerCase(), ft3, ac.region || ''],
+      });
     });
   }
 

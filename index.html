@@ -16404,10 +16404,13 @@ function pctChange(current, previous) {
 
 // ── Mini bar chart (text-based, fits in 180px panel) ─────────────────────────
 function miniBar(pct, color) {
-  var filled = Math.max(0, Math.min(20, Math.round(pct / 5)));
-  var bar = '';
-  for (var i = 0; i < 20; i++) bar += (i < filled ? '█' : '░');
-  return '<span style="font-family:monospace;font-size:8px;color:' + color + ';letter-spacing:0">' + bar + '</span>&nbsp;' + pct + '%';
+  var clamped = Math.max(0, Math.min(100, pct));
+  return '<span style="display:inline-flex;align-items:center;gap:5px;vertical-align:middle">' +
+    '<span style="display:inline-block;width:80px;height:5px;background:rgba(42,16,64,0.6);border-radius:2px;overflow:hidden;flex-shrink:0">' +
+      '<span style="display:block;width:' + clamped + '%;height:100%;background:' + color + ';border-radius:2px;transition:width 0.2s"></span>' +
+    '</span>' +
+    '<span style="font-size:8px;color:' + color + ';min-width:26px;text-align:right">' + clamped + '%</span>' +
+  '</span>';
 }
 
 // ── Chokepoint analytics HTML for the vessel inspector ────────────────────────

@@ -15660,7 +15660,7 @@ function setupCanvasInteraction() {
   var wrap   = document.getElementById('nw-canvas-wrap');
   if (!canvas) return;
 
-  var DRAGGABLE = { event: 1, entity: 1, signal: 1, note: 1, vessel: 1, company: 1, news: 1, aircraft: 1 };
+  var DRAGGABLE = { event: 1, entity: 1, signal: 1, note: 1, vessel: 1, company: 1, news: 1, aircraft: 1, chokepoint: 1 };
   var drag     = { active: false, sx: 0, sy: 0, cx: 0, cy: 0 }; // canvas pan
   var nodeDrag = { active: false, node: null };                   // node drag
   var _didMove = false;

@@ -2020,6 +2020,18 @@
   .eq-card:hover { border-color: #1a4a70; }
   .eq-card.held   { border-left: 3px solid #ff9900; }
   .eq-card.denied { opacity: 0.4; }
+  .eq-card.is-dupe-highlight { outline: 1px solid #ff9900; background: rgba(255,153,0,0.04); }
+
+  .eq-similar-badge {
+    display: inline-flex; align-items: center; gap: 3px;
+    font-size: 8px; letter-spacing: 1.5px; font-weight: 700;
+    color: #ffaa00; background: rgba(255,170,0,0.1);
+    border: 1px solid rgba(255,170,0,0.35); border-radius: 2px;
+    padding: 1px 5px; margin-left: 6px; cursor: pointer;
+    font-family: var(--font-mono);
+    transition: background 0.15s;
+  }
+  .eq-similar-badge:hover { background: rgba(255,170,0,0.2); }
 
   .eq-meta {
     display: flex;
@@ -7241,6 +7253,80 @@ function classifyArticle(article, idx) {
   return ev;
 }
 
+// ── Shared title deduplication utility ───────────────────────────────────────
+// Removes duplicate items from an array using two passes:
+//   1. Exact match: lowercase + strip punctuation
+//   2. Jaccard word-overlap fuzzy match at given threshold
+// First-occurrence wins on exact; earliest pubDate wins on fuzzy cluster.
+// Works on any array whose items have a .title property.
+// Optional .pubDate property (raw API string) used for tie-breaking.
+function deduplicateByTitle(items, threshold) {
+  if (!items || !items.length) return items;
+  if (threshold == null) threshold = 0.72;
+
+  // ── Pass 1: exact dedup ───────────────────────────────────────────────────
+  var seen = {};
+  var pass1 = items.filter(function(item) {
+    var key = (item.title || '').toLowerCase()
+                .replace(/[^a-z0-9\s]/g, '')
+                .replace(/\s+/g, ' ').trim();
+    if (seen[key]) return false;
+    seen[key] = true;
+    return true;
+  });
+
+  // ── Pass 2: Jaccard fuzzy dedup ───────────────────────────────────────────
+  function tokenize(str) {
+    return (str || '').toLowerCase()
+      .replace(/[^a-z0-9\s]/g, '').split(/\s+/).filter(Boolean);
+  }
+  function jaccard(tokA, tokB) {
+    var sa = {}, inter = 0;
+    tokA.forEach(function(w) { sa[w] = true; });
+    tokB.forEach(function(w) { if (sa[w]) inter++; });
+    var unionSize = Object.keys(sa).length + tokB.length - inter;
+    return unionSize === 0 ? 0 : inter / unionSize;
+  }
+  function pubDateMs(item) {
+    if (!item.pubDate) return 0;
+    try {
+      var d = new Date(item.pubDate.replace(' ', 'T') + 'Z');
+      return isNaN(d.getTime()) ? 0 : d.getTime();
+    } catch(e) { return 0; }
+  }
+
+  var result = [];
+  var dropped = {};  // index → true
+
+  for (var i = 0; i < pass1.length; i++) {
+    if (dropped[i]) continue;
+    var tokI = tokenize(pass1[i].title);
+    // Scan forward for near-duplicates, collect cluster
+    var cluster = [{ item: pass1[i], origIdx: i }];
+    for (var j = i + 1; j < pass1.length; j++) {
+      if (dropped[j]) continue;
+      if (jaccard(tokI, tokenize(pass1[j].title)) >= threshold) {
+        cluster.push({ item: pass1[j], origIdx: j });
+        dropped[j] = true;
+      }
+    }
+    // Keep earliest pubDate in cluster; fall back to first in array
+    if (cluster.length > 1) {
+      cluster.sort(function(a, b) {
+        var da = pubDateMs(a.item), db = pubDateMs(b.item);
+        if (da && db) return da - db;
+        return a.origIdx - b.origIdx;
+      });
+      console.log('ArgusDedup: merged ' + cluster.length + ' near-dupes → "' +
+        (cluster[0].item.title || '').slice(0, 60) + '"');
+    }
+    result.push(cluster[0].item);
+    dropped[i] = true;
+  }
+
+  return result;
+}
+
 async function fetchAndClassify() {
   var newsUrl = 'https://newsdata.io/api/1/latest' +
     '?apikey=__KEY__' +
@@ -7266,14 +7352,9 @@ async function fetchAndClassify() {
   var articles = data.results || [];
   if (!articles.length) throw new Error('NewsData: no results');
 
-  // Filter: remove duplicates and irrelevant articles
-  var seen = {};
+  // Filter: remove API-flagged dupes and irrelevant articles
   var filtered = articles.filter(function(a) {
     if (a.duplicate) return false;
-    var titleKey = (a.title || '').slice(0, 60).toLowerCase();
-    if (seen[titleKey]) return false;
-    seen[titleKey] = true;
-    // Keep only articles with relevant ai_tag or relevant title/description
     var tags = Array.isArray(a.ai_tag) ? a.ai_tag.join(' ') : (a.ai_tag || '');
     var full  = (a.title || '') + ' ' + (a.description || '') + ' ' + tags;
     return RELEVANT_TAGS.test(full);
@@ -7283,7 +7364,10 @@ async function fetchAndClassify() {
   if (!filtered.length) filtered = articles.filter(function(a) { return !a.duplicate; });
   if (!filtered.length) filtered = articles;
 
-  console.log('ARGUS NewsData: ' + articles.length + ' fetched, ' + filtered.length + ' after filter');
+  // Exact + fuzzy title dedup — keeps earliest pubDate per near-duplicate cluster
+  filtered = deduplicateByTitle(filtered, 0.72);
+
+  console.log('ARGUS NewsData: ' + articles.length + ' fetched, ' + filtered.length + ' after filter+dedup');
   var classified = filtered.map(classifyArticle);
   // AI second-pass: refine type + severity using Claude Haiku (no-op if key not set)
   classified = await applyAIClassifications(classified);
@@ -7345,7 +7429,27 @@ function autoSuggestTopEvents(classified) {
   var submitCount = 0;
   toSubmit.forEach(function(ev, i) {
     // Stagger submissions 600 ms apart to avoid burst writes
-    setTimeout(function() {
+    setTimeout(async function() {
+      // ── Dupe gate: check DB before inserting ─────────────────────────────
+      try {
+        var dupRes = await fetch('https://wbvzlxtroewxrmonxodx.supabase.co/rest/v1/rpc/is_duplicate_event', {
+          method: 'POST',
+          headers: {
+            'apikey':       SUPA_ANON_GDELT,
+            'Authorization':'Bearer ' + token,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ p_title: ev.title || '', p_category: ev.type || 'CONFLICT' })
+        });
+        var isDupe = await dupRes.json();
+        if (isDupe === true) {
+          console.log('AutoSuggest: dupe skip (DB) —', (ev.title || '').slice(0, 60));
+          return;
+        }
+      } catch(dupErr) {
+        console.warn('AutoSuggest: dupe check failed (proceeding):', dupErr.message);
+      }
+
       // Build location object — include lat/lon only if geocoding already resolved
       var locObj = null;
       if (ev.regionRaw || ev.region) {
@@ -10982,6 +11086,40 @@ window.ArgusAdmin = (function() {
     .then(function(r) { return r.json(); })
     .then(function(rows) {
       var now = new Date();
+
+      // ── Client-side Jaccard similarity map for pending rows ───────────────
+      // dupeMap[id] = { matchId, matchTitle } — marks the NEWER of each pair
+      function _jaccTok(s) {
+        return (s || '').toLowerCase().replace(/[^a-z0-9\s]/g,'').split(/\s+/).filter(Boolean);
+      }
+      function _jaccScore(tokA, tokB) {
+        var sa = {}, inter = 0;
+        tokA.forEach(function(w) { sa[w] = true; });
+        tokB.forEach(function(w) { if (sa[w]) inter++; });
+        var u = Object.keys(sa).length + tokB.length - inter;
+        return u === 0 ? 0 : inter / u;
+      }
+      var pendingRows = rows.filter(function(r) { return r.status === 'pending'; });
+      var dupeMap = {};
+      for (var pi = 0; pi < pendingRows.length; pi++) {
+        for (var pj = pi + 1; pj < pendingRows.length; pj++) {
+          if (dupeMap[pendingRows[pi].id] || dupeMap[pendingRows[pj].id]) continue;
+          var tA = _jaccTok((pendingRows[pi].data  && pendingRows[pi].data.title)  || '');
+          var tB = _jaccTok((pendingRows[pj].data  && pendingRows[pj].data.title)  || '');
+          if (_jaccScore(tA, tB) >= 0.7) {
+            // Older row (earlier created_at) is the canonical; newer gets the badge
+            var tsA = new Date(pendingRows[pi].created_at).getTime();
+            var tsB = new Date(pendingRows[pj].created_at).getTime();
+            var older = tsA <= tsB ? pendingRows[pi] : pendingRows[pj];
+            var newer = older === pendingRows[pi] ? pendingRows[pj] : pendingRows[pi];
+            dupeMap[newer.id] = {
+              matchId:    older.id,
+              matchTitle: ((older.data && older.data.title) || '').slice(0, 55),
+            };
+          }
+        }
+      }
+
       var pending    = rows.filter(function(r) { return r.status === 'pending'; }).length;
       var approved   = rows.filter(function(r) { return r.status === 'approved'; }).length;
       var autoSugg   = rows.filter(function(r) { return r.status === 'pending' && r.source === 'AUTO_SUGGEST'; }).length;
@@ -11052,10 +11190,16 @@ window.ArgusAdmin = (function() {
           ? '<span style="font-size:8px;letter-spacing:1.5px;color:#cc88ff;background:rgba(100,0,180,0.18);border:1px solid rgba(100,0,180,0.35);border-radius:2px;padding:1px 5px;margin-left:6px;">⬡ AI SUGGESTED</span>'
           : '';
 
+        var _dupeMeta    = isPending && dupeMap[ev.id];
+        var similarBadge = _dupeMeta
+          ? '<span class="eq-similar-badge" onclick="ArgusAdmin.highlightDupe(\'' + _dupeMeta.matchId + '\')" title="Similar to: ' + _dupeMeta.matchTitle.replace(/'/g, '&#39;') + '">⚠ SIMILAR</span>'
+          : '';
+
         return '<div class="eq-card" id="eq-' + ev.id + '" data-status="' + ev.status + '" style="' + (isAutoSuggest ? 'border-left:2px solid rgba(140,50,255,0.5);' : '') + '">' +
           '<div class="eq-card-head">' +
             '<span class="eq-src">' + (ev.source || '?') + '</span>' +
             autoSuggestBadge +
+            similarBadge +
             '<span class="eq-cat" style="margin-left:' + (isAutoSuggest ? '0' : '') + '">' + (ev.category || '—') + '</span>' +
             '<span class="eq-ts" style="color:' + statusCol + '">' + statusLbl + nextRev + '</span>' +
           '</div>' +
@@ -11888,7 +12032,16 @@ window.ArgusAdmin = (function() {
     }
   }
 
-  return { toggle: toggle, switchTab: switchTab, loadUsers: loadUsers, loadQueue: loadQueue, queueAction: queueAction, approveEvent: approveEvent, setTier: setTier, loadRequests: loadRequests, requestAction: requestAction, permanentAction: permanentAction, _reloadPermanent: _reloadPermanent, _plotAnalystPin: _plotAnalystPin, removeAnalystPin: removeAnalystPin, loadHistory: loadHistory, clearHistory: clearHistory, deletePermanentEvent: deletePermanentEvent, deletePermanentByTitle: deletePermanentByTitle, deleteStaticFixture: deleteStaticFixture, renewStaticFixture: renewStaticFixture };
+  // ── Highlight the matching canonical event card ───────────────────────────
+  function highlightDupe(matchId) {
+    var card = document.getElementById('eq-' + matchId);
+    if (!card) return;
+    card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    card.classList.add('is-dupe-highlight');
+    setTimeout(function() { card.classList.remove('is-dupe-highlight'); }, 2800);
+  }
+
+  return { toggle: toggle, switchTab: switchTab, loadUsers: loadUsers, loadQueue: loadQueue, queueAction: queueAction, approveEvent: approveEvent, setTier: setTier, loadRequests: loadRequests, requestAction: requestAction, permanentAction: permanentAction, _reloadPermanent: _reloadPermanent, _plotAnalystPin: _plotAnalystPin, removeAnalystPin: removeAnalystPin, loadHistory: loadHistory, clearHistory: clearHistory, deletePermanentEvent: deletePermanentEvent, deletePermanentByTitle: deletePermanentByTitle, deleteStaticFixture: deleteStaticFixture, renewStaticFixture: renewStaticFixture, highlightDupe: highlightDupe };
 })();
 </script>
 

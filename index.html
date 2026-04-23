@@ -10654,7 +10654,7 @@ return { getCountryData: getCountryData, getDisasters: getDisasters, init: init 
             'apikey':       'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndidnpseHRyb2V3eHJtb254b2R4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM3OTQzNzMsImV4cCI6MjA4OTM3MDM3M30.0zp-wQ3wKpYc0f7LqFCOEea_d9HJuWnUSWgF4BAW82w',
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({ email: email, options: { redirectTo: 'https://argusintel.live/reset-password.html' } })
+          body: JSON.stringify({ email: email, redirect_to: 'https://argusintel.live/reset-password.html' })
         });
         if (r.ok || r.status === 200) {
           if (feedbackEl) { feedbackEl.className = 'acct-feedback ok'; feedbackEl.textContent = '✓ Reset email sent to ' + email; }

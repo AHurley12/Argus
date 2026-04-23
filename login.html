@@ -869,7 +869,7 @@ async function handleReset() {
     var res = await fetch(SUPABASE_URL + '/auth/v1/recover', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'apikey': SUPABASE_ANON },
-      body: JSON.stringify({ email: email, options: { redirectTo: 'https://argusintel.live/reset-password.html' } })
+      body: JSON.stringify({ email: email, redirect_to: 'https://argusintel.live/reset-password.html' })
     });
     // Supabase returns 200 regardless of whether the email exists (security)
     showMessage('RESET LINK SENT — CHECK YOUR EMAIL INBOX.', false);

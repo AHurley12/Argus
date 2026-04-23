@@ -4470,6 +4470,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     if (unique.length > 0) {
       _activeHoverObj = unique[0].object;
+      if (window.ArgusSelection) ArgusSelection.onHover(e.clientX, e.clientY, unique);
       var rows = unique.map(function(h) { return buildTooltipRow(h.object.userData); }).join('');
       var hdr  = unique.length > 1 ? '<div style="color:#4a7da8;font-size:8px;letter-spacing:2px;margin-bottom:5px">' + unique.length + ' MARKERS</div>' : '';
 
@@ -4492,6 +4493,7 @@ document.addEventListener('DOMContentLoaded', function() {
       document.body.style.cursor = 'pointer';
     } else {
       _activeHoverObj = null;
+      if (window.ArgusSelection) ArgusSelection.onHoverClear();
       tooltip.style.display = 'none';
       if (!isDragging) document.body.style.cursor = 'grab';
     }
@@ -4514,7 +4516,15 @@ document.addEventListener('DOMContentLoaded', function() {
       .concat((!cls || cls.vessels)  ? window._vesselMarkers   || [] : []);
     var evHits = raycasterClick.intersectObjects(_evTargets)
       .filter(function(h) { return isFacingCamera(h.object) && canInteract(h.object); });
-    if (evHits.length) { ArgusUI.showEventDetail(evHits[0].object.userData); return; }
+    if (evHits.length) {
+      var _topHit = evHits[0].object;
+      // Vessel/aircraft clicks → selection system (disambiguation + lock)
+      if ((_topHit.userData.isAircraft || _topHit.userData.isShip) && window.ArgusSelection) {
+        if (ArgusSelection.onClick(e.clientX, e.clientY)) return;
+      }
+      ArgusUI.showEventDetail(_topHit.userData);
+      return;
+    }
 
     if (!cls || cls.chokepoints) {
       var cpHits = raycasterClick.intersectObjects(window.chokepointMarkers)
@@ -4577,6 +4587,7 @@ document.addEventListener('DOMContentLoaded', function() {
       clearHoverTooltip();
     }
 
+    if (window.ArgusSelection) ArgusSelection.tick();
     renderer.render(scene, camera);
   }
   animate();
@@ -18045,6 +18056,324 @@ function stale(badgeId) {
 }
 
 window.ArgusDataAge = { mark: mark, stale: stale };
+}());
+</script>
+
+<!-- ════════════════════════════════════════════════════════════════════════════
+     ArgusSelection — High-density entity interaction system
+     Screen-space candidate gathering → dim/highlight → disambiguation → lock
+     ════════════════════════════════════════════════════════════════════════════ -->
+<script>
+window.ArgusSelection = (function () {
+  'use strict';
+
+  // ── Config ─────────────────────────────────────────────────────────────────
+  var CFG = {
+    SCREEN_RADIUS:    20,    // px — gather candidates within this circle
+    BUCKET_SIZE:      36,    // px — spatial grid cell size
+    DIM_OPACITY:      0.15,  // opacity for non-selected entities
+    HIGHLIGHT_SCALE:  1.38,  // multiplier on top of base scale for selected entity
+    MAX_PANEL_ROWS:   8,     // max rows in disambiguation panel
+    BASE_SCALE_AC:    1.75,  // matches placeAircraft scale
+    BASE_SCALE_SH:    1.05,  // matches placeShip scale
+  };
+
+  // ── State ──────────────────────────────────────────────────────────────────
+  var _locked     = null;   // locked Sprite | null
+  var _dimmed     = false;  // whether dim is currently applied
+  var _panelOpen  = false;
+  var _trackRing  = null;   // THREE.Mesh ring around locked entity
+  var _panel      = null;   // disambiguation DOM element
+
+  // ── Helpers ────────────────────────────────────────────────────────────────
+  function _all() {
+    var out = [];
+    if (window._aircraftMarkers) for (var i = 0; i < window._aircraftMarkers.length; i++) out.push(window._aircraftMarkers[i]);
+    if (window._vesselMarkers)   for (var j = 0; j < window._vesselMarkers.length;   j++) out.push(window._vesselMarkers[j]);
+    return out;
+  }
+
+  function _baseScale(s)   { return s.userData.isAircraft ? CFG.BASE_SCALE_AC : CFG.BASE_SCALE_SH; }
+  function _baseOpacity(s) { return s.userData.stale ? 0.45 : 0.92; }
+
+  // ── Screen-space projection (reuses one vector) ────────────────────────────
+  var _rv = new THREE.Vector3();
+  function _toScreen(worldPos, cam, W, H) {
+    _rv.copy(worldPos).project(cam);
+    return { x: (_rv.x * 0.5 + 0.5) * W, y: (1 - (_rv.y * 0.5 + 0.5)) * H, z: _rv.z };
+  }
+
+  // ── Bucket-grid candidate query — O(1) lookup, << 2 ms for 1 000+ entities ─
+  function _candidates(mx, my, cam, W, H) {
+    var B = CFG.BUCKET_SIZE, R = CFG.SCREEN_RADIUS;
+    var bR = Math.ceil(R / B) + 1;
+    var bx0 = Math.floor(mx / B), by0 = Math.floor(my / B);
+    var buckets = Object.create(null);
+    var markers = _all();
+
+    for (var i = 0; i < markers.length; i++) {
+      var s = markers[i];
+      if (!s.visible || !s.parent || !s.parent.visible) continue;
+      var sc = _toScreen(s.position, cam, W, H);
+      if (sc.z > 1 || sc.z < -1) continue;         // clip
+      s._scx = sc.x; s._scy = sc.y;
+      var bx = Math.floor(sc.x / B), by = Math.floor(sc.y / B);
+      var k  = bx + ',' + by;
+      if (!buckets[k]) buckets[k] = [];
+      buckets[k].push(s);
+    }
+
+    var out = [];
+    for (var cx = bx0 - bR; cx <= bx0 + bR; cx++) {
+      for (var cy = by0 - bR; cy <= by0 + bR; cy++) {
+        var cell = buckets[cx + ',' + cy];
+        if (!cell) continue;
+        for (var j = 0; j < cell.length; j++) {
+          var sp = cell[j];
+          var dx = sp._scx - mx, dy = sp._scy - my;
+          var d  = Math.sqrt(dx * dx + dy * dy);
+          if (d <= R) out.push({ sprite: sp, dist: d });
+        }
+      }
+    }
+
+    // Rank: aircraft > vessel, then by proximity
+    out.sort(function (a, b) {
+      var pa = a.sprite.userData.isAircraft ? 0 : 1;
+      var pb = b.sprite.userData.isAircraft ? 0 : 1;
+      return pa !== pb ? pa - pb : a.dist - b.dist;
+    });
+    return out;
+  }
+
+  // ── Dim/restore ────────────────────────────────────────────────────────────
+  function _applyDim(except) {
+    var markers = _all();
+    for (var i = 0; i < markers.length; i++) {
+      var s = markers[i];
+      if (s === except) {
+        var hs = _baseScale(s) * CFG.HIGHLIGHT_SCALE;
+        s.scale.set(hs, hs, 1);
+        s.material.opacity = _baseOpacity(s);
+      } else {
+        var bs = _baseScale(s);
+        s.scale.set(bs, bs, 1);
+        s.material.opacity = CFG.DIM_OPACITY;
+      }
+    }
+    _dimmed = true;
+  }
+
+  function _restore() {
+    var markers = _all();
+    for (var i = 0; i < markers.length; i++) {
+      var s = markers[i];
+      s.material.opacity = _baseOpacity(s);
+      var bs = _baseScale(s);
+      s.scale.set(bs, bs, 1);
+    }
+    _dimmed = false;
+  }
+
+  // ── Tracking ring (pulsing ring around locked entity in world space) ────────
+  function _showRing(sprite) {
+    _removeRing();
+    var geo = new THREE.RingGeometry(1.5, 2.0, 48);
+    var mat = new THREE.MeshBasicMaterial({
+      color: 0x0099ff, transparent: true, opacity: 0.65,
+      side: THREE.DoubleSide, depthTest: false
+    });
+    _trackRing = new THREE.Mesh(geo, mat);
+    _trackRing.position.copy(sprite.position);
+    var cam = window.ArgusGlobe && window.ArgusGlobe.camera;
+    if (cam) _trackRing.lookAt(cam.position);
+    if (sprite.parent) sprite.parent.add(_trackRing);
+  }
+
+  function _removeRing() {
+    if (!_trackRing) return;
+    if (_trackRing.parent) _trackRing.parent.remove(_trackRing);
+    _trackRing.geometry.dispose();
+    _trackRing.material.dispose();
+    _trackRing = null;
+  }
+
+  // ── Disambiguation panel ───────────────────────────────────────────────────
+  function _getPanel() {
+    if (_panel) return _panel;
+    _panel = document.createElement('div');
+    _panel.id = 'argus-sel-panel';
+    _panel.style.cssText = [
+      'position:fixed', 'z-index:9100', 'display:none',
+      'background:rgba(2,10,21,0.97)', 'border:1px solid #0f2744',
+      'border-left:2px solid #0099ff',
+      'font-family:"JetBrains Mono",monospace', 'font-size:10px',
+      'color:#c5d7e8', 'min-width:215px', 'max-width:275px',
+      'pointer-events:all', 'backdrop-filter:blur(12px)',
+      'box-shadow:0 4px 32px rgba(0,0,0,0.6)',
+    ].join(';');
+    document.body.appendChild(_panel);
+    // Remove last row's border
+    var st = document.createElement('style');
+    st.textContent = '#argus-sel-panel .asl-r:last-child{border-bottom:none!important}';
+    document.head.appendChild(st);
+    return _panel;
+  }
+
+  function _openPanel(candidates, px, py) {
+    var panel  = _getPanel();
+    _panelOpen = true;
+    var shown  = Math.min(candidates.length, CFG.MAX_PANEL_ROWS);
+
+    var html = '<div style="padding:5px 12px 5px;border-bottom:1px solid #0f2744;'
+             + 'color:#4a7da8;letter-spacing:2px;font-size:8px">'
+             + 'SELECT ENTITY — ' + candidates.length + ' NEARBY</div>';
+
+    for (var i = 0; i < shown; i++) {
+      var c  = candidates[i];
+      var ud = c.sprite.userData;
+      var icon = ud.isAircraft ? '✈' : '⛵';
+      var name = ud.isAircraft
+        ? (ud.title || ud.icao24 || 'UNKNOWN').replace(/ \[.*\]$/, '')
+        : (ud.title || ud.mmsi  || 'VESSEL');
+
+      var parts = [];
+      if (ud.isAircraft) {
+        if (ud.flightType) parts.push(ud.flightType.toUpperCase());
+        if (ud.gs)         parts.push(Math.round(ud.gs) + 'kt');
+        if (ud.alt)        parts.push(Math.round(ud.alt / 100) * 100 + 'ft');
+      } else {
+        if (ud.typeCategory) parts.push(ud.typeCategory.toUpperCase());
+        if (ud.velocity)     parts.push(Math.round(ud.velocity) + 'kt');
+      }
+      var detail = parts.join(' · ');
+
+      html += '<div class="asl-r" data-i="' + i + '" style="'
+            + 'padding:5px 12px 4px;cursor:pointer;'
+            + 'border-bottom:1px solid rgba(15,39,68,0.4);transition:background 0.1s">';
+      html += '<div style="color:#e8f4ff;letter-spacing:0.5px">' + icon + ' ' + name + '</div>';
+      if (detail) html += '<div style="color:#4a7da8;font-size:9px;margin-top:1px">' + detail + '</div>';
+      html += '<div style="color:#2a3a50;font-size:8px;margin-top:1px;letter-spacing:1px">'
+            + Math.round(c.dist) + 'px away</div>';
+      html += '</div>';
+    }
+
+    panel.innerHTML = html;
+
+    // Wire rows
+    var rows = panel.querySelectorAll('.asl-r');
+    for (var j = 0; j < rows.length; j++) {
+      (function (row, idx) {
+        row.addEventListener('mouseenter', function () {
+          row.style.background = 'rgba(0,153,255,0.07)';
+          _applyDim(candidates[idx].sprite);
+        });
+        row.addEventListener('mouseleave', function () { row.style.background = ''; });
+        row.addEventListener('click', function (ev) {
+          ev.stopPropagation();
+          _lock(candidates[idx].sprite);
+          _closePanel();
+        });
+      })(rows[j], j);
+    }
+
+    // Position near cursor, keep on screen
+    var W = window.innerWidth, H = window.innerHeight;
+    var pw = 275, ph = shown * 55 + 30;
+    panel.style.left    = Math.min(px + 14, W - pw - 8) + 'px';
+    panel.style.top     = Math.max(8, Math.min(py - 10, H - ph - 8)) + 'px';
+    panel.style.display = 'block';
+
+    // Close on outside click
+    setTimeout(function () {
+      document.addEventListener('click', function _oc(ev) {
+        if (_panel && !_panel.contains(ev.target)) {
+          _closePanel();
+          if (!_locked) _restore();
+        }
+        document.removeEventListener('click', _oc);
+      });
+    }, 120);
+  }
+
+  function _closePanel() {
+    if (_panel) _panel.style.display = 'none';
+    _panelOpen = false;
+  }
+
+  // ── Lock / unlock ──────────────────────────────────────────────────────────
+  function _lock(sprite) {
+    _locked = sprite;
+    _applyDim(sprite);
+    _showRing(sprite);
+    if (window.ArgusUI && sprite.userData) ArgusUI.showEventDetail(sprite.userData);
+  }
+
+  function unlock() {
+    if (!_locked && !_panelOpen) return;
+    _locked = null;
+    _removeRing();
+    _restore();
+    _closePanel();
+  }
+
+  // ── Public API ─────────────────────────────────────────────────────────────
+
+  // Call from hover handler; hits = raycast result array (already filtered)
+  function onHover(mx, my, hits) {
+    if (_locked || _panelOpen) return;
+    var G   = window.ArgusGlobe;
+    if (!G) return;
+    var hasTraffic = hits && hits.some(function (h) {
+      return h.object.userData.isAircraft || h.object.userData.isShip;
+    });
+    if (!hasTraffic) { if (_dimmed) _restore(); return; }
+    var W  = window.innerWidth, H = window.innerHeight;
+    var cs = _candidates(mx, my, G.camera, W, H);
+    if (!cs.length) { if (_dimmed) _restore(); return; }
+    _applyDim(cs[0].sprite);
+  }
+
+  // Call from hover-clear path (no hits)
+  function onHoverClear() {
+    if (_locked || _panelOpen) return;
+    if (_dimmed) _restore();
+  }
+
+  // Call from click handler when click hits vessel/aircraft area
+  // Returns true if the event was handled (caller should return early)
+  function onClick(mx, my) {
+    if (_locked) { unlock(); return true; }
+    var G = window.ArgusGlobe;
+    if (!G) return false;
+    var W  = window.innerWidth, H = window.innerHeight;
+    var cs = _candidates(mx, my, G.camera, W, H);
+    if (!cs.length) return false;
+    if (cs.length === 1 || cs[0].dist < 6) {
+      _lock(cs[0].sprite);
+    } else {
+      _applyDim(cs[0].sprite);
+      _openPanel(cs, mx, my);
+    }
+    return true;
+  }
+
+  // Call every animation frame
+  function tick() {
+    if (_trackRing && _locked) {
+      _trackRing.position.copy(_locked.position);
+      var cam = window.ArgusGlobe && window.ArgusGlobe.camera;
+      if (cam) _trackRing.lookAt(cam.position);
+      _trackRing.material.opacity = 0.35 + 0.28 * Math.sin(Date.now() / 650);
+    }
+    // Auto-unlock if locked sprite was removed (layer toggled off / data refresh)
+    if (_locked && _all().indexOf(_locked) < 0) unlock();
+  }
+
+  // Init — keyboard ESC to unlock
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape') unlock(); });
+
+  return { onHover: onHover, onHoverClear: onHoverClear, onClick: onClick, tick: tick, unlock: unlock };
 }());
 </script>
 </body>

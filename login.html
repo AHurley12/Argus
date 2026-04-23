@@ -866,11 +866,18 @@ async function handleReset() {
   setBtnText('form-reset', 'SENDING...', true);
   hideMessage();
   try {
-    var res = await fetch(SUPABASE_URL + '/auth/v1/recover', {
+    var res  = await fetch(SUPABASE_URL + '/auth/v1/recover', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'apikey': SUPABASE_ANON },
       body: JSON.stringify({ email: email, redirect_to: 'https://argusintel.live/reset-password.html' })
     });
+    var data = await res.json().catch(function() { return {}; });
+    if (!res.ok) {
+      var errMsg = data.msg || data.message || data.error_description || data.error || ('HTTP ' + res.status);
+      showMessage('REQUEST FAILED: ' + errMsg.toUpperCase(), true);
+      setBtnText('form-reset', 'SEND RESET LINK →', false);
+      return;
+    }
     // Supabase returns 200 regardless of whether the email exists (security)
     showMessage('RESET LINK SENT — CHECK YOUR EMAIL INBOX.', false);
     setBtnText('form-reset', 'SEND RESET LINK →', false);

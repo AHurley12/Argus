@@ -14954,7 +14954,7 @@ window.ArgusAIS = (function () {
 var AISSTREAM_KEY = '';
 
 // ── Config ─────────────────────────────────────────────────────────────────────
-var AIS_OPACITY  = 0.78;   // slightly dimmer than VesselAPI (0.92) — visually distinct
+var AIS_OPACITY  = 0.92;   // matches VesselAPI — required for ArgusSelection dim/restore parity
 var AIS_ALTITUDE = 101.3;  // slightly below VesselAPI ships (101.5) — no z-fighting
 // Cap how many unique vessels we keep in memory. Oldest-updated get evicted
 // once this limit is hit so the globe doesn't accumulate stale ghosts.
@@ -15069,9 +15069,10 @@ function upsertAISMarker(mmsi, name, lat, lon, heading, velocity, shipType, navS
     sprite.position.copy(pos);
     sprite.scale.set(1.05, 1.05, 1);
     sprite.userData = {
-      isAISVessel:  true,
+      isShip:       true,       // enables canInteract(), click routing, ArgusSelection
+      isAISVessel:  true,       // source tag — keeps AIS identity without breaking anything
       title:        label,
-      type:         'AIS_VESSEL',
+      type:         'VESSEL',   // matches VesselAPI type — selection panel icon + detail
       typeCategory: tc,
       severity:     'LOW',
       source:       'aisstream',
@@ -15241,6 +15242,69 @@ function connectAISStream() {
     attempts++;
     if (ensureGroup() && window._argusShTex) {
       clearInterval(timer);
+
+      // ── Feature parity: hook AIS sprites into all interaction systems ──────
+      //
+      // window._vesselMarkers getter — merges shipHits (VesselAPI) + AIS sprites.
+      // Every system that reads this array gets both sources automatically:
+      //   • Hover _frustumFilter (line 4463)
+      //   • Click raycast target list (line 4529)
+      //   • ArgusSelection._all() (line 18503) → dim / highlight / ring
+      //   • renderShips() sets it via assignment → our setter captures shipHits
+      //
+      // IMPORTANT: renderShips() does `window._vesselMarkers = shipHits` each fetch.
+      // The setter captures that array; the getter merges it with live aisMarkers
+      // so neither fetch cycle nor AIS update needs to know about each other.
+      (function patchVesselMarkers() {
+        var _vmsBase = window._vesselMarkers || [];
+        Object.defineProperty(window, '_vesselMarkers', {
+          get: function () {
+            var out = _vmsBase.slice();
+            aisMarkers.forEach(function (e) { out.push(e.sprite); });
+            return out;
+          },
+          set: function (v) { _vmsBase = v || []; },
+          configurable: true,
+        });
+        console.log('[ArgusAIS] _vesselMarkers getter installed — AIS sprites now visible to hover/click/selection');
+      }());
+
+      // ── Feature parity: include AIS vessels in window._trackingData ────────
+      //
+      // normalizeTracking() (inside ArgusTracking closure) writes aircraft + VesselAPI
+      // vessels to window._trackingData via direct assignment.  We intercept with
+      // get/set: set captures normalizeTracking's output; get appends live AIS entries.
+      // Result: any downstream consumer that reads _trackingData gets all three sources.
+      (function patchTrackingData() {
+        var _tdBase = window._trackingData || [];
+        Object.defineProperty(window, '_trackingData', {
+          get: function () {
+            var ts = Date.now();
+            var aisEntries = [];
+            aisMarkers.forEach(function (entry, mmsi) {
+              var ud = entry.sprite.userData;
+              aisEntries.push({
+                id:           'ais-' + mmsi,
+                type:         'vessel',
+                typeCategory: ud.typeCategory || 'other',
+                lat:          ud.lat,
+                lon:          ud.lon,
+                velocity:     ud.velocity,
+                heading:      ud.heading,
+                label:        ud.title,
+                source:       'aisstream',
+                mmsi:         mmsi,
+                timestamp:    ts,
+              });
+            });
+            return _tdBase.concat(aisEntries);
+          },
+          set: function (v) { _tdBase = v || []; },
+          configurable: true,
+        });
+        console.log('[ArgusAIS] _trackingData getter installed — AIS vessels included in analytics feed');
+      }());
+
       console.log('[ArgusAIS] globe ready — opening AISstream WebSocket');
       connectAISStream();
     } else if (attempts > 150) {

@@ -127,6 +127,13 @@
 
     .header__brand { display: flex; align-items: center; gap: 16px; }
 
+    .header__logo-wrap {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 0;
+    }
+
     #logo {
       font-family: var(--font-display);
       font-size: 26px;
@@ -2843,17 +2850,10 @@
     /* Right zone: never shrink */
     .header__right { flex-shrink: 0; }
 
-    /* ── Brand: stack logo → v.beta vertically ──────────────────────────── */
-    .header__brand {
-      flex-direction: column;
-      align-items: flex-start;
-      gap: 1px;
-    }
-
-    /* Remove the left-border divider that only makes sense in side-by-side layout */
+    /* ── Brand: keep as row; logo-wrap already stacks ARGUS + v.beta ───── */
+    /* Hide the tagline text on mobile — not enough room */
     .header__tagline {
-      padding-left: 0;
-      border-left: none;
+      display: none;
     }
 
     #logo {
@@ -2861,13 +2861,7 @@
       letter-spacing: 4px;
     }
 
-    /* Tagline sub — "FORTUNE FAVORS THE INFORMED": keep visible but smaller */
-    .header__tagline-sub {
-      font-size: 6px;
-      letter-spacing: 1.5px;
-    }
-
-    /* v.beta now sits directly under ARGUS */
+    /* v.beta under ARGUS (handled by desktop HTML; just adjust size on mobile) */
     .header__tagline-version {
       font-size: 8px;
       margin-top: 1px;
@@ -2931,10 +2925,12 @@
     <!-- LEFT — brand + stats -->
     <div class="header__left">
       <div class="header__brand">
-        <div id="logo" aria-label="ARGUS">ARGUS</div>
+        <div class="header__logo-wrap">
+          <div id="logo" aria-label="ARGUS">ARGUS</div>
+          <div class="header__tagline-version">v.beta</div>
+        </div>
         <div class="header__tagline">
           <div class="header__tagline-sub">FORTUNE FAVORS THE INFORMED</div>
-          <div class="header__tagline-version">v.beta</div>
         </div>
       </div>
       <div class="header__stats">

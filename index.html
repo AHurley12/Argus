@@ -2797,6 +2797,126 @@
     scrollbar-width: thin;
     scrollbar-color: var(--nw-purple-faint) transparent;
   }
+
+  /* ══════════════════════════════════════════════════════════════════════════
+     MOBILE RESPONSIVENESS  —  max-width: 768px
+     All rules below are SCOPED to mobile only.
+     Desktop layout, typography, and behaviour are unchanged.
+  ══════════════════════════════════════════════════════════════════════════ */
+  @media (max-width: 768px) {
+
+    /* ── CSS variable overrides ─────────────────────────────────────────── */
+    :root {
+      --header-height: 52px;  /* tighter header on mobile */
+    }
+
+    /* ── Header: switch grid → flex so left/center/right pack naturally ── */
+    #header {
+      display: flex;
+      flex-wrap: nowrap;
+      align-items: center;
+      height: var(--header-height);
+      padding: 0 8px;
+      gap: 6px;
+      overflow: hidden;
+    }
+
+    /* Left zone: shrink-safe, tighter internal gap */
+    .header__left  { flex-shrink: 0; gap: 8px; }
+
+    /* Center zone: claim remaining space, scroll horizontally if needed.
+       This keeps all buttons accessible without wrapping or clipping. */
+    .header__center {
+      flex: 1 1 0;
+      min-width: 0;
+      overflow-x: auto;
+      overflow-y: hidden;
+      -webkit-overflow-scrolling: touch;
+      scrollbar-width: none;       /* Firefox */
+      flex-wrap: nowrap;
+      justify-content: flex-start;
+      gap: 4px;
+      padding: 0 2px;
+    }
+    .header__center::-webkit-scrollbar { display: none; }
+
+    /* Right zone: never shrink */
+    .header__right { flex-shrink: 0; }
+
+    /* ── Brand: stack logo → v.beta vertically ──────────────────────────── */
+    .header__brand {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 1px;
+    }
+
+    /* Remove the left-border divider that only makes sense in side-by-side layout */
+    .header__tagline {
+      padding-left: 0;
+      border-left: none;
+    }
+
+    #logo {
+      font-size: 18px;
+      letter-spacing: 4px;
+    }
+
+    /* Tagline sub — "FORTUNE FAVORS THE INFORMED": keep visible but smaller */
+    .header__tagline-sub {
+      font-size: 6px;
+      letter-spacing: 1.5px;
+    }
+
+    /* v.beta now sits directly under ARGUS */
+    .header__tagline-version {
+      font-size: 8px;
+      margin-top: 1px;
+    }
+
+    /* ── Stats: compact spacing + smaller text ──────────────────────────── */
+    .header__stats       { gap: 8px; }
+    .header__stat-label  { font-size: 7px; letter-spacing: 1px; }
+    .header__stat-value  { font-size: 11px; }
+
+    /* ── Button groups: slightly shorter, keep readable ────────────────── */
+    .btn-group > button {
+      height: 26px;
+      padding: 0 8px;
+      font-size: 10px;
+      white-space: nowrap;
+    }
+
+    /* Account button */
+    #btn-account {
+      height: 26px;
+      padding: 0 8px;
+      font-size: 9px;
+    }
+
+    /* ── Tracking controls: touch-friendly tap targets ──────────────────── */
+    .track-btn {
+      font-size: 8px;
+      padding: 5px 8px;
+      min-height: 30px;  /* 30px minimum touch target */
+    }
+
+    /* ── Panels: cap width so they never overflow narrow screens ────────── */
+    /* Panels are hidden by default; these only fire when they open */
+    #panel-events  { width: min(var(--panel-left-width),  calc(100vw - 36px)); }
+    #panel-market  { width: min(var(--panel-right-width), calc(100vw - 36px)); }
+
+    /* ── Globe canvas: tell browser to cede ALL touch gestures to JS ────── */
+    /* Without this, touchmove.preventDefault() can be silently ignored by  */
+    /* some browsers, causing scroll/zoom to compete with globe rotation.    */
+    #globe-canvas-container canvas {
+      touch-action: none;
+    }
+
+    /* ── Prevent horizontal body overflow ───────────────────────────────── */
+    #app { overflow-x: hidden; }
+
+  } /* end @media (max-width: 768px) */
+
   </style>
 </head>
 
@@ -4345,6 +4465,53 @@ document.addEventListener('DOMContentLoaded', function() {
     // Coordinate accuracy (latLonToVector) is world-space and unaffected by camera distance.
     camera.position.z = Math.max(102, Math.min(360, camera.position.z + zoomSpeed));
   }, { passive: false });
+
+  // ── Touch Controls — globe rotation on mobile ─────────────────────────────
+  // Maps single-finger drag to the same rotation logic as mouse drag.
+  // Uses SEPARATE state (_prevTouch, _touchDragged) so mouse and touch can
+  // never clobber each other — safe on hybrid touchscreen laptops.
+  //
+  // Tap (no drag): touchstart is passive so the browser fires the normal
+  // compatibility click event after touchend — marker selection still works.
+  // Drag: touchmove calls preventDefault() to (a) block page scroll and
+  // (b) suppress compatibility mousemove events that would double-rotate.
+  // touch-action: none in CSS is also set so the browser yields all touch
+  // gestures to JS before attempting native scroll/zoom on the canvas.
+  var _prevTouch    = { x: 0, y: 0 };
+  var _touchDragged = false;
+
+  evtMgr.add(renderer.domElement, 'touchstart', function(e) {
+    if (e.touches.length !== 1) return;          // ignore pinch / multi-touch
+    _prevTouch    = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+    _touchDragged = false;
+    document.body.classList.add('is-dragging');
+  }, { passive: true });  // passive: true → browser can still fire click after tap
+
+  evtMgr.add(renderer.domElement, 'touchmove', function(e) {
+    if (e.touches.length !== 1) return;
+    var dx = e.touches[0].clientX - _prevTouch.x;
+    var dy = e.touches[0].clientY - _prevTouch.y;
+
+    // Ignore micro-trembles (< 4px) so a stationary hold doesn't jitter the globe
+    if (!_touchDragged && Math.abs(dx) < 4 && Math.abs(dy) < 4) return;
+    _touchDragged = true;
+
+    // Now that we're committed to a drag, prevent page scroll AND suppress
+    // the compatibility mousemove events the browser would otherwise synthesise.
+    e.preventDefault();
+
+    globeGroup.rotation.y += dx * 0.005;
+    globeGroup.rotation.x += dy * 0.005;
+    globeGroup.rotation.x  = Math.max(-Math.PI / 2.2, Math.min(Math.PI / 2.2, globeGroup.rotation.x));
+    _prevTouch = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+  }, { passive: false });  // passive: false required for e.preventDefault()
+
+  evtMgr.add(renderer.domElement, 'touchend', function() {
+    document.body.classList.remove('is-dragging');
+    // Reset isDragging in case a compatibility mousedown fired during touchstart
+    // (can happen on some Android browsers before touchmove suppresses them).
+    isDragging = false;
+  }, { passive: true });
 
   // ── Hover helpers ────────────────────────────────────────────────────────────
   var _activeHoverObj = null;

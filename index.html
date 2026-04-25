@@ -14963,9 +14963,10 @@ var AIS_MAX_MARKERS = 800;
 // ── State ──────────────────────────────────────────────────────────────────────
 var aisGroup   = null;      // THREE.Group containing all AIS sprites
 var aisMarkers = new Map(); // mmsi → { sprite, updatedAt }
-var aisOn      = true;      // default ON (button initialised is-active)
-var wsAIS      = null;      // live WebSocket to wss://stream.aisstream.io
+var aisOn       = true;     // default ON (button initialised is-active)
+var wsAIS       = null;     // live WebSocket to wss://stream.aisstream.io
 var reconnTimer = null;     // reconnect timeout handle
+var _aisMsgCount = 0;       // diagnostic counter — how many WS messages received
 
 // Expose for console inspection
 window._aisMarkers = aisMarkers;
@@ -15027,7 +15028,10 @@ function upsertAISMarker(mmsi, name, lat, lon, heading, velocity, shipType, navS
   if (lat === 0 && lon === 0)    return;
 
   var shTex = window._argusShTex;
-  if (!shTex) return; // texture not ready — message dropped; next one will land
+  if (!shTex) {
+    console.warn('[ArgusAIS] upsertAISMarker: _argusShTex not ready — marker dropped for', mmsi);
+    return;
+  }
 
   var AG     = window.ArgusGlobe;
   var cogRad = (heading != null && !isNaN(heading)) ? -heading * Math.PI / 180 : 0;
@@ -15145,18 +15149,39 @@ function connectAISStream() {
 
   ws.onmessage = function (evt) {
     var msg;
-    try { msg = JSON.parse(evt.data); } catch(e) { return; }
+    try { msg = JSON.parse(evt.data); } catch(e) {
+      console.warn('[ArgusAIS] JSON parse error:', e.message, evt.data && evt.data.slice(0, 100));
+      return;
+    }
+
+    // Diagnostic: log the first raw message so we can verify the shape
+    _aisMsgCount++;
+    if (_aisMsgCount === 1) {
+      console.log('[ArgusAIS] first raw message:', JSON.stringify(msg).slice(0, 400));
+    }
+    if (_aisMsgCount % 200 === 0) {
+      console.log('[ArgusAIS] messages received:', _aisMsgCount, '| markers on globe:', aisMarkers.size);
+    }
 
     var meta   = msg.MetaData   || {};
     var report = (msg.Message && msg.Message.PositionReport) || {};
 
-    var lat = meta.latitude;
-    var lon = meta.longitude;
-    if (lat == null || lon == null) return;
-    if (lat === 0   && lon === 0)   return;
+    // Primary: MetaData lat/lon (pre-decoded by AISstream for convenience)
+    // Fallback: PositionReport.Latitude/Longitude (raw AIS field, same value)
+    var lat = meta.latitude  != null ? meta.latitude  : report.Latitude;
+    var lon = meta.longitude != null ? meta.longitude : report.Longitude;
 
-    var mmsi = String(meta.MMSI || '');
-    if (!mmsi) return;
+    if (lat == null || lon == null) {
+      if (_aisMsgCount <= 5) console.log('[ArgusAIS] msg #' + _aisMsgCount + ' dropped — no lat/lon. Keys:', Object.keys(meta).join(','), '| msg type:', msg.MessageType);
+      return;
+    }
+    if (lat === 0 && lon === 0) return;
+
+    var mmsi = String(meta.MMSI || meta.UserId || report.UserID || '');
+    if (!mmsi) {
+      if (_aisMsgCount <= 5) console.log('[ArgusAIS] msg #' + _aisMsgCount + ' dropped — no MMSI');
+      return;
+    }
 
     // TrueHeading 511 = "not available" per ITU-R M.1371 — fall back to COG
     var th  = report.TrueHeading;

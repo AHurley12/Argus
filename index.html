@@ -14958,7 +14958,7 @@ var AIS_OPACITY  = 0.92;   // matches VesselAPI — required for ArgusSelection 
 var AIS_ALTITUDE = 101.3;  // slightly below VesselAPI ships (101.5) — no z-fighting
 // Cap how many unique vessels we keep in memory. Oldest-updated get evicted
 // once this limit is hit so the globe doesn't accumulate stale ghosts.
-var AIS_MAX_MARKERS = 800;
+var AIS_MAX_MARKERS = 500;  // matches SHIP_LIMIT — keeps _all() total at ~1750 vs 2050 before
 
 // ── State ──────────────────────────────────────────────────────────────────────
 var aisGroup   = null;      // THREE.Group containing all AIS sprites
@@ -15163,7 +15163,12 @@ function connectAISStream() {
       try { msg = JSON.parse(text); } catch(e) {
         console.warn('[ArgusAIS] JSON parse fail:', e.message, text.slice(0, 80));
         _queueBusy = false;
-        processQueue();
+        // Use setTimeout instead of direct recursion — direct recursion inside a
+        // .then() microtask chains ALL queued messages into one uninterrupted
+        // microtask checkpoint, which can run 100+ ms and trips LONG_TASK warnings.
+        // setTimeout(fn, 0) yields to the browser between each message (~1 macrotask
+        // per message) so no single task exceeds ~2 ms.
+        if (_msgQueue.length) setTimeout(processQueue, 0);
         return;
       }
 
@@ -15178,7 +15183,7 @@ function connectAISStream() {
       handleAISMessage(msg);
 
       _queueBusy = false;
-      processQueue();
+      if (_msgQueue.length) setTimeout(processQueue, 0);
     });
   }
 

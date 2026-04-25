@@ -15105,6 +15105,71 @@ function toggle() {
   }
 }
 
+// ── REST bulk load — fetches all current rows from tracking_data ──────────────
+// Called on channel join AND on a polling interval.  Handles the case where:
+//   a) The page loaded after rows were already inserted (no INSERT event seen)
+//   b) Realtime events are delayed or missed
+//   c) The edge function has been running and DB has stale data to display
+var _aisPollTimer = null;
+
+function fetchExistingRows() {
+  var url = SUPABASE_URL
+    + '/rest/v1/tracking_data'
+    + '?select=mmsi,ship_name,ship_type,lat,lon,heading,velocity,nav_status,destination,updated_at,timestamp'
+    + '&source=eq.aisstream'
+    + '&order=updated_at.desc'
+    + '&limit=500';
+
+  fetch(url, {
+    headers: {
+      'apikey':        SUPABASE_ANON,
+      'Authorization': 'Bearer ' + SUPABASE_ANON,
+    }
+  })
+  .then(function(r) { return r.ok ? r.json() : Promise.reject(r.status); })
+  .then(function(rows) {
+    if (!Array.isArray(rows)) return;
+    console.log('[ArgusAIS] REST load: ' + rows.length + ' rows from tracking_data');
+    rows.forEach(upsertAISMarker);
+  })
+  .catch(function(err) {
+    console.warn('[ArgusAIS] REST load failed:', err);
+  });
+}
+
+// Poll every 30 s as a Realtime fallback (same cadence as VesselAPI cache TTL)
+function startPolling() {
+  if (_aisPollTimer) return;
+  fetchExistingRows();
+  _aisPollTimer = setInterval(fetchExistingRows, 30_000);
+}
+
+// ── Trigger the edge function — kick the ingest-tracking function to life ──────
+// Supabase Edge Functions are serverless: the AISstream WebSocket only runs
+// while the function is active.  We POST to it on page load to start the stream.
+// The function will run until Supabase's execution limit (~150 s), then stop.
+// This call re-triggers it.  For a true persistent stream, configure a Supabase
+// scheduled trigger or call this on an interval (see comment below).
+function kickIngestFunction() {
+  var url = SUPABASE_URL + '/functions/v1/ingest-tracking';
+  fetch(url, {
+    method: 'POST',
+    headers: {
+      'apikey':        SUPABASE_ANON,
+      'Authorization': 'Bearer ' + SUPABASE_ANON,
+      'Content-Type':  'application/json',
+    },
+    body: JSON.stringify({ name: 'ais-kick' }),
+  })
+  .then(function(r) {
+    console.log('[ArgusAIS] ingest-tracking kicked — HTTP', r.status);
+  })
+  .catch(function(err) {
+    console.warn('[ArgusAIS] ingest-tracking kick failed:', err.message,
+      '— deploy the function: supabase functions deploy ingest-tracking');
+  });
+}
+
 // ── Supabase Realtime — minimal Phoenix WebSocket client ──────────────────────
 // Implements just enough of the Phoenix v1 protocol to subscribe to
 // postgres_changes on public.tracking_data where source = 'aisstream'.
@@ -15171,18 +15236,23 @@ function startRealtime() {
     var ev      = msg.event;
     var payload = msg.payload || {};
 
-    // Channel join confirmation
+    // Channel join confirmation — load existing rows on first join
     if (ev === 'phx_reply' && payload.status === 'ok') {
       console.log('[ArgusAIS] channel joined — receiving PositionReport changes');
+      fetchExistingRows(); // hydrate map with rows already in DB
       return;
     }
 
     // postgres_changes broadcast
+    // Supabase Realtime v2 uses `eventType` (not `type`) and `new` (not `record`).
+    // Fall back to the v1 field names so this works across protocol versions.
     if (ev === 'postgres_changes') {
       var change = payload.data || {};
-      var type   = change.type;        // INSERT | UPDATE | DELETE
-      var record = change.record || change.new || {};
-      var old    = change.old_record  || change.old || {};
+      var type   = change.eventType || change.type; // FIX: v2 = eventType
+      var record = change.new    || change.record    || {};
+      var old    = change.old    || change.old_record || {};
+
+      console.log('[ArgusAIS] postgres_changes:', type, record.mmsi || '(no mmsi)');
 
       if (type === 'INSERT' || type === 'UPDATE') {
         upsertAISMarker(record);
@@ -15226,8 +15296,10 @@ function startRealtime() {
 
     if (groupReady && textureReady) {
       clearInterval(timer);
-      console.log('[ArgusAIS] globe ready — starting Realtime subscription');
-      startRealtime();
+      console.log('[ArgusAIS] globe ready — kicking ingest + starting Realtime + polling');
+      kickIngestFunction(); // wake the edge function so data flows into tracking_data
+      startRealtime();      // subscribe to future changes via WebSocket
+      startPolling();       // also poll REST as a fallback / initial hydration
     } else if (attempts > 150) { // 30 s timeout
       clearInterval(timer);
       console.warn('[ArgusAIS] timed out waiting for globe/texture — Realtime not started');

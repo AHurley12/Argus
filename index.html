@@ -15134,6 +15134,27 @@ var _aisMsgCount = 0;       // diagnostic counter — how many WS messages recei
 // Expose for console inspection
 window._aisMarkers = aisMarkers;
 
+// ── Diagnostics — all flags default to NO-OP, no behavior change unless set ──
+// Access from console: ArgusAIS.diag  /  ArgusAIS.diagReport()
+//
+//   ArgusAIS.diag.freeze      = true   → pause all upsertAISMarker calls (freeze test)
+//   ArgusAIS.diag.throttleMs  = 500    → skip updates arriving < 500ms since last update per vessel
+//   ArgusAIS.diag.logEvictions= true   → log every eviction + warn if selected vessel evicted
+//   ArgusAIS.diag.logRate     = true   → log update rate every 5 seconds
+var _diag = {
+  freeze:       false,  // Step 3A: freeze test — pauses all updates
+  throttleMs:   0,      // Step 3B: throttle test — 0 = disabled, e.g. 500 = 500ms min/vessel
+  logEvictions: false,  // Step 2/4: log evictions (set true before clicking a vessel to test)
+  logRate:      false,  // Step 1: periodically log updates/sec
+  // ── Internal counters (read-only from console) ──
+  updateCount:  0,      // upserts that hit an EXISTING sprite (object identity stable)
+  createCount:  0,      // upserts that CREATED a new sprite
+  evictCount:   0,      // total evictions
+  evictWhileLocked: 0,  // evictions where scale suggests vessel was selected
+  _rateSamples: [],     // rolling timestamps for rate calculation
+  _rateLogTimer: null,
+};
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function corrLon(lon) {
   var c = lon + 90;
@@ -15186,6 +15207,15 @@ function ensureGroup() {
 
 // ── Place / update one vessel sprite ──────────────────────────────────────────
 function upsertAISMarker(mmsi, name, lat, lon, heading, velocity, shipType, navStatus) {
+  // ── Diagnostic gates (no-op by default, set via ArgusAIS.diag) ────────────
+  if (_diag.freeze) return;
+
+  // Throttle: skip updates that arrive too soon after the last one for this vessel.
+  // Step 3B test — set ArgusAIS.diag.throttleMs = 500 to test throttled behavior.
+  if (_diag.throttleMs > 0 && aisMarkers.has(mmsi)) {
+    if (Date.now() - aisMarkers.get(mmsi).updatedAt < _diag.throttleMs) return;
+  }
+
   if (!ensureGroup()) return;
   if (lat == null || lon == null) return;
   if (lat === 0 && lon === 0)    return;
@@ -15201,6 +15231,21 @@ function upsertAISMarker(mmsi, name, lat, lon, heading, velocity, shipType, navS
   var tc     = classifyAISType(shipType);
   var label  = (name || '').trim() || String(mmsi) || 'AIS VESSEL';
   var now    = Date.now();
+
+  // ── Rate sampling (Step 1) ─────────────────────────────────────────────────
+  _diag._rateSamples.push(now);
+  // Keep only last 10 seconds of samples
+  if (_diag._rateSamples.length > 2000) {
+    var _cutoff = now - 10000;
+    var _si = 0;
+    while (_si < _diag._rateSamples.length && _diag._rateSamples[_si] < _cutoff) _si++;
+    if (_si > 0) _diag._rateSamples.splice(0, _si);
+  }
+
+  // ── Hit / miss tracking (Step 4 — object identity) ────────────────────────
+  var _isExisting = aisMarkers.has(mmsi);
+  if (_isExisting) _diag.updateCount++;
+  else             _diag.createCount++;
 
   if (aisMarkers.has(mmsi)) {
     var entry  = aisMarkers.get(mmsi);
@@ -15256,7 +15301,30 @@ function evictOldest() {
     if (entry.updatedAt < oldestTime) { oldestTime = entry.updatedAt; oldest = mmsi; }
   });
   if (oldest !== null) {
-    aisGroup.remove(aisMarkers.get(oldest).sprite);
+    var _evSprite = aisMarkers.get(oldest).sprite;
+
+    // ── Diagnostic: eviction logging (Step 2/4) ────────────────────────────
+    // A highlighted sprite has scale ~1.52 (BASE_SCALE_SH 1.05 × HIGHLIGHT_SCALE 1.45).
+    // Normal scale is 1.05. If scale > 1.2 we're likely evicting the selected vessel,
+    // which WILL cause ArgusSelection.tick() → unlock() on the next frame.
+    // This is the primary suspected breakage vector for click/selection loss.
+    _diag.evictCount++;
+    if (_diag.logEvictions || _evSprite.scale.x > 1.2) {
+      var _evSc   = _evSprite.scale.x.toFixed(3);
+      var _evOp   = _evSprite.material ? _evSprite.material.opacity.toFixed(3) : '?';
+      var _locked = _evSprite.scale.x > 1.2;
+      if (_locked) {
+        _diag.evictWhileLocked++;
+        console.warn('[AISDebug] ⚠ EVICTING SELECTED VESSEL — this WILL break selection state!',
+          'MMSI=' + oldest, 'scale=' + _evSc, 'opacity=' + _evOp,
+          '| Total locked-evictions:', _diag.evictWhileLocked);
+      } else if (_diag.logEvictions) {
+        console.log('[AISDebug] evict MMSI=' + oldest,
+          'scale=' + _evSc, 'opacity=' + _evOp, '(normal — not selected)');
+      }
+    }
+
+    aisGroup.remove(_evSprite);
     aisMarkers.delete(oldest);
   }
 }
@@ -15482,11 +15550,50 @@ function connectAISStream() {
   }, 200);
 }());
 
+// ── Diagnostic report (Step 1 + 7) ────────────────────────────────────────────
+// Call ArgusAIS.diagReport() from the browser console at any time.
+function diagReport() {
+  var now      = Date.now();
+  var s1  = _diag._rateSamples.filter(function(t) { return now - t <  1000; }).length;
+  var s5  = _diag._rateSamples.filter(function(t) { return now - t <  5000; }).length;
+  var s10 = _diag._rateSamples.filter(function(t) { return now - t < 10000; }).length;
+
+  var total = _diag.updateCount + _diag.createCount;
+  var hitPct = total ? (((_diag.updateCount / total) * 100).toFixed(1) + '%') : '—';
+
+  console.group('%c[ArgusAIS Diagnostic]', 'color:#00ff88;font-weight:bold');
+  console.log('── Step 1: Update Rate ──────────────────────────────');
+  console.log('  Current (last 1s)  :', s1,  'updates/sec');
+  console.log('  Avg     (last 5s)  :', (s5 / 5).toFixed(1), 'updates/sec');
+  console.log('  Avg     (last 10s) :', (s10 / 10).toFixed(1), 'updates/sec');
+  console.log('  Total processed    :', total);
+  console.log('');
+  console.log('── Step 4: Object Identity ─────────────────────────');
+  console.log('  Updates (existing sprite)  :', _diag.updateCount, '— object identity STABLE ✓');
+  console.log('  Creations (new sprite)     :', _diag.createCount);
+  console.log('  Sprite hit rate            :', hitPct, '(high = mostly in-place updates)');
+  console.log('  Active AIS markers         :', aisMarkers.size, '/', AIS_MAX_MARKERS);
+  console.log('');
+  console.log('── Step 2: Selection State ─────────────────────────');
+  console.log('  Total evictions            :', _diag.evictCount);
+  console.log('  Evictions of selected(⚠)  :', _diag.evictWhileLocked,
+    _diag.evictWhileLocked > 0 ? ' ← ROOT CAUSE CONFIRMED' : ' ← OK so far');
+  console.log('');
+  console.log('── Step 3: Freeze / Throttle Controls ──────────────');
+  console.log('  ArgusAIS.diag.freeze      = true/false  → pause all updates (freeze test)');
+  console.log('  ArgusAIS.diag.throttleMs  = 500         → 500ms min between vessel updates');
+  console.log('  ArgusAIS.diag.throttleMs  = 0           → no throttle (default)');
+  console.log('  ArgusAIS.diag.logEvictions= true        → log every eviction in real-time');
+  console.groupEnd();
+}
+
 // ── Public API ─────────────────────────────────────────────────────────────────
 return {
-  toggle:    toggle,
-  reconnect: connectAISStream,
-  markers:   aisMarkers,
+  toggle:     toggle,
+  reconnect:  connectAISStream,
+  markers:    aisMarkers,
+  diag:       _diag,
+  diagReport: diagReport,
 };
 
 }());

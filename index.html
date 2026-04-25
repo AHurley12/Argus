@@ -15136,61 +15136,63 @@ function connectAISStream() {
 
   console.log('[ArgusAIS] connecting to AISstream…');
   var ws = new WebSocket('wss://stream.aisstream.io/v0/stream');
-  ws.binaryType = 'arraybuffer'; // AISstream sends binary frames; decode before JSON.parse
   wsAIS  = ws;
 
-  ws.onopen = function () {
-    console.log('[ArgusAIS] AISstream connected — subscribing (global bbox)');
-    ws.send(JSON.stringify({
-      APIKey:             AISSTREAM_KEY,
-      BoundingBoxes:      [[[-90, -180], [90, 180]]],
-      FilterMessageTypes: ['PositionReport'],
-    }));
-  };
+  // ── Message queue — decouples async Blob.text() from the render loop ──────────
+  // AISstream sends binary frames. The browser delivers them as Blob objects.
+  // We cannot force string mode from the client when the server sends binary.
+  // Strategy: push raw data onto a queue in the sync onmessage handler,
+  // then drain the queue asynchronously so Blob.text() never blocks rAF.
+  var _msgQueue  = [];
+  var _queueBusy = false;
 
-  ws.onmessage = function (evt) {
-    var msg;
-    try {
-      // Binary frame → decode bytes to UTF-8 string first, then parse
-      var text = (evt.data instanceof ArrayBuffer)
-        ? new TextDecoder().decode(evt.data)
-        : evt.data;
-      msg = JSON.parse(text);
-    } catch(e) {
-      console.warn('[ArgusAIS] JSON parse error:', e.message);
-      return;
-    }
+  function processQueue() {
+    if (_queueBusy || _msgQueue.length === 0) return;
+    _queueBusy = true;
 
-    // Diagnostic: log the first raw message so we can verify the shape
-    _aisMsgCount++;
-    if (_aisMsgCount === 1) {
-      console.log('[ArgusAIS] first raw message:', JSON.stringify(msg).slice(0, 400));
-    }
-    if (_aisMsgCount % 200 === 0) {
-      console.log('[ArgusAIS] messages received:', _aisMsgCount, '| markers on globe:', aisMarkers.size);
-    }
+    // Shift one item, resolve it to a string, then recurse
+    var data = _msgQueue.shift();
+    var p;
+    if (data instanceof Blob)        p = data.text();
+    else if (data instanceof ArrayBuffer) p = Promise.resolve(new TextDecoder().decode(data));
+    else                             p = Promise.resolve(String(data));
 
+    p.then(function (text) {
+      var msg;
+      try { msg = JSON.parse(text); } catch(e) {
+        console.warn('[ArgusAIS] JSON parse fail:', e.message, text.slice(0, 80));
+        _queueBusy = false;
+        processQueue();
+        return;
+      }
+
+      _aisMsgCount++;
+      if (_aisMsgCount === 1) {
+        console.log('[ArgusAIS] first message decoded:', JSON.stringify(msg).slice(0, 400));
+      }
+      if (_aisMsgCount % 500 === 0) {
+        console.log('[ArgusAIS] messages processed:', _aisMsgCount, '| markers:', aisMarkers.size);
+      }
+
+      handleAISMessage(msg);
+
+      _queueBusy = false;
+      processQueue();
+    });
+  }
+
+  function handleAISMessage(msg) {
     var meta   = msg.MetaData   || {};
     var report = (msg.Message && msg.Message.PositionReport) || {};
 
-    // Primary: MetaData lat/lon (pre-decoded by AISstream for convenience)
-    // Fallback: PositionReport.Latitude/Longitude (raw AIS field, same value)
     var lat = meta.latitude  != null ? meta.latitude  : report.Latitude;
     var lon = meta.longitude != null ? meta.longitude : report.Longitude;
-
-    if (lat == null || lon == null) {
-      if (_aisMsgCount <= 5) console.log('[ArgusAIS] msg #' + _aisMsgCount + ' dropped — no lat/lon. Keys:', Object.keys(meta).join(','), '| msg type:', msg.MessageType);
-      return;
-    }
-    if (lat === 0 && lon === 0) return;
+    if (lat == null || lon == null) return;
+    if (lat === 0   && lon === 0)   return;
 
     var mmsi = String(meta.MMSI || meta.UserId || report.UserID || '');
-    if (!mmsi) {
-      if (_aisMsgCount <= 5) console.log('[ArgusAIS] msg #' + _aisMsgCount + ' dropped — no MMSI');
-      return;
-    }
+    if (!mmsi) return;
 
-    // TrueHeading 511 = "not available" per ITU-R M.1371 — fall back to COG
     var th  = report.TrueHeading;
     var hdg = (th != null && th !== 511) ? th : (report.Cog != null ? report.Cog : null);
 
@@ -15204,6 +15206,20 @@ function connectAISStream() {
       report.ShipType != null ? report.ShipType : null,
       report.NavigationalStatus != null ? report.NavigationalStatus : null
     );
+  }
+
+  ws.onopen = function () {
+    console.log('[ArgusAIS] AISstream connected — subscribing (global bbox)');
+    ws.send(JSON.stringify({
+      APIKey:             AISSTREAM_KEY,
+      BoundingBoxes:      [[[-90, -180], [90, 180]]],
+      FilterMessageTypes: ['PositionReport'],
+    }));
+  };
+
+  ws.onmessage = function (evt) {
+    _msgQueue.push(evt.data);
+    processQueue();
   };
 
   ws.onerror = function () {

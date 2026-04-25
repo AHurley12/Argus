@@ -15136,6 +15136,7 @@ function connectAISStream() {
 
   console.log('[ArgusAIS] connecting to AISstream…');
   var ws = new WebSocket('wss://stream.aisstream.io/v0/stream');
+  ws.binaryType = 'arraybuffer'; // AISstream sends binary frames; decode before JSON.parse
   wsAIS  = ws;
 
   ws.onopen = function () {
@@ -15149,8 +15150,14 @@ function connectAISStream() {
 
   ws.onmessage = function (evt) {
     var msg;
-    try { msg = JSON.parse(evt.data); } catch(e) {
-      console.warn('[ArgusAIS] JSON parse error:', e.message, evt.data && evt.data.slice(0, 100));
+    try {
+      // Binary frame → decode bytes to UTF-8 string first, then parse
+      var text = (evt.data instanceof ArrayBuffer)
+        ? new TextDecoder().decode(evt.data)
+        : evt.data;
+      msg = JSON.parse(text);
+    } catch(e) {
+      console.warn('[ArgusAIS] JSON parse error:', e.message);
       return;
     }
 

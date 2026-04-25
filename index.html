@@ -2329,6 +2329,13 @@
     background: rgba(45, 212, 191, 0.07);
     box-shadow: 0 0 8px rgba(45, 212, 191, 0.18);
   }
+  /* AISstream live layer toggle — slightly different green to distinguish from VesselAPI teal */
+  .track-btn.track-ais.is-active {
+    border-color: #34d399;
+    color: #34d399;
+    background: rgba(52, 211, 153, 0.07);
+    box-shadow: 0 0 8px rgba(52, 211, 153, 0.18);
+  }
   #tracking-status {
     font-size: 7px;
     letter-spacing: 1px;
@@ -3294,6 +3301,9 @@
     <button id="btn-track-ships" class="track-btn track-ship"
             onclick="window.ArgusTracking && ArgusTracking.toggleShips()"
             title="Toggle live ships (VesselAPI · key S)">⚓ SHIPS</button>
+    <button id="btn-track-ais" class="track-btn track-ais is-active"
+            onclick="window.ArgusAIS && ArgusAIS.toggle()"
+            title="Toggle AISstream live vessels (Supabase Realtime · WebSocket feed)">◈ AIS LIVE</button>
     <div id="tracking-status"></div>
   </div>
 
@@ -14924,6 +14934,380 @@ return {
 }());
 // Spec alias — HTML buttons already use ArgusTracking; ArgusTraffic exposed for console access
 window.ArgusTraffic = window.ArgusTracking;
+</script>
+
+<!-- ══════════════════════════════════════════════════════════════════════════════
+     SCRIPT 4b — AISstream Realtime Layer
+     Parallel vessel layer fed by Supabase Realtime (postgres_changes on
+     public.tracking_data where source = 'aisstream').
+     ADDITIVE ONLY — zero changes to existing VesselAPI / ArgusTracking code.
+     Requires: add_ais_tracking.sql migration + ingest-tracking edge function.
+══════════════════════════════════════════════════════════════════════════════ -->
+<script>
+window.ArgusAIS = (function () {
+'use strict';
+
+// ── Config ─────────────────────────────────────────────────────────────────────
+var SUPABASE_URL  = 'https://wbvzlxtroewxrmonxodx.supabase.co';
+var SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndidnpseHRyb2V3eHJtb254b2R4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM3OTQzNzMsImV4cCI6MjA4OTM3MDM3M30.0zp-wQ3wKpYc0f7LqFCOEea_d9HJuWnUSWgF4BAW82w';
+
+// AIS markers render at slightly lower opacity so they are visually distinct
+// from VesselAPI markers (0.92) without being jarring.
+var AIS_OPACITY  = 0.78;
+// AIS group altitude slightly lower than VesselAPI ships (101.5) to avoid z-fighting.
+var AIS_ALTITUDE = 101.3;
+
+// ── State ──────────────────────────────────────────────────────────────────────
+var aisGroup   = null;     // THREE.Group containing all AIS sprites
+var aisMarkers = new Map(); // mmsi → THREE.Sprite  (live lookup for upsert)
+var aisOn      = true;     // default ON (button initialised is-active)
+var wsRealtime = null;     // Phoenix WebSocket for Supabase Realtime
+var hbTimer    = null;     // heartbeat interval handle
+var hbRef      = 0;        // incrementing ref counter for Phoenix messages
+
+// Expose markers for console inspection / AI layer access
+window._aisMarkers = aisMarkers;
+
+// ── Longitude correction — mirrors existing corrLon() in ArgusTracking ─────────
+function corrLon(lon) {
+  var c = lon + 90;
+  while (c >  180) c -= 360;
+  while (c < -180) c += 360;
+  return c;
+}
+
+// ── Resolve vessel type → THREE color (reuses SHIP_TYPE_COLORS key names) ──────
+// AIS nav_status strings from the edge function are the numeric ITU codes as
+// strings ("0" = under way, "1" = at anchor, etc.).  We map to type via
+// ship_type if available, else default teal.
+function aisColor(vessel) {
+  // Same palette as SHIP_TYPE_COLORS but accessed without depending on that var
+  var colorMap = {
+    cargo:        0x4488ff,
+    tanker:       0xff9933,
+    military:     0xff4444,
+    passenger:    0xffffff,
+    fishing:      0x44cc88,
+    tug:          0xffcc44,
+    port_service: 0xaaaaaa,
+    recreational: 0xcc88ff,
+    other:        0x14b8a6,
+    unknown:      0x888888
+  };
+  var t = (vessel.ship_type || 'other').toLowerCase();
+  return colorMap[t] !== undefined ? colorMap[t] : colorMap.other;
+}
+
+// ── Init — create the AIS group once ArgusGlobe is ready ───────────────────────
+function ensureGroup() {
+  var AG = window.ArgusGlobe;
+  if (!AG || !AG.eventMarkerGroup || !AG.latLonToVector) return false;
+  if (!aisGroup) {
+    aisGroup         = new THREE.Group();
+    aisGroup.name    = 'ArgusAIS';
+    aisGroup.visible = aisOn;
+    AG.eventMarkerGroup.add(aisGroup);
+  }
+  return true;
+}
+
+// ── Upsert a single AIS vessel marker onto the globe ──────────────────────────
+// Called for every INSERT or UPDATE event from Supabase Realtime.
+function upsertAISMarker(vessel) {
+  if (!ensureGroup()) return;
+  if (!vessel || vessel.lat == null || vessel.lon == null) return;
+  if (vessel.lat === 0 && vessel.lon === 0) return;
+
+  var AG  = window.ArgusGlobe;
+  var mmsi = String(vessel.mmsi || '');
+  var name = (vessel.ship_name || '').trim() || mmsi || 'AIS VESSEL';
+
+  var cogRad = (vessel.heading != null && !isNaN(vessel.heading))
+    ? -vessel.heading * Math.PI / 180
+    : 0;
+
+  // Reuse the ship texture (_shTex) already created by ArgusTracking.
+  // We wait for it to be available (ArgusTracking initialises on globe-ready).
+  var shTex = window._argusShTex; // exposed below after ArgusTracking runs
+  if (!shTex) return; // globe not ready yet — Realtime will fire again on next update
+
+  if (aisMarkers.has(mmsi)) {
+    // ── UPDATE existing sprite ─────────────────────────────────────────────────
+    var sprite = aisMarkers.get(mmsi);
+    var pos    = AG.latLonToVector(vessel.lat, corrLon(vessel.lon), AIS_ALTITUDE);
+    sprite.position.copy(pos);
+    sprite.material.rotation = cogRad;
+    sprite.material.color.setHex(aisColor(vessel));
+    // Refresh tooltip data
+    sprite.userData.lat         = vessel.lat;
+    sprite.userData.lon         = vessel.lon;
+    sprite.userData.heading     = vessel.heading;
+    sprite.userData.velocity    = vessel.velocity;
+    sprite.userData.navStatus   = vessel.nav_status;
+    sprite.userData.destination = vessel.destination;
+    sprite.userData.updatedAt   = vessel.updated_at || vessel.timestamp;
+    sprite.userData.title       = name;
+  } else {
+    // ── CREATE new sprite ──────────────────────────────────────────────────────
+    var pos = AG.latLonToVector(vessel.lat, corrLon(vessel.lon), AIS_ALTITUDE);
+
+    var mat = new THREE.SpriteMaterial({
+      map:         shTex,
+      color:       new THREE.Color(aisColor(vessel)),
+      transparent: true,
+      opacity:     AIS_OPACITY,   // slightly dimmer than VesselAPI (0.92)
+      rotation:    cogRad,
+      depthTest:   false
+    });
+    var sprite = new THREE.Sprite(mat);
+    sprite.position.copy(pos);
+    sprite.scale.set(1.05, 1.05, 1); // same size as VesselAPI ships
+
+    sprite.userData = {
+      isAISVessel:  true,
+      title:        name,
+      type:         'AIS_VESSEL',
+      typeCategory: vessel.ship_type || 'other',
+      severity:     'LOW',
+      source:       'aisstream',
+      lat:          vessel.lat,
+      lon:          vessel.lon,
+      mmsi:         mmsi,
+      heading:      vessel.heading,
+      velocity:     vessel.velocity,
+      navStatus:    vessel.nav_status,
+      destination:  vessel.destination,
+      updatedAt:    vessel.updated_at || vessel.timestamp,
+    };
+
+    aisGroup.add(sprite);
+    aisMarkers.set(mmsi, sprite);
+  }
+}
+
+// ── Remove a marker (DELETE event from Realtime) ──────────────────────────────
+function removeAISMarker(vessel) {
+  var mmsi = String((vessel && vessel.mmsi) || '');
+  if (!mmsi || !aisMarkers.has(mmsi)) return;
+  var sprite = aisMarkers.get(mmsi);
+  if (aisGroup) aisGroup.remove(sprite);
+  aisMarkers.delete(mmsi);
+}
+
+// ── Toggle visibility ──────────────────────────────────────────────────────────
+function toggle() {
+  aisOn = !aisOn;
+  if (aisGroup) aisGroup.visible = aisOn;
+  var btn = document.getElementById('btn-track-ais');
+  if (btn) {
+    if (aisOn) btn.classList.add('is-active');
+    else       btn.classList.remove('is-active');
+  }
+}
+
+// ── Supabase Realtime — minimal Phoenix WebSocket client ──────────────────────
+// Implements just enough of the Phoenix v1 protocol to subscribe to
+// postgres_changes on public.tracking_data where source = 'aisstream'.
+// No external library — vanilla WebSocket + JSON only.
+
+function buildWsUrl() {
+  return SUPABASE_URL.replace(/^https/, 'wss')
+    + '/realtime/v1/websocket?apikey=' + SUPABASE_ANON + '&vsn=1.0.0';
+}
+
+function phxMsg(joinRef, ref, topic, event, payload) {
+  return JSON.stringify({
+    join_ref: joinRef,
+    ref:      String(ref),
+    topic:    topic,
+    event:    event,
+    payload:  payload,
+  });
+}
+
+function startRealtime() {
+  if (wsRealtime) {
+    try { wsRealtime.close(); } catch(e) {}
+    wsRealtime = null;
+  }
+  if (hbTimer) { clearInterval(hbTimer); hbTimer = null; }
+
+  var ws = new WebSocket(buildWsUrl());
+  wsRealtime = ws;
+  var joinRef = '1';
+  var topic   = 'realtime:public:tracking_data';
+
+  ws.onopen = function () {
+    console.log('[ArgusAIS] Realtime connected — joining channel');
+    hbRef++;
+    ws.send(phxMsg(joinRef, hbRef, topic, 'phx_join', {
+      config: {
+        broadcast:  { ack: false, self: false },
+        presence:   { key: '' },
+        postgres_changes: [{
+          event:  '*',
+          schema: 'public',
+          table:  'tracking_data',
+          filter: 'source=eq.aisstream'
+        }],
+      },
+      // Supabase Realtime v2 requires an access token for RLS-enabled tables.
+      // The anon key is sufficient for public read access (no RLS on tracking_data).
+      access_token: SUPABASE_ANON,
+    }));
+
+    // Heartbeat every 25 s (Supabase closes idle connections after 30 s)
+    hbTimer = setInterval(function () {
+      if (ws.readyState !== WebSocket.OPEN) return;
+      hbRef++;
+      ws.send(phxMsg(null, hbRef, 'phoenix', 'heartbeat', {}));
+    }, 25_000);
+  };
+
+  ws.onmessage = function (event) {
+    var msg;
+    try { msg = JSON.parse(event.data); } catch(e) { return; }
+
+    var ev      = msg.event;
+    var payload = msg.payload || {};
+
+    // Channel join confirmation
+    if (ev === 'phx_reply' && payload.status === 'ok') {
+      console.log('[ArgusAIS] channel joined — receiving PositionReport changes');
+      return;
+    }
+
+    // postgres_changes broadcast
+    if (ev === 'postgres_changes') {
+      var change = payload.data || {};
+      var type   = change.type;        // INSERT | UPDATE | DELETE
+      var record = change.record || change.new || {};
+      var old    = change.old_record  || change.old || {};
+
+      if (type === 'INSERT' || type === 'UPDATE') {
+        upsertAISMarker(record);
+      } else if (type === 'DELETE') {
+        removeAISMarker(old.mmsi ? old : record);
+      }
+      return;
+    }
+
+    // Heartbeat echo — nothing to do
+    if (ev === 'phx_reply' && msg.topic === 'phoenix') return;
+
+    // Channel error / close
+    if (ev === 'phx_error' || ev === 'phx_close') {
+      console.warn('[ArgusAIS] channel error/close — will reconnect');
+    }
+  };
+
+  ws.onerror = function (e) {
+    console.warn('[ArgusAIS] Realtime WebSocket error', e);
+  };
+
+  ws.onclose = function (e) {
+    console.warn('[ArgusAIS] Realtime disconnected (code ' + e.code + ') — reconnecting in 5 s');
+    if (hbTimer) { clearInterval(hbTimer); hbTimer = null; }
+    wsRealtime = null;
+    setTimeout(startRealtime, 5_000);
+  };
+}
+
+// ── Bootstrap — wait for ArgusGlobe + _shTex to be available, then start ──────
+// _shTex is the ship canvas texture created inside ArgusTracking's ensureGeometries().
+// We expose it on window from inside that IIFE via a small shim (added below).
+(function bootstrap() {
+  var attempts = 0;
+  var timer = setInterval(function () {
+    attempts++;
+    // ensureGroup also waits for ArgusGlobe
+    var groupReady  = ensureGroup();
+    var textureReady = !!window._argusShTex;
+
+    if (groupReady && textureReady) {
+      clearInterval(timer);
+      console.log('[ArgusAIS] globe ready — starting Realtime subscription');
+      startRealtime();
+    } else if (attempts > 150) { // 30 s timeout
+      clearInterval(timer);
+      console.warn('[ArgusAIS] timed out waiting for globe/texture — Realtime not started');
+    }
+  }, 200);
+}());
+
+// ── Public API ─────────────────────────────────────────────────────────────────
+return {
+  toggle:         toggle,
+  upsertMarker:   upsertAISMarker,
+  removeMarker:   removeAISMarker,
+  markers:        aisMarkers,
+};
+
+}());
+</script>
+
+<!-- ── _argusShTex shim ─────────────────────────────────────────────────────────
+     ArgusTracking creates _shTex inside its IIFE closure; ArgusAIS needs it.
+     This tiny inline script exposes it on window after ensureGeometries() fires.
+     Placed here (after both scripts) so it patches ArgusTracking non-intrusively.
+──────────────────────────────────────────────────────────────────────────────── -->
+<script>
+(function patchShTex() {
+  // Poll until ArgusTracking has initialised the globe groups (which triggers
+  // ensureGeometries internally).  Once _shTex is set on the closure we can
+  // only reach it via the sprite materials already created.  Instead we re-run
+  // ensureGeometries via a benign toggle probe, then read _shTex from an
+  // existing ship sprite if one is present — OR we rebuild the texture here
+  // with the identical canvas code so ArgusAIS is fully self-contained.
+  var attempts = 0;
+  var timer = setInterval(function () {
+    attempts++;
+    if (window._argusShTex) { clearInterval(timer); return; }
+
+    // Attempt to read the texture from an already-placed VesselAPI ship sprite
+    var hits = window._vesselMarkers;
+    if (hits && hits.length > 0) {
+      var tex = hits[0].material && hits[0].material.map;
+      if (tex) {
+        window._argusShTex = tex;
+        clearInterval(timer);
+        return;
+      }
+    }
+
+    // Fallback: rebuild the identical ship canvas texture so ArgusAIS can
+    // start without waiting for the first VesselAPI fetch.
+    if (attempts > 10 && typeof THREE !== 'undefined') {
+      (function () {
+        var sz = 64;
+        var cv = document.createElement('canvas');
+        cv.width = cv.height = sz;
+        var c = cv.getContext('2d');
+        c.beginPath();
+        c.moveTo(32, 2);
+        c.bezierCurveTo(32, 2, 44, 12, 46, 28);
+        c.lineTo(46, 52);
+        c.quadraticCurveTo(46, 62, 32, 62);
+        c.quadraticCurveTo(18, 62, 18, 52);
+        c.lineTo(18, 28);
+        c.bezierCurveTo(20, 12, 32, 2, 32, 2);
+        c.closePath();
+        c.fillStyle = '#ffffff';
+        c.fill();
+        c.fillStyle = 'rgba(255,255,255,0.55)';
+        c.fillRect(26, 30, 12, 14);
+        c.fillStyle = 'rgba(255,255,255,0.88)';
+        c.beginPath();
+        c.arc(32, 10, 3, 0, Math.PI * 2);
+        c.fill();
+        window._argusShTex = new THREE.CanvasTexture(cv);
+      }());
+      clearInterval(timer);
+    }
+
+    if (attempts > 300) clearInterval(timer); // 60 s hard stop
+  }, 200);
+}());
 </script>
 
 <!-- ══════════════════════════════════════════════════════════════════════════════

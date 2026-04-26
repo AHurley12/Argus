@@ -3422,6 +3422,9 @@
             title="Toggle AISstream live vessels (Supabase Realtime · WebSocket feed)">◈ AIS LIVE</button>
     <div id="tracking-status"></div>
   </div>
+  <!-- AIS render layer — placeholder for JS-driven vessel list; hidden by default.
+       ArgusAIS.renderAIS() populates this when a DOM summary view is needed. -->
+  <div id="ais-layer" style="display:none;"></div>
 
 </div><!-- /#app -->
 
@@ -14548,6 +14551,11 @@ function ensureGeometries() {
     c.fillStyle = 'rgba(255,255,255,0.55)';
     c.fillRect(26, 30, 12, 14);
 
+    // Center identification box — dark green, smaller than superstructure
+    // Centered at (32,37): 6×8 px block sits over midship superstructure
+    c.fillStyle = 'rgba(0, 150, 55, 0.90)';
+    c.fillRect(29, 33, 6, 8);
+
     // Bow circle — scaled 2×: cx=32,cy=10,r=3
     // Provides a clear directional indicator at the pointed end
     c.fillStyle = 'rgba(255,255,255,0.88)';
@@ -14687,7 +14695,7 @@ function placeShip(lat, lon, name, sog, cog, typeCategory, mmsi, region, navStat
   });
   var sprite = new THREE.Sprite(mat);
   sprite.position.copy(pos);
-  sprite.scale.set(1.05, 1.05, 1);
+  sprite.scale.set(0.89, 0.89, 1);
 
   var label = (name || '').trim() || 'VESSEL';
   sprite.userData = {
@@ -15122,6 +15130,14 @@ var AIS_ALTITUDE = 101.3;  // slightly below VesselAPI ships (101.5) — no z-fi
 // Cap how many unique vessels we keep in memory. Oldest-updated get evicted
 // once this limit is hit so the globe doesn't accumulate stale ghosts.
 var AIS_MAX_MARKERS = 500;  // matches SHIP_LIMIT — keeps _all() total at ~1750 vs 2050 before
+// Interval between buffer drain + diff render passes.
+// Ingest (onmessage → buffer.push) is uncapped; only rendering is rate-limited.
+var AIS_RENDER_INTERVAL = 300; // ms — "real-time feel" without flooding the render loop
+// Minimum meaningful change thresholds for diff-based rendering.
+// Below these values the vessel sprite is NOT re-synced this tick, reducing churn.
+var AIS_DIFF_LAT   = 0.0001; // ~11m at equator
+var AIS_DIFF_LON   = 0.0001;
+var AIS_DIFF_HDG   = 2;      // degrees
 
 // ── State ──────────────────────────────────────────────────────────────────────
 var aisGroup   = null;      // THREE.Group containing all AIS sprites
@@ -15154,6 +15170,22 @@ var _diag = {
   _rateSamples: [],     // rolling timestamps for rate calculation
   _rateLogTimer: null,
 };
+
+// ── State layer ───────────────────────────────────────────────────────────────
+// _aisState is the source of truth for vessel data; aisMarkers holds the sprites.
+// Architecture:
+//   onmessage → _ingestBuffer.push()           (fast, sync, no state write)
+//   setInterval → _processAndRender()          (controlled, 300ms)
+//     ├─ drain _ingestBuffer                   (normalize + diff)
+//     ├─ write _aisState.vessels               (state store)
+//     ├─ mark _dirtyVessels                    (only truly changed MMSIs)
+//     └─ renderAIS()                           (sprite sync, O(dirty))
+var _aisState = {
+  vessels:          new Map(),  // mmsi → { name, lat, lon, heading, velocity, shipType, navStatus, updatedAt }
+  selectedVesselId: null,       // mmsi of currently locked vessel — set by scale-scan after each render
+};
+var _ingestBuffer = [];         // raw normalized vessel objects pushed by handleAISMessage
+var _dirtyVessels = new Set();  // MMSIs that actually changed and need sprite sync this tick
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function corrLon(lon) {
@@ -15205,17 +15237,118 @@ function ensureGroup() {
   return true;
 }
 
-// ── Place / update one vessel sprite ──────────────────────────────────────────
-function upsertAISMarker(mmsi, name, lat, lon, heading, velocity, shipType, navStatus) {
-  // ── Diagnostic gates (no-op by default, set via ArgusAIS.diag) ────────────
+// ── Fast ingest — synchronous buffer push, zero state writes ─────────────────
+// Called by handleAISMessage for every decoded WS message.
+// Normalization is minimal (just validate + type-cast); diff/state write is deferred
+// to _processAndRender() so the WS thread is never blocked by render work.
+function updateVesselState(mmsi, name, lat, lon, heading, velocity, shipType, navStatus) {
+  _ingestBuffer.push({ mmsi: mmsi, name: name, lat: lat, lon: lon,
+    heading: heading, velocity: velocity, shipType: shipType, navStatus: navStatus });
+}
+
+// ── Controlled render tick — runs every AIS_RENDER_INTERVAL ms ───────────────
+// Drains _ingestBuffer, diffs each entry against _aisState.vessels, writes state,
+// marks _dirtyVessels for entries that meaningfully changed, then calls renderAIS().
+// Diagnostic gates and rate sampling live here (not in ingest or sprite paths).
+function _processAndRender() {
+  if (!_ingestBuffer.length) return;
+
+  // Drain the entire buffer in one pass — most recent value per MMSI wins naturally
+  // because we overwrite state on each write (Map.set is idempotent by key).
+  var batch = _ingestBuffer.splice(0, _ingestBuffer.length);
+
+  // ── Diagnostic freeze gate ────────────────────────────────────────────────
   if (_diag.freeze) return;
 
-  // Throttle: skip updates that arrive too soon after the last one for this vessel.
-  // Step 3B test — set ArgusAIS.diag.throttleMs = 500 to test throttled behavior.
-  if (_diag.throttleMs > 0 && aisMarkers.has(mmsi)) {
-    if (Date.now() - aisMarkers.get(mmsi).updatedAt < _diag.throttleMs) return;
+  var now = Date.now();
+
+  for (var i = 0; i < batch.length; i++) {
+    var v    = batch[i];
+    var mmsi = v.mmsi;
+
+    // ── Throttle gate (per-vessel min interval) ───────────────────────────
+    if (_diag.throttleMs > 0 && _aisState.vessels.has(mmsi)) {
+      if (now - _aisState.vessels.get(mmsi).updatedAt < _diag.throttleMs) continue;
+    }
+
+    // ── Rate sampling ─────────────────────────────────────────────────────
+    _diag._rateSamples.push(now);
+    if (_diag._rateSamples.length > 2000) {
+      var _cutoff = now - 10000;
+      var _si = 0;
+      while (_si < _diag._rateSamples.length && _diag._rateSamples[_si] < _cutoff) _si++;
+      if (_si > 0) _diag._rateSamples.splice(0, _si);
+    }
+
+    // ── Diff check — only mark dirty if the vessel actually moved/changed ─
+    // New vessels are always dirty. Existing vessels only if position or
+    // heading changed beyond the threshold, or name/type changed.
+    var existing = _aisState.vessels.get(mmsi);
+    var dirty;
+    if (!existing) {
+      dirty = true;
+      _diag.createCount++;
+    } else {
+      _diag.updateCount++;
+      dirty = (
+        Math.abs(v.lat     - existing.lat)     > AIS_DIFF_LAT ||
+        Math.abs(v.lon     - existing.lon)     > AIS_DIFF_LON ||
+        (v.heading != null && existing.heading != null &&
+          Math.abs(v.heading - existing.heading) > AIS_DIFF_HDG) ||
+        // null ↔ value transitions always count as changed
+        (v.heading == null) !== (existing.heading == null) ||
+        v.name     !== existing.name ||
+        v.shipType !== existing.shipType
+      );
+    }
+
+    // ── Write to state (always — keep timestamps + velocity current) ──────
+    _aisState.vessels.set(mmsi, {
+      name: v.name, lat: v.lat, lon: v.lon,
+      heading: v.heading, velocity: v.velocity,
+      shipType: v.shipType, navStatus: v.navStatus,
+      updatedAt: now,
+    });
+
+    if (dirty) _dirtyVessels.add(mmsi);
   }
 
+  renderAIS();
+
+  // ── Selection tracking — scan sprite scales to keep selectedVesselId current ─
+  // ArgusSelection highlights the locked sprite to scale ~1.29 (0.89 × 1.45); normal is 0.89.
+  // We read this externally rather than patching ArgusSelection internals.
+  var foundSelected = false;
+  aisMarkers.forEach(function (entry, mmsi) {
+    if (entry.sprite.scale.x > 1.2) {
+      _aisState.selectedVesselId = mmsi;
+      foundSelected = true;
+    }
+  });
+  if (!foundSelected) _aisState.selectedVesselId = null;
+}
+
+// ── renderAIS — syncs dirty vessel state → THREE sprites ─────────────────────
+// Internal path (no arg): iterates _dirtyVessels only — O(changed) not O(all).
+// External path (array arg): accepts [{mmsi, name, lat, lon, ...}] from callers
+// that bypass the state layer (e.g. test harness).
+function renderAIS(externalVessels) {
+  if (externalVessels) {
+    externalVessels.forEach(function (v) {
+      upsertAISMarker(v.mmsi, v.name, v.lat, v.lon, v.heading, v.velocity, v.shipType, v.navStatus);
+    });
+    return;
+  }
+  _dirtyVessels.forEach(function (mmsi) {
+    var v = _aisState.vessels.get(mmsi);
+    if (!v) return;
+    upsertAISMarker(mmsi, v.name, v.lat, v.lon, v.heading, v.velocity, v.shipType, v.navStatus);
+  });
+  _dirtyVessels.clear();
+}
+
+// ── Pure sprite-sync — no gates, no diagnostics, just THREE.js ───────────────
+function upsertAISMarker(mmsi, name, lat, lon, heading, velocity, shipType, navStatus) {
   if (!ensureGroup()) return;
   if (lat == null || lon == null) return;
   if (lat === 0 && lon === 0)    return;
@@ -15231,21 +15364,6 @@ function upsertAISMarker(mmsi, name, lat, lon, heading, velocity, shipType, navS
   var tc     = classifyAISType(shipType);
   var label  = (name || '').trim() || String(mmsi) || 'AIS VESSEL';
   var now    = Date.now();
-
-  // ── Rate sampling (Step 1) ─────────────────────────────────────────────────
-  _diag._rateSamples.push(now);
-  // Keep only last 10 seconds of samples
-  if (_diag._rateSamples.length > 2000) {
-    var _cutoff = now - 10000;
-    var _si = 0;
-    while (_si < _diag._rateSamples.length && _diag._rateSamples[_si] < _cutoff) _si++;
-    if (_si > 0) _diag._rateSamples.splice(0, _si);
-  }
-
-  // ── Hit / miss tracking (Step 4 — object identity) ────────────────────────
-  var _isExisting = aisMarkers.has(mmsi);
-  if (_isExisting) _diag.updateCount++;
-  else             _diag.createCount++;
 
   if (aisMarkers.has(mmsi)) {
     var entry  = aisMarkers.get(mmsi);
@@ -15275,7 +15393,7 @@ function upsertAISMarker(mmsi, name, lat, lon, heading, velocity, shipType, navS
     });
     var sprite = new THREE.Sprite(mat);
     sprite.position.copy(pos);
-    sprite.scale.set(1.05, 1.05, 1);
+    sprite.scale.set(0.89, 0.89, 1);
     sprite.userData = {
       isShip:       true,       // enables canInteract(), click routing, ArgusSelection
       isAISVessel:  true,       // source tag — keeps AIS identity without breaking anything
@@ -15296,15 +15414,28 @@ function upsertAISMarker(mmsi, name, lat, lon, heading, velocity, shipType, navS
 }
 
 function evictOldest() {
+  // Find the oldest NON-SELECTED vessel. Evicting the selected vessel would
+  // invalidate ArgusSelection._locked (stale sprite ref → auto-unlock next tick).
+  // If somehow every vessel is selected (impossible in practice), fall back to oldest.
   var oldest = null, oldestTime = Infinity;
+  var oldestFallback = null, oldestTimeFallback = Infinity;
   aisMarkers.forEach(function(entry, mmsi) {
+    // Track overall oldest (fallback)
+    if (entry.updatedAt < oldestTimeFallback) {
+      oldestTimeFallback = entry.updatedAt;
+      oldestFallback = mmsi;
+    }
+    // Skip the currently selected vessel for normal eviction
+    if (mmsi === _aisState.selectedVesselId) return;
     if (entry.updatedAt < oldestTime) { oldestTime = entry.updatedAt; oldest = mmsi; }
   });
+  // If all vessels are somehow selected, fall back to true oldest
+  if (oldest === null) oldest = oldestFallback;
   if (oldest !== null) {
     var _evSprite = aisMarkers.get(oldest).sprite;
 
     // ── Diagnostic: eviction logging (Step 2/4) ────────────────────────────
-    // A highlighted sprite has scale ~1.52 (BASE_SCALE_SH 1.05 × HIGHLIGHT_SCALE 1.45).
+    // A highlighted sprite has scale ~1.29 (BASE_SCALE_SH 0.89 × HIGHLIGHT_SCALE 1.45).
     // Normal scale is 1.05. If scale > 1.2 we're likely evicting the selected vessel,
     // which WILL cause ArgusSelection.tick() → unlock() on the next frame.
     // This is the primary suspected breakage vector for click/selection loss.
@@ -15326,6 +15457,8 @@ function evictOldest() {
 
     aisGroup.remove(_evSprite);
     aisMarkers.delete(oldest);
+    _aisState.vessels.delete(oldest);  // keep state layer in sync
+    _dirtyVessels.delete(oldest);      // cancel any pending sprite sync for this MMSI
   }
 }
 
@@ -15433,7 +15566,7 @@ function connectAISStream() {
     var th  = report.TrueHeading;
     var hdg = (th != null && th !== 511) ? th : (report.Cog != null ? report.Cog : null);
 
-    upsertAISMarker(
+    updateVesselState(
       mmsi,
       meta.ShipName || '',
       lat,
@@ -15541,6 +15674,12 @@ function connectAISStream() {
         console.log('[ArgusAIS] _trackingData getter installed — AIS vessels included in analytics feed');
       }());
 
+      // ── Start controlled render interval ────────────────────────────────
+      // _processAndRender drains _ingestBuffer, diffs state, and calls renderAIS().
+      // This is the ONLY place sprites are updated — ingest path just pushes to buffer.
+      setInterval(_processAndRender, AIS_RENDER_INTERVAL);
+      console.log('[ArgusAIS] render interval started (' + AIS_RENDER_INTERVAL + 'ms)');
+
       console.log('[ArgusAIS] globe ready — opening AISstream WebSocket');
       connectAISStream();
     } else if (attempts > 150) {
@@ -15594,6 +15733,11 @@ return {
   markers:    aisMarkers,
   diag:       _diag,
   diagReport: diagReport,
+  renderAIS:  renderAIS,          // external render: ArgusAIS.renderAIS([{mmsi,…}])
+  state:      _aisState,          // live data store: ArgusAIS.state.vessels.get(mmsi)
+  // Diagnostic helpers
+  flush:      _processAndRender,  // ArgusAIS.flush() — force immediate process+render tick
+  get bufferSize() { return _ingestBuffer.length; }, // ArgusAIS.bufferSize — pending messages
 };
 
 }());
@@ -15649,6 +15793,8 @@ return {
         c.fill();
         c.fillStyle = 'rgba(255,255,255,0.55)';
         c.fillRect(26, 30, 12, 14);
+        c.fillStyle = 'rgba(0, 150, 55, 0.90)';
+        c.fillRect(29, 33, 6, 8);
         c.fillStyle = 'rgba(255,255,255,0.88)';
         c.beginPath();
         c.arc(32, 10, 3, 0, Math.PI * 2);
@@ -15986,13 +16132,14 @@ function ingestEvents(rawEvents) {
 }
 
 // Pull latest events from the live window globals
+// _usgsEvents (seismic) is intentionally excluded here — seismic is noise for
+// intelligence analysis and surfaces in the DISASTERS tab instead.
 function refreshStore() {
   var sources = [];
-  if (window._currentEvents && window._currentEvents.length) sources = sources.concat(window._currentEvents);
-  if (window._usgsEvents    && window._usgsEvents.length)    sources = sources.concat(window._usgsEvents);
-  if (window._noaaEvents    && window._noaaEvents.length)    sources = sources.concat(window._noaaEvents);
-  if (window._rwCrisisEvents&& window._rwCrisisEvents.length)sources = sources.concat(window._rwCrisisEvents);
-  if (window._fireEvents    && window._fireEvents.length)    sources = sources.concat(window._fireEvents);
+  if (window._currentEvents  && window._currentEvents.length)  sources = sources.concat(window._currentEvents);
+  if (window._noaaEvents     && window._noaaEvents.length)     sources = sources.concat(window._noaaEvents);
+  if (window._rwCrisisEvents && window._rwCrisisEvents.length) sources = sources.concat(window._rwCrisisEvents);
+  if (window._fireEvents     && window._fireEvents.length)     sources = sources.concat(window._fireEvents);
   if (!sources.length) sources = window.FALLBACK_EVENTS || [];
   ingestEvents(sources);
 }
@@ -18202,10 +18349,54 @@ function buildNodeCandidates(type, query) {
   var results = [];
 
   if (type === 'events') {
+    // ── Primary: classified events already in store (plotted on globe) ────────
     store.events.slice(0, 200).forEach(function(ev) {
       if (ql && ev.title.toLowerCase().indexOf(ql) === -1) return;
       if (state.graph.nodes.some(function(n){ return n.id === ev.id; })) return;
       results.push({ id: ev.id, type: 'event', label: ev.title, badge: ev.risk, badgeColor: RISK_COLORS[ev.risk] || '#4a7da8', eventType: ev.type, risk: ev.risk, keywords: ev.keywords, timestamp: ev.timestamp, impact: ev.impact, source: ev.source, _ev: ev });
+    });
+
+    // ── Supplement: full GDELT classified feed (includes articles not yet plotted) ─
+    // Reads from the live gdelt module first; falls back to localStorage cache.
+    var _gdeltEvts = [];
+    try {
+      var _gd = window.gdelt && window.gdelt.getData ? window.gdelt.getData() : null;
+      if (_gd && Array.isArray(_gd.events) && _gd.events.length) {
+        _gdeltEvts = _gd.events;
+      } else {
+        var _gc = localStorage.getItem('argus_gdelt_v3');
+        if (_gc) {
+          var _gp = JSON.parse(_gc);
+          var _ga = Array.isArray(_gp) ? _gp : (_gp.events || _gp.articles || []);
+          _gdeltEvts = Array.isArray(_ga) ? _ga : [];
+        }
+      }
+    } catch(_) {}
+
+    // Deduplicate against already-added titles to avoid store.events overlap
+    var _seenTitles = new Set(results.map(function(r){ return r.label; }));
+    _gdeltEvts.slice(0, 100).forEach(function(a, gi) {
+      var t = (a.title || a.TITLE || a.name || '').slice(0, 120);
+      if (!t || _seenTitles.has(t)) return;
+      if (ql && t.toLowerCase().indexOf(ql) === -1) return;
+      var geid = 'gdelt_ev_' + gi;
+      if (state.graph.nodes.some(function(n){ return n.id === geid; })) return;
+      var sev = a.severity || 'WATCH';
+      _seenTitles.add(t);
+      results.push({
+        id:        geid,
+        type:      'event',
+        label:     t,
+        badge:     sev,
+        badgeColor: RISK_COLORS[sev] || '#4a7da8',
+        eventType: a.type || 'POLICY',
+        risk:      sev,
+        keywords:  extractKeywords(t),
+        timestamp: 0,
+        impact:    '',
+        source:    a.url || a.sourceurl || a.domain || '',
+        _ev:       a,
+      });
     });
 
   } else if (type === 'disasters') {
@@ -18824,7 +19015,7 @@ window.ArgusSelection = (function () {
     HIGHLIGHT_SCALE:  1.45,  // multiplier on top of base scale for selected entity
     MAX_PANEL_ROWS:   8,     // max rows in disambiguation panel
     BASE_SCALE_AC:    1.75,  // matches placeAircraft scale
-    BASE_SCALE_SH:    1.05,  // matches placeShip scale
+    BASE_SCALE_SH:    0.89,  // matches placeShip / upsertAISMarker scale (−15% from 1.05)
   };
 
   // ── State ──────────────────────────────────────────────────────────────────

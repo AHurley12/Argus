@@ -15129,7 +15129,8 @@ var AIS_OPACITY  = 0.92;   // matches VesselAPI — required for ArgusSelection 
 var AIS_ALTITUDE = 101.3;  // slightly below VesselAPI ships (101.5) — no z-fighting
 // Cap how many unique vessels we keep in memory. Oldest-updated get evicted
 // once this limit is hit so the globe doesn't accumulate stale ghosts.
-var AIS_MAX_MARKERS = 500;  // matches SHIP_LIMIT — keeps _all() total at ~1750 vs 2050 before
+// 1500 supports ~1800 total between WebSocket stream + REST supplement.
+var AIS_MAX_MARKERS = 1500;
 // Interval between buffer drain + diff render passes.
 // Ingest (onmessage → buffer.push) is uncapped; only rendering is rate-limited.
 var AIS_RENDER_INTERVAL = 300; // ms — "real-time feel" without flooding the render loop
@@ -15563,6 +15564,19 @@ function connectAISStream() {
     var mmsi = String(meta.MMSI || meta.UserId || report.UserID || '');
     if (!mmsi) return;
 
+    // ── Noise filter: skip low-intel-value vessel types ───────────────────
+    // These burn marker slots without adding geopolitical signal.
+    // Kept: fishing (30) — illegal fishing in contested waters has intel value.
+    // Kept: tugs (31,32,52) — port-activity indicator.
+    var _stn = parseInt(report.ShipType, 10);
+    if (!isNaN(_stn)) {
+      if (_stn === 36 || _stn === 37) return; // pleasure craft / yacht
+      if (_stn === 50) return;                 // pilot vessel
+      if (_stn === 51) return;                 // SAR vessel
+      if (_stn === 53) return;                 // port tender
+      if (_stn === 54) return;                 // anti-pollution vessel
+    }
+
     var th  = report.TrueHeading;
     var hdg = (th != null && th !== 511) ? th : (report.Cog != null ? report.Cog : null);
 
@@ -15579,10 +15593,26 @@ function connectAISStream() {
   }
 
   ws.onopen = function () {
-    console.log('[ArgusAIS] AISstream connected — subscribing (global bbox)');
+    console.log('[ArgusAIS] AISstream connected — subscribing (10 strategic regions)');
+    // 10 strategic maritime regions instead of global bbox.
+    // Global bbox skews heavily toward European AIS receivers; regional targeting
+    // gives proportional coverage of high-value corridors: Suez, Malacca, Persian
+    // Gulf, South China Sea, Panama — where geopolitical intelligence density is highest.
+    // Format: [[minLat, minLon], [maxLat, maxLon]]
     ws.send(JSON.stringify({
-      APIKey:             AISSTREAM_KEY,
-      BoundingBoxes:      [[[-90, -180], [90, 180]]],
+      APIKey: AISSTREAM_KEY,
+      BoundingBoxes: [
+        [[ 50, -10], [ 70,  30]],  // North Sea & Baltic      (300 est.)
+        [[ 30,  -6], [ 46,  36]],  // Mediterranean           (250)
+        [[ 12,  32], [ 32,  50]],  // Suez Canal & Red Sea    (200) ← chokepoint
+        [[ -2,  95], [  8, 110]],  // Strait of Malacca       (200) ← busiest strait
+        [[  5, -85], [ 25, -60]],  // Panama Canal & Caribbean(150)
+        [[ 23,  48], [ 30,  60]],  // Persian Gulf            (150) ← energy
+        [[  0, 105], [ 25, 125]],  // South China Sea         (150) ← contested
+        [[-12,  35], [ 15,  55]],  // East Africa & Horn      (100) ← piracy
+        [[ 30, -60], [ 60, -10]],  // North Atlantic          (150)
+        [[ 20,-135], [ 50,-115]],  // US West Coast & Pacific (150)
+      ],
       FilterMessageTypes: ['PositionReport'],
     }));
   };
@@ -15680,7 +15710,7 @@ function connectAISStream() {
       setInterval(_processAndRender, AIS_RENDER_INTERVAL);
       console.log('[ArgusAIS] render interval started (' + AIS_RENDER_INTERVAL + 'ms)');
 
-      console.log('[ArgusAIS] globe ready — opening AISstream WebSocket');
+console.log('[ArgusAIS] globe ready — opening AISstream WebSocket');
       connectAISStream();
     } else if (attempts > 150) {
       clearInterval(timer);

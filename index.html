@@ -269,6 +269,10 @@
       background: rgba(0,100,180,0.08); border-color: #1a3a5a; color: #5a9acc;
     }
     .acct-btn--ghost:hover { background: rgba(0,100,180,0.16); border-color: #2a6a90; color: #88bbdd; }
+    .acct-btn--primary {
+      background: rgba(0,170,255,0.10); border-color: #1a5a7a; color: #00ccff;
+    }
+    .acct-btn--primary:hover { background: rgba(0,170,255,0.20); border-color: #2a8aaa; color: #44ddff; }
 
     .acct-feedback {
       font-size: 10px; letter-spacing: 1px; font-family: var(--font-mono);
@@ -3006,6 +3010,10 @@
     <div class="acct-pane" id="acct-pane-settings">
       <!-- Authentication section -->
       <div class="acct-field-label" style="margin-bottom:8px">AUTHENTICATION</div>
+      <!-- Login button — visible only when no active session (guest) -->
+      <button class="acct-btn acct-btn--primary" id="acct-btn-login" style="display:none" onclick="window.location.href='login.html'">
+        → LOG IN / REGISTER
+      </button>
       <button class="acct-btn acct-btn--danger" id="acct-btn-signout" onclick="ArgusAccount.signOut()">
         ⏻ SIGN OUT
       </button>
@@ -10782,6 +10790,14 @@ return { getCountryData: getCountryData, getDisasters: getDisasters, init: init 
       var btn   = document.getElementById('btn-account');
       if (panel) panel.classList.add('is-open');
       if (btn)   { btn.classList.add('is-open'); btn.setAttribute('aria-expanded', 'true'); }
+
+      // Show login button and hide sign-out when no active session (guest)
+      var isGuest = !window.ArgusSession || !window.ArgusSession.email;
+      var loginBtn   = document.getElementById('acct-btn-login');
+      var signoutBtn = document.getElementById('acct-btn-signout');
+      if (loginBtn)   loginBtn.style.display   = isGuest ? 'block' : 'none';
+      if (signoutBtn) signoutBtn.style.display  = isGuest ? 'none'  : 'block';
+
       loadProfile();
       // Close on outside click
       setTimeout(function() {
@@ -13820,12 +13836,13 @@ window.ArgusCaseBuilder = (function () {
       _net.dragging = true; _net.mx = e.clientX; _net.my = e.clientY;
       wrap.classList.add('is-panning');
     });
+    var _netRafPending = false;
     window.addEventListener('mousemove', function (e) {
       if (!_net.dragging) return;
       _net.ox += e.clientX - _net.mx;
       _net.oy += e.clientY - _net.my;
       _net.mx = e.clientX; _net.my = e.clientY;
-      renderNetwork();
+      if (!_netRafPending) { _netRafPending = true; requestAnimationFrame(function(){ _netRafPending = false; renderNetwork(); }); }
     });
     window.addEventListener('mouseup', function () {
       _net.dragging = false;
@@ -17189,6 +17206,7 @@ function setupCanvasInteraction() {
     }
   });
 
+  var _graphRafPending = false;
   window.addEventListener('mousemove', function(e) {
     if (nodeDrag.active) {
       _didMove = true;
@@ -17196,12 +17214,15 @@ function setupCanvasInteraction() {
       var mx = (e.clientX - rect.left - cam.x) / cam.scale;
       var my = (e.clientY - rect.top  - cam.y) / cam.scale;
       var pos = layout[nodeDrag.node.id];
-      if (pos) { pos.x = mx; pos.y = my; renderGraph(); }
+      if (pos) {
+        pos.x = mx; pos.y = my;
+        if (!_graphRafPending) { _graphRafPending = true; requestAnimationFrame(function(){ _graphRafPending = false; renderGraph(); }); }
+      }
     } else if (drag.active) {
       _didMove = true;
       cam.x = drag.cx + (e.clientX - drag.sx);
       cam.y = drag.cy + (e.clientY - drag.sy);
-      renderGraph();
+      if (!_graphRafPending) { _graphRafPending = true; requestAnimationFrame(function(){ _graphRafPending = false; renderGraph(); }); }
     } else {
       updateHover(e, canvas);
     }
@@ -19340,7 +19361,8 @@ window.ArgusSelection = (function () {
       _trackRing.material.opacity = 0.35 + 0.28 * Math.sin(Date.now() / 650);
     }
     // Auto-unlock if locked sprite was removed (layer toggled off / data refresh)
-    if (_locked && _all().indexOf(_locked) < 0) unlock();
+    // O(1): THREE.js sets .parent = null when an object is removed from the scene
+    if (_locked && !_locked.parent) unlock();
   }
 
   // Init — keyboard ESC to unlock

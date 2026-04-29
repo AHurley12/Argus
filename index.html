@@ -5043,19 +5043,8 @@ window.ArgusAnim = (function() {
 
 if (typeof window.updateNodeCounts !== 'function') window.updateNodeCounts = function() {};
 
-// ── API Keys & Endpoints ─────────────────────────────────────────────────────
-var EIA_API_KEY      = 'qlxF62jdyiSElMCUx7clWH1rQY3RO0Ab5osLpbZj';
-var FRED_API_KEY     = '47800444e04800d76224f661749542d4';
-var AV_KEY           = '7597SBOWZDY1BZX2';
-var AV_BASE          = 'https://www.alphavantage.co/query';
-var PG_KEY           = 'TZ8xt91B_6_wBMUyWEGl5GMVNa5e7WYz';
-var PG_BASE          = 'https://api.polygon.io';
-var FRED_BASE        = 'https://api.stlouisfed.org/fred/series/observations';
 // Supabase anon key — safe to expose, enforced by RLS on the server
 var SUPA_ANON_GDELT  = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndidnpseHRyb2V3eHJtb254b2R4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM3OTQzNzMsImV4cCI6MjA4OTM3MDM3M30.0zp-wQ3wKpYc0f7LqFCOEea_d9HJuWnUSWgF4BAW82w';
-
-// ── CORS proxy (codetabs — used for FRED/EIA direct calls) ───────────────────
-var PG = function(url) { return 'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(url); };
 
 // ── Live data stores ─────────────────────────────────────────────────────────
 window._avData        = {};
@@ -5067,106 +5056,10 @@ window._fredData      = null;
 // ════════════════════════════════════════════════════════════════════════════
 window.ArgusData = (function() {
 
-  // ── Alpha Vantage — Forex + S&P 500 ─────────────────────────────────────
-  function avQuoteUrl(sym) {
-    return AV_BASE + '?function=GLOBAL_QUOTE&symbol=' + sym + '&apikey=' + AV_KEY;
-  }
-
   function setEl(id, val, decimals, prefix) {
     var el = document.getElementById(id);
     if (!el || val == null) return;
     el.textContent = (prefix || '') + parseFloat(val).toFixed(decimals);
-  }
-
-  function avSetSPY(data) {
-    var gq    = data && data['Global Quote'];
-    var price = gq && gq['05. price'];
-    var chg   = gq && gq['10. change percent'];
-    if (!price) { console.warn('AV SPY no value'); return; }
-    var p     = parseFloat(price);
-    var spyEl = document.getElementById('spy-val');
-    if (spyEl) {
-      spyEl.textContent = '$' + p.toFixed(2);
-      if (chg) {
-        var pct = parseFloat(chg.replace('%', ''));
-        spyEl.style.color = pct >= 0 ? '#00ff88' : '#ff0044';
-        var chEl = document.getElementById('spy-change');
-        if (chEl) chEl.textContent = (pct >= 0 ? '+' : '') + pct.toFixed(2) + '%';
-      }
-    }
-    window._avData.spy = p;
-    window._avData.spyChange = chg;
-  }
-
-  function fetchAlphaVantage() {
-    var CACHE_K = 'argus_av_v6', CACHE_T = 'argus_av_ts_v6', TTL = 6 * 3600 * 1000;
-    try {
-      var cached = localStorage.getItem(CACHE_K);
-      var ts = parseInt(localStorage.getItem(CACHE_T) || '0');
-      if (cached && Date.now() - ts < TTL) {
-        window._avData = JSON.parse(cached);
-        var d = window._avData;
-        if (d['fx-eurusd']) setEl('fx-eurusd', d['fx-eurusd'], 4);
-        if (d['fx-gbpusd']) setEl('fx-gbpusd', d['fx-gbpusd'], 4);
-        if (d['fx-usdjpy']) setEl('fx-usdjpy', d['fx-usdjpy'], 2);
-        if (d.spy != null) {
-          var spyEl = document.getElementById('spy-val');
-          if (spyEl) spyEl.textContent = '$' + parseFloat(d.spy).toFixed(2);
-          if (d.spyChange) {
-            var pct = parseFloat(d.spyChange.replace('%',''));
-            if (spyEl) spyEl.style.color = pct >= 0 ? '#00ff88' : '#ff0044';
-            var chEl = document.getElementById('spy-change');
-            if (chEl) chEl.textContent = (pct >= 0 ? '+' : '') + pct.toFixed(2) + '%';
-          }
-        }
-        // Only skip the live fetch if all three FX pairs are present
-        if (d['fx-eurusd'] && d['fx-gbpusd'] && d['fx-usdjpy']) {
-          // cache hit
-          return;
-        }
-        console.log('AV cache incomplete — re-fetching FX');
-      }
-    } catch(e) {}
-
-    var delay = function(ms) { return new Promise(function(r) { setTimeout(r, ms); }); };
-
-    function doCall(url, handler, label) {
-      fetch(url)
-        .then(function(r) { return r.json(); })
-        .then(function(d) {
-          if (d && (d.Information || d.Note)) { console.warn('AV rate limit:', label); return; }
-          handler(d);
-          console.log('AV', label, 'ok');
-        })
-        .catch(function(e) { console.warn('AV', label, 'failed:', e.message); });
-    }
-
-    // ── FX: EUR/USD, GBP/USD, USD/JPY — exchangerate-api.com (keyed, CORS-open) ──
-    // Single request covers all three pairs. Frankfurter removed — blocked on GH Pages.
-    fetch('https://v6.exchangerate-api.com/v6/61302f7a6faa1d1912c1edd1/latest/USD')
-      .then(function(r) { return r.ok ? r.json() : null; })
-      .then(function(d) {
-        if (!d || !d.conversion_rates) { console.warn('ExchangeRate-API FX: no rates'); return; }
-        var rates = d.conversion_rates;
-        var eur = rates.EUR ? rates.EUR : null;        // EUR per USD → EUR/USD
-        var gbp = rates.GBP ? rates.GBP : null;        // GBP per USD → GBP/USD
-        var jpy = rates.JPY ? rates.JPY : null;        // JPY per USD → USD/JPY
-        if (eur) { setEl('fx-eurusd', eur, 4); window._avData['fx-eurusd'] = eur; }
-        if (gbp) { setEl('fx-gbpusd', gbp, 4); window._avData['fx-gbpusd'] = gbp; }
-        if (jpy) { setEl('fx-usdjpy', jpy, 2); window._avData['fx-usdjpy'] = jpy; }
-        console.log('FX via ExchangeRate-API — EUR/USD:', eur && eur.toFixed(4), 'GBP/USD:', gbp && gbp.toFixed(4), 'USD/JPY:', jpy && jpy.toFixed(2));
-      })
-      .catch(function(e) { console.warn('ExchangeRate-API FX failed:', e.message); });
-
-    // ── SPY — AV only used for equities quote (no FX competition) ────────────
-    doCall(avQuoteUrl('SPY'), function(d) { avSetSPY(d); }, 'SPY');
-
-    delay(2000).then(function() {
-      try {
-        localStorage.setItem(CACHE_K, JSON.stringify(window._avData));
-        localStorage.setItem(CACHE_T, String(Date.now()));
-      } catch(e) {}
-    });
   }
 
   // ── EIA — Brent, WTI spot prices + crude inventories ─────────────────────
@@ -5206,64 +5099,6 @@ window.ArgusData = (function() {
     updateBrentWTISpread();
   }
 
-  function fetchEIA() {
-    var CACHE_K = 'argus_eia_v8', CACHE_T = 'argus_eia_ts_v8';
-    var TTL     = 24 * 3600 * 1000; // 24h — stale crude prices are acceptable
-    try {
-      var cached = localStorage.getItem(CACHE_K);
-      var ts = parseInt(localStorage.getItem(CACHE_T) || '0');
-      if (cached && Date.now() - ts < TTL) {
-        window._eiaData = JSON.parse(cached);
-        renderEIATicker();
-        // 'EIA: from cache — Brent $' + window._eiaData.brent + ' WTI $' + window._eiaData.wti);
-        return;
-      }
-    } catch(e) {}
-
-    var eiaBase = 'https://api.eia.gov/v2/petroleum/pri/spt/data/?api_key=' + EIA_API_KEY +
-      '&frequency=daily&data[0]=value&sort[0][column]=period&sort[0][direction]=desc&length=1';
-
-    // Fetch Brent, WTI, and inventories in parallel
-    var brentUrl = eiaBase + '&facets[series][]=RBRTE';
-    var wtiUrl   = eiaBase + '&facets[series][]=RWTC';
-    var invUrl   = 'https://api.eia.gov/v2/petroleum/stoc/wstk/data/?api_key=' + EIA_API_KEY +
-      '&frequency=weekly&data[0]=value&facets[series][]=WCESTUS1' +
-      '&sort[0][column]=period&sort[0][direction]=desc&length=1';
-
-    function eiaVal(json) {
-      var row = json && json.response && json.response.data && json.response.data[0];
-      return row ? { value: parseFloat(row.value), period: row.period } : null;
-    }
-
-    Promise.all([
-      fetch(brentUrl).then(function(r) { return r.ok ? r.json() : null; }).catch(function() { return null; }),
-      fetch(wtiUrl).then(function(r)   { return r.ok ? r.json() : null; }).catch(function() { return null; }),
-      fetch(invUrl).then(function(r)   { return r.ok ? r.json() : null; }).catch(function() { return null; }),
-    ]).then(function(results) {
-      var brent = eiaVal(results[0]);
-      var wti   = eiaVal(results[1]);
-      var inv   = eiaVal(results[2]);
-
-      window._eiaData = Object.assign(window._eiaData || {}, {
-        brent:       brent ? brent.value : null,
-        brentDate:   brent ? brent.period : null,
-        wti:         wti   ? wti.value   : null,
-        wtiDate:     wti   ? wti.period  : null,
-        crudeInv:    inv   ? inv.value   : null,
-        crudeInvDate: inv  ? inv.period  : null,
-      });
-
-      renderEIATicker();
-      console.log('EIA: Brent $' + (brent ? brent.value.toFixed(2) : '—') +
-                  '  WTI $'   + (wti   ? wti.value.toFixed(2)   : '—') +
-                  '  Inv '    + (inv   ? inv.value + ' Mb'       : '—'));
-      try {
-        localStorage.setItem(CACHE_K, JSON.stringify(window._eiaData));
-        localStorage.setItem(CACHE_T, String(Date.now()));
-      } catch(e) {}
-    }).catch(function(err) { console.warn('EIA fetch error:', err.message); });
-  }
-
   // ── FRED — USD Index, GEPU, Yield Curve ──────────────────────────────────
   function renderFREDTicker() {
     var d = window._fredData;
@@ -5280,45 +5115,6 @@ window.ArgusData = (function() {
       yEl.textContent = parseFloat(d.yield10y2y).toFixed(2) + '%';
       yEl.style.color = d.yield10y2y < 0 ? '#ff0044' : d.yield10y2y < 0.5 ? '#ffcc00' : '#00ff88';
     }
-  }
-
-  function fetchFRED() {
-    var CACHE_K = 'argus_fred_v4', CACHE_T = 'argus_fred_ts_v4', TTL = 12 * 3600 * 1000;
-    try {
-      var cached = localStorage.getItem(CACHE_K);
-      var ts = parseInt(localStorage.getItem(CACHE_T) || '0');
-      if (cached && Date.now() - ts < TTL) {
-        window._fredData = JSON.parse(cached);
-        renderFREDTicker();
-        // cache
-        return;
-      }
-    } catch(e) {}
-
-    function fredUrl(series) {
-      return PG(FRED_BASE + '?series_id=' + series + '&api_key=' + FRED_API_KEY + '&file_type=json&sort_order=desc&limit=1');
-    }
-    function parseVal(json) {
-      var v = json && json.observations && json.observations[0] && json.observations[0].value;
-      return (!v || v === '.') ? null : parseFloat(v);
-    }
-
-    Promise.all([fetch(fredUrl('DTWEXBGS')), fetch(fredUrl('GEPUCURRENT')), fetch(fredUrl('T10Y2Y'))])
-      .then(function(rs) { return Promise.all(rs.map(function(r) { return r.json(); })); })
-      .then(function(jsons) {
-        window._fredData = {
-          usd: parseVal(jsons[0]), usdDate: jsons[0] && jsons[0].observations && jsons[0].observations[0] && jsons[0].observations[0].date,
-          gepu: parseVal(jsons[1]), gepuDate: jsons[1] && jsons[1].observations && jsons[1].observations[0] && jsons[1].observations[0].date,
-          yield10y2y: parseVal(jsons[2]), yieldDate: jsons[2] && jsons[2].observations && jsons[2].observations[0] && jsons[2].observations[0].date,
-        };
-        try {
-          localStorage.setItem(CACHE_K, JSON.stringify(window._fredData));
-          localStorage.setItem(CACHE_T, String(Date.now()));
-        } catch(e) {}
-        renderFREDTicker();
-        console.log('FRED complete:', window._fredData);
-      })
-      .catch(function(err) { console.warn('FRED fetch failed:', err.message); });
   }
 
   // ── Intelligence Snapshot ─────────────────────────────────────────────────
@@ -5376,6 +5172,17 @@ window.ArgusData = (function() {
         }
         L.push('');
       });
+
+      // ── IMF PortWatch analytics signals ──────────────────────────────────────
+      var pwSignals = window._portWatchSignals;
+      var pwState   = window._portWatchState;
+      if (pwSignals && pwSignals.length) {
+        L.push('--- IMF PORTWATCH ANALYTICS SIGNALS (' + (pwState && pwState.period || 'pending') + ') ---');
+        pwSignals.forEach(function(s) {
+          L.push('[' + s.type + '|' + s.severity + '] ' + s.detail);
+        });
+        L.push('');
+      }
 
       L.push('--- ACTIVE TRADE ROUTES ---');
       routes.forEach(function(r) {
@@ -5452,17 +5259,7 @@ window.ArgusData = (function() {
     URL.revokeObjectURL(url);
   }
 
-  // ── Global Exchanges — Twelve Data (15-min delayed, CORS supported, 800 req/day free)
-  // Quote + 30d history fetched separately but both cached together.
-  // Fallback: Alpha Vantage ETF proxies if TD fails.
-  var TD_KEY  = '9a7f9d7fbc2847d0bd9da518ab84dd57';
-  var TD_BASE = 'https://api.twelvedata.com';
-  var FH_KEY  = 'd6reh5hr01qr194md15gd6reh5hr01qr194md160';
-  var FH_BASE = 'https://finnhub.io/api/v1';
-
-  // ── Unified TD symbol registry ────────────────────────────────────────────────
-  // All TD data in ONE batch /quote call on load. Reduces to 1 API request vs 2.
-
+  // ── Exchange symbol registry — used by selectExchange() for chart lookups ──
   var EXCHANGE_SYMBOLS = [
     { sym: 'VIX',  tdSym: 'VIXY', avSym: 'VIXY', pgSym: null,  elId: 'idx-vix',    chgId: null,             label: 'VIX'        },
     { sym: 'FTSE', tdSym: 'EWU',  avSym: 'EWU',  pgSym: null,  elId: 'idx-ftse',   chgId: 'idx-ftse-chg',   label: 'FTSE 100'   },
@@ -5473,158 +5270,6 @@ window.ArgusData = (function() {
     { sym: 'NYA',  tdSym: 'SPY',  avSym: 'NYA',  pgSym: 'IYY', elId: 'idx-nyse',   chgId: 'idx-nyse-chg',   label: 'NYSE (SPY)' },
   ];
 
-  // Commodity/crypto/BDI symbols — rendered separately but fetched in same batch
-  // fhSym = Finnhub (primary for crypto/ETFs), tdSym = Twelve Data (primary for metals/crude)
-  // OANDA pairs require Finnhub paid plan — metals/crude handled by TD batch only
-  var COMMODITY_SYMBOLS = [
-    { fhSym: null,                tdSym: 'XBR/USD', valId: 'brent-val',  chgId: null,         prefix: '$', dec: 2 },
-    { fhSym: null,                tdSym: 'XTI/USD', valId: 'wti-val',    chgId: null,         prefix: '$', dec: 2 },
-    { fhSym: null,                tdSym: 'XAU/USD', valId: 'gold-val',   chgId: 'gold-chg',   prefix: '$', dec: 2 },
-    { fhSym: null,                tdSym: 'XAG/USD', valId: 'silver-val', chgId: 'silver-chg', prefix: '$', dec: 2 },
-    { fhSym: 'CPER',              tdSym: 'CPER',    valId: 'copper-val', chgId: 'copper-chg', prefix: '$', dec: 2 },
-    { fhSym: 'WEAT',              tdSym: 'WEAT',    valId: 'wheat-val',  chgId: 'wheat-chg',  prefix: '$', dec: 2 },
-    { fhSym: 'BINANCE:BTCUSDT',   tdSym: 'BTC/USD', valId: 'btc-val',    chgId: 'btc-chg',    prefix: '$', dec: 0 },
-    { fhSym: 'BINANCE:ETHUSDT',   tdSym: 'ETH/USD', valId: 'eth-val',    chgId: 'eth-chg',    prefix: '$', dec: 0 },
-  ];
-
-  // ── Single unified TD fetch — all 14 symbols in one /quote call ───────────────
-  function fetchTDData() {
-    var CACHE_K = 'argus_td_v3', CACHE_T = 'argus_td_ts_v3', TTL = 10 * 60 * 1000; // 10 min
-    try {
-      var cached = localStorage.getItem(CACHE_K);
-      var ts = parseInt(localStorage.getItem(CACHE_T) || '0');
-      if (cached && Date.now() - ts < TTL) {
-        var d = JSON.parse(cached);
-        renderExchanges(d.exchanges || {});
-        renderCommodities(d.raw || {});
-        EXCHANGE_SYMBOLS.forEach(function(item) {
-          if (d.exchanges && d.exchanges[item.sym] && d.exchanges[item.sym].prices && d.exchanges[item.sym].prices.length) {
-            chartCache[item.sym] = d.exchanges[item.sym];
-          }
-        });
-        // cache
-        return;
-      }
-    } catch(e) {}
-
-    // Build one combined symbol list
-    var exSyms   = EXCHANGE_SYMBOLS.map(function(i) { return i.tdSym; });
-    var commSyms = COMMODITY_SYMBOLS.map(function(i) { return i.tdSym; });
-    var allSyms  = exSyms.concat(commSyms).join(',');
-
-    fetch(TD_BASE + '/quote?symbol=' + encodeURIComponent(allSyms) + '&apikey=' + TD_KEY)
-      .then(function(r) { if (!r.ok) throw new Error('TD HTTP ' + r.status); return r.json(); })
-      .then(function(raw) {
-        if (!raw) throw new Error('TD: empty response');
-
-        // Parse exchanges
-        var exData = {};
-        EXCHANGE_SYMBOLS.forEach(function(item) {
-          var q = raw[item.tdSym];
-          if (!q || q.status === 'error' || !q.close) return;
-          var price = parseFloat(q.close);
-          var prev  = parseFloat(q.previous_close || q.open || price);
-          var pct   = prev ? (((price - prev) / prev) * 100).toFixed(2) + '%' : '';
-          exData[item.sym] = { price: price, chg: pct, prices: [], dates: [], src: 'TD' };
-        });
-
-        renderExchanges(exData);
-        renderCommodities(raw);
-
-        try {
-          localStorage.setItem(CACHE_K, JSON.stringify({ exchanges: exData, raw: raw }));
-          localStorage.setItem(CACHE_T, String(Date.now()));
-        } catch(e) {}
-        console.log('TD: loaded', Object.keys(exData).length, 'exchanges +', COMMODITY_SYMBOLS.length, 'commodities in 1 call');
-      })
-      .catch(function(err) {
-        console.warn('TD batch failed (' + err.message + ') — AV fallback for exchanges');
-        fetchExchangesAVFallback();
-      });
-  }
-
-  // Kept for fallback only — fires if TD batch fails entirely
-  function fetchExchangesAVFallback() {
-    var delay = function(ms) { return new Promise(function(r) { setTimeout(r, ms); }); };
-    var exData = {};
-    function fetchOne(item, idx) {
-      return delay(idx * 13000).then(function() {
-        return fetch(avQuoteUrl(item.avSym))
-          .then(function(r) { return r.json(); })
-          .then(function(d) {
-            if (d && (d.Information || d.Note)) { console.warn('AV rate limit: exchanges'); return; }
-            var gq = d && d['Global Quote'];
-            var price = gq && gq['05. price'];
-            var chg   = gq && gq['10. change percent'];
-            if (!price) return;
-            exData[item.sym] = { price: parseFloat(price), chg: chg || '', prices: [], src: 'AV' };
-            renderExchanges(exData);
-          })
-          .catch(function(e) { console.warn('AV fallback failed:', item.label, e.message); });
-      });
-    }
-    Promise.all(EXCHANGE_SYMBOLS.map(fetchOne)).then(function() {
-      console.log('Exchanges AV fallback: loaded', Object.keys(exData).length, 'symbols');
-    });
-  }
-
-  // fetchExchanges now just delegates to unified fetch
-  function fetchExchanges() { fetchTDData(); }
-  // fetchCommodities also delegates — no separate call needed
-  function fetchCommodities() { /* handled by fetchTDData */ }
-
-  function renderExchanges(exData) {
-    EXCHANGE_SYMBOLS.forEach(function(item) {
-      var d = exData[item.sym];
-      if (!d) return;
-      var el = document.getElementById(item.elId);
-      if (el) el.textContent = '$' + parseFloat(d.price).toFixed(2);
-      if (item.chgId && d.chg) {
-        var chgEl = document.getElementById(item.chgId);
-        if (chgEl) {
-          var pct = parseFloat(d.chg.replace('%', ''));
-          chgEl.textContent = (pct > 0 ? '+' : '') + pct.toFixed(2) + '%';
-          chgEl.style.color = pct > 0 ? '#00ff88' : pct < 0 ? '#ff0044' : '#c5d7e8';
-        }
-      }
-      if (item.sym === 'VIX' && el) {
-        var v = parseFloat(d.price);
-        el.style.color = v > 30 ? '#ff0044' : v > 20 ? '#ff9933' : v > 15 ? '#ffcc00' : '#00ff88';
-      }
-    });
-  }
-
-  function renderCommodities(raw) {
-    COMMODITY_SYMBOLS.forEach(function(item) {
-      var q = raw[item.tdSym];
-      if (!q || q.status === 'error' || !q.close) return;
-      var price = parseFloat(q.close);
-      var prev  = parseFloat(q.previous_close || q.open || price);
-      var pct   = prev ? (((price - prev) / prev) * 100) : 0;
-      var el = document.getElementById(item.valId);
-      if (el) el.textContent = item.prefix + price.toFixed(item.dec);
-      if (item.chgId) {
-        var chgEl = document.getElementById(item.chgId);
-        if (chgEl) {
-          chgEl.textContent = (pct > 0 ? '+' : '') + pct.toFixed(2) + '%';
-          chgEl.style.color = pct > 0 ? '#00ff88' : pct < 0 ? '#ff0044' : '#c5d7e8';
-        }
-      }
-      // Backfill _eiaData so chokepoint panels can read live Brent/WTI
-      if (item.tdSym === 'XBR/USD') {
-        window._eiaData = window._eiaData || {};
-        window._eiaData.brent     = price;
-        window._eiaData.brentDate = new Date().toISOString().slice(0, 10);
-      }
-      if (item.tdSym === 'XTI/USD') {
-        window._eiaData = window._eiaData || {};
-        window._eiaData.wti     = price;
-        window._eiaData.wtiDate = new Date().toISOString().slice(0, 10);
-      }
-    });
-    updateBrentWTISpread();
-  }
-
   function toggleExchanges() {
     var popup   = document.getElementById('exchanges-popup');
     var overlay = document.getElementById('exchanges-overlay');
@@ -5633,17 +5278,15 @@ window.ArgusData = (function() {
     if (overlay) overlay.classList.toggle('is-open', open);
   }
 
-  // Twelve Data — time series for chart (on-demand, debounced)
+  // Twelve Data — time series for chart (on-demand, via Netlify proxy)
   function fetchTDHistory(tdSym) {
-    return fetch(TD_BASE + '/time_series?symbol=' + encodeURIComponent(tdSym) +
-        '&interval=1day&outputsize=30&apikey=' + TD_KEY)
+    return fetch('/.netlify/functions/fetch-td-history?symbol=' + encodeURIComponent(tdSym))
       .then(function(r) { if (!r.ok) throw new Error('TD history HTTP ' + r.status); return r.json(); })
       .then(function(d) {
-        if (!d || d.status === 'error') throw new Error(d && d.message || 'TD history error');
-        var values = d.values || [];
-        if (!values.length) throw new Error('TD: no history values');
-        var prices = values.slice().reverse().map(function(v) { return parseFloat(v.close); });
-        var dates  = values.slice().reverse().map(function(v) { return v.datetime.slice(5); });
+        if (d.error) throw new Error(d.error);
+        var prices = d.prices || [];
+        var dates  = d.dates  || [];
+        if (!prices.length) throw new Error('TD history: no prices');
         return { prices: prices, dates: dates };
       });
   }
@@ -5819,112 +5462,6 @@ window.ArgusData = (function() {
     }, 2000);
   }
 
-  // ── Finnhub commodities + crypto — primary source ────────────────────────────
-  // /quote returns: c=current, pc=prev close, d=change, dp=change%, h=high, l=low
-  // 60 req/min free tier, direct CORS, real prices (not ETF proxies for metals/crypto)
-  function fetchFinnhubCommodities() {
-    var CACHE_K = 'argus_fh_comm_v1', CACHE_T = 'argus_fh_comm_ts_v1', TTL = 20 * 60 * 1000; // 20 min — forex/commodity strategic view
-    try {
-      var cached = localStorage.getItem(CACHE_K);
-      var ts = parseInt(localStorage.getItem(CACHE_T) || '0');
-      if (cached && Date.now() - ts < TTL) {
-        renderFHCommodities(JSON.parse(cached));
-        // cache
-        return;
-      }
-    } catch(e) {}
-
-    var results = {};
-    var delay = function(ms) { return new Promise(function(r) { setTimeout(r, ms); }); };
-
-    // Stagger 300ms apart — well within 60/min limit, avoids burst
-    function fetchOne(item, idx) {
-      return delay(idx * 300).then(function() {
-        if (!item.fhSym) return Promise.resolve(); // TD handles this symbol
-        return fetch(FH_BASE + '/quote?symbol=' + encodeURIComponent(item.fhSym) + '&token=' + FH_KEY)
-          .then(function(r) { if (!r.ok) throw new Error('FH HTTP ' + r.status); return r.json(); })
-          .then(function(d) {
-            if (!d || !d.c || d.c === 0) throw new Error('FH: no price for ' + item.fhSym);
-            var pct = d.pc ? (((d.c - d.pc) / d.pc) * 100).toFixed(2) + '%' : '';
-            results[item.fhSym] = { price: d.c, chg: pct, src: 'FH' };
-            renderFHCommodities(results);
-          })
-          .catch(function(err) {
-            console.warn('FH failed for', item.fhSym, '—', err.message, '— TD fallback will cover');
-          });
-      });
-    }
-
-    Promise.all(COMMODITY_SYMBOLS.map(fetchOne))
-      .then(function() {
-        if (Object.keys(results).length) {
-          try {
-            localStorage.setItem(CACHE_K, JSON.stringify(results));
-            localStorage.setItem(CACHE_T, String(Date.now()));
-          } catch(e) {}
-          console.log('FH commodities: loaded', Object.keys(results).length, '/', COMMODITY_SYMBOLS.length);
-        }
-      });
-  }
-
-  function renderFHCommodities(results) {
-    COMMODITY_SYMBOLS.forEach(function(item) {
-      var d = results[item.fhSym];
-      if (!d || !d.price) return;
-      var el = document.getElementById(item.valId);
-      if (el) el.textContent = item.prefix + parseFloat(d.price).toFixed(item.dec);
-      if (item.chgId && d.chg) {
-        var chgEl = document.getElementById(item.chgId);
-        if (chgEl) {
-          var pct = parseFloat(d.chg.replace('%', ''));
-          chgEl.textContent = (pct > 0 ? '+' : '') + pct.toFixed(2) + '%';
-          chgEl.style.color = pct > 0 ? '#00ff88' : pct < 0 ? '#ff0044' : '#c5d7e8';
-        }
-      }
-    });
-  }
-
-  // ── Bond yields — FRED ────────────────────────────────────────────────────────
-  function fetchBondYields() {
-    var CACHE_K = 'argus_bonds_v1', CACHE_T = 'argus_bonds_ts_v1', TTL = 12 * 3600 * 1000;
-    try {
-      var cached = localStorage.getItem(CACHE_K);
-      var ts = parseInt(localStorage.getItem(CACHE_T) || '0');
-      if (cached && Date.now() - ts < TTL) {
-        renderBondYields(JSON.parse(cached));
-        // cache
-        return;
-      }
-    } catch(e) {}
-
-    function fredUrl(series) {
-      return PG(FRED_BASE + '?series_id=' + series + '&api_key=' + FRED_API_KEY + '&file_type=json&sort_order=desc&limit=1');
-    }
-    function parseVal(json) {
-      var v = json && json.observations && json.observations[0] && json.observations[0].value;
-      return (!v || v === '.') ? null : parseFloat(v);
-    }
-
-    // DGS10 = US 10Y, IRLTLT01DEM156N = German Bund, IRLTLT01GBM156N = UK Gilt
-    Promise.all([
-      fetch(fredUrl('DGS10')).then(function(r) { return r.json(); }).catch(function() { return null; }),
-      fetch(fredUrl('IRLTLT01DEM156N')).then(function(r) { return r.json(); }).catch(function() { return null; }),
-      fetch(fredUrl('IRLTLT01GBM156N')).then(function(r) { return r.json(); }).catch(function() { return null; }),
-    ]).then(function(jsons) {
-      var bonds = {
-        us10y: parseVal(jsons[0]),
-        bund:  parseVal(jsons[1]),
-        gilt:  parseVal(jsons[2]),
-      };
-      renderBondYields(bonds);
-      try {
-        localStorage.setItem(CACHE_K, JSON.stringify(bonds));
-        localStorage.setItem(CACHE_T, String(Date.now()));
-      } catch(e) {}
-      console.log('Bonds: FRED loaded', bonds);
-    }).catch(function(e) { console.warn('Bond yields failed:', e.message); });
-  }
-
   function renderBondYields(bonds) {
     function setYield(id, val) {
       var el = document.getElementById(id);
@@ -5934,64 +5471,6 @@ window.ArgusData = (function() {
     setYield('us10y-val', bonds.us10y);
     setYield('bund-val',  bonds.bund);
     setYield('gilt-val',  bonds.gilt);
-  }
-
-  // ── Polygon.io — /v2/aggs/ticker/{ticker}/prev ───────────────────────────────
-  // KSA and IYY confirmed working on free tier. I:VIX 403s on index prefix.
-  function fetchPolygonExchanges() {
-    var CACHE_K = 'argus_pg_ex_v1', CACHE_T = 'argus_pg_ex_ts_v1', TTL = 10 * 60 * 1000; // 10 min
-    try {
-      var cached = localStorage.getItem(CACHE_K);
-      var ts     = parseInt(localStorage.getItem(CACHE_T) || '0');
-      if (cached && Date.now() - ts < TTL) {
-        renderPolygonExchanges(JSON.parse(cached));
-        // cache
-        return;
-      }
-    } catch(e) {}
-    var pgItems = EXCHANGE_SYMBOLS.filter(function(i) { return i.pgSym; });
-    var delay   = function(ms) { return new Promise(function(r) { setTimeout(r, ms); }); };
-    var results = {};
-    function fetchOne(item, idx) {
-      return delay(idx * 13000).then(function() {
-        return fetch(PG_BASE + '/v2/aggs/ticker/' + encodeURIComponent(item.pgSym) + '/prev?adjusted=true&apiKey=' + PG_KEY)
-          .then(function(r) { if (!r.ok) throw new Error('PG HTTP ' + r.status); return r.json(); })
-          .then(function(d) {
-            var res = d && d.results && d.results[0];
-            if (!res || !res.c) throw new Error('PG: no close for ' + item.pgSym);
-            var pct = res.o ? (((res.c - res.o) / res.o) * 100).toFixed(2) : '0';
-            results[item.sym] = { price: res.c, chg: pct + '%', src: 'PG' };
-            renderPolygonExchanges(results);
-            console.log('Polygon ' + item.pgSym + ': $' + res.c);
-          })
-          .catch(function(err) { console.warn('Polygon ' + item.pgSym + ' failed:', err.message); });
-      });
-    }
-    Promise.all(pgItems.map(fetchOne)).then(function() {
-      if (Object.keys(results).length) {
-        try {
-          localStorage.setItem(CACHE_K, JSON.stringify(results));
-          localStorage.setItem(CACHE_T, String(Date.now()));
-        } catch(e) {}
-      }
-    });
-  }
-
-  function renderPolygonExchanges(results) {
-    EXCHANGE_SYMBOLS.forEach(function(item) {
-      var d = results[item.sym];
-      if (!d || !d.price) return;
-      var el = document.getElementById(item.elId);
-      if (el) el.textContent = parseFloat(d.price).toFixed(2);
-      if (item.chgId && d.chg) {
-        var chgEl = document.getElementById(item.chgId);
-        if (chgEl) {
-          var pct = parseFloat(d.chg.replace('%',''));
-          chgEl.textContent = (pct > 0 ? '+' : '') + pct.toFixed(2) + '%';
-          chgEl.style.color = pct > 0 ? '#00ff88' : pct < 0 ? '#ff0044' : '#c5d7e8';
-        }
-      }
-    });
   }
 
   function init() {
@@ -6004,9 +5483,7 @@ window.ArgusData = (function() {
     // Each function has its own TTL cache and returns immediately on cache hit;
     // the delay only costs anything on a cold first load or after expiry.
     var _mktFns = [
-      fetchEIA, fetchMarketData, fetchPolygonExchanges, fetchAlphaVantage,
-      fetchFRED, fetchTDData, fetchYFinance, fetchFinnhubCommodities,
-      fetchBondYields, fetchBDI
+      fetchMarketData, fetchYFinance, fetchBDI
     ];
     _mktFns.forEach(function(fn, i) {
       setTimeout(fn, i * 600 + Math.floor(Math.random() * 400));
@@ -6112,7 +5589,11 @@ window.ArgusData = (function() {
   function applyMarketPayload(d) {
     if (window.ArgusDataAge) ArgusDataAge.mark('data-age-market', d.ts);
     if (d.eia) { window._eiaData = Object.assign(window._eiaData || {}, d.eia); renderEIATicker(); }
-    if (d.fred) { window._fredData = Object.assign(window._fredData || {}, d.fred); renderFREDTicker(); }
+    if (d.fred) {
+      window._fredData = Object.assign(window._fredData || {}, d.fred);
+      renderFREDTicker();
+      if (d.fred.bonds) renderBondYields(d.fred.bonds);
+    }
     if (d.stooq) {
       var MAP = {
         '^ftse': { elId: 'idx-ftse',   chgId: 'idx-ftse-chg',   prefix: '',  dec: 0 },
@@ -6218,6 +5699,12 @@ window.ArgusData = (function() {
       setEl(cfg.valId, q.price.toLocaleString('en-US', { maximumFractionDigits: cfg.dec }), upDown(q.changePercent));
       setChg(cfg.chgId, q.changePercent);
     });
+
+    // ── Saudi/Gulf index (KSA ETF) ────────────────────────────────────────────
+    if (data.KSA && data.KSA.price != null) {
+      setEl('idx-ksa', data.KSA.price.toFixed(2), upDown(data.KSA.changePercent));
+      setChg('idx-ksa-chg', data.KSA.changePercent);
+    }
 
     // ── VIX (color-coded by level) ────────────────────────────────────────────
     if (data['^VIX'] && data['^VIX'].price != null) {
@@ -15854,6 +15341,313 @@ return {
 
     if (attempts > 300) clearInterval(timer); // 60 s hard stop
   }, 200);
+}());
+</script>
+
+<!-- ══════════════════════════════════════════════════════════════════════════════
+     SCRIPT 4c — ArgusPortWatch: IMF PortWatch macro intelligence layer
+     Ingests Daily_Ports_Data (ArcGIS) via Netlify proxy.
+     Fully additive — no AIS, no vessel rendering, no UI layout changes.
+     Populates: window._portWatchState, window._portData (legacy hook),
+                window._portWatchSignals (analytics signals for AI context).
+══════════════════════════════════════════════════════════════════════════════ -->
+<script>
+window.ArgusPortWatch = (function () {
+  'use strict';
+
+  // ── Config ──────────────────────────────────────────────────────────────────
+  var POLL_MS   = 10 * 60 * 1000;  // 10-minute poll — data is daily, no need for faster
+  var ENDPOINT  = '/.netlify/functions/fetch-portwatch';
+
+  // ── Categorization map (spec §5) ────────────────────────────────────────────
+  var PORT_CATEGORIES = {
+    IMPORT_CONTAINER: { key: 'imports.container' },
+    EXPORT_CONTAINER: { key: 'exports.container' },
+    IMPORT_TANKER:    { key: 'imports.tanker'    },
+    EXPORT_TANKER:    { key: 'exports.tanker'    },
+    TOTAL_ACTIVITY:   { key: 'total_calls'       },
+  };
+
+  // ── Color scale (spec §6) ────────────────────────────────────────────────────
+  var PORT_COLOR_SCALE = {
+    LOW:      '#2ecc71',  // green
+    MED:      '#f1c40f',  // yellow
+    HIGH:     '#e67e22',  // orange
+    CRITICAL: '#e74c3c',  // red
+  };
+
+  // ── Intensity classifier — min/max scaled across the live dataset ────────────
+  function getPortIntensity(value, min, max) {
+    if (max <= min) return { level: 'LOW', color: PORT_COLOR_SCALE.LOW };
+    var norm = Math.max(0, Math.min(1, (value - min) / (max - min)));
+    if (norm < 0.25) return { level: 'LOW',      color: PORT_COLOR_SCALE.LOW      };
+    if (norm < 0.55) return { level: 'MED',      color: PORT_COLOR_SCALE.MED      };
+    if (norm < 0.80) return { level: 'HIGH',     color: PORT_COLOR_SCALE.HIGH     };
+    return             { level: 'CRITICAL', color: PORT_COLOR_SCALE.CRITICAL };
+  }
+
+  // ── Chokepoint name → our internal ID mapping ────────────────────────────────
+  // Regex matched against "portname country" — additive, new IDs can be appended.
+  var CHOKEPOINT_MATCHERS = [
+    { id: 'hormuz',      re: /jebel.ali|abu.dhabi|muscat|bandar.?abbas|fujairah|salalah|sohar|khor.fakkan|umm.al.quwain/i },
+    { id: 'suez',        re: /port.?said|suez|damietta|ismailia/i },
+    { id: 'bab_cp',      re: /djibouti|aden|hodeidah|berbera|obock/i },
+    { id: 'malacca',     re: /singapore|port.klang|tanjung.pelepas|penang|batam|belawan|dumai/i },
+    { id: 'panama',      re: /balboa|colon|cristobal|panama/i },
+    { id: 'bosphorus',   re: /istanbul|ambarli|haydarpasa|izmit|gebze|derince|tekirdag/i },
+    { id: 'gibraltar',   re: /algeciras|tangier|tanger.?med|ceuta/i },
+    { id: 'dardanelles', re: /canakkale|izmir|aliaga/i },
+    { id: 'lombok',      re: /lombok|makassar|surabaya|balikpapan/i },
+    { id: 'capegoodh',   re: /cape.?town|durban|port.elizabeth|east.london/i },
+  ];
+
+  function matchChokepoint(portname, country) {
+    var combined = ((portname || '') + ' ' + (country || ''));
+    for (var i = 0; i < CHOKEPOINT_MATCHERS.length; i++) {
+      if (CHOKEPOINT_MATCHERS[i].re.test(combined)) return CHOKEPOINT_MATCHERS[i].id;
+    }
+    return null;
+  }
+
+  // ── State (separate from AIS — spec §3) ─────────────────────────────────────
+  var _state = {
+    ports:     new Map(),  // portid → normalized port object  (NOT vessels)
+    lastFetch: 0,
+    lastHash:  '',
+    period:    '',
+    signals:   [],
+  };
+  window._portWatchState = _state;
+
+  // ── Normalization (spec §2 strict schema) ────────────────────────────────────
+  function num(v) { return (v == null || v === '') ? 0 : Number(v) || 0; }
+
+  function normalizeIMFPortData(features) {
+    return features
+      .map(function (f) {
+        var a = f.attributes || f;  // ArcGIS wraps in .attributes
+        var portid = String(a.portid || '').trim();
+        if (!portid) return null;
+
+        var portname = String(a.portname || '').trim();
+        var country  = String(a.country  || '').trim();
+
+        return {
+          id:            portid,
+          type:          'PORT_ACTIVITY',
+          port:          portname,
+          country:       country,
+          total_calls:   num(a.portcalls),
+          imports_total: num(a.import),
+          exports_total: num(a.export),
+          imports: {
+            container: num(a.import_container),
+            tanker:    num(a.import_tanker),
+          },
+          exports: {
+            container: num(a.export_container),
+            tanker:    num(a.export_tanker),
+          },
+          // Flat categories object for uniform classification (spec §5)
+          categories: {
+            import_container: num(a.import_container),
+            export_container: num(a.export_container),
+            import_tanker:    num(a.import_tanker),
+            export_tanker:    num(a.export_tanker),
+          },
+          date:         num(a.date),
+          year:         num(a.year),
+          month:        num(a.month),
+          source:       'IMF_PORTWATCH',
+          visual:       null,          // assigned after dataset min/max
+          chokepointId: matchChokepoint(portname, country),
+        };
+      })
+      .filter(Boolean);
+  }
+
+  // ── Visual assignment — requires full dataset for accurate min/max ────────────
+  function assignVisuals(ports) {
+    if (!ports.length) return;
+    var values = ports.map(function (p) { return p.total_calls; });
+    var minV   = Math.min.apply(null, values);
+    var maxV   = Math.max.apply(null, values);
+    ports.forEach(function (p) {
+      p.visual = getPortIntensity(p.total_calls, minV, maxV);
+    });
+  }
+
+  // ── Analytics layer (spec §7) — signals only, no DOM writes ─────────────────
+  function runAnalytics(ports) {
+    var signals = [];
+
+    ports.forEach(function (p) {
+
+      // Disruption: port calls at zero while flow data exists → possible closure
+      if (p.total_calls === 0 && (p.imports_total > 0 || p.exports_total > 0)) {
+        signals.push({
+          type:     'DISRUPTION',
+          severity: 'WARNING',
+          port:     p.port,
+          country:  p.country,
+          detail:   p.port + ' (' + p.country + '): port calls dropped to zero — possible disruption or data gap',
+          portId:   p.id,
+          chokepointId: p.chokepointId,
+          source:   'IMF_PORTWATCH',
+        });
+        return; // if zero calls, ratio checks are meaningless
+      }
+
+      // Trade imbalance: import/export ratio > 3:1 or < 1:3 on meaningful volume
+      if (p.imports_total + p.exports_total >= 10 && p.exports_total > 0 && p.imports_total > 0) {
+        var ratio = p.imports_total / p.exports_total;
+        if (ratio > 3) {
+          signals.push({
+            type:     'TRADE_IMBALANCE',
+            severity: 'WATCH',
+            port:     p.port,
+            country:  p.country,
+            detail:   p.port + ' (' + p.country + '): import surplus — ratio ' + ratio.toFixed(1) + ':1 (possible supply accumulation or export constraint)',
+            portId:   p.id,
+            chokepointId: p.chokepointId,
+            source:   'IMF_PORTWATCH',
+          });
+        } else if (ratio < 0.33) {
+          signals.push({
+            type:     'TRADE_IMBALANCE',
+            severity: 'WATCH',
+            port:     p.port,
+            country:  p.country,
+            detail:   p.port + ' (' + p.country + '): export surplus — ratio 1:' + (1 / ratio).toFixed(1) + ' (possible demand shock or strategic stockpiling)',
+            portId:   p.id,
+            chokepointId: p.chokepointId,
+            source:   'IMF_PORTWATCH',
+          });
+        }
+      }
+
+      // Energy concentration: tanker share > 70% → chokepoint energy sensitivity
+      if (p.total_calls >= 20) {
+        var tankerTotal = p.imports.tanker + p.exports.tanker;
+        var tankerShare = tankerTotal / p.total_calls;
+        if (tankerShare > 0.70) {
+          signals.push({
+            type:     'ENERGY_CONCENTRATION',
+            severity: 'WATCH',
+            port:     p.port,
+            country:  p.country,
+            detail:   p.port + ' (' + p.country + '): ' + Math.round(tankerShare * 100) + '% tanker traffic — elevated energy route sensitivity',
+            portId:   p.id,
+            chokepointId: p.chokepointId,
+            source:   'IMF_PORTWATCH',
+          });
+        }
+      }
+    });
+
+    return signals;
+  }
+
+  // ── Backward-compat: populate window._portData ────────────────────────────────
+  // Existing chokepoint detail panel + buildSnapshot() already read from
+  // window._portData[chokepointId] — this keeps those hooks working without
+  // any modification to the existing code.
+  function populateLegacyPortData(ports) {
+    var legacy = {};
+    ports.forEach(function (p) {
+      var cpId = p.chokepointId;
+      if (!cpId) return;
+      // If multiple ports match the same chokepoint, keep the busiest one
+      if (legacy[cpId] && (legacy[cpId]._calls || 0) >= p.total_calls) return;
+      legacy[cpId] = {
+        portname:            p.port,
+        portcalls:           p.total_calls,
+        portcalls_container: p.categories.import_container + p.categories.export_container,
+        portcalls_tanker:    p.categories.import_tanker    + p.categories.export_tanker,
+        portcalls_dry_bulk:  0,  // not in PortWatch outFields (80/20 exclusion)
+        import:              p.imports_total,
+        export:              p.exports_total,
+        year:                p.year,
+        month:               p.month,
+        day:                 1,  // PortWatch is monthly; day=1 placeholder
+        _calls:              p.total_calls,  // dedup key — not rendered
+      };
+    });
+    window._portData = legacy;
+  }
+
+  // ── Memoization hash — avoids reprocessing unchanged fetches ─────────────────
+  function quickHash(features) {
+    var first = features[0] && (features[0].attributes || features[0]);
+    return String(features.length) + '_' + String(first && (first.date || first.year || 0));
+  }
+
+  // ── Core fetch + ingest (spec §1 + §4) ───────────────────────────────────────
+  async function fetchIMFPortData() {
+    // Respect tab-visibility gate (set by SCRIPT 5 Visibility API)
+    if (window._argusTabVisible === false) return;
+
+    try {
+      var res = await fetch(ENDPOINT, { headers: { 'Accept': 'application/json' } });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+
+      var json = await res.json();
+      if (json.error) throw new Error(json.error);
+
+      var features = Array.isArray(json.features) ? json.features : [];
+      if (!features.length) {
+        console.warn('[ArgusPortWatch] Netlify function returned 0 features');
+        return;
+      }
+
+      // Memoize — skip full reprocess if data hash unchanged (spec §8)
+      var hash = quickHash(features);
+      if (hash === _state.lastHash) {
+        console.log('[ArgusPortWatch] data unchanged (' + hash + ') — skipping reprocess');
+        return;
+      }
+      _state.lastHash = hash;
+      _state.period   = json.period || '';
+
+      // ── Normalize → color → state → analytics ──────────────────────────────
+      var ports = normalizeIMFPortData(features);  // strict schema
+      assignVisuals(ports);                         // min/max color scale
+
+      _state.ports.clear();
+      ports.forEach(function (p) { _state.ports.set(p.id, p); });
+
+      _state.signals         = runAnalytics(ports);  // disruption / imbalance / energy
+      window._portWatchSignals = _state.signals;      // expose for buildSnapshot + neural web
+
+      populateLegacyPortData(ports);  // fills window._portData for existing UI
+
+      _state.lastFetch = Date.now();
+
+      var cpKeys = Object.keys(window._portData || {});
+      console.log(
+        '[ArgusPortWatch] ingested ' + ports.length + ' ports' +
+        ' | period=' + _state.period +
+        ' | signals=' + _state.signals.length +
+        ' | chokepoints matched: ' + (cpKeys.length ? cpKeys.join(', ') : 'none')
+      );
+
+    } catch (err) {
+      console.warn('[ArgusPortWatch] fetch error:', err.message);
+    }
+  }
+
+  // ── Bootstrap — immediate fetch + 10-min poll ─────────────────────────────────
+  fetchIMFPortData();
+  var _pollTimer = setInterval(fetchIMFPortData, POLL_MS);
+
+  return {
+    getState:         function () { return _state; },
+    getPortIntensity: getPortIntensity,
+    PORT_COLOR_SCALE: PORT_COLOR_SCALE,
+    PORT_CATEGORIES:  PORT_CATEGORIES,
+    refresh:          fetchIMFPortData,
+    _pollTimer:       _pollTimer,
+  };
 }());
 </script>
 

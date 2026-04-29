@@ -129,7 +129,7 @@ async function fetchEIA() {
   };
 }
 
-// ── FRED: USD trade index, GEPU, yield curve (10Y-2Y) ───────────────────────
+// ── FRED: USD trade index, GEPU, yield curve (10Y-2Y), bond yields ───────────
 async function fetchFRED() {
   const base = 'https://api.stlouisfed.org/fred/series/observations';
 
@@ -142,13 +142,19 @@ async function fetchFRED() {
     return (!v || v === '.') ? null : parseFloat(v);
   }
 
-  const [usdRes, gepuRes, yieldRes] = await Promise.all([
+  const [usdRes, gepuRes, yieldRes, dgs10Res, bundRes, giltRes] = await Promise.all([
     fetch(url('DTWEXBGS')),
     fetch(url('GEPUCURRENT')),
     fetch(url('T10Y2Y')),
+    fetch(url('DGS10')),
+    fetch(url('IRLTLT01DEM156N')),
+    fetch(url('IRLTLT01GBM156N')),
   ]);
 
-  const [usdJson, gepuJson, yieldJson] = await Promise.all([usdRes.json(), gepuRes.json(), yieldRes.json()]);
+  const [usdJson, gepuJson, yieldJson, dgs10Json, bundJson, giltJson] = await Promise.all([
+    usdRes.json(), gepuRes.json(), yieldRes.json(),
+    dgs10Res.json(), bundRes.json(), giltRes.json(),
+  ]);
 
   return {
     usd:        parseVal(usdJson),
@@ -157,6 +163,11 @@ async function fetchFRED() {
     gepuDate:   gepuJson?.observations?.[0]?.date ?? null,
     yield10y2y: parseVal(yieldJson),
     yieldDate:  yieldJson?.observations?.[0]?.date ?? null,
+    bonds: {
+      us10y: parseVal(dgs10Json),
+      bund:  parseVal(bundJson),
+      gilt:  parseVal(giltJson),
+    },
   };
 }
 

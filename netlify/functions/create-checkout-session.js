@@ -3,7 +3,7 @@
 // so stripe-webhook.js can map checkout.session.completed back to the Supabase user.
 // No Stripe API call required — just returns the constructed URL.
 
-const PAYMENT_LINK = 'https://buy.stripe.com/test_aFa00i2Kp0EY8a2cXd8AE00'; // TEST MODE — swap back to 4gM28t0nY08k1vk3aW5sA00 for live
+const PAYMENT_LINK = 'https://buy.stripe.com/4gM28t0nY08k1vk3aW5sA00';
 
 const CORS = {
   'Access-Control-Allow-Origin':  '*',

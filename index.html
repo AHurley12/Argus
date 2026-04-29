@@ -8726,7 +8726,8 @@ window.ArgusAI = (function() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          user_id: window.ArgusUID || 'anon-' + Date.now(),
+          user_id:    window.ArgusUID || 'anon-' + Date.now(),
+          auth_token: window.ArgusSession && window.ArgusSession.token || null,
           payload: {
             model:      'claude-sonnet-4-6',
             max_tokens: 1024,
@@ -12325,12 +12326,12 @@ window._plotPermanentMarkers = function(classified) {
 
 <script>
 // ── Feature flags ─────────────────────────────────────────────────────────────
-// isProUser: controls access to monetized features (Analysis Lab, Case Builder).
-// Set to true once payment/session tier is confirmed.  Currently gate-ready only.
-var isProUser = (function () {
+// isProUser: dynamic — always reads the live session tier so it remains accurate
+// after the async Supabase tier fetch completes on page load.
+function isProUser() {
   var t = window.ArgusSession ? window.ArgusSession.tier : 'viewer';
   return t === 'owner' || t === 'admin' || t === 'pro';
-}());
+}
 window._isProUser = isProUser; // expose for console / future auth hooks
 
 /* ══════════════════════════════════════════════════════════════════════════════

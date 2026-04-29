@@ -45,7 +45,24 @@ exports.handler = async function(event) {
       case 'checkout.session.completed': {
         const session = evt.data.object;
         const userId  = session.client_reference_id;
-        if (userId) await setTier(userId, 'pro');
+        if (userId) {
+          await setTier(userId, 'pro');
+          // Tag the Stripe customer with the Supabase user ID so that all future
+          // webhook events (renewal, payment failure, cancellation) can resolve
+          // the correct user without relying on client_reference_id.
+          if (session.customer) {
+            try {
+              await stripe.customers.update(session.customer, {
+                metadata: { supabase_user_id: userId },
+              });
+              console.log('stripe-webhook: tagged customer', session.customer, 'with supabase_user_id', userId);
+            } catch (tagErr) {
+              // Non-fatal — tier is already set; next renewal will still fail to
+              // resolve, but access was granted for this period.
+              console.warn('stripe-webhook: failed to tag customer metadata:', tagErr.message);
+            }
+          }
+        }
         break;
       }
 

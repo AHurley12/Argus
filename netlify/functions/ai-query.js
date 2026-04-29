@@ -35,6 +35,35 @@ function respond(statusCode, body) {
   return { statusCode, headers: BASE_HEADERS, body: JSON.stringify(body) };
 }
 
+// ── Resolve pro status by verifying the Supabase JWT server-side ─────────────
+// Accepts the user's access_token, verifies it with Supabase, then reads
+// profiles.tier — so the client can never self-promote by sending is_pro:true.
+async function resolveIsPro(authToken, supabase) {
+  if (!authToken) return false;
+  try {
+    const userRes = await fetch(`${process.env.SUPABASE_URL}/auth/v1/user`, {
+      headers: {
+        'apikey':        process.env.SUPABASE_SERVICE_KEY,
+        'Authorization': `Bearer ${authToken}`,
+      },
+    });
+    if (!userRes.ok) return false;
+    const userData = await userRes.json();
+    if (!userData || !userData.id) return false;
+
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('tier')
+      .eq('id', userData.id)
+      .single();
+
+    const tier = profile?.tier || 'viewer';
+    return tier === 'pro' || tier === 'admin' || tier === 'owner';
+  } catch {
+    return false;
+  }
+}
+
 // ── Handler ───────────────────────────────────────────────────────────────────
 exports.handler = async function (event) {
   if (event.httpMethod === 'OPTIONS') return { statusCode: 204, headers: BASE_HEADERS, body: '' };
@@ -47,9 +76,7 @@ exports.handler = async function (event) {
 
   // user_id is a client-generated UUID stored in localStorage (ArgusUID).
   // Not authenticated, but combined with the global hard cap it prevents runaway costs.
-  const userId  = (body.user_id || '').toString().trim();
-  const isPro   = body.is_pro === true;  // future-proof; extend when billing is added
-  const userLimit = isPro ? PRO_USER_LIMIT : FREE_USER_LIMIT;
+  const userId = (body.user_id || '').toString().trim();
 
   if (!userId || userId.length < 8 || userId.length > 64) {
     return respond(400, { error: 'Invalid session ID', code: 'BAD_SESSION' });
@@ -60,6 +87,11 @@ exports.handler = async function (event) {
     process.env.SUPABASE_SERVICE_KEY
   );
   const now = Date.now();
+
+  // Verify tier server-side — auth_token is the Supabase JWT sent from the frontend.
+  // Falls back to free (false) if no token or verification fails.
+  const isPro     = await resolveIsPro(body.auth_token || null, supabase);
+  const userLimit = isPro ? PRO_USER_LIMIT : FREE_USER_LIMIT;
 
   // ── STEP 1: Global limit ──────────────────────────────────────────────────
   const { data: sys, error: sysErr } = await supabase

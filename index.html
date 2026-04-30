@@ -2750,7 +2750,7 @@
   #nw-tooltip {
     position: fixed;
     pointer-events: none;
-    z-index: 9995;
+    z-index: 10; /* overlay-scoped stacking context — sits above canvas and panels */
     background: rgba(6,1,18,0.97);
     border: 1px solid var(--nw-purple-dim);
     box-shadow: 0 2px 14px rgba(180,100,255,0.15);
@@ -2766,7 +2766,7 @@
 
   /* ── Node right-click context menu ──────────────────────────────────────── */
   #nw-ctx-menu {
-    position: fixed; z-index: 9997;
+    position: fixed; z-index: 10; /* overlay-scoped stacking context */
     background: rgba(5,1,18,0.98);
     border: 1px solid var(--nw-purple-faint);
     min-width: 162px; padding: 4px 0;
@@ -15837,21 +15837,21 @@ document.addEventListener('visibilitychange', function () {
     </div>
   </aside>
 
-</div>
+  <!-- Node right-click context menu — inside overlay so it's hidden when overlay closes -->
+  <div id="nw-ctx-menu">
+    <div class="nw-ctx-item" id="nw-ctx-edit">✎ EDIT LABEL</div>
+    <div class="nw-ctx-item" id="nw-ctx-reclassify">⟳ RECLASSIFY TYPE</div>
+    <div class="nw-ctx-sep"></div>
+    <div class="nw-ctx-item" id="nw-ctx-note">📝 ADD TO NOTES</div>
+    <div class="nw-ctx-sep"></div>
+    <div class="nw-ctx-item" id="nw-ctx-link">⟷ CREATE LINK FROM HERE</div>
+    <div class="nw-ctx-item" id="nw-ctx-delete" style="color:#ff4466">✕ REMOVE NODE</div>
+  </div>
 
-<!-- Node right-click context menu -->
-<div id="nw-ctx-menu">
-  <div class="nw-ctx-item" id="nw-ctx-edit">✎ EDIT LABEL</div>
-  <div class="nw-ctx-item" id="nw-ctx-reclassify">⟳ RECLASSIFY TYPE</div>
-  <div class="nw-ctx-sep"></div>
-  <div class="nw-ctx-item" id="nw-ctx-note">📝 ADD TO NOTES</div>
-  <div class="nw-ctx-sep"></div>
-  <div class="nw-ctx-item" id="nw-ctx-link">⟷ CREATE LINK FROM HERE</div>
-  <div class="nw-ctx-item" id="nw-ctx-delete" style="color:#ff4466">✕ REMOVE NODE</div>
-</div>
+  <!-- Node hover tooltip — inside overlay; position:fixed + inset:0 parent keeps coords viewport-relative -->
+  <div id="nw-tooltip"></div>
 
-<!-- Node hover tooltip -->
-<div id="nw-tooltip"></div>
+</div>
 
 <!-- ══════════════════════════════════════════════════════════════════════════════
      SCRIPT 6 — ArgusNeuralWeb: Country-Centric Intelligence Graph
@@ -18258,6 +18258,31 @@ function buildNodeCandidates(type, query) {
 
   } else if (type === 'news') {
     var newsPool = store.events.filter(function(ev){ return ev.type === 'POLICY' || ev.type === 'ECONOMIC'; }).slice(0, 80);
+
+    // ── Source 1: NewsData.io classified feed (events box NEWS tab) ──────────
+    // Same data that drives the main events feed — already classified with
+    // severity, type, and keywords by fetchAndClassify(). Highest fidelity source.
+    try {
+      var ndRaw = localStorage.getItem('argus_live_events_v2');
+      if (ndRaw) {
+        var ndEvts = JSON.parse(ndRaw);
+        (Array.isArray(ndEvts) ? ndEvts : []).slice(0, 60).forEach(function(a, ni) {
+          var t = a.title || '';
+          if (t) newsPool.push({
+            id:       'nd_' + ni,
+            type:     a.type || 'POLICY',
+            risk:     a.severity || a.risk || 'WATCH',
+            title:    t,
+            timestamp: a.time || 0,
+            keywords: a.keywords || extractKeywords(t),
+            impact:   a.impact || '',
+            source:   a.link || a.source || '',
+          });
+        });
+      }
+    } catch(_) {}
+
+    // ── Source 2: GDELT classified feed ─────────────────────────────────────
     try {
       var gc3 = localStorage.getItem('argus_gdelt_v3');
       if (gc3) {
@@ -18269,12 +18294,13 @@ function buildNodeCandidates(type, query) {
         });
       }
     } catch(_) {}
+
     newsPool.forEach(function(ev) {
       var t3 = ev.title || '';
       if (!t3 || (ql && t3.toLowerCase().indexOf(ql) === -1)) return;
       var nid2 = 'news:' + ev.id;
       if (state.graph.nodes.some(function(n){ return n.id === nid2; })) return;
-      results.push({ id: nid2, type: 'news', label: t3, badge: ev.risk || 'WATCH', badgeColor: RISK_COLORS[ev.risk] || '#ffcc00', eventType: 'POLICY', risk: ev.risk || 'WATCH', keywords: ev.keywords || [], source: ev.source || '', _ev: ev });
+      results.push({ id: nid2, type: 'news', label: t3, badge: ev.risk || 'WATCH', badgeColor: RISK_COLORS[ev.risk] || '#ffcc00', eventType: ev.type || 'POLICY', risk: ev.risk || 'WATCH', keywords: ev.keywords || [], source: ev.source || '', _ev: ev });
     });
 
   } else if (type === 'companies') {

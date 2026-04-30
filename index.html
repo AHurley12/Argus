@@ -5135,14 +5135,14 @@ window.ArgusData = (function() {
       L.push('US Electricity:    ' + (eia.elecGen  ? (parseFloat(eia.elecGen)/1000).toFixed(0) + ' TWh/mo' : 'pending') + ' (' + (eia.elecGenDate  || '—') + ')');
       L.push('');
 
-      L.push('--- FOREX & MARKETS (Alpha Vantage) ---');
+      L.push('--- FOREX & MARKETS ---');
       L.push('EUR/USD: ' + (av['fx-eurusd'] ? parseFloat(av['fx-eurusd']).toFixed(4) : 'pending'));
       L.push('GBP/USD: ' + (av['fx-gbpusd'] ? parseFloat(av['fx-gbpusd']).toFixed(4) : 'pending'));
       L.push('USD/JPY: ' + (av['fx-usdjpy'] ? parseFloat(av['fx-usdjpy']).toFixed(2) : 'pending'));
       L.push('S&P 500 (SPY): ' + (av.spy != null ? '$' + parseFloat(av.spy).toFixed(2) + (av.spyChange ? ' (' + av.spyChange + ')' : '') : 'pending'));
       L.push('');
 
-      L.push('--- MACRO INDICATORS (FRED) ---');
+      L.push('--- MACRO INDICATORS ---');
       L.push('USD Trade Index:    ' + (fr.usd        != null ? parseFloat(fr.usd).toFixed(2)              : 'pending') + ' (' + (fr.usdDate   || '—') + ')');
       L.push('Policy Uncertainty: ' + (fr.gepu       != null ? Math.round(fr.gepu) + ' GEPU'              : 'pending') + ' (' + (fr.gepuDate  || '—') + ')');
       L.push('Yield Curve 10Y-2Y: ' + (fr.yield10y2y != null ? parseFloat(fr.yield10y2y).toFixed(2) + '%' : 'pending') + ' (' + (fr.yieldDate || '—') + ')');
@@ -5475,8 +5475,15 @@ window.ArgusData = (function() {
 
   function init() {
     try {
+      // Stale feed caches — cleared each session to force fresh fetch
       ['hermes_live_events','hermes_live_events_ts','argus_gdelt_v1','argus_gdelt_ts_v1'].forEach(function(k) {
         localStorage.removeItem(k);
+      });
+      // Dead market caches — these keys are no longer written; remove once so stale
+      // data never surfaces as a false fallback in ingestCommodities / similar readers
+      ['argus_td_v3','argus_eia_v8','argus_fred_v4','argus_av_v6',
+       'argus_fh_comm_v1','argus_fh_comm_ts_v1','argus_pg_ex_v1','argus_pg_ex_ts_v1'].forEach(function(k) {
+        if (localStorage.getItem(k) !== null) localStorage.removeItem(k);
       });
     } catch(e) {}
     // Stagger market data fetches — avoids parallel fan-out at page load.
@@ -5592,7 +5599,18 @@ window.ArgusData = (function() {
     if (d.fred) {
       window._fredData = Object.assign(window._fredData || {}, d.fred);
       renderFREDTicker();
-      if (d.fred.bonds) renderBondYields(d.fred.bonds);
+      if (d.fred.bonds) {
+        renderBondYields(d.fred.bonds);
+        // Persist bund/gilt to argus_bonds_v1 so ingestMarkets() + getMarket() readers
+        // always have fresh data. us10y is intentionally not overwritten here —
+        // applyYFData() keeps it real-time via ^TNX (more current than FRED DGS10).
+        try {
+          var _bc = JSON.parse(localStorage.getItem('argus_bonds_v1') || '{}');
+          if (d.fred.bonds.bund != null) _bc.bund = d.fred.bonds.bund;
+          if (d.fred.bonds.gilt != null) _bc.gilt = d.fred.bonds.gilt;
+          localStorage.setItem('argus_bonds_v1', JSON.stringify(_bc));
+        } catch(_) {}
+      }
     }
     if (d.stooq) {
       var MAP = {
@@ -17779,6 +17797,281 @@ function buildChokepointAnalyticsHtml(nodeLabel) {
   return html;
 }
 
+// ══════════════════════════════════════════════════════════════════════════════
+// IMF PORTWATCH — MACRO analytics hierarchy (MACRO → MESO → MICRO layering)
+// buildPortAnalytics()  : memoized 3-level computation
+// renderPortMacro()     : HTML string for the MACRO section
+// Injected at top of renderAnalytics() — additive, no existing code removed.
+// ══════════════════════════════════════════════════════════════════════════════
+
+var _portAnalyticsCache = { period: null, data: null };
+
+// ── REGION MAP: country → region label ────────────────────────────────────────
+var PORT_REGION_MAP = (function() {
+  var m = {};
+  // East Asia
+  ['China','Japan','South Korea','Taiwan','Hong Kong','Vietnam','Philippines','Indonesia','Malaysia','Singapore','Thailand','Cambodia','Myanmar','Brunei'].forEach(function(c){ m[c]='East Asia'; });
+  // South Asia
+  ['India','Pakistan','Bangladesh','Sri Lanka'].forEach(function(c){ m[c]='South Asia'; });
+  // Middle East
+  ['Saudi Arabia','UAE','Qatar','Kuwait','Bahrain','Oman','Iran','Iraq','Yemen','Jordan','Israel','Egypt'].forEach(function(c){ m[c]='Middle East'; });
+  // Europe
+  ['Germany','Netherlands','Belgium','France','Spain','Italy','Greece','Turkey','United Kingdom','Norway','Sweden','Denmark','Finland','Poland','Portugal','Russia','Ukraine','Romania','Bulgaria','Croatia','Slovenia','Latvia','Lithuania','Estonia'].forEach(function(c){ m[c]='Europe'; });
+  // Americas
+  ['United States','Canada','Mexico','Brazil','Argentina','Chile','Colombia','Peru','Ecuador','Panama','Costa Rica','Guatemala','Honduras'].forEach(function(c){ m[c]='Americas'; });
+  // Africa
+  ['South Africa','Nigeria','Kenya','Egypt','Morocco','Algeria','Tunisia','Tanzania','Mozambique','Angola','Ghana','Djibouti','Somalia','Eritrea'].forEach(function(c){ m[c]='Africa'; });
+  // Oceania
+  ['Australia','New Zealand','Papua New Guinea','Fiji'].forEach(function(c){ m[c]='Oceania'; });
+  return m;
+})();
+
+function _portRegion(country) {
+  return PORT_REGION_MAP[country] || 'Other';
+}
+
+// ── Core computation — returns hierarchical analytics object ──────────────────
+function buildPortAnalytics() {
+  var pw = window._portWatchState;
+  if (!pw || !pw.ports || pw.ports.size === 0) return null;
+
+  // Memoize by period string — only recompute when IMF data refreshes
+  var period = pw.period || 'unknown';
+  if (_portAnalyticsCache.period === period && _portAnalyticsCache.data) {
+    return _portAnalyticsCache.data;
+  }
+
+  var ports = [];
+  pw.ports.forEach(function(p) { ports.push(p); });
+
+  // ── Global totals ──────────────────────────────────────────────────────────
+  var gTotalCalls = 0, gImports = 0, gExports = 0;
+  var gImpCont = 0, gExpCont = 0, gImpTank = 0, gExpTank = 0;
+
+  ports.forEach(function(p) {
+    gTotalCalls += p.total_calls;
+    gImports    += p.imports_total;
+    gExports    += p.exports_total;
+    gImpCont    += p.categories.import_container;
+    gExpCont    += p.categories.export_container;
+    gImpTank    += p.categories.import_tanker;
+    gExpTank    += p.categories.export_tanker;
+  });
+
+  var gFlow = gImports + gExports || 1;
+  var global = {
+    portCount:  ports.length,
+    totalCalls: gTotalCalls,
+    imports:    gImports,
+    exports:    gExports,
+    balance:    gImports - gExports,
+    categories: {
+      imp_container_pct: gFlow ? Math.round(gImpCont / gFlow * 100) : 0,
+      exp_container_pct: gFlow ? Math.round(gExpCont / gFlow * 100) : 0,
+      imp_tanker_pct:    gFlow ? Math.round(gImpTank / gFlow * 100) : 0,
+      exp_tanker_pct:    gFlow ? Math.round(gExpTank / gFlow * 100) : 0,
+    },
+  };
+
+  // ── Regional aggregation ───────────────────────────────────────────────────
+  var regionMap = {};
+  ports.forEach(function(p) {
+    var r = _portRegion(p.country);
+    if (!regionMap[r]) regionMap[r] = { name: r, ports: [], totalCalls: 0, imports: 0, exports: 0, impCont: 0, expCont: 0, impTank: 0, expTank: 0 };
+    var R = regionMap[r];
+    R.ports.push(p);
+    R.totalCalls += p.total_calls;
+    R.imports    += p.imports_total;
+    R.exports    += p.exports_total;
+    R.impCont    += p.categories.import_container;
+    R.expCont    += p.categories.export_container;
+    R.impTank    += p.categories.import_tanker;
+    R.expTank    += p.categories.export_tanker;
+  });
+
+  // Compute region-level derived fields
+  Object.keys(regionMap).forEach(function(r) {
+    var R = regionMap[r];
+    var rFlow = R.imports + R.exports || 1;
+    var activity = R.totalCalls || 1;
+    R.pctOfGlobal      = gTotalCalls ? Math.round(R.totalCalls / gTotalCalls * 100) : 0;
+    R.containerShare   = Math.round((R.impCont + R.expCont) / rFlow * 100);
+    R.tankerShare      = Math.round((R.impTank + R.expTank) / rFlow * 100);
+    R.dominantCargo    = R.tankerShare > R.containerShare ? 'TANKER' : 'CONTAINER';
+    R.balance          = R.imports - R.exports;
+    // Congestion proxy: avg calls per port, normalized 0-100
+    R.portCount        = R.ports.length;
+    R.avgCallsPerPort  = R.portCount ? Math.round(R.totalCalls / R.portCount) : 0;
+    // Top port by total_calls
+    R.ports.sort(function(a, b) { return b.total_calls - a.total_calls; });
+    R.topPort = R.ports[0] ? R.ports[0].port : '';
+  });
+
+  // Sort regions by totalCalls desc
+  var regions = Object.keys(regionMap)
+    .map(function(r) { return regionMap[r]; })
+    .sort(function(a, b) { return b.totalCalls - a.totalCalls; });
+
+  // ── Port-level: top 5 ports per region ────────────────────────────────────
+  var topPortsByRegion = {};
+  regions.forEach(function(R) {
+    topPortsByRegion[R.name] = R.ports.slice(0, 5).map(function(p) {
+      var flow = p.imports_total + p.exports_total || 1;
+      return {
+        id:         p.id,
+        name:       p.port,
+        country:    p.country,
+        calls:      p.total_calls,
+        imports:    p.imports_total,
+        exports:    p.exports_total,
+        pctOfRegion:  R.totalCalls ? Math.round(p.total_calls / R.totalCalls * 100) : 0,
+        pctOfGlobal:  gTotalCalls  ? Math.round(p.total_calls / gTotalCalls  * 100) : 0,
+        tankerShare:  Math.round((p.categories.import_tanker + p.categories.export_tanker) / flow * 100),
+        contShare:    Math.round((p.categories.import_container + p.categories.export_container) / flow * 100),
+        visual:       p.visual,
+        chokepointId: p.chokepointId,
+      };
+    });
+  });
+
+  var result = { global: global, regions: regions, topPortsByRegion: topPortsByRegion, period: period, portCount: ports.length };
+  _portAnalyticsCache = { period: period, data: result };
+  return result;
+}
+
+// ── Collapsible section helper (toggle via onclick on header) ─────────────────
+var _portMacroCollapsed = { regions: false, ports: false };
+
+function _macroSection(id, title, badge, colorCls, contentHtml) {
+  var collapsed = !!_portMacroCollapsed[id];
+  var arrow = collapsed ? '▸' : '▾';
+  var display = collapsed ? 'none' : 'block';
+  return '<div style="margin-bottom:2px">' +
+    '<div data-pwsec="' + id + '" style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;padding:4px 0;border-bottom:1px solid #1a0840;user-select:none" ' +
+      'onclick="window._pwToggle(\'' + id + '\')">' +
+      '<span style="font-size:7px;letter-spacing:2px;color:' + colorCls + '">' + arrow + ' ' + title + '</span>' +
+      (badge ? '<span style="font-size:6px;color:#2a4060">' + badge + '</span>' : '') +
+    '</div>' +
+    '<div id="pw-sec-' + id + '" style="display:' + display + '">' + contentHtml + '</div>' +
+  '</div>';
+}
+
+window._pwToggle = function(id) {
+  _portMacroCollapsed[id] = !_portMacroCollapsed[id];
+  // Re-render only the analytics panel, not the full app
+  if (typeof renderAnalytics === 'function') renderAnalytics();
+};
+
+// ── Render the full MACRO section HTML ────────────────────────────────────────
+function renderPortMacro() {
+  var pa = buildPortAnalytics();
+  if (!pa) return '';
+
+  var G = pa.global;
+  var html = '';
+
+  // Header
+  html += '<div style="font-size:7px;letter-spacing:2px;color:#00ccff;margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid #1a0840">◈ IMF PORTWATCH <span style="color:#2a4060;font-size:6px">MACRO · ' + (pa.period || '—') + ' · ' + pa.portCount + ' PORTS</span></div>';
+
+  // ── GLOBAL SUMMARY (always visible) ────────────────────────────────────────
+  html += '<div style="margin-bottom:8px">';
+  html += field('TOTAL PORT CALLS', '<span style="color:#00ccff">' + G.totalCalls.toLocaleString() + '</span>');
+  html += field('GLOBAL IMPORTS',   '<span style="color:#00ff88">' + G.imports.toLocaleString() + '</span>');
+  html += field('GLOBAL EXPORTS',   '<span style="color:#ff9933">' + G.exports.toLocaleString() + '</span>');
+
+  var balColor = G.balance > 0 ? '#00ff88' : (G.balance < 0 ? '#ff4466' : '#4a7da8');
+  html += field('TRADE BALANCE', '<span style="color:' + balColor + '">' + (G.balance > 0 ? '+' : '') + G.balance.toLocaleString() + '</span>');
+
+  // Category breakdown bars
+  var catRows = [
+    { label: 'IMP CONTAINER', pct: G.categories.imp_container_pct, col: '#4488ff' },
+    { label: 'EXP CONTAINER', pct: G.categories.exp_container_pct, col: '#66aaff' },
+    { label: 'IMP TANKER',    pct: G.categories.imp_tanker_pct,    col: '#ff9933' },
+    { label: 'EXP TANKER',    pct: G.categories.exp_tanker_pct,    col: '#ffbb66' },
+  ];
+  var catHtml = catRows.map(function(row) {
+    return '<div style="margin-bottom:3px"><span style="color:#4a7da8;display:inline-block;width:84px;font-size:8px">' + row.label + '</span>' + miniBar(row.pct, row.col) + '</div>';
+  }).join('');
+  html += field('CARGO MIX', catHtml);
+  html += '</div>';
+
+  // ── REGIONAL BREAKDOWN (collapsible) ───────────────────────────────────────
+  var regHtml = '';
+  pa.regions.forEach(function(R) {
+    if (!R.totalCalls) return;
+    var domCol = R.dominantCargo === 'TANKER' ? '#ff9933' : '#4488ff';
+    regHtml +=
+      '<div style="padding:5px 0;border-bottom:1px solid rgba(42,16,64,0.5)">' +
+      '<div style="display:flex;justify-content:space-between;margin-bottom:2px">' +
+        '<span style="font-size:8px;color:#cc99ff">' + R.name + '</span>' +
+        '<span style="font-size:7px;color:#2a4060">' + R.pctOfGlobal + '% of global</span>' +
+      '</div>' +
+      '<div style="display:flex;gap:10px;margin-bottom:2px">' +
+        '<span style="font-size:7px;color:#4a7da8">CALLS <span style="color:#00ccff">' + R.totalCalls.toLocaleString() + '</span></span>' +
+        '<span style="font-size:7px;color:#4a7da8">PORTS <span style="color:#cc99ff">' + R.portCount + '</span></span>' +
+        '<span style="font-size:7px;color:' + domCol + '">' + R.dominantCargo + '</span>' +
+      '</div>' +
+      miniBar(R.pctOfGlobal, '#7755cc') +
+      '</div>';
+  });
+  html += _macroSection('regions', 'REGIONS', pa.regions.length + ' active', '#7755cc', regHtml || '<div style="padding:6px 0;font-size:7px;color:#2a4060">No regional data</div>');
+
+  // ── TOP PORTS per region (collapsible) ─────────────────────────────────────
+  var portHtml = '';
+  pa.regions.forEach(function(R) {
+    if (!R.totalCalls) return;
+    var rPorts = pa.topPortsByRegion[R.name] || [];
+    if (!rPorts.length) return;
+    portHtml += '<div style="margin:6px 0 3px;font-size:7px;letter-spacing:1.5px;color:#4a7da8">' + R.name.toUpperCase() + '</div>';
+    rPorts.forEach(function(p) {
+      var vcol = (p.visual && p.visual.color) ? p.visual.color : '#4a7da8';
+      var cpTag = p.chokepointId ? ' <span style="color:#ffcc00;font-size:6px">⬡CP</span>' : '';
+      portHtml +=
+        '<div style="padding:3px 0;border-bottom:1px solid rgba(42,16,64,0.35)">' +
+        '<div style="display:flex;justify-content:space-between;margin-bottom:1px">' +
+          '<span style="font-size:8px;color:' + vcol + '">' + p.name + cpTag + '</span>' +
+          '<span style="font-size:6px;color:#2a4060">' + p.pctOfRegion + '%R / ' + p.pctOfGlobal + '%G</span>' +
+        '</div>' +
+        '<div style="font-size:7px;color:#2a4060">' + p.country + ' · CALLS <span style="color:#00ccff">' + p.calls + '</span></div>' +
+        '</div>';
+    });
+  });
+  html += _macroSection('ports', 'TOP PORTS', 'per region', '#4a7da8', portHtml || '<div style="padding:6px 0;font-size:7px;color:#2a4060">No port data</div>');
+
+  // ── IMF Signals (disruptions / imbalances) ─────────────────────────────────
+  var signals = window._portWatchSignals || [];
+  if (signals.length) {
+    var SIG_COL = { DISRUPTION: '#ff4466', TRADE_IMBALANCE: '#ffcc00', ENERGY_CONCENTRATION: '#ff9933' };
+    var sigHtml = signals.slice(0, 8).map(function(s) {
+      var col = SIG_COL[s.type] || '#4a7da8';
+      return '<div style="padding:4px 0;border-bottom:1px solid rgba(42,16,64,0.4);font-size:7px;line-height:1.5">' +
+        '<span style="color:' + col + ';letter-spacing:1px">' + (s.type || 'SIGNAL').replace(/_/g,' ') + '</span>' +
+        (s.chokepointId ? ' <span style="color:#ffcc00;font-size:6px">⬡CP</span>' : '') +
+        '<br><span style="color:#4a7da8">' + (s.detail || '') + '</span>' +
+        '</div>';
+    }).join('');
+    html += '<div style="margin-top:8px;padding-top:6px;border-top:1px solid #1a0840">';
+    html += '<div style="font-size:7px;letter-spacing:2px;color:#ff9933;margin-bottom:4px">⚑ IMF SIGNALS <span style="color:#2a4060">(' + signals.length + ')</span></div>';
+    html += sigHtml;
+    html += '</div>';
+  }
+
+  // ── IMF × Vessel cross-signal ──────────────────────────────────────────────
+  var snap = collectTrackingSnapshot();
+  if (snap.ships.length > 0 && pa.regions.length > 0) {
+    var shipCount = snap.ships.length;
+    // Simple heuristic: if global port calls are very low vs vessel count, flag mismatch
+    var callsPerShip = shipCount ? G.totalCalls / shipCount : 0;
+    if (callsPerShip < 0.5 && G.totalCalls > 0) {
+      html += '<div style="margin-top:6px;padding:5px 6px;background:rgba(255,68,102,0.08);border-left:2px solid #ff4466;font-size:7px;color:#ff4466;line-height:1.6">';
+      html += '⚠ CROSS-SIGNAL: ' + shipCount + ' vessels tracked vs ' + G.totalCalls + ' IMF port calls — possible AIS coverage gap or traffic anomaly';
+      html += '</div>';
+    }
+  }
+
+  return html;
+}
+
 // ── Main analytics panel renderer ─────────────────────────────────────────────
 function renderAnalytics() {
   var body = document.getElementById('nw-analytics-body');
@@ -17811,13 +18104,24 @@ function renderAnalytics() {
     return '<span style="color:' + col + '">' + (v > 0 ? '+' : '') + v + '%</span> vs ' + baseAgeStr;
   };
 
+  // ── MACRO section (IMF PortWatch — always rendered if data available) ─────────
+  var macroHtml = renderPortMacro();
+
   // ── Global summary ────────────────────────────────────────────────────────────
   var html = '';
+  if (macroHtml) {
+    html += '<div style="margin-bottom:10px">' + macroHtml + '</div>';
+    html += '<div style="border-top:1px solid #1a0840;margin-bottom:10px"></div>';
+  }
   html += trHtml;
-  html += '<div style="font-size:7px;letter-spacing:2px;color:var(--nw-purple);margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid #1a0840">⬡ LIVE TRACKING OVERVIEW</div>';
+  html += '<div style="font-size:7px;letter-spacing:2px;color:var(--nw-purple);margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid #1a0840">⬡ MESO/MICRO · LIVE TRACKING</div>';
 
   if (noData) {
-    html += '<div style="padding:20px 0;text-align:center;font-size:8px;letter-spacing:1.5px;color:var(--nw-purple-dim);opacity:0.5;line-height:2">ENABLE SHIP OR<br>AIRCRAFT LAYER<br>TO LOAD DATA</div>';
+    if (!macroHtml) {
+      html += '<div style="padding:20px 0;text-align:center;font-size:8px;letter-spacing:1.5px;color:var(--nw-purple-dim);opacity:0.5;line-height:2">ENABLE SHIP OR<br>AIRCRAFT LAYER<br>TO LOAD DATA</div>';
+    } else {
+      html += '<div style="padding:10px 0;text-align:center;font-size:7px;letter-spacing:1.5px;color:var(--nw-purple-dim);opacity:0.5">ENABLE SHIP OR AIRCRAFT LAYER<br>FOR MESO/MICRO DATA</div>';
+    }
     body.innerHTML = html;
     _bindAnalyticsTimeRange(body);
     return;
@@ -17898,8 +18202,8 @@ function renderAnalytics() {
   // ── Snapshot note ─────────────────────────────────────────────────────────────
   var TR_LABEL_MAP = { '1h': '1 HOUR', '24h': '24 HOURS', '7d': '7 DAYS' };
   html += '<div style="margin-top:10px;font-size:7px;letter-spacing:0.5px;color:#2a4060;opacity:0.7;line-height:1.6">';
-  html += 'LIVE SNAPSHOT · BASELINE FROM ' + baseAgeStr.toUpperCase();
-  html += '<br>DELTA WINDOW: ' + (TR_LABEL_MAP[state.analyticsTimeRange] || state.analyticsTimeRange);
+  html += 'MACRO: IMF PORTWATCH · MESO/MICRO: AIS/ADS-B LIVE';
+  html += '<br>BASELINE FROM ' + baseAgeStr.toUpperCase() + ' · DELTA: ' + (TR_LABEL_MAP[state.analyticsTimeRange] || state.analyticsTimeRange);
   html += '</div>';
 
   body.innerHTML = html;

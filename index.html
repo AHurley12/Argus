@@ -2363,7 +2363,7 @@
   /* Neural Web purple accent palette */
   :root {
     --nw-purple:       #b464ff;
-    --nw-purple-dim:   #7a3aaa;
+    --nw-purple-dim:   #9966cc;
     --nw-purple-faint: #3a1a55;
     --nw-purple-glow:  rgba(180,100,255,0.25);
     --nw-bg:           rgba(5,2,18,0.97);
@@ -2568,7 +2568,7 @@
     pointer-events: none;
   }
   #nw-empty-icon { font-size: 40px; opacity: 0.22; color: var(--nw-purple); }
-  #nw-empty-text { font-size: 9px; letter-spacing: 3px; color: var(--nw-purple-dim); opacity: 0.6; }
+  #nw-empty-text { font-size: 11px; letter-spacing: 2px; color: var(--nw-purple-dim); opacity: 0.7; }
 
   /* ── Neural Web: topbar action buttons ─── */
   .nw-action-btn {
@@ -2589,7 +2589,7 @@
 
   /* ── Sidebar mode toggle ─── */
   #nw-sidebar-mode { display:flex; flex-shrink:0; border-bottom:1px solid #2a1040; }
-  .nw-sidebar-mode-btn { flex:1; padding:7px 4px; font-family:var(--font-mono); font-size:7px; letter-spacing:1.5px; font-weight:700; color:var(--nw-purple-dim); background:none; border:none; border-bottom:2px solid transparent; cursor:pointer; transition:color 0.15s,border-color 0.15s; }
+  .nw-sidebar-mode-btn { flex:1; padding:7px 4px; font-family:var(--font-mono); font-size:9px; letter-spacing:1px; font-weight:700; color:var(--nw-purple-dim); background:none; border:none; border-bottom:2px solid transparent; cursor:pointer; transition:color 0.15s,border-color 0.15s; }
   .nw-sidebar-mode-btn.is-active { color:var(--nw-purple); border-bottom-color:var(--nw-purple); background:rgba(180,100,255,0.06); }
   #nw-countries-section { display:flex; flex-direction:column; flex:1; overflow:hidden; }
   #nw-countries-section.is-hidden { display:none; }
@@ -2597,23 +2597,23 @@
   #nw-builder-section { display:none; flex-direction:column; flex:1; overflow:hidden; }
   #nw-builder-section.is-visible { display:flex; }
   #nw-builder-tabs { padding:8px 10px 6px; border-bottom:1px solid #2a1040; display:flex; gap:3px; flex-wrap:wrap; flex-shrink:0; }
-  #nw-builder-tabs .nw-chip { font-size:7px; padding:3px 6px; }
+  #nw-builder-tabs .nw-chip { font-size:9px; padding:3px 6px; }
   #nw-builder-head { padding:10px 14px 8px; border-bottom:1px solid #2a1040; flex-shrink:0; }
   #nw-builder-search { width:100%; background:rgba(14,4,36,0.85); border:1px solid #2a1040; color:var(--color-text); font-family:var(--font-mono); font-size:10px; padding:6px 8px; outline:none; box-sizing:border-box; transition:border-color 0.15s; }
   #nw-builder-search:focus { border-color:var(--nw-purple-dim); }
   #nw-builder-search::placeholder { color:rgba(122,58,170,0.5); }
   #nw-builder-results { flex:1; overflow-y:auto; scrollbar-width:thin; scrollbar-color:var(--nw-purple-faint) transparent; }
-  .nw-candidate { padding:6px 12px; cursor:grab; font-size:9px; color:rgba(180,140,210,0.75); display:flex; align-items:flex-start; gap:7px; border-left:2px solid transparent; user-select:none; transition:background 0.12s; }
+  .nw-candidate { padding:6px 12px; cursor:grab; font-size:11px; color:rgba(190,155,220,0.85); display:flex; align-items:flex-start; gap:7px; border-left:2px solid transparent; user-select:none; transition:background 0.12s; }
   .nw-candidate:hover { background:rgba(180,100,255,0.10); color:#d0aaf8; border-left-color:var(--nw-purple-dim); }
   .nw-candidate-icon { flex-shrink:0; opacity:0.75; margin-top:1px; }
   .nw-candidate-label { flex:1; line-height:1.4; overflow:hidden; display:-webkit-box; -webkit-line-clamp:2; line-clamp:2; -webkit-box-orient:vertical; }
-  .nw-candidate-meta { flex-shrink:0; font-size:7px; letter-spacing:1px; padding:1px 4px; border-radius:1px; white-space:nowrap; }
+  .nw-candidate-meta { flex-shrink:0; font-size:9px; letter-spacing:0.5px; padding:1px 4px; border-radius:1px; white-space:nowrap; }
   .nw-builder-footer { padding:8px 14px; border-top:1px solid #2a1040; flex-shrink:0; display:flex; flex-direction:column; gap:6px; }
   .nw-builder-footer .nw-action-btn { width:100%; text-align:center; }
   /* ── Link mode ─── */
   #btn-nw-link-mode.is-active { color:#00ff88; border-color:#00cc66; background:rgba(0,255,136,0.08); box-shadow:0 0 8px rgba(0,255,136,0.12); }
   #nw-canvas-wrap.link-mode { cursor:crosshair !important; }
-  #nw-link-indicator { display:none; position:absolute; top:10px; left:50%; transform:translateX(-50%); background:rgba(0,255,136,0.10); border:1px solid #00cc66; color:#00ff88; font-family:var(--font-mono); font-size:8px; letter-spacing:1.5px; padding:4px 16px; pointer-events:none; z-index:10; white-space:nowrap; border-radius:1px; }
+  #nw-link-indicator { display:none; position:absolute; top:10px; left:50%; transform:translateX(-50%); background:rgba(0,255,136,0.10); border:1px solid #00cc66; color:#00ff88; font-family:var(--font-mono); font-size:10px; letter-spacing:1px; padding:4px 16px; pointer-events:none; z-index:10; white-space:nowrap; border-radius:1px; }
   #nw-link-indicator.is-visible { display:block; }
   #nw-canvas-wrap.drop-target { outline:1px dashed var(--nw-purple-dim); outline-offset:-2px; }
   /* ── New node type badge ─── */
@@ -2639,8 +2639,8 @@
     flex: 1;
     padding: 8px 4px;
     font-family: var(--font-mono);
-    font-size: 7px;
-    letter-spacing: 1.5px;
+    font-size: 9px;
+    letter-spacing: 1px;
     font-weight: 700;
     color: var(--color-text-faint);
     background: none;
@@ -2668,23 +2668,23 @@
     padding: 12px 14px;
     scrollbar-width: thin;
     scrollbar-color: var(--nw-purple-faint) transparent;
-    font-size: 10px;
+    font-size: 12px;
     line-height: 1.7;
-    color: rgba(200,170,230,0.85);
+    color: rgba(210,185,240,0.9);
   }
   .nw-insp-field { margin-bottom: 10px; }
-  .nw-insp-key { font-size: 7px; letter-spacing: 2px; color: var(--nw-purple-dim); font-weight: 700; margin-bottom: 2px; opacity: 0.8; }
-  .nw-insp-val { font-size: 10px; color: rgba(210,185,240,0.9); line-height: 1.5; }
-  .nw-risk-badge { display: inline-block; font-size: 7px; letter-spacing: 2px; font-weight: 700; padding: 2px 6px; border-radius: 1px; }
+  .nw-insp-key { font-size: 9px; letter-spacing: 1.5px; color: var(--nw-purple-dim); font-weight: 700; margin-bottom: 2px; opacity: 0.85; }
+  .nw-insp-val { font-size: 12px; color: rgba(210,185,240,0.9); line-height: 1.5; }
+  .nw-risk-badge { display: inline-block; font-size: 9px; letter-spacing: 1.5px; font-weight: 700; padding: 2px 6px; border-radius: 1px; }
   .nw-kw-wrap { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
-  .nw-kw { font-size: 7px; letter-spacing: 1px; padding: 2px 5px; background: rgba(180,100,255,0.10); border: 1px solid #2a1040; color: var(--nw-purple-dim); border-radius: 1px; }
-  #nw-insp-placeholder { text-align: center; padding-top: 40px; font-size: 8px; letter-spacing: 2px; color: var(--nw-purple-dim); opacity: 0.5; line-height: 2; }
+  .nw-kw { font-size: 9px; letter-spacing: 0.5px; padding: 2px 5px; background: rgba(180,100,255,0.10); border: 1px solid #2a1040; color: var(--nw-purple-dim); border-radius: 1px; }
+  #nw-insp-placeholder { text-align: center; padding-top: 40px; font-size: 10px; letter-spacing: 1.5px; color: var(--nw-purple-dim); opacity: 0.5; line-height: 2; }
 
   /* Edge-type badges in inspector */
   .nw-edge-badge {
     display: inline-block;
-    font-size: 6px;
-    letter-spacing: 1px;
+    font-size: 8px;
+    letter-spacing: 0.5px;
     font-weight: 700;
     padding: 1px 5px;
     border-radius: 1px;
@@ -2705,10 +2705,10 @@
     border-bottom: 1px solid rgba(50,15,80,0.45);
   }
   .nw-tl-row:last-child { border-bottom: none; }
-  .nw-tl-ts { font-size: 7px; color: var(--nw-purple-dim); letter-spacing: 0.5px; padding-top: 1px; opacity: 0.75; }
+  .nw-tl-ts { font-size: 9px; color: var(--nw-purple-dim); letter-spacing: 0.5px; padding-top: 1px; opacity: 0.85; }
   .nw-tl-dot { width: 7px; height: 7px; border-radius: 50%; margin-top: 3px; flex-shrink: 0; }
-  .nw-tl-title { font-size: 9px; color: rgba(210,185,240,0.85); line-height: 1.4; }
-  .nw-tl-meta  { font-size: 7px; color: var(--nw-purple-dim); margin-top: 2px; letter-spacing: 0.5px; opacity: 0.65; }
+  .nw-tl-title { font-size: 11px; color: rgba(210,185,240,0.9); line-height: 1.4; }
+  .nw-tl-meta  { font-size: 9px; color: var(--nw-purple-dim); margin-top: 2px; letter-spacing: 0.5px; opacity: 0.75; }
 
   /* Notes pane */
   #nw-notes-body { padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; }
@@ -2719,7 +2719,7 @@
     border: 1px solid #2a1040;
     color: rgba(210,185,240,0.9);
     font-family: var(--font-mono);
-    font-size: 10px;
+    font-size: 12px;
     line-height: 1.7;
     padding: 10px;
     resize: vertical;
@@ -2735,8 +2735,8 @@
     border: 1px solid var(--nw-border-s);
     color: var(--nw-purple-dim);
     font-family: var(--font-mono);
-    font-size: 8px;
-    letter-spacing: 2px;
+    font-size: 10px;
+    letter-spacing: 1.5px;
     padding: 6px 4px;
     cursor: pointer;
     transition: color 0.15s, border-color 0.15s, background 0.15s;
@@ -2756,7 +2756,7 @@
     box-shadow: 0 2px 14px rgba(180,100,255,0.15);
     padding: 6px 10px;
     font-family: var(--font-mono);
-    font-size: 9px;
+    font-size: 11px;
     color: rgba(210,185,240,0.95);
     max-width: 220px;
     line-height: 1.5;
@@ -2776,7 +2776,7 @@
   #nw-ctx-menu.is-open { display: block; }
   .nw-ctx-item {
     padding: 7px 16px;
-    font-size: 9px; letter-spacing: 1.5px;
+    font-size: 11px; letter-spacing: 1px;
     color: var(--color-text-dim);
     cursor: pointer; white-space: nowrap;
     font-family: var(--font-mono);
@@ -2789,21 +2789,21 @@
     display: block; width: 100%; margin-top: 14px;
     background: none; border: 1px solid var(--nw-border-s);
     color: var(--nw-purple-dim); font-family: var(--font-mono);
-    font-size: 8px; letter-spacing: 2px; padding: 6px 0;
+    font-size: 10px; letter-spacing: 1.5px; padding: 6px 0;
     cursor: pointer; text-align: center;
     transition: color 0.15s, border-color 0.15s, background 0.15s;
   }
   .nw-note-link-btn:hover { color: var(--nw-purple); border-color: var(--nw-purple-dim); background: rgba(180,100,255,0.06); }
   /* Timeline enhancements */
   .nw-tl-scan {
-    font-size: 6px; letter-spacing: 1px; padding: 1px 4px;
+    font-size: 8px; letter-spacing: 0.5px; padding: 1px 4px;
     background: rgba(180,100,255,0.14); border: 1px solid var(--nw-purple-faint);
     color: var(--nw-purple-dim); vertical-align: middle; margin-left: 5px;
   }
   .nw-tl-row.is-clickable { cursor: pointer; }
   .nw-tl-row.is-clickable:hover { background: rgba(180,100,255,0.06); }
   #nw-timeline-body { padding: 0; }
-  .nw-tl-header { padding: 6px 12px; font-size: 7px; letter-spacing: 2px; color: var(--nw-purple-dim); border-bottom: 1px solid #2a1040; opacity: 0.8; }
+  .nw-tl-header { padding: 6px 12px; font-size: 9px; letter-spacing: 1.5px; color: var(--nw-purple-dim); border-bottom: 1px solid #2a1040; opacity: 0.85; }
   .nw-tab-pane {
     scrollbar-width: thin;
     scrollbar-color: var(--nw-purple-faint) transparent;
@@ -15848,7 +15848,7 @@ document.addEventListener('visibilitychange', function () {
     <!-- Analytics pane -->
     <div id="nw-pane-analytics" class="nw-tab-pane">
       <div id="nw-analytics-body" style="flex:1;overflow-y:auto;padding:12px 14px;scrollbar-width:thin;scrollbar-color:var(--nw-purple-faint) transparent">
-        <div id="nw-analytics-placeholder" style="padding:24px 0;text-align:center;font-size:8px;letter-spacing:2px;color:var(--nw-purple-dim);opacity:0.6;line-height:2">
+        <div id="nw-analytics-placeholder" style="padding:24px 0;text-align:center;font-size:10px;letter-spacing:1.5px;color:var(--nw-purple-dim);opacity:0.7;line-height:2">
           ENABLE SHIP OR<br>AIRCRAFT LAYER<br>TO SEE ANALYTICS
         </div>
       </div>
@@ -17771,9 +17771,9 @@ function buildChokepointAnalyticsHtml(nodeLabel) {
 
   var RADIUS_KM = 450;
   var html = '<div style="margin-top:10px;padding-top:8px;border-top:1px solid #1a0840">';
-  html += '<div style="font-size:7px;letter-spacing:2px;color:#00ccff;margin-bottom:6px">◈ CHOKEPOINT ANALYTICS <span style="color:#2a4060;font-size:6px">(' + RADIUS_KM + 'km radius)</span></div>';
-  html += field('SHIPS NEARBY', d.shipCount + (d.globalShips ? ' <span style="color:#2a4060;font-size:8px">of ' + d.globalShips + ' tracked</span>' : ''));
-  html += field('FLIGHTS NEARBY', d.flightCount + (d.globalFlights ? ' <span style="color:#2a4060;font-size:8px">of ' + d.globalFlights + ' tracked</span>' : ''));
+  html += '<div style="font-size:9px;letter-spacing:1.5px;color:#00ccff;margin-bottom:6px">◈ CHOKEPOINT ANALYTICS <span style="color:#4a6888;font-size:8px">(' + RADIUS_KM + 'km radius)</span></div>';
+  html += field('SHIPS NEARBY', d.shipCount + (d.globalShips ? ' <span style="color:#4a6888;font-size:10px">of ' + d.globalShips + ' tracked</span>' : ''));
+  html += field('FLIGHTS NEARBY', d.flightCount + (d.globalFlights ? ' <span style="color:#4a6888;font-size:10px">of ' + d.globalFlights + ' tracked</span>' : ''));
 
   // Ship category distribution
   if (d.shipCount > 0 && Object.keys(d.shipDist).length) {
@@ -17940,7 +17940,7 @@ function buildPortAnalytics() {
 }
 
 // ── Collapsible section helper (toggle via onclick on header) ─────────────────
-var _portMacroCollapsed = { regions: false, ports: false };
+var _portMacroCollapsed = { macro: false, meso: false, regions: false, ports: false };
 
 function _macroSection(id, title, badge, colorCls, contentHtml) {
   var collapsed = !!_portMacroCollapsed[id];
@@ -17949,8 +17949,8 @@ function _macroSection(id, title, badge, colorCls, contentHtml) {
   return '<div style="margin-bottom:2px">' +
     '<div data-pwsec="' + id + '" style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;padding:4px 0;border-bottom:1px solid #1a0840;user-select:none" ' +
       'onclick="window._pwToggle(\'' + id + '\')">' +
-      '<span style="font-size:7px;letter-spacing:2px;color:' + colorCls + '">' + arrow + ' ' + title + '</span>' +
-      (badge ? '<span style="font-size:6px;color:#2a4060">' + badge + '</span>' : '') +
+      '<span style="font-size:9px;letter-spacing:1.5px;color:' + colorCls + '">' + arrow + ' ' + title + '</span>' +
+      (badge ? '<span style="font-size:8px;color:#4a6888">' + badge + '</span>' : '') +
     '</div>' +
     '<div id="pw-sec-' + id + '" style="display:' + display + '">' + contentHtml + '</div>' +
   '</div>';
@@ -17971,7 +17971,7 @@ function renderPortMacro() {
   var html = '';
 
   // Header
-  html += '<div style="font-size:7px;letter-spacing:2px;color:#00ccff;margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid #1a0840">◈ IMF PORTWATCH <span style="color:#2a4060;font-size:6px">MACRO · ' + (pa.period || '—') + ' · ' + pa.portCount + ' PORTS</span></div>';
+  html += '<div style="font-size:9px;letter-spacing:1.5px;color:#00ccff;margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid #1a0840">◈ IMF PORTWATCH <span style="color:#4a6888;font-size:8px">MACRO · ' + (pa.period || '—') + ' · ' + pa.portCount + ' PORTS</span></div>';
 
   // ── GLOBAL SUMMARY (always visible) ────────────────────────────────────────
   html += '<div style="margin-bottom:8px">';
@@ -17990,7 +17990,7 @@ function renderPortMacro() {
     { label: 'EXP TANKER',    pct: G.categories.exp_tanker_pct,    col: '#ffbb66' },
   ];
   var catHtml = catRows.map(function(row) {
-    return '<div style="margin-bottom:3px"><span style="color:#4a7da8;display:inline-block;width:84px;font-size:8px">' + row.label + '</span>' + miniBar(row.pct, row.col) + '</div>';
+    return '<div style="margin-bottom:3px"><span style="color:#4a7da8;display:inline-block;width:88px;font-size:10px">' + row.label + '</span>' + miniBar(row.pct, row.col) + '</div>';
   }).join('');
   html += field('CARGO MIX', catHtml);
   html += '</div>';
@@ -18003,18 +18003,18 @@ function renderPortMacro() {
     regHtml +=
       '<div style="padding:5px 0;border-bottom:1px solid rgba(42,16,64,0.5)">' +
       '<div style="display:flex;justify-content:space-between;margin-bottom:2px">' +
-        '<span style="font-size:8px;color:#cc99ff">' + R.name + '</span>' +
-        '<span style="font-size:7px;color:#2a4060">' + R.pctOfGlobal + '% of global</span>' +
+        '<span style="font-size:10px;color:#cc99ff">' + R.name + '</span>' +
+        '<span style="font-size:9px;color:#4a6888">' + R.pctOfGlobal + '% of global</span>' +
       '</div>' +
       '<div style="display:flex;gap:10px;margin-bottom:2px">' +
-        '<span style="font-size:7px;color:#4a7da8">CALLS <span style="color:#00ccff">' + R.totalCalls.toLocaleString() + '</span></span>' +
-        '<span style="font-size:7px;color:#4a7da8">PORTS <span style="color:#cc99ff">' + R.portCount + '</span></span>' +
-        '<span style="font-size:7px;color:' + domCol + '">' + R.dominantCargo + '</span>' +
+        '<span style="font-size:9px;color:#4a7da8">CALLS <span style="color:#00ccff">' + R.totalCalls.toLocaleString() + '</span></span>' +
+        '<span style="font-size:9px;color:#4a7da8">PORTS <span style="color:#cc99ff">' + R.portCount + '</span></span>' +
+        '<span style="font-size:9px;color:' + domCol + '">' + R.dominantCargo + '</span>' +
       '</div>' +
       miniBar(R.pctOfGlobal, '#7755cc') +
       '</div>';
   });
-  html += _macroSection('regions', 'REGIONS', pa.regions.length + ' active', '#7755cc', regHtml || '<div style="padding:6px 0;font-size:7px;color:#2a4060">No regional data</div>');
+  html += _macroSection('regions', 'REGIONS', pa.regions.length + ' active', '#7755cc', regHtml || '<div style="padding:6px 0;font-size:9px;color:#4a6888">No regional data</div>');
 
   // ── TOP PORTS per region (collapsible) ─────────────────────────────────────
   var portHtml = '';
@@ -18022,21 +18022,21 @@ function renderPortMacro() {
     if (!R.totalCalls) return;
     var rPorts = pa.topPortsByRegion[R.name] || [];
     if (!rPorts.length) return;
-    portHtml += '<div style="margin:6px 0 3px;font-size:7px;letter-spacing:1.5px;color:#4a7da8">' + R.name.toUpperCase() + '</div>';
+    portHtml += '<div style="margin:6px 0 3px;font-size:9px;letter-spacing:1px;color:#4a7da8">' + R.name.toUpperCase() + '</div>';
     rPorts.forEach(function(p) {
       var vcol = (p.visual && p.visual.color) ? p.visual.color : '#4a7da8';
-      var cpTag = p.chokepointId ? ' <span style="color:#ffcc00;font-size:6px">⬡CP</span>' : '';
+      var cpTag = p.chokepointId ? ' <span style="color:#ffcc00;font-size:8px">⬡CP</span>' : '';
       portHtml +=
-        '<div style="padding:3px 0;border-bottom:1px solid rgba(42,16,64,0.35)">' +
-        '<div style="display:flex;justify-content:space-between;margin-bottom:1px">' +
-          '<span style="font-size:8px;color:' + vcol + '">' + p.name + cpTag + '</span>' +
-          '<span style="font-size:6px;color:#2a4060">' + p.pctOfRegion + '%R / ' + p.pctOfGlobal + '%G</span>' +
+        '<div style="padding:4px 0;border-bottom:1px solid rgba(42,16,64,0.35)">' +
+        '<div style="display:flex;justify-content:space-between;margin-bottom:2px">' +
+          '<span style="font-size:10px;color:' + vcol + '">' + p.name + cpTag + '</span>' +
+          '<span style="font-size:8px;color:#4a6888">' + p.pctOfRegion + '%R / ' + p.pctOfGlobal + '%G</span>' +
         '</div>' +
-        '<div style="font-size:7px;color:#2a4060">' + p.country + ' · CALLS <span style="color:#00ccff">' + p.calls + '</span></div>' +
+        '<div style="font-size:9px;color:#4a6888">' + p.country + ' · CALLS <span style="color:#00ccff">' + p.calls + '</span></div>' +
         '</div>';
     });
   });
-  html += _macroSection('ports', 'TOP PORTS', 'per region', '#4a7da8', portHtml || '<div style="padding:6px 0;font-size:7px;color:#2a4060">No port data</div>');
+  html += _macroSection('ports', 'TOP PORTS', 'per region', '#4a7da8', portHtml || '<div style="padding:6px 0;font-size:9px;color:#4a6888">No port data</div>');
 
   // ── IMF Signals (disruptions / imbalances) ─────────────────────────────────
   var signals = window._portWatchSignals || [];
@@ -18044,14 +18044,14 @@ function renderPortMacro() {
     var SIG_COL = { DISRUPTION: '#ff4466', TRADE_IMBALANCE: '#ffcc00', ENERGY_CONCENTRATION: '#ff9933' };
     var sigHtml = signals.slice(0, 8).map(function(s) {
       var col = SIG_COL[s.type] || '#4a7da8';
-      return '<div style="padding:4px 0;border-bottom:1px solid rgba(42,16,64,0.4);font-size:7px;line-height:1.5">' +
-        '<span style="color:' + col + ';letter-spacing:1px">' + (s.type || 'SIGNAL').replace(/_/g,' ') + '</span>' +
-        (s.chokepointId ? ' <span style="color:#ffcc00;font-size:6px">⬡CP</span>' : '') +
+      return '<div style="padding:4px 0;border-bottom:1px solid rgba(42,16,64,0.4);font-size:9px;line-height:1.5">' +
+        '<span style="color:' + col + ';letter-spacing:0.5px">' + (s.type || 'SIGNAL').replace(/_/g,' ') + '</span>' +
+        (s.chokepointId ? ' <span style="color:#ffcc00;font-size:8px">⬡CP</span>' : '') +
         '<br><span style="color:#4a7da8">' + (s.detail || '') + '</span>' +
         '</div>';
     }).join('');
     html += '<div style="margin-top:8px;padding-top:6px;border-top:1px solid #1a0840">';
-    html += '<div style="font-size:7px;letter-spacing:2px;color:#ff9933;margin-bottom:4px">⚑ IMF SIGNALS <span style="color:#2a4060">(' + signals.length + ')</span></div>';
+    html += '<div style="font-size:9px;letter-spacing:1.5px;color:#ff9933;margin-bottom:4px">⚑ IMF SIGNALS <span style="color:#4a6888">(' + signals.length + ')</span></div>';
     html += sigHtml;
     html += '</div>';
   }
@@ -18063,7 +18063,7 @@ function renderPortMacro() {
     // Simple heuristic: if global port calls are very low vs vessel count, flag mismatch
     var callsPerShip = shipCount ? G.totalCalls / shipCount : 0;
     if (callsPerShip < 0.5 && G.totalCalls > 0) {
-      html += '<div style="margin-top:6px;padding:5px 6px;background:rgba(255,68,102,0.08);border-left:2px solid #ff4466;font-size:7px;color:#ff4466;line-height:1.6">';
+      html += '<div style="margin-top:6px;padding:5px 6px;background:rgba(255,68,102,0.08);border-left:2px solid #ff4466;font-size:9px;color:#ff4466;line-height:1.6">';
       html += '⚠ CROSS-SIGNAL: ' + shipCount + ' vessels tracked vs ' + G.totalCalls + ' IMF port calls — possible AIS coverage gap or traffic anomaly';
       html += '</div>';
     }
@@ -18088,7 +18088,7 @@ function renderAnalytics() {
   var trHtml = '<div style="display:flex;gap:4px;margin-bottom:10px">' +
     Object.keys(TR_LABELS).map(function(tr) {
       var active = state.analyticsTimeRange === tr;
-      return '<button data-nw-tr="' + tr + '" style="flex:1;background:' + (active ? '#2a1050' : 'none') + ';border:1px solid ' + (active ? '#7755cc' : '#2a1050') + ';color:' + (active ? '#cc99ff' : '#4a7da8') + ';font-size:7px;letter-spacing:1.5px;padding:3px 0;cursor:pointer;border-radius:2px">' + TR_LABELS[tr] + '</button>';
+      return '<button data-nw-tr="' + tr + '" style="flex:1;background:' + (active ? '#2a1050' : 'none') + ';border:1px solid ' + (active ? '#7755cc' : '#2a1050') + ';color:' + (active ? '#cc99ff' : '#4a7da8') + ';font-size:9px;letter-spacing:1px;padding:3px 0;cursor:pointer;border-radius:2px">' + TR_LABELS[tr] + '</button>';
     }).join('') + '</div>';
 
   var baseAgeMin = Math.round((Date.now() - baseline.ts) / 60000);
@@ -18099,112 +18099,98 @@ function renderAnalytics() {
   var shipChange    = pctChange(snap.ships.length,   baseline.ships);
   var flightChange  = pctChange(snap.flights.length, baseline.flights);
   var chgFmt = function(v, n) {
-    if (v === null || !n) return '<span style="color:#2a4060">N/A</span>';
+    if (v === null || !n) return '<span style="color:#4a6888">N/A</span>';
     var col = v > 0 ? '#00ff88' : (v < 0 ? '#ff4466' : '#4a7da8');
     return '<span style="color:' + col + '">' + (v > 0 ? '+' : '') + v + '%</span> vs ' + baseAgeStr;
   };
 
-  // ── MACRO section (IMF PortWatch — always rendered if data available) ─────────
-  var macroHtml = renderPortMacro();
+  // ── Build MACRO content (IMF PortWatch) ──────────────────────────────────────
+  var macroInner = renderPortMacro();
+  var macroCount = (window._portWatchState && window._portWatchState.ports) ? window._portWatchState.ports.size : 0;
+  var macroBadge = macroCount ? macroCount + ' ports' : 'no data';
 
-  // ── Global summary ────────────────────────────────────────────────────────────
-  var html = '';
-  if (macroHtml) {
-    html += '<div style="margin-bottom:10px">' + macroHtml + '</div>';
-    html += '<div style="border-top:1px solid #1a0840;margin-bottom:10px"></div>';
-  }
-  html += trHtml;
-  html += '<div style="font-size:7px;letter-spacing:2px;color:var(--nw-purple);margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid #1a0840">⬡ MESO/MICRO · LIVE TRACKING</div>';
+  // ── Build MESO/MICRO content (AIS + ADS-B) ───────────────────────────────────
+  var mesoInner = '';
+  mesoInner += trHtml;
 
   if (noData) {
-    if (!macroHtml) {
-      html += '<div style="padding:20px 0;text-align:center;font-size:8px;letter-spacing:1.5px;color:var(--nw-purple-dim);opacity:0.5;line-height:2">ENABLE SHIP OR<br>AIRCRAFT LAYER<br>TO LOAD DATA</div>';
-    } else {
-      html += '<div style="padding:10px 0;text-align:center;font-size:7px;letter-spacing:1.5px;color:var(--nw-purple-dim);opacity:0.5">ENABLE SHIP OR AIRCRAFT LAYER<br>FOR MESO/MICRO DATA</div>';
+    mesoInner += '<div style="padding:10px 0;text-align:center;font-size:9px;letter-spacing:1px;color:var(--nw-purple-dim);opacity:0.6">ENABLE SHIP OR AIRCRAFT LAYER<br>TO LOAD DATA</div>';
+  } else {
+    mesoInner += field('VESSELS TRACKED',
+      snap.ships.length + '&nbsp;&nbsp;' + chgFmt(shipChange, snap.ships.length));
+    mesoInner += field('FLIGHTS TRACKED',
+      snap.flights.length + '&nbsp;&nbsp;' + chgFmt(flightChange, snap.flights.length));
+
+    if (snap.ships.length > 0) {
+      var SHIP_COLORS2 = { cargo:'#4488ff', tanker:'#ff9933', military:'#ff4444', passenger:'#00ff88', fishing:'#ffcc00', other:'#5577aa' };
+      var gShipDist = categoryDistribution(snap.ships);
+      var gsHtml = Object.keys(gShipDist).sort(function(a,b){ return gShipDist[b]-gShipDist[a]; }).map(function(k) {
+        return '<div style="margin-bottom:4px"><span style="color:#4a7da8;display:inline-block;width:76px;font-size:10px">' + k.toUpperCase() + '</span>' + miniBar(gShipDist[k], SHIP_COLORS2[k]||'#5577aa') + '</div>';
+      }).join('');
+      mesoInner += field('VESSEL TYPES', gsHtml);
     }
-    body.innerHTML = html;
-    _bindAnalyticsTimeRange(body);
-    return;
+
+    if (snap.flights.length > 0) {
+      var FLT_COLORS2 = { commercial:'#66ddff', cargo:'#4488ff', military:'#ff4444', unknown:'#5577aa' };
+      var gFlightDist = categoryDistribution(snap.flights);
+      var gfHtml = Object.keys(gFlightDist).sort(function(a,b){ return gFlightDist[b]-gFlightDist[a]; }).map(function(k) {
+        return '<div style="margin-bottom:4px"><span style="color:#4a7da8;display:inline-block;width:76px;font-size:10px">' + k.toUpperCase() + '</span>' + miniBar(gFlightDist[k], FLT_COLORS2[k]||'#5577aa') + '</div>';
+      }).join('');
+      mesoInner += field('FLIGHT TYPES', gfHtml);
+    }
+
+    var cpKeys = Object.keys(analytics);
+    if (cpKeys.length) {
+      mesoInner += '<div style="font-size:9px;letter-spacing:1.5px;color:var(--nw-purple);margin:12px 0 6px;padding-top:8px;border-top:1px solid #1a0840">◈ CHOKEPOINT VOLUMES <span style="color:#4a6888;font-size:8px">(450km radius)</span></div>';
+      var sortedCps = cpKeys.map(function(k){ return analytics[k]; })
+        .sort(function(a,b){ return (b.shipCount + b.flightCount) - (a.shipCount + a.flightCount) });
+      var RISK_COL2 = { CRITICAL:'#ff0044', WARNING:'#ff9933', WATCH:'#ffcc00', LOW:'#00ff88' };
+      sortedCps.forEach(function(d2) {
+        var cpData = (window.CHOKEPOINTS_DATA || []).find(function(c){ return c.id === d2.id; });
+        var rCol   = cpData ? (RISK_COL2[cpData.risk] || '#4a7da8') : '#4a7da8';
+        var total  = d2.shipCount + d2.flightCount;
+        if (!total && !d2.globalShips && !d2.globalFlights) return;
+        mesoInner += '<div style="padding:6px 0;border-bottom:1px solid rgba(42,16,64,0.5)">';
+        mesoInner += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px">';
+        mesoInner += '<span style="font-size:10px;color:' + rCol + ';letter-spacing:0.5px">' + d2.label + '</span>';
+        mesoInner += '<span style="font-size:9px;color:#4a6888">' + (cpData ? cpData.risk : '') + '</span>';
+        mesoInner += '</div>';
+        mesoInner += '<div style="display:flex;gap:12px">';
+        mesoInner += '<span style="font-size:10px;color:#4a7da8">⚓ <span style="color:#00ccff">' + d2.shipCount + '</span> ships</span>';
+        mesoInner += '<span style="font-size:10px;color:#4a7da8">✈ <span style="color:#66ddff">' + d2.flightCount + '</span> flights</span>';
+        mesoInner += '</div>';
+        if (d2.shipCount > 0 && Object.keys(d2.shipDist).length) {
+          var CP_SHIP_COL = { cargo:'#4488ff', tanker:'#ff9933', military:'#ff4444', passenger:'#00ff88', fishing:'#ffcc00', other:'#5577aa' };
+          mesoInner += '<div style="margin-top:3px">';
+          Object.keys(d2.shipDist).sort(function(a,b){ return d2.shipDist[b]-d2.shipDist[a]; }).slice(0,3).forEach(function(k) {
+            mesoInner += '<div style="font-size:9px;color:#4a6888;margin-bottom:1px"><span style="color:#4a7da8;display:inline-block;width:60px">' + k + '</span>' + miniBar(d2.shipDist[k], CP_SHIP_COL[k]||'#5577aa') + '</div>';
+          });
+          mesoInner += '</div>';
+        }
+        if (d2.flightCount > 0 && Object.keys(d2.flightDist).length) {
+          var CP_FLT_COL = { commercial:'#66ddff', cargo:'#4488ff', military:'#ff4444', unknown:'#5577aa' };
+          mesoInner += '<div style="margin-top:2px">';
+          Object.keys(d2.flightDist).sort(function(a,b){ return d2.flightDist[b]-d2.flightDist[a]; }).slice(0,3).forEach(function(k) {
+            mesoInner += '<div style="font-size:9px;color:#4a6888;margin-bottom:1px"><span style="color:#4a7da8;display:inline-block;width:60px">' + k + '</span>' + miniBar(d2.flightDist[k], CP_FLT_COL[k]||'#5577aa') + '</div>';
+          });
+          mesoInner += '</div>';
+        }
+        mesoInner += '</div>';
+      });
+    }
+
+    var TR_LABEL_MAP = { '1h': '1 HOUR', '24h': '24 HOURS', '7d': '7 DAYS' };
+    mesoInner += '<div style="margin-top:10px;font-size:9px;letter-spacing:0.5px;color:#4a6888;opacity:0.8;line-height:1.6">';
+    mesoInner += 'BASELINE FROM ' + baseAgeStr.toUpperCase() + ' · DELTA: ' + (TR_LABEL_MAP[state.analyticsTimeRange] || state.analyticsTimeRange);
+    mesoInner += '</div>';
   }
 
-  html += field('VESSELS TRACKED',
-    snap.ships.length + '&nbsp;&nbsp;' + chgFmt(shipChange, snap.ships.length));
-  html += field('FLIGHTS TRACKED',
-    snap.flights.length + '&nbsp;&nbsp;' + chgFmt(flightChange, snap.flights.length));
+  var mesoBadge = noData ? 'no layer' : (snap.ships.length + 'v ' + snap.flights.length + 'f');
 
-  // ── Global category distributions ────────────────────────────────────────────
-  if (snap.ships.length > 0) {
-    var SHIP_COLORS2 = { cargo:'#4488ff', tanker:'#ff9933', military:'#ff4444', passenger:'#00ff88', fishing:'#ffcc00', other:'#5577aa' };
-    var gShipDist = categoryDistribution(snap.ships);
-    var gsHtml = Object.keys(gShipDist).sort(function(a,b){ return gShipDist[b]-gShipDist[a]; }).map(function(k) {
-      return '<div style="margin-bottom:4px"><span style="color:#4a7da8;display:inline-block;width:72px;font-size:8px">' + k.toUpperCase() + '</span>' + miniBar(gShipDist[k], SHIP_COLORS2[k]||'#5577aa') + '</div>';
-    }).join('');
-    html += field('VESSEL TYPES', gsHtml);
-  }
-
-  if (snap.flights.length > 0) {
-    var FLT_COLORS2 = { commercial:'#66ddff', cargo:'#4488ff', military:'#ff4444', unknown:'#5577aa' };
-    var gFlightDist = categoryDistribution(snap.flights);
-    var gfHtml = Object.keys(gFlightDist).sort(function(a,b){ return gFlightDist[b]-gFlightDist[a]; }).map(function(k) {
-      return '<div style="margin-bottom:4px"><span style="color:#4a7da8;display:inline-block;width:72px;font-size:8px">' + k.toUpperCase() + '</span>' + miniBar(gFlightDist[k], FLT_COLORS2[k]||'#5577aa') + '</div>';
-    }).join('');
-    html += field('FLIGHT TYPES', gfHtml);
-  }
-
-  // ── Per-chokepoint volume table ───────────────────────────────────────────────
-  var cpKeys = Object.keys(analytics);
-  if (cpKeys.length) {
-    html += '<div style="font-size:7px;letter-spacing:2px;color:var(--nw-purple);margin:12px 0 6px;padding-top:8px;border-top:1px solid #1a0840">◈ CHOKEPOINT VOLUMES <span style="color:#2a4060;font-size:6px">(450km radius)</span></div>';
-
-    // Sort chokepoints by total activity desc
-    var sortedCps = cpKeys.map(function(k){ return analytics[k]; })
-      .sort(function(a,b){ return (b.shipCount + b.flightCount) - (a.shipCount + a.flightCount) });
-
-    var RISK_COL2 = { CRITICAL:'#ff0044', WARNING:'#ff9933', WATCH:'#ffcc00', LOW:'#00ff88' };
-    sortedCps.forEach(function(d2) {
-      var cpData = (window.CHOKEPOINTS_DATA || []).find(function(c){ return c.id === d2.id; });
-      var rCol   = cpData ? (RISK_COL2[cpData.risk] || '#4a7da8') : '#4a7da8';
-      var total  = d2.shipCount + d2.flightCount;
-      if (!total && !d2.globalShips && !d2.globalFlights) return;
-
-      html += '<div style="padding:6px 0;border-bottom:1px solid rgba(42,16,64,0.5)">';
-      html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px">';
-      html += '<span style="font-size:8px;color:' + rCol + ';letter-spacing:0.5px">' + d2.label + '</span>';
-      html += '<span style="font-size:7px;color:#2a4060">' + (cpData ? cpData.risk : '') + '</span>';
-      html += '</div>';
-      html += '<div style="display:flex;gap:12px">';
-      html += '<span style="font-size:8px;color:#4a7da8">⚓ <span style="color:#00ccff">' + d2.shipCount + '</span> ships</span>';
-      html += '<span style="font-size:8px;color:#4a7da8">✈ <span style="color:#66ddff">' + d2.flightCount + '</span> flights</span>';
-      html += '</div>';
-
-      // Compact category bars for chokepoints with data
-      if (d2.shipCount > 0 && Object.keys(d2.shipDist).length) {
-        var CP_SHIP_COL = { cargo:'#4488ff', tanker:'#ff9933', military:'#ff4444', passenger:'#00ff88', fishing:'#ffcc00', other:'#5577aa' };
-        html += '<div style="margin-top:3px">';
-        Object.keys(d2.shipDist).sort(function(a,b){ return d2.shipDist[b]-d2.shipDist[a]; }).slice(0,3).forEach(function(k) {
-          html += '<div style="font-size:7px;color:#2a4060;margin-bottom:1px"><span style="color:#4a7da8;display:inline-block;width:56px">' + k + '</span>' + miniBar(d2.shipDist[k], CP_SHIP_COL[k]||'#5577aa') + '</div>';
-        });
-        html += '</div>';
-      }
-      if (d2.flightCount > 0 && Object.keys(d2.flightDist).length) {
-        var CP_FLT_COL = { commercial:'#66ddff', cargo:'#4488ff', military:'#ff4444', unknown:'#5577aa' };
-        html += '<div style="margin-top:2px">';
-        Object.keys(d2.flightDist).sort(function(a,b){ return d2.flightDist[b]-d2.flightDist[a]; }).slice(0,3).forEach(function(k) {
-          html += '<div style="font-size:7px;color:#2a4060;margin-bottom:1px"><span style="color:#4a7da8;display:inline-block;width:56px">' + k + '</span>' + miniBar(d2.flightDist[k], CP_FLT_COL[k]||'#5577aa') + '</div>';
-        });
-        html += '</div>';
-      }
-
-      html += '</div>';
-    });
-  }
-
-  // ── Snapshot note ─────────────────────────────────────────────────────────────
-  var TR_LABEL_MAP = { '1h': '1 HOUR', '24h': '24 HOURS', '7d': '7 DAYS' };
-  html += '<div style="margin-top:10px;font-size:7px;letter-spacing:0.5px;color:#2a4060;opacity:0.7;line-height:1.6">';
-  html += 'MACRO: IMF PORTWATCH · MESO/MICRO: AIS/ADS-B LIVE';
-  html += '<br>BASELINE FROM ' + baseAgeStr.toUpperCase() + ' · DELTA: ' + (TR_LABEL_MAP[state.analyticsTimeRange] || state.analyticsTimeRange);
-  html += '</div>';
+  // ── Assemble with top-level collapsible wrappers ──────────────────────────────
+  var html = '';
+  html += _macroSection('macro', 'IMF PORTWATCH', macroBadge, '#00ccff', macroInner || '<div style="padding:8px 0;font-size:9px;color:#4a6888;text-align:center">AWAITING DATA</div>');
+  html += _macroSection('meso',  'AIS / ADS-B',   mesoBadge,  'var(--nw-purple)', mesoInner);
 
   body.innerHTML = html;
   _bindAnalyticsTimeRange(body);
@@ -18817,7 +18803,7 @@ function renderNodeCandidates(type, query) {
     html += results.map(function(r) {
       var bc = r.badgeColor || '#4a7da8';
       var sub = (type === 'vessels' && r.chokepointLabel)
-        ? '<span style="font-size:6px;color:#2a4060;display:block;margin-top:1px">◇ ' + r.chokepointLabel + '</span>'
+        ? '<span style="font-size:6px;color:#4a6888;display:block;margin-top:1px">◇ ' + r.chokepointLabel + '</span>'
         : '';
       return '<div class="nw-candidate" draggable="true" data-nid="' + r.id + '" title="Drag to canvas or click to add">' +
         '<span class="nw-candidate-icon">' + icon + '</span>' +

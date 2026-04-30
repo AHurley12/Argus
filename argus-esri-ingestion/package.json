@@ -1,0 +1,20 @@
+{
+  "name": "argus-esri-ingestion",
+  "version": "1.0.0",
+  "description": "Standalone ArcGIS/Esri ingestion layer for Argus — isolated from frontend and AIS systems.",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "fetch-once": "node index.js --once"
+  },
+  "dependencies": {
+    "@esri/arcgis-rest-developer-credentials": "^1.0.0",
+    "@esri/arcgis-rest-portal": "^4.0.0",
+    "@esri/arcgis-rest-request": "^4.0.0",
+    "dotenv": "^16.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

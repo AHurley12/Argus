@@ -28,6 +28,7 @@ const DEFAULT_PAGE_SIZE  = 2_000;   // ArcGIS default max per page
  *   @param {object}  [options.authentication]  - ArcGISIdentityManager instance (optional)
  *   @param {number}  [options.timeoutMs]       - Per-request timeout (default: 12s)
  *   @param {boolean} [options.paginate]        - Follow exceededTransferLimit (default: true)
+ *   @param {number}  [options.maxFeatures]     - Hard cap on total records (default: 2000)
  *
  * @returns {Promise<Array>} Raw ArcGIS feature objects
  */
@@ -36,6 +37,7 @@ export async function fetchArcGISLayer(url, params = {}, options = {}) {
     authentication = null,
     timeoutMs       = DEFAULT_TIMEOUT_MS,
     paginate        = true,
+    maxFeatures     = 2_000,
   } = options;
 
   if (!params.where) {
@@ -81,8 +83,14 @@ export async function fetchArcGISLayer(url, params = {}, options = {}) {
 
     allFeatures = allFeatures.concat(page.features);
 
-    // Stop if no more pages
     const pageCount = page.features.length;
+
+    // Stop conditions: no more pages, limit reached, or empty page
+    if (allFeatures.length >= maxFeatures) {
+      console.log(`[fetch] maxFeatures cap (${maxFeatures}) reached — stopping pagination.`);
+      allFeatures = allFeatures.slice(0, maxFeatures);
+      break;
+    }
     if (!paginate || !page.exceededTransferLimit || pageCount === 0) {
       break;
     }

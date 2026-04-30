@@ -59,7 +59,7 @@ export function normalizeIMF(features) {
           container: safeNum(a.export_container),
           tanker:    safeNum(a.export_tanker),
         },
-        date:   safeNum(a.date),   // epoch ms from ArcGIS
+        date:   safeDate(a.date),   // epoch ms — handles string "YYYY-MM-DD" or numeric
         source: 'IMF_PORTWATCH',
       };
     })
@@ -115,4 +115,16 @@ function safeNum(value) {
 function safeString(value) {
   if (value === null || value === undefined) return '';
   return String(value).trim();
+}
+
+/**
+ * Returns epoch ms from a date value.
+ * ArcGIS returns dates as "YYYY-MM-DD" strings or epoch ms numbers.
+ * Defaults to 0 if unparseable.
+ */
+function safeDate(value) {
+  if (value === null || value === undefined) return 0;
+  if (typeof value === 'number') return Number.isFinite(value) ? value : 0;
+  const ts = Date.parse(String(value));
+  return Number.isFinite(ts) ? ts : 0;
 }

@@ -3383,6 +3383,7 @@
       <div class="kbd-row"><span class="kbd-key">E</span><span class="kbd-label">EVENTS</span></div>
       <div class="kbd-row"><span class="kbd-key">A</span><span class="kbd-label">AIRCRAFT</span></div>
       <div class="kbd-row"><span class="kbd-key">S</span><span class="kbd-label">SHIPS</span></div>
+      <div class="kbd-row"><span class="kbd-key">K</span><span class="kbd-label">CHOKEPOINTS</span></div>
       <div class="kbd-row"><span class="kbd-key">N</span><span class="kbd-label">NEURAL WEB</span></div>
 
       <div class="hud-section">RISK LEVEL</div>
@@ -8014,7 +8015,7 @@ window.ArgusUI = (function() {
     }
   });
 
-  return { toggleAI: toggleAI, togglePanel: togglePanel, setSuggestion: setSuggestion, closeDetail: closeDetail, showEventDetail: showEventDetail, showStaticDetail: showStaticDetail };
+  return { toggleAI: toggleAI, togglePanel: togglePanel, setSuggestion: setSuggestion, closeDetail: closeDetail, showEventDetail: showEventDetail, showStaticDetail: showStaticDetail, showUpgradePrompt: showUpgradePrompt };
 
 })(); // end ArgusUI
 
@@ -18435,6 +18436,14 @@ function close() {
 }
 
 function toggle() {
+  // Gate: Neural Web requires a paid tier (pro / admin / owner)
+  var tier = window.ArgusSession ? window.ArgusSession.tier : 'viewer';
+  if (tier !== 'pro' && tier !== 'admin' && tier !== 'owner') {
+    if (window.ArgusUI && typeof window.ArgusUI.showUpgradePrompt === 'function') {
+      window.ArgusUI.showUpgradePrompt();
+    }
+    return;
+  }
   var overlay = document.getElementById('nw-overlay');
   if (overlay && overlay.classList.contains('is-open')) close();
   else open();

@@ -21,7 +21,11 @@
       "Bash(ls:*)",
       "Bash(npm install:*)",
       "Bash(node:*)",
-      "Bash(echo \"EXIT $?\")"
+      "Bash(echo \"EXIT $?\")",
+      "Bash(awk NR>=18450 && NR<=18560:*)",
+      "Bash(awk NR>=18960 && NR<=19020:*)",
+      "Bash(awk NR>=19060 && NR<=19120:*)",
+      "Bash(awk NR>=19150 && NR<=19220:*)"
     ]
   }
 }

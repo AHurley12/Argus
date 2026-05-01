@@ -872,6 +872,86 @@
     .cb-btn.danger { border-color: #ff004444; color: #ff4466; }
     .cb-btn.danger:hover { background: rgba(255,0,68,0.1); border-color: #ff004488; }
 
+    /* ── Data Overview panel ── */
+    #cb-overview {
+      display: none;
+      flex-direction: column;
+      flex: 1;
+      min-height: 0;
+      overflow-y: auto;
+      gap: 8px;
+      scrollbar-width: thin;
+      scrollbar-color: #2a3a5a transparent;
+    }
+    .cb-ov-insight {
+      font-size: 9px;
+      color: #b464ff;
+      letter-spacing: 0.4px;
+      line-height: 1.6;
+      padding: 5px 8px;
+      background: rgba(180,100,255,0.06);
+      border-left: 2px solid #b464ff44;
+      flex-shrink: 0;
+    }
+    .cb-ov-row {
+      display: flex;
+      gap: 8px;
+      flex-shrink: 0;
+    }
+    .cb-ov-block {
+      flex: 1;
+      min-width: 0;
+      background: rgba(5,15,30,0.4);
+      border: 1px solid #1a2a4a;
+      padding: 7px 8px;
+    }
+    .cb-ov-title {
+      font-size: 7px;
+      letter-spacing: 2px;
+      color: #4a6888;
+      margin-bottom: 6px;
+      border-bottom: 1px solid #1a2a4a;
+      padding-bottom: 4px;
+    }
+    .cb-ov-bar-row {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      margin-bottom: 4px;
+    }
+    .cb-ov-bar-lbl {
+      font-size: 8px;
+      color: #4a6888;
+      min-width: 68px;
+      text-align: right;
+      flex-shrink: 0;
+      font-family: var(--font-mono);
+    }
+    .cb-ov-bar-track {
+      flex: 1;
+      height: 6px;
+      background: rgba(42,60,90,0.4);
+      border-radius: 1px;
+      overflow: hidden;
+    }
+    .cb-ov-bar-fill {
+      height: 100%;
+      border-radius: 1px;
+      min-width: 2px;
+    }
+    .cb-ov-bar-val {
+      font-size: 8px;
+      min-width: 34px;
+      font-family: var(--font-mono);
+      text-align: left;
+    }
+    .cb-ov-meta {
+      font-size: 7px;
+      color: #2a4a6a;
+      letter-spacing: 1px;
+      margin-top: 5px;
+    }
+
     /* ── Case cards ── */
     .case-card {
       position: relative;
@@ -3474,6 +3554,7 @@
       <div class="cb-mode-btn"        id="cbm-timeline">▤ TIMELINE</div>
       <div class="cb-mode-btn"        id="cbm-tree">⊞ IMPACT TREE</div>
       <div class="cb-mode-btn"        id="cbm-notes">✎ NOTES</div>
+      <div class="cb-mode-btn"        id="cbm-overview">◈ DATA</div>
     </div>
 
     <!-- Status / cluster info bar -->
@@ -3510,6 +3591,25 @@
         <div class="cb-btn" id="cb-notes-export-txt" style="flex:2">↓ EXPORT .TXT</div>
         <div class="cb-btn" id="cb-notes-export-md"  style="flex:2">↓ EXPORT .MD</div>
         <div class="cb-btn danger" id="cb-notes-clear" style="flex:1">✕</div>
+      </div>
+    </div>
+
+    <!-- Data Overview — IMF + AIS visual analytics (populated by JS) -->
+    <div id="cb-overview">
+      <div class="cb-ov-insight" id="cb-ov-insight-text">Loading…</div>
+      <div class="cb-ov-row">
+        <div class="cb-ov-block" id="cb-ov-imf-block">
+          <div class="cb-ov-title">◈ IMF TRADE FLOW</div>
+          <div id="cb-ov-imf-chart"></div>
+        </div>
+        <div class="cb-ov-block" id="cb-ov-ais-block">
+          <div class="cb-ov-title">⚓ AIS VESSEL MIX</div>
+          <div id="cb-ov-ais-chart"></div>
+        </div>
+      </div>
+      <div class="cb-ov-block" id="cb-ov-regions-block">
+        <div class="cb-ov-title">⊞ IMF REGIONAL ACTIVITY</div>
+        <div id="cb-ov-regions-chart"></div>
       </div>
     </div>
 
@@ -13955,6 +14055,304 @@ window.ArgusCaseBuilder = (function () {
 
 }());
 /* ── End ArgusCaseBuilder ─────────────────────────────────────────────────── */
+</script>
+
+<!-- ══════════════════════════════════════════════════════════════════════════════
+     SCRIPT — Analytics Lab: Data Overview panel
+     Additive extension. Zero modifications to ArgusCaseBuilder internals.
+     All data sourced from existing pipeline globals:
+       window._portWatchState   — IMF PortWatch (set by ArgusPortWatch)
+       window._vesselMarkers    — AIS vessel meshes (set by ArgusTracking)
+       window._aircraftMarkers  — ADS-B flight meshes (set by ArgusTracking)
+══════════════════════════════════════════════════════════════════════════════ -->
+<script>
+(function () {
+'use strict';
+
+// ── Minimal region lookup (mirrors PORT_REGION_MAP in NeuralWeb) ──────────────
+var _OV_REGION = (function() {
+  var m = {};
+  ['China','Japan','South Korea','Taiwan','Hong Kong','Vietnam','Philippines',
+   'Indonesia','Malaysia','Singapore','Thailand','Cambodia','Myanmar'].forEach(function(c){ m[c]='East Asia'; });
+  ['India','Pakistan','Bangladesh','Sri Lanka'].forEach(function(c){ m[c]='South Asia'; });
+  ['Saudi Arabia','UAE','Qatar','Kuwait','Bahrain','Oman','Iran','Iraq',
+   'Yemen','Jordan','Israel'].forEach(function(c){ m[c]='Middle East'; });
+  ['Germany','Netherlands','Belgium','France','Spain','Italy','Greece','Turkey',
+   'United Kingdom','Norway','Sweden','Denmark','Finland','Poland','Portugal',
+   'Russia','Ukraine','Romania','Bulgaria'].forEach(function(c){ m[c]='Europe'; });
+  ['United States','Canada','Mexico','Brazil','Argentina','Chile',
+   'Colombia','Peru','Ecuador','Panama','Costa Rica'].forEach(function(c){ m[c]='Americas'; });
+  ['South Africa','Nigeria','Kenya','Egypt','Morocco','Algeria','Tanzania',
+   'Mozambique','Angola','Ghana','Djibouti'].forEach(function(c){ m[c]='Africa'; });
+  ['Australia','New Zealand','Papua New Guinea'].forEach(function(c){ m[c]='Oceania'; });
+  return m;
+})();
+
+// ── Memoization caches ────────────────────────────────────────────────────────
+var _imfCache  = { key: null, data: null };
+var _aisCache  = { key: null, data: null };
+
+// ── IMF aggregate computation (memoized by period + port count) ───────────────
+function _computeIMF() {
+  var pw = window._portWatchState;
+  if (!pw || !pw.ports || !pw.ports.size) return null;
+
+  var cacheKey = (pw.period || '') + '_' + pw.ports.size;
+  if (_imfCache.key === cacheKey && _imfCache.data) return _imfCache.data;
+
+  var totImports = 0, totExports = 0, totCalls = 0;
+  var contImp = 0, contExp = 0, tankImp = 0, tankExp = 0;
+  var regions = {};
+
+  pw.ports.forEach(function(p) {
+    totImports += p.imports_total;
+    totExports += p.exports_total;
+    totCalls   += p.total_calls;
+    contImp    += p.categories.import_container;
+    contExp    += p.categories.export_container;
+    tankImp    += p.categories.import_tanker;
+    tankExp    += p.categories.export_tanker;
+
+    var r = _OV_REGION[p.country] || 'Other';
+    if (!regions[r]) regions[r] = { calls: 0, imports: 0, exports: 0 };
+    regions[r].calls   += p.total_calls;
+    regions[r].imports += p.imports_total;
+    regions[r].exports += p.exports_total;
+  });
+
+  // Sort regions by call volume desc
+  var regionList = Object.keys(regions)
+    .map(function(k) { return { name: k, calls: regions[k].calls, imports: regions[k].imports, exports: regions[k].exports }; })
+    .sort(function(a, b) { return b.calls - a.calls; })
+    .slice(0, 6);
+
+  var flow  = totImports + totExports || 1;
+  var data  = {
+    totImports:    totImports,
+    totExports:    totExports,
+    totCalls:      totCalls,
+    portCount:     pw.ports.size,
+    period:        pw.period || '',
+    ieRatio:       totExports > 0 ? (totImports / totExports) : null,
+    contPct:       Math.round((contImp + contExp) / flow * 100),
+    tankPct:       Math.round((tankImp + tankExp) / flow * 100),
+    contImpPct:    Math.round(contImp / flow * 100),
+    contExpPct:    Math.round(contExp / flow * 100),
+    tankImpPct:    Math.round(tankImp / flow * 100),
+    tankExpPct:    Math.round(tankExp / flow * 100),
+    regions:       regionList,
+  };
+  data.otherPct = Math.max(0, 100 - data.contPct - data.tankPct);
+
+  _imfCache = { key: cacheKey, data: data };
+  return data;
+}
+
+// ── AIS snapshot computation (memoized by vessel+flight count) ────────────────
+function _computeAIS() {
+  var vMarkers = window._vesselMarkers   || [];
+  var aMarkers = window._aircraftMarkers || [];
+
+  var cacheKey = vMarkers.length + '_' + aMarkers.length;
+  if (_aisCache.key === cacheKey && _aisCache.data) return _aisCache.data;
+
+  var vesselTypes  = {};
+  var flightTypes  = {};
+
+  vMarkers.forEach(function(m) {
+    var cat = (m.userData && m.userData.typeCategory) || 'other';
+    vesselTypes[cat] = (vesselTypes[cat] || 0) + 1;
+  });
+  aMarkers.forEach(function(m) {
+    var cat = (m.userData && m.userData.flightType) || 'unknown';
+    flightTypes[cat] = (flightTypes[cat] || 0) + 1;
+  });
+
+  // Sort by count desc
+  var vList = Object.keys(vesselTypes)
+    .map(function(k) { return { type: k, count: vesselTypes[k] }; })
+    .sort(function(a, b) { return b.count - a.count; })
+    .slice(0, 6);
+  var fList = Object.keys(flightTypes)
+    .map(function(k) { return { type: k, count: flightTypes[k] }; })
+    .sort(function(a, b) { return b.count - a.count; })
+    .slice(0, 4);
+
+  var data = {
+    totalVessels: vMarkers.length,
+    totalFlights: aMarkers.length,
+    vesselTypes:  vList,
+    flightTypes:  fList,
+  };
+
+  _aisCache = { key: cacheKey, data: data };
+  return data;
+}
+
+// ── 1-line auto insight ───────────────────────────────────────────────────────
+function _generateInsight(imf, ais) {
+  var parts = [];
+  if (imf) {
+    if (imf.ieRatio !== null) {
+      var dir = imf.ieRatio > 1.05 ? 'import-heavy' : (imf.ieRatio < 0.95 ? 'export-heavy' : 'balanced');
+      parts.push(imf.portCount + ' ports · ' + imf.period + ' · I/E ' + imf.ieRatio.toFixed(2) + ':1 (' + dir + ')');
+    }
+    var domCargo = imf.contPct >= imf.tankPct ? 'container' : 'tanker';
+    var domPct   = Math.max(imf.contPct, imf.tankPct);
+    parts.push(domCargo + ' dominant at ' + domPct + '% of global cargo mix');
+  }
+  if (ais && ais.totalVessels > 0) {
+    var topV = ais.vesselTypes[0];
+    if (topV) {
+      var vPct = ais.totalVessels ? Math.round(topV.count / ais.totalVessels * 100) : 0;
+      parts.push(ais.totalVessels + ' vessels tracked — ' + topV.type + ' ' + vPct + '%');
+    }
+  }
+  if (!parts.length) return 'Enable IMF PortWatch and AIS layers to populate data overview.';
+  return parts.join('  ·  ');
+}
+
+// ── HTML bar row builder ──────────────────────────────────────────────────────
+function _barRow(label, value, maxValue, color) {
+  var pct    = maxValue > 0 ? Math.min(100, Math.round(value / maxValue * 100)) : 0;
+  var valStr = value >= 10000 ? Math.round(value / 1000) + 'k'
+             : value >= 1000  ? (value / 1000).toFixed(1) + 'k'
+             : String(value);
+  return '<div class="cb-ov-bar-row">' +
+    '<span class="cb-ov-bar-lbl">' + label + '</span>' +
+    '<div class="cb-ov-bar-track"><div class="cb-ov-bar-fill" style="width:' + pct + '%;background:' + color + '"></div></div>' +
+    '<span class="cb-ov-bar-val" style="color:' + color + '">' + valStr + '</span>' +
+  '</div>';
+}
+
+// ── Chart renderers ───────────────────────────────────────────────────────────
+function _renderIMFChart(imf) {
+  if (!imf) return '<div style="padding:10px 0;font-size:8px;color:#2a4a6a;text-align:center;letter-spacing:1px">AWAITING IMF DATA</div>';
+  var maxFlow = Math.max(imf.totImports, imf.totExports);
+  var html = '';
+  html += _barRow('IMPORTS',   imf.totImports,  maxFlow, '#4488ff');
+  html += _barRow('EXPORTS',   imf.totExports,  maxFlow, '#ff9933');
+  // Cargo mix section
+  html += '<div style="margin-top:5px;margin-bottom:3px;font-size:7px;color:#2a4a6a;letter-spacing:1px">CARGO MIX</div>';
+  var maxCargo = Math.max(imf.contImpPct, imf.contExpPct, imf.tankImpPct, imf.tankExpPct, 1);
+  html += _barRow('IMP CONT',  imf.contImpPct,  100, '#4488ff');
+  html += _barRow('EXP CONT',  imf.contExpPct,  100, '#66aaff');
+  html += _barRow('IMP TANK',  imf.tankImpPct,  100, '#ff9933');
+  html += _barRow('EXP TANK',  imf.tankExpPct,  100, '#ffbb66');
+  html += '<div class="cb-ov-meta">PORT CALLS: ' + imf.totCalls.toLocaleString() + '</div>';
+  return html;
+}
+
+function _renderAISChart(ais) {
+  if (!ais || (ais.totalVessels + ais.totalFlights === 0)) {
+    return '<div style="padding:10px 0;font-size:8px;color:#2a4a6a;text-align:center;letter-spacing:1px">ENABLE AIS LAYER</div>';
+  }
+  var VCOL = { cargo:'#4488ff', tanker:'#ff9933', military:'#ff4444', passenger:'#00ff88', fishing:'#ffcc00', other:'#5577aa', unknown:'#5577aa' };
+  var FCOL = { commercial:'#66ddff', cargo:'#4488ff', military:'#ff4444', unknown:'#5577aa' };
+  var html = '';
+  if (ais.vesselTypes.length) {
+    html += '<div style="margin-bottom:3px;font-size:7px;color:#2a4a6a;letter-spacing:1px">VESSELS (' + ais.totalVessels + ')</div>';
+    var maxV = ais.vesselTypes[0].count;
+    ais.vesselTypes.forEach(function(v) {
+      html += _barRow(v.type.toUpperCase(), v.count, maxV, VCOL[v.type] || '#5577aa');
+    });
+  }
+  if (ais.flightTypes.length) {
+    html += '<div style="margin:5px 0 3px;font-size:7px;color:#2a4a6a;letter-spacing:1px">FLIGHTS (' + ais.totalFlights + ')</div>';
+    var maxF = ais.flightTypes[0].count;
+    ais.flightTypes.forEach(function(f) {
+      html += _barRow(f.type.toUpperCase(), f.count, maxF, FCOL[f.type] || '#5577aa');
+    });
+  }
+  return html;
+}
+
+function _renderRegionsChart(imf) {
+  if (!imf || !imf.regions.length) {
+    return '<div style="padding:8px 0;font-size:8px;color:#2a4a6a;text-align:center;letter-spacing:1px">AWAITING IMF DATA</div>';
+  }
+  var maxCalls = imf.regions[0].calls;
+  return imf.regions.map(function(r) {
+    return _barRow(r.name.toUpperCase(), r.calls, maxCalls, '#7755cc');
+  }).join('');
+}
+
+// ── Main render entry-point ───────────────────────────────────────────────────
+function renderCbOverview() {
+  var imf = _computeIMF();
+  var ais = _computeAIS();
+
+  var insightEl   = document.getElementById('cb-ov-insight-text');
+  var imfChartEl  = document.getElementById('cb-ov-imf-chart');
+  var aisChartEl  = document.getElementById('cb-ov-ais-chart');
+  var regChartEl  = document.getElementById('cb-ov-regions-chart');
+
+  if (insightEl)  insightEl.textContent  = _generateInsight(imf, ais);
+  if (imfChartEl)  imfChartEl.innerHTML  = _renderIMFChart(imf);
+  if (aisChartEl)  aisChartEl.innerHTML  = _renderAISChart(ais);
+  if (regChartEl)  regChartEl.innerHTML  = _renderRegionsChart(imf);
+}
+
+// Expose so mode button can call it
+window._renderCbOverview = renderCbOverview;
+
+// ── Mode switching ────────────────────────────────────────────────────────────
+// Patch ArgusCaseBuilder.setMode so clicking any existing mode hides the overview.
+// Runs once after ArgusCaseBuilder is initialized.
+(function patchSetMode() {
+  if (!window.ArgusCaseBuilder || typeof window.ArgusCaseBuilder.setMode !== 'function') {
+    setTimeout(patchSetMode, 100);
+    return;
+  }
+  var _orig = window.ArgusCaseBuilder.setMode;
+  window.ArgusCaseBuilder.setMode = function(mode) {
+    var ov    = document.getElementById('cb-overview');
+    var ovBtn = document.getElementById('cbm-overview');
+    if (ov)    ov.style.display    = 'none';
+    if (ovBtn) ovBtn.className     = 'cb-mode-btn';
+    return _orig.apply(this, arguments);
+  };
+})();
+
+// ── Wire overview button ──────────────────────────────────────────────────────
+function wireOverviewBtn() {
+  var btn = document.getElementById('cbm-overview');
+  if (!btn) { setTimeout(wireOverviewBtn, 100); return; }
+
+  btn.addEventListener('click', function() {
+    // Deactivate all standard mode views and buttons
+    ['brief', 'timeline', 'tree'].forEach(function(m) {
+      var b = document.getElementById('cbm-' + m);
+      var v = document.getElementById('cb-' + m);
+      if (b) b.className     = 'cb-mode-btn';
+      if (v) v.style.display = 'none';
+    });
+    var notesBtn  = document.getElementById('cbm-notes');
+    var notesView = document.getElementById('cb-notes');
+    var netWrap   = document.getElementById('cb-network-wrap');
+    if (notesBtn)  notesBtn.className     = 'cb-mode-btn';
+    if (notesView) notesView.style.display = 'none';
+    if (netWrap)   netWrap.style.display   = 'none';
+
+    // Activate overview
+    btn.className = 'cb-mode-btn active';
+    var ov = document.getElementById('cb-overview');
+    if (ov) ov.style.display = 'flex';
+
+    // Invalidate cache so fresh data is used each time overview is opened
+    _imfCache.key = null;
+    _aisCache.key = null;
+    renderCbOverview();
+  });
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', wireOverviewBtn);
+} else {
+  wireOverviewBtn();
+}
+
+}());
 </script>
 
 <!-- ══════════════════════════════════════════════════════════════════════════════

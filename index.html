@@ -17860,12 +17860,20 @@ function buildPortAnalytics() {
   });
 
   var gFlow = gImports + gExports || 1;
+  var _gContTotal = gImpCont + gExpCont;
+  var _gTankTotal = gImpTank + gExpTank;
+  var _gContPct   = Math.round(_gContTotal / gFlow * 100);
+  var _gTankPct   = Math.round(_gTankTotal / gFlow * 100);
   var global = {
     portCount:  ports.length,
     totalCalls: gTotalCalls,
     imports:    gImports,
     exports:    gExports,
     balance:    gImports - gExports,
+    ieRatio:    gExports > 0 ? Math.round(gImports / gExports * 100) / 100 : null,
+    contPct:    _gContPct,
+    tankPct:    _gTankPct,
+    otherPct:   Math.max(0, 100 - _gContPct - _gTankPct),
     categories: {
       imp_container_pct: gFlow ? Math.round(gImpCont / gFlow * 100) : 0,
       exp_container_pct: gFlow ? Math.round(gExpCont / gFlow * 100) : 0,
@@ -17916,19 +17924,22 @@ function buildPortAnalytics() {
   // ── Port-level: top 5 ports per region ────────────────────────────────────
   var topPortsByRegion = {};
   regions.forEach(function(R) {
+    var regionMaxCalls = R.ports.length ? (R.ports[0].total_calls || 1) : 1;
     topPortsByRegion[R.name] = R.ports.slice(0, 5).map(function(p) {
       var flow = p.imports_total + p.exports_total || 1;
       return {
-        id:         p.id,
-        name:       p.port,
-        country:    p.country,
-        calls:      p.total_calls,
-        imports:    p.imports_total,
-        exports:    p.exports_total,
+        id:           p.id,
+        name:         p.port,
+        country:      p.country,
+        calls:        p.total_calls,
+        imports:      p.imports_total,
+        exports:      p.exports_total,
         pctOfRegion:  R.totalCalls ? Math.round(p.total_calls / R.totalCalls * 100) : 0,
         pctOfGlobal:  gTotalCalls  ? Math.round(p.total_calls / gTotalCalls  * 100) : 0,
         tankerShare:  Math.round((p.categories.import_tanker + p.categories.export_tanker) / flow * 100),
         contShare:    Math.round((p.categories.import_container + p.categories.export_container) / flow * 100),
+        ieRatio:      p.exports_total > 0 ? Math.round(p.imports_total / p.exports_total * 10) / 10 : null,
+        activityScore: Math.round(p.total_calls / regionMaxCalls * 100),
         visual:       p.visual,
         chokepointId: p.chokepointId,
       };
@@ -17941,10 +17952,13 @@ function buildPortAnalytics() {
 }
 
 // ── Collapsible section helper (toggle via onclick on header) ─────────────────
-var _portMacroCollapsed = { macro: false, meso: false, regions: false, ports: false };
+var _portMacroCollapsed = { macro: false, meso: false, regions: false, ports: false, imf_global: false, imf_regions: true, imf_signals: true };
 
 function _macroSection(id, title, badge, colorCls, contentHtml) {
-  var collapsed = !!_portMacroCollapsed[id];
+  // 'r_*' region keys default to collapsed (not in initial object)
+  var collapsed = (id in _portMacroCollapsed)
+    ? !!_portMacroCollapsed[id]
+    : (id.length > 2 && id.charAt(0) === 'r' && id.charAt(1) === '_');
   var arrow = collapsed ? '▸' : '▾';
   var display = collapsed ? 'none' : 'block';
   return '<div style="margin-bottom:2px">' +
@@ -17958,117 +17972,227 @@ function _macroSection(id, title, badge, colorCls, contentHtml) {
 }
 
 window._pwToggle = function(id) {
+  // Initialise region keys (not in initial object) as collapsed before first toggle
+  if (!(id in _portMacroCollapsed)) {
+    _portMacroCollapsed[id] = (id.length > 2 && id.charAt(0) === 'r' && id.charAt(1) === '_') ? true : false;
+  }
   _portMacroCollapsed[id] = !_portMacroCollapsed[id];
-  // Re-render only the analytics panel, not the full app
   if (typeof renderAnalytics === 'function') renderAnalytics();
 };
 
-// ── Render the full MACRO section HTML ────────────────────────────────────────
+// ── Anomaly detection: macro + cross-layer signals ────────────────────────────
+// Runs against precomputed buildPortAnalytics() result — no heavy iteration.
+function buildIMFAnomalies(pa, snap) {
+  if (!pa) return [];
+  var anomalies = [];
+  var G = pa.global;
+
+  // 1. IMF × Vessel cross-layer mismatch
+  if (snap.ships.length > 0 && G.totalCalls > 0) {
+    var callsPerShip = G.totalCalls / snap.ships.length;
+    if (callsPerShip < 0.5) {
+      anomalies.push({
+        type:   'CROSS_LAYER',
+        col:    '#ff4466',
+        detail: snap.ships.length + ' vessels tracked vs ' + G.totalCalls.toLocaleString() + ' IMF port calls — possible AIS coverage gap or traffic anomaly',
+      });
+    } else if (callsPerShip > 50) {
+      anomalies.push({
+        type:   'CROSS_LAYER',
+        col:    '#00ccff',
+        detail: '↑ High IMF port activity (' + G.totalCalls.toLocaleString() + ' calls) relative to ' + snap.ships.length + ' tracked vessels — elevated macro throughput',
+      });
+    }
+  }
+
+  // 2. Global tanker dominance
+  if (G.tankPct > 50) {
+    anomalies.push({
+      type:   'TANKER_SURGE',
+      col:    '#ff9933',
+      detail: 'Global cargo mix ' + G.tankPct + '% tanker-weighted — elevated energy route sensitivity across all regions',
+    });
+  }
+
+  // 3. Activity concentration (top region > 50% of global)
+  if (pa.regions.length > 0 && pa.regions[0].pctOfGlobal > 50) {
+    anomalies.push({
+      type:   'CONCENTRATION',
+      col:    '#cc99ff',
+      detail: pa.regions[0].name + ' accounts for ' + pa.regions[0].pctOfGlobal + '% of global port activity — supply chain concentration risk',
+    });
+  }
+
+  // 4. Global trade imbalance (macro level)
+  if (G.ieRatio !== null && G.exports > 0 && G.imports > 0) {
+    if (G.ieRatio > 1.3) {
+      anomalies.push({
+        type:   'TRADE_IMBALANCE',
+        col:    '#ffcc00',
+        detail: 'Global import surplus ' + G.ieRatio.toFixed(2) + ':1 across ' + pa.portCount + ' ports — possible demand accumulation or export constraints',
+      });
+    } else if (G.ieRatio < 0.77) {
+      anomalies.push({
+        type:   'TRADE_IMBALANCE',
+        col:    '#ffcc00',
+        detail: 'Global export surplus ' + (1 / G.ieRatio).toFixed(2) + ':1 across ' + pa.portCount + ' ports — possible demand shock or strategic drawdown',
+      });
+    }
+  }
+
+  // 5. Tanker-dominant regions (per-region, top 2 only to cap noise)
+  var tankerRegions = pa.regions.filter(function(R) { return R.tankerShare > 60 && R.pctOfGlobal >= 5; });
+  tankerRegions.slice(0, 2).forEach(function(R) {
+    anomalies.push({
+      type:   'TANKER_SURGE',
+      col:    '#ff9933',
+      detail: R.name + ': ' + R.tankerShare + '% tanker-weighted at ' + R.pctOfGlobal + '% of global activity — energy route elevated risk',
+    });
+  });
+
+  return anomalies.slice(0, 5);
+}
+
+// ── Render the full IMF Economic Intelligence section ─────────────────────────
+// 3-section hierarchy: Global Overview / Regional Breakdown / Signals & Anomalies
+// Each section is independently collapsible. Regions contain nested port detail cards.
 function renderPortMacro() {
   var pa = buildPortAnalytics();
   if (!pa) return '';
 
-  var G = pa.global;
+  var G    = pa.global;
   var html = '';
 
-  // Header
-  html += '<div style="font-size:9px;letter-spacing:1.5px;color:#00ccff;margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid #1a0840">◈ IMF PORTWATCH <span style="color:#4a6888;font-size:8px">MACRO · ' + (pa.period || '—') + ' · ' + pa.portCount + ' PORTS</span></div>';
+  // Section header (outside collapsibles — always visible inside the macro wrapper)
+  html += '<div style="font-size:9px;letter-spacing:1.5px;color:#00ccff;margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid #1a0840">' +
+    '◈ ECONOMIC INTELLIGENCE' +
+    '<span style="color:#4a6888;font-size:8px"> IMF PORTWATCH · ' + (pa.period || '—') + ' · ' + pa.portCount + ' PORTS</span>' +
+  '</div>';
 
-  // ── GLOBAL SUMMARY (always visible) ────────────────────────────────────────
-  html += '<div style="margin-bottom:8px">';
-  html += field('TOTAL PORT CALLS', '<span style="color:#00ccff">' + G.totalCalls.toLocaleString() + '</span>');
-  html += field('GLOBAL IMPORTS',   '<span style="color:#00ff88">' + G.imports.toLocaleString() + '</span>');
-  html += field('GLOBAL EXPORTS',   '<span style="color:#ff9933">' + G.exports.toLocaleString() + '</span>');
+  // ── SECTION 1: GLOBAL OVERVIEW ─────────────────────────────────────────────
+  var globalHtml = '';
+  globalHtml += field('PORT CALLS',     '<span style="color:#00ccff">' + G.totalCalls.toLocaleString() + '</span>');
+  globalHtml += field('GLOBAL IMPORTS', '<span style="color:#00ff88">' + G.imports.toLocaleString()    + '</span>');
+  globalHtml += field('GLOBAL EXPORTS', '<span style="color:#ff9933">' + G.exports.toLocaleString()    + '</span>');
+
+  if (G.ieRatio !== null) {
+    var ieCol   = G.ieRatio > 1.2 ? '#00ff88' : (G.ieRatio < 0.83 ? '#ff9933' : '#4a7da8');
+    var ieLabel = G.ieRatio > 1.1 ? 'import-heavy' : (G.ieRatio < 0.9 ? 'export-heavy' : 'balanced');
+    globalHtml += field('I/E RATIO',
+      '<span style="color:' + ieCol + '">' + G.ieRatio.toFixed(2) + ':1</span>' +
+      ' <span style="color:#4a6888;font-size:9px">' + ieLabel + '</span>');
+  }
 
   var balColor = G.balance > 0 ? '#00ff88' : (G.balance < 0 ? '#ff4466' : '#4a7da8');
-  html += field('TRADE BALANCE', '<span style="color:' + balColor + '">' + (G.balance > 0 ? '+' : '') + G.balance.toLocaleString() + '</span>');
+  globalHtml += field('TRADE BALANCE',
+    '<span style="color:' + balColor + '">' + (G.balance > 0 ? '+' : '') + G.balance.toLocaleString() + '</span>');
 
-  // Category breakdown bars
-  var catRows = [
-    { label: 'IMP CONTAINER', pct: G.categories.imp_container_pct, col: '#4488ff' },
-    { label: 'EXP CONTAINER', pct: G.categories.exp_container_pct, col: '#66aaff' },
-    { label: 'IMP TANKER',    pct: G.categories.imp_tanker_pct,    col: '#ff9933' },
-    { label: 'EXP TANKER',    pct: G.categories.exp_tanker_pct,    col: '#ffbb66' },
-  ];
-  var catHtml = catRows.map(function(row) {
-    return '<div style="margin-bottom:3px"><span style="color:#4a7da8;display:inline-block;width:88px;font-size:10px">' + row.label + '</span>' + miniBar(row.pct, row.col) + '</div>';
-  }).join('');
-  html += field('CARGO MIX', catHtml);
-  html += '</div>';
+  // Cargo breakdown: container / tanker / other
+  globalHtml += '<div style="margin-top:5px"><div style="font-size:8px;letter-spacing:1px;color:#4a6888;margin-bottom:4px">CARGO MIX</div>';
+  globalHtml += '<div style="margin-bottom:3px"><span style="color:#4a7da8;display:inline-block;width:76px;font-size:9px">CONTAINER</span>' + miniBar(G.contPct,  '#4488ff') + '</div>';
+  globalHtml += '<div style="margin-bottom:3px"><span style="color:#4a7da8;display:inline-block;width:76px;font-size:9px">TANKER</span>'    + miniBar(G.tankPct,  '#ff9933') + '</div>';
+  if (G.otherPct > 0) {
+    globalHtml += '<div style="margin-bottom:3px"><span style="color:#4a7da8;display:inline-block;width:76px;font-size:9px">OTHER</span>' + miniBar(G.otherPct, '#5577aa') + '</div>';
+  }
+  globalHtml += '</div>';
 
-  // ── REGIONAL BREAKDOWN (collapsible) ───────────────────────────────────────
-  var regHtml = '';
+  html += _macroSection('imf_global', 'GLOBAL OVERVIEW', pa.portCount + ' ports', '#00ccff', globalHtml);
+
+  // ── SECTION 2: REGIONAL BREAKDOWN ──────────────────────────────────────────
+  // Each region is its own toggle; clicking expands per-port detail cards inside.
+  var regOuterHtml = '';
   pa.regions.forEach(function(R) {
     if (!R.totalCalls) return;
-    var domCol = R.dominantCargo === 'TANKER' ? '#ff9933' : '#4488ff';
-    regHtml +=
-      '<div style="padding:5px 0;border-bottom:1px solid rgba(42,16,64,0.5)">' +
-      '<div style="display:flex;justify-content:space-between;margin-bottom:2px">' +
-        '<span style="font-size:10px;color:#cc99ff">' + R.name + '</span>' +
-        '<span style="font-size:9px;color:#4a6888">' + R.pctOfGlobal + '% of global</span>' +
-      '</div>' +
-      '<div style="display:flex;gap:10px;margin-bottom:2px">' +
+    var domCol  = R.dominantCargo === 'TANKER' ? '#ff9933' : '#4488ff';
+    var rPorts  = pa.topPortsByRegion[R.name] || [];
+    var rBadge  = R.pctOfGlobal + '% global · ' + R.portCount + ' ports';
+
+    // Region summary + nested port cards (shown when region is expanded)
+    var rInnerHtml = '';
+    rInnerHtml +=
+      '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:5px;padding:4px 0;border-bottom:1px solid rgba(42,16,64,0.45)">' +
         '<span style="font-size:9px;color:#4a7da8">CALLS <span style="color:#00ccff">' + R.totalCalls.toLocaleString() + '</span></span>' +
-        '<span style="font-size:9px;color:#4a7da8">PORTS <span style="color:#cc99ff">' + R.portCount + '</span></span>' +
+        '<span style="font-size:9px;color:#4a7da8">IMP <span style="color:#00ff88">'   + R.imports.toLocaleString()    + '</span></span>' +
+        '<span style="font-size:9px;color:#4a7da8">EXP <span style="color:#ff9933">'   + R.exports.toLocaleString()    + '</span></span>' +
         '<span style="font-size:9px;color:' + domCol + '">' + R.dominantCargo + '</span>' +
       '</div>' +
-      miniBar(R.pctOfGlobal, '#7755cc') +
-      '</div>';
-  });
-  html += _macroSection('regions', 'REGIONS', pa.regions.length + ' active', '#7755cc', regHtml || '<div style="padding:6px 0;font-size:9px;color:#4a6888">No regional data</div>');
+      '<div style="margin-bottom:5px">' + miniBar(R.pctOfGlobal, '#7755cc') +
+        ' <span style="font-size:8px;color:#4a6888">of global</span></div>';
 
-  // ── TOP PORTS per region (collapsible) ─────────────────────────────────────
-  var portHtml = '';
-  pa.regions.forEach(function(R) {
-    if (!R.totalCalls) return;
-    var rPorts = pa.topPortsByRegion[R.name] || [];
-    if (!rPorts.length) return;
-    portHtml += '<div style="margin:6px 0 3px;font-size:9px;letter-spacing:1px;color:#4a7da8">' + R.name.toUpperCase() + '</div>';
-    rPorts.forEach(function(p) {
-      var vcol = (p.visual && p.visual.color) ? p.visual.color : '#4a7da8';
-      var cpTag = p.chokepointId ? ' <span style="color:#ffcc00;font-size:8px">⬡CP</span>' : '';
-      portHtml +=
-        '<div style="padding:4px 0;border-bottom:1px solid rgba(42,16,64,0.35)">' +
-        '<div style="display:flex;justify-content:space-between;margin-bottom:2px">' +
-          '<span style="font-size:10px;color:' + vcol + '">' + p.name + cpTag + '</span>' +
-          '<span style="font-size:8px;color:#4a6888">' + p.pctOfRegion + '%R / ' + p.pctOfGlobal + '%G</span>' +
-        '</div>' +
-        '<div style="font-size:9px;color:#4a6888">' + p.country + ' · CALLS <span style="color:#00ccff">' + p.calls + '</span></div>' +
+    // ── Port detail cards ────────────────────────────────────────────────────
+    if (rPorts.length) {
+      rInnerHtml += '<div style="font-size:8px;letter-spacing:1px;color:#4a6888;margin-bottom:4px">TOP PORTS (' + rPorts.length + ')</div>';
+      rPorts.forEach(function(p) {
+        var vcol     = (p.visual && p.visual.color) ? p.visual.color : '#00ccff';
+        var cpTag    = p.chokepointId ? ' <span style="color:#ffcc00;font-size:8px">⬡</span>' : '';
+        var contDom  = p.contShare >= p.tankerShare;
+        var domCargo = contDom ? 'CONTAINER' : 'TANKER';
+        var domColor = contDom ? '#4488ff' : '#ff9933';
+
+        var ieStr = '';
+        if (p.ieRatio !== null && p.ieRatio !== undefined) {
+          var ieDir    = p.ieRatio > 1.15 ? '↑IMP' : (p.ieRatio < 0.87 ? '↑EXP' : 'BAL');
+          var ieDirCol = p.ieRatio > 1.15 ? '#00ff88' : (p.ieRatio < 0.87 ? '#ff9933' : '#4a6888');
+          ieStr = ' <span style="color:' + ieDirCol + ';font-size:8px">' + ieDir + ' ' + p.ieRatio.toFixed(1) + '</span>';
+        }
+
+        rInnerHtml +=
+          '<div style="padding:5px 0;border-bottom:1px solid rgba(42,16,64,0.35)">' +
+            '<div style="display:flex;justify-content:space-between;margin-bottom:2px">' +
+              '<span style="font-size:10px;color:' + vcol + '">' + p.name + cpTag + '</span>' +
+              '<span style="font-size:8px;color:#4a6888">' + p.pctOfRegion + '%R · ' + p.pctOfGlobal + '%G</span>' +
+            '</div>' +
+            '<div style="font-size:9px;color:#4a6888;margin-bottom:3px">' +
+              p.country + ' · CALLS <span style="color:#00ccff">' + p.calls + '</span>' + ieStr +
+            '</div>' +
+            '<div style="margin-bottom:2px"><span style="color:#4a7da8;display:inline-block;width:72px;font-size:9px">CONTAINER</span>' + miniBar(p.contShare,    '#4488ff') + '</div>' +
+            '<div style="margin-bottom:2px"><span style="color:#4a7da8;display:inline-block;width:72px;font-size:9px">TANKER</span>'    + miniBar(p.tankerShare,  '#ff9933') + '</div>' +
+            '<div><span style="color:#4a7da8;display:inline-block;width:72px;font-size:9px">ACTIVITY</span>'  + miniBar(p.activityScore, '#00ccff') + '</div>' +
+          '</div>';
+      });
+    }
+
+    regOuterHtml += _macroSection('r_' + R.name, R.name.toUpperCase(), rBadge, '#cc99ff', rInnerHtml);
+  });
+
+  html += _macroSection('imf_regions', 'REGIONAL BREAKDOWN', pa.regions.length + ' regions', '#7755cc',
+    regOuterHtml || '<div style="padding:6px 0;font-size:9px;color:#4a6888">No regional data</div>');
+
+  // ── SECTION 3: SIGNALS & ANOMALIES ─────────────────────────────────────────
+  var snap      = collectTrackingSnapshot();
+  var anomalies = buildIMFAnomalies(pa, snap);
+
+  // Merge port-level IMF signals with computed macro anomalies
+  // Port signals first (more specific), macro anomalies appended
+  var portSigs  = (window._portWatchSignals || []).slice(0, 4);
+  var allSigs   = portSigs.concat(anomalies).slice(0, 8);
+
+  var SIG_COL = {
+    DISRUPTION:           '#ff4466',
+    TRADE_IMBALANCE:      '#ffcc00',
+    ENERGY_CONCENTRATION: '#ff9933',
+    TANKER_SURGE:         '#ff9933',
+    CROSS_LAYER:          '#00ccff',
+    CONCENTRATION:        '#cc99ff',
+    MISMATCH:             '#ff4466',
+  };
+
+  var sigHtml = '';
+  if (allSigs.length) {
+    allSigs.forEach(function(s) {
+      var col = s.col || SIG_COL[s.type] || '#4a7da8';
+      sigHtml +=
+        '<div style="padding:5px 0;border-bottom:1px solid rgba(42,16,64,0.4);font-size:9px;line-height:1.5">' +
+          '<span style="color:' + col + ';letter-spacing:0.5px">' + (s.type || 'SIGNAL').replace(/_/g, ' ') + '</span>' +
+          (s.chokepointId ? ' <span style="color:#ffcc00;font-size:8px">⬡CP</span>' : '') +
+          '<br><span style="color:#4a7da8">' + (s.detail || '') + '</span>' +
         '</div>';
     });
-  });
-  html += _macroSection('ports', 'TOP PORTS', 'per region', '#4a7da8', portHtml || '<div style="padding:6px 0;font-size:9px;color:#4a6888">No port data</div>');
-
-  // ── IMF Signals (disruptions / imbalances) ─────────────────────────────────
-  var signals = window._portWatchSignals || [];
-  if (signals.length) {
-    var SIG_COL = { DISRUPTION: '#ff4466', TRADE_IMBALANCE: '#ffcc00', ENERGY_CONCENTRATION: '#ff9933' };
-    var sigHtml = signals.slice(0, 8).map(function(s) {
-      var col = SIG_COL[s.type] || '#4a7da8';
-      return '<div style="padding:4px 0;border-bottom:1px solid rgba(42,16,64,0.4);font-size:9px;line-height:1.5">' +
-        '<span style="color:' + col + ';letter-spacing:0.5px">' + (s.type || 'SIGNAL').replace(/_/g,' ') + '</span>' +
-        (s.chokepointId ? ' <span style="color:#ffcc00;font-size:8px">⬡CP</span>' : '') +
-        '<br><span style="color:#4a7da8">' + (s.detail || '') + '</span>' +
-        '</div>';
-    }).join('');
-    html += '<div style="margin-top:8px;padding-top:6px;border-top:1px solid #1a0840">';
-    html += '<div style="font-size:9px;letter-spacing:1.5px;color:#ff9933;margin-bottom:4px">⚑ IMF SIGNALS <span style="color:#4a6888">(' + signals.length + ')</span></div>';
-    html += sigHtml;
-    html += '</div>';
+  } else {
+    sigHtml = '<div style="padding:8px 0;font-size:9px;color:#4a6888;text-align:center;letter-spacing:0.5px">NO SIGNALS DETECTED</div>';
   }
 
-  // ── IMF × Vessel cross-signal ──────────────────────────────────────────────
-  var snap = collectTrackingSnapshot();
-  if (snap.ships.length > 0 && pa.regions.length > 0) {
-    var shipCount = snap.ships.length;
-    // Simple heuristic: if global port calls are very low vs vessel count, flag mismatch
-    var callsPerShip = shipCount ? G.totalCalls / shipCount : 0;
-    if (callsPerShip < 0.5 && G.totalCalls > 0) {
-      html += '<div style="margin-top:6px;padding:5px 6px;background:rgba(255,68,102,0.08);border-left:2px solid #ff4466;font-size:9px;color:#ff4466;line-height:1.6">';
-      html += '⚠ CROSS-SIGNAL: ' + shipCount + ' vessels tracked vs ' + G.totalCalls + ' IMF port calls — possible AIS coverage gap or traffic anomaly';
-      html += '</div>';
-    }
-  }
+  html += _macroSection('imf_signals', 'SIGNALS & ANOMALIES', allSigs.length ? allSigs.length + ' active' : 'clear', '#ff9933', sigHtml);
 
   return html;
 }

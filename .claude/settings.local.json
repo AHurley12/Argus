@@ -25,7 +25,10 @@
       "Bash(awk NR>=18450 && NR<=18560:*)",
       "Bash(awk NR>=18960 && NR<=19020:*)",
       "Bash(awk NR>=19060 && NR<=19120:*)",
-      "Bash(awk NR>=19150 && NR<=19220:*)"
+      "Bash(awk NR>=19150 && NR<=19220:*)",
+      "Bash(wc -l /c/Users/aidan/Desktop/Argus/netlify/functions/*.js)",
+      "Bash(wc -l /c/Users/aidan/Desktop/Argus/argus-esri-ingestion/index.js /c/Users/aidan/Desktop/Argus/argus-esri-ingestion/modules/*.js)",
+      "Bash(xargs wc:*)"
     ]
   }
 }

@@ -2,17 +2,8 @@ import * as THREE from "three";
 import Globe from "three-globe";
 
 export function initGlobe(containerId) {
-  console.log("INIT GLOBE FIRED");
-
   const container = document.getElementById(containerId);
-  console.log("Container:", container);
-
-  if (!container) {
-    console.error("No container found for id:", containerId);
-    return null;
-  }
-
-  console.log("WIDTH/HEIGHT:", container.clientWidth, container.clientHeight);
+  if (!container) return null;
 
   const W = container.clientWidth  || window.innerWidth;
   const H = container.clientHeight || window.innerHeight;
@@ -24,8 +15,6 @@ export function initGlobe(containerId) {
   const renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setSize(W, H);
   renderer.setPixelRatio(window.devicePixelRatio);
-
-  console.log("Appending renderer canvas");
   container.appendChild(renderer.domElement);
 
   const globe = new Globe()
@@ -54,7 +43,6 @@ export function initGlobe(containerId) {
   }
   animate();
 
-  // Return cleanup so React can destroy on unmount / StrictMode re-run
   return function cleanup() {
     cancelAnimationFrame(animId);
     window.removeEventListener("resize", onResize);

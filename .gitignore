@@ -33,6 +33,7 @@ coverage/
 # Build outputs
 *.min.js
 *.min.css
+vendor/
 
 # Backup files
 *.bak

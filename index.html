@@ -3890,12 +3890,10 @@ document.addEventListener('DOMContentLoaded', function() {
   globeGroup.add(Globe);
   scene.add(globeGroup);
 
-  // Rotate the Globe sphere independently — shifts texture + polygons without moving markers
-  // Globe.rotation.y = PI shifts the three-globe texture 180° in world space so that
-  // lon=90 (Indian Ocean / Middle East) faces the default camera position (+Z).
-  // All marker pipelines must apply (lon + 180) before passing to latLonToVector
-  // so their effective world-space angle equals lon°, matching the rotated texture.
-  Globe.rotation.y = Math.PI;
+  // Rotate the entire group so lon=90 (Indian Ocean / Middle East) faces the camera (+Z).
+  // Rotating globeGroup (not Globe) means the texture, country polygons, coordinate grid,
+  // and ALL marker layers share the same coordinate frame — no per-layer offset needed.
+  globeGroup.rotation.y = Math.PI;
 
   // ── Coordinate Grid ─────────────────────────────────────────────────────────
   var coordinateGrid = (function buildGrid() {
@@ -3906,7 +3904,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     function gridPoint(lat, lon) {
       var phi   = (90 - lat) * Math.PI / 180;
-      var theta = lon * Math.PI / 180;
+      var theta = (lon + 180) * Math.PI / 180;
       return new THREE.Vector3(
         -radius * Math.sin(phi) * Math.cos(theta),
          radius * Math.cos(phi),
@@ -3988,10 +3986,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
   // ── Coordinate helpers ───────────────────────────────────────────────────────
   function correctLongitude(lon) {
-    var c = lon + 180;
-    while (c >  180) c -= 360;
-    while (c < -180) c += 360;
-    return c;
+    return lon;
   }
 
   function latLonToVector(lat, lon, r) {
@@ -4998,11 +4993,7 @@ document.addEventListener('DOMContentLoaded', function() {
       var SEV_COL = { CRITICAL: 0xff0044, WARNING: 0xff9933, WATCH: 0xffcc00, LOW: 0x00ff88 };
       var col = SEV_COL[evData.severity] || 0xffffff;
 
-      // Apply the same +180° longitude correction used throughout the globe engine
-      var lon = (evData.lon || 0) + 180;
-      while (lon >  180) lon -= 360;
-      while (lon < -180) lon += 360;
-      var pos = AG.latLonToVector(evData.lat || 0, lon, 101);
+      var pos = AG.latLonToVector(evData.lat || 0, evData.lon || 0, 101);
 
       var mesh = new THREE.Mesh(
         new THREE.SphereGeometry(1.68, 16, 16),
@@ -8437,11 +8428,7 @@ window.ArgusEvents = (function() {
     var AG = window.ArgusGlobe;
     if (!AG || !AG.eventMarkerGroup || !AG.latLonToVector) return;
 
-    var correctedLon = lon + 180;
-    while (correctedLon >  180) correctedLon -= 360;
-    while (correctedLon < -180) correctedLon += 360;
-
-    var pos = AG.latLonToVector(lat, correctedLon, 102);
+    var pos = AG.latLonToVector(lat, lon, 102);
     var col = SEV_COLORS[data.severity] || 0x00ccff;
 
     var mesh = new THREE.Mesh(
@@ -9962,11 +9949,7 @@ function plotDisasters() {
       lat = cd.rawLat; lon = cd.rawLon;
     }
 
-    var corrLon = lon + 180;
-    while (corrLon >  180) corrLon -= 360;
-    while (corrLon < -180) corrLon += 360;
-
-    var pos = AG.latLonToVector(lat, corrLon, 103.5);
+    var pos = AG.latLonToVector(lat, lon, 103.5);
     var col = SEV_COL[worst.sev] || 0xff9933;
 
     // Octahedron — visually distinct from GDELT spheres
@@ -11685,12 +11668,8 @@ window.ArgusAdmin = (function() {
     // Step 3 — severity escalation: critical trigger words always produce CRITICAL alert
     if (/critical|emergency|crisis|catastroph/i.test(t)) sev = 'CRITICAL';
 
-    var correctedLon = geo.lon + 180;
-    while (correctedLon >  180) correctedLon -= 360;
-    while (correctedLon < -180) correctedLon += 360;
-
     var col = SEV_COLORS[sev] || 0xff9900;
-    var pos = AG.latLonToVector(geo.lat, correctedLon, 102);
+    var pos = AG.latLonToVector(geo.lat, geo.lon, 102);
 
     var mesh = new THREE.Mesh(
       new THREE.SphereGeometry(1.68, 16, 16),
@@ -11893,12 +11872,8 @@ window._plotPermanentMarkers = function(classified) {
     if (!ev.id) return;
     if (alreadyPlotted[ev.id]) return; // skip already-plotted
 
-    var correctedLon = ev.lon + 180;
-    while (correctedLon >  180) correctedLon -= 360;
-    while (correctedLon < -180) correctedLon += 360;
-
     var col = SEV_COLORS[ev.severity] || 0xff9900;
-    var pos = AG.latLonToVector(ev.lat, correctedLon, 102);
+    var pos = AG.latLonToVector(ev.lat, ev.lon, 102);
 
     var mesh = new THREE.Mesh(
       new THREE.SphereGeometry(1.68, 16, 16),
@@ -14497,13 +14472,8 @@ function ensureGeometries() {
   }());
 }
 
-// ── Longitude correction (mirrors Script-1 correctLongitude) ──────────────────
-function corrLon(lon) {
-  var c = lon + 180;
-  while (c >  180) c -= 360;
-  while (c < -180) c += 360;
-  return c;
-}
+// ── Longitude correction — pass-through; globeGroup.rotation.y = PI handles initial view
+function corrLon(lon) { return lon; }
 
 // ── Init — attach groups to eventMarkerGroup ──────────────────────────────────
 function init() {
@@ -15121,12 +15091,7 @@ var _ingestBuffer = [];         // raw normalized vessel objects pushed by handl
 var _dirtyVessels = new Set();  // MMSIs that actually changed and need sprite sync this tick
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-function corrLon(lon) {
-  var c = lon + 180;
-  while (c >  180) c -= 360;
-  while (c < -180) c += 360;
-  return c;
-}
+function corrLon(lon) { return lon; }
 
 // AIS vessel type codes (ITU-R M.1371-5) → color hex
 // NavStatus 0 = under way, 1 = at anchor, 5 = moored

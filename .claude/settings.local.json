@@ -42,7 +42,8 @@
       "Bash(awk NR>=8430 && NR<=8475:*)",
       "Bash(awk NR>=4990 && NR<=5040:*)",
       "Bash(awk 'NR>=11680 && NR<=11700' C:/Users/aidan/Desktop/Argus/index.html)",
-      "Bash(awk 'NR>=11888 && NR<=11905' C:/Users/aidan/Desktop/Argus/index.html)"
+      "Bash(awk 'NR>=11888 && NR<=11905' C:/Users/aidan/Desktop/Argus/index.html)",
+      "Bash(awk NR>=4556 && NR<=4640:*)"
     ]
   }
 }

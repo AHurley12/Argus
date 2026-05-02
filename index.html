@@ -13,9 +13,11 @@
   <link href="https://cdn.jsdelivr.net/npm/@fontsource/iosevka@5/400.css" rel="stylesheet" />
   <link href="https://cdn.jsdelivr.net/npm/@fontsource/iosevka@5/600.css" rel="stylesheet" />
 
-  <!-- Three.js + ThreeGlobe — load synchronously before DOMContentLoaded scripts -->
-  <script src="https://cdn.jsdelivr.net/npm/three@0.149.0/build/three.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/three-globe@2.30.0/dist/three-globe.min.js"></script>
+  <!-- Three.js + ThreeGlobe — IIFE bundle built from npm via Vite (no CDN dependency).
+       To rebuild: cd apps/web && npm install && npm run build:vendor
+       Source:     apps/web/src/vendor-globals.js
+       Config:     apps/web/vite.vendor.config.js                          -->
+  <script src="/vendor/vendor.js"></script>
 
   <style>
     /* ── Reset & Base ─────────────────────────────────────────────────────────── */
@@ -3828,7 +3830,8 @@ window.ArgusLayerState = {
   countries:   false,
   capitals:    false,
   vessels:     false,
-  aircraft:    false
+  aircraft:    false,
+  aisVessels:  true    // mirrors aisOn default (true) in ArgusAIS
 };
 
 document.addEventListener('DOMContentLoaded', function() {
@@ -4643,6 +4646,7 @@ document.addEventListener('DOMContentLoaded', function() {
     var d = obj.userData;
     if (!d) return true;
     if (d.isAircraft)    return ls.aircraft;
+    if (d.isAISVessel)   return ls.aisVessels;  // AIS gate — independent of VesselAPI ships
     if (d.isShip)        return ls.vessels;
     if (d.isCountry)     return ls.countries;
     if (d.isCapitalCity) return ls.capitals;
@@ -4736,6 +4740,7 @@ document.addEventListener('DOMContentLoaded', function() {
       (!ls || ls.chokepoints) ? window.chokepointMarkers       : null,
       (!ls || ls.aircraft)    ? (window._aircraftMarkers || []) : null,
       (!ls || ls.vessels)     ? (window._vesselMarkers   || []) : null,
+      (!ls || ls.aisVessels)  ? (window._aisSprites      || []) : null,
     ]);
     var allHits = raycasterHover.intersectObjects(_candidates)
       .concat(countryHits)
@@ -4799,9 +4804,10 @@ document.addEventListener('DOMContentLoaded', function() {
     // Only layers that are ON enter the raycast; canInteract() re-validates the winner.
     var cls = window.ArgusLayerState;
     var _evTargets = []
-      .concat((!cls || cls.events)   ? window.eventMarkers           : [])
-      .concat((!cls || cls.aircraft) ? window._aircraftMarkers || [] : [])
-      .concat((!cls || cls.vessels)  ? window._vesselMarkers   || [] : []);
+      .concat((!cls || cls.events)      ? window.eventMarkers           : [])
+      .concat((!cls || cls.aircraft)    ? window._aircraftMarkers || [] : [])
+      .concat((!cls || cls.vessels)     ? window._vesselMarkers   || [] : [])
+      .concat((!cls || cls.aisVessels)  ? window._aisSprites      || [] : []);
     var evHits = raycasterClick.intersectObjects(_evTargets)
       .filter(function(h) { return isFacingCamera(h.object) && canInteract(h.object); });
     if (evHits.length) {
@@ -4819,7 +4825,7 @@ document.addEventListener('DOMContentLoaded', function() {
     // No 3D raycast hit — sprites in congested areas can be missed entirely
     // (multiple sprites at same depth, or cursor between sprite centers).
     // Fall back to screen-space search which catches these cases.
-    if (window.ArgusSelection && ((!cls || cls.aircraft) || (!cls || cls.vessels))) {
+    if (window.ArgusSelection && ((!cls || cls.aircraft) || (!cls || cls.vessels) || (!cls || cls.aisVessels))) {
       if (ArgusSelection.onClick(e.clientX, e.clientY)) return;
     }
 
@@ -15064,14 +15070,16 @@ var AIS_DIFF_HDG   = 2;      // degrees
 
 // ── State ──────────────────────────────────────────────────────────────────────
 var aisGroup   = null;      // THREE.Group containing all AIS sprites
-var aisMarkers = new Map(); // mmsi → { sprite, updatedAt }
-var aisOn       = true;     // default ON (button initialised is-active)
+var aisMarkers  = new Map(); // mmsi → { sprite, updatedAt }
+var _aisSprites = [];        // flat sprite array — mirrors aisMarkers, consumed by raycasters
+var aisOn       = true;      // default ON (button initialised is-active)
 var wsAIS       = null;     // live WebSocket to wss://stream.aisstream.io
 var reconnTimer = null;     // reconnect timeout handle
 var _aisMsgCount = 0;       // diagnostic counter — how many WS messages received
 
-// Expose for console inspection
-window._aisMarkers = aisMarkers;
+// Expose for console inspection and raycaster access
+window._aisMarkers  = aisMarkers;
+window._aisSprites  = _aisSprites;
 
 // ── Diagnostics — all flags default to NO-OP, no behavior change unless set ──
 // Access from console: ArgusAIS.diag  /  ArgusAIS.diagReport()
@@ -15333,6 +15341,7 @@ function upsertAISMarker(mmsi, name, lat, lon, heading, velocity, shipType, navS
     };
     aisGroup.add(sprite);
     aisMarkers.set(mmsi, { sprite: sprite, updatedAt: now });
+    _aisSprites.push(sprite);   // register in flat array for raycasters + ArgusSelection
   }
 }
 
@@ -15380,6 +15389,8 @@ function evictOldest() {
 
     aisGroup.remove(_evSprite);
     aisMarkers.delete(oldest);
+    var _evIdx = _aisSprites.indexOf(_evSprite);
+    if (_evIdx !== -1) _aisSprites.splice(_evIdx, 1);  // keep flat array in sync
     _aisState.vessels.delete(oldest);  // keep state layer in sync
     _dirtyVessels.delete(oldest);      // cancel any pending sprite sync for this MMSI
   }
@@ -15389,6 +15400,7 @@ function evictOldest() {
 function toggle() {
   aisOn = !aisOn;
   if (aisGroup) aisGroup.visible = aisOn;
+  if (window.ArgusLayerState) window.ArgusLayerState.aisVessels = aisOn;  // keeps canInteract() + raycasters in sync
   var btn = document.getElementById('btn-track-ais');
   if (btn) {
     if (aisOn) btn.classList.add('is-active');
@@ -19724,6 +19736,7 @@ window.ArgusSelection = (function () {
     var out = [];
     if (window._aircraftMarkers) for (var i = 0; i < window._aircraftMarkers.length; i++) out.push(window._aircraftMarkers[i]);
     if (window._vesselMarkers)   for (var j = 0; j < window._vesselMarkers.length;   j++) out.push(window._vesselMarkers[j]);
+    if (window._aisSprites)      for (var k = 0; k < window._aisSprites.length;      k++) out.push(window._aisSprites[k]);
     return out;
   }
 

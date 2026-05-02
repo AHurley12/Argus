@@ -1,6 +1,5 @@
 import { useEffect } from "react";
 import { initGlobe } from "./globe/globe";
-
 function App() {
   useEffect(() => {
     initGlobe("globe-container");

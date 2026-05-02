@@ -21,6 +21,7 @@ export function initGlobe(containerId) {
   camera.position.z = 300;
 
   const renderer = new THREE.WebGLRenderer({ antialias: true });
+
   renderer.setSize(W, H);
   renderer.setPixelRatio(window.devicePixelRatio);
 
@@ -41,6 +42,7 @@ export function initGlobe(containerId) {
   window.addEventListener("resize", () => {
     const w = container.clientWidth || window.innerWidth;
     const h = container.clientHeight || window.innerHeight;
+
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
     renderer.setSize(w, h);

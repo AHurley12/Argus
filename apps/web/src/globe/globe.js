@@ -1,3 +1,13 @@
+export function initGlobe(containerId) {
+
+  console.log("INIT GLOBE FIRED"); // ← PUT IT HERE
+
+  const container = document.getElementById(containerId);
+
+const container = document.getElementById(containerId);
+
+console.log("Container:", container);
+console.log("Container ID expected:", containerId);
 import * as THREE from "three";
 import Globe from "three-globe";
 

@@ -1,3 +1,4 @@
-export default function App() {
-  return <div id="globe-container">HELLO</div>;
-}
+useEffect(() => {
+  console.log("CALLING INIT GLOBE");
+  initGlobe("globe-container");
+}, []);

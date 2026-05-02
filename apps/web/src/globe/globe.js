@@ -1,3 +1,4 @@
+console.log("🔥 INIT GLOBE ENTERED");
 import * as THREE from "three";
 import Globe from "three-globe";
 

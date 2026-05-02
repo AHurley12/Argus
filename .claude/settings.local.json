@@ -35,7 +35,14 @@
       "Bash(awk NR>=15175 && NR<=15270:*)",
       "Bash(awk NR>=3880 && NR<=3930:*)",
       "Bash(awk NR>=3985 && NR<=4020:*)",
-      "Bash(awk NR>=15282 && NR<=15360:*)"
+      "Bash(awk NR>=15282 && NR<=15360:*)",
+      "Bash(awk 'NR>=14499 && NR<=14510' C:/Users/aidan/Desktop/Argus/index.html)",
+      "Bash(awk 'NR>=15122 && NR<=15135' C:/Users/aidan/Desktop/Argus/index.html)",
+      "Bash(awk NR>=9955 && NR<=9975:*)",
+      "Bash(awk NR>=8430 && NR<=8475:*)",
+      "Bash(awk NR>=4990 && NR<=5040:*)",
+      "Bash(awk 'NR>=11680 && NR<=11700' C:/Users/aidan/Desktop/Argus/index.html)",
+      "Bash(awk 'NR>=11888 && NR<=11905' C:/Users/aidan/Desktop/Argus/index.html)"
     ]
   }
 }

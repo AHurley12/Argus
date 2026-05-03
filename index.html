@@ -2701,6 +2701,21 @@ window.ArgusData = (function() {
 })(); // end ArgusData
 
 // ════════════════════════════════════════════════════════════════════════════
+// ArgusBus — Lightweight cross-module event pipeline
+// Usage:  ArgusBus.emit('EVENT_NAME', payload)
+//         ArgusBus.on('EVENT_NAME', function(payload) { ... })
+// Data travels in CustomEvent.detail — no globals used for transfer.
+// ════════════════════════════════════════════════════════════════════════════
+var ArgusBus = {
+  emit: function(event, payload) {
+    window.dispatchEvent(new CustomEvent(event, { detail: payload }));
+  },
+  on: function(event, handler) {
+    window.addEventListener(event, function(e) { handler(e.detail); });
+  },
+};
+
+// ════════════════════════════════════════════════════════════════════════════
 // ArgusMarket — Market Intelligence Engine
 // Deep-dive ticker search via /.netlify/functions/fetch-yfinance?search=SYM
 // ════════════════════════════════════════════════════════════════════════════
@@ -2753,7 +2768,7 @@ var ArgusMarket = (function() {
         _lastResult = d;
         deep.innerHTML = renderCard(d);
         var btn = deep.querySelector('.mkt-brief-btn');
-        if (btn) btn.addEventListener('click', function() { sendToBriefing(d); });
+        if (btn) btn.addEventListener('click', function() { sendToNeuralWeb(d); });
         return;
       }
     } catch(e) {}
@@ -2776,7 +2791,7 @@ var ArgusMarket = (function() {
         deep.innerHTML = renderCard(res.search);
         // Wire briefing button
         var btn = deep.querySelector('.mkt-brief-btn');
-        if (btn) btn.addEventListener('click', function() { sendToBriefing(res.search); });
+        if (btn) btn.addEventListener('click', function() { sendToNeuralWeb(res.search); });
       })
       .catch(function(e) {
         deep.innerHTML = '<div class="mkt-card__empty">ERROR: ' + e.message + '</div>';
@@ -2847,41 +2862,50 @@ var ArgusMarket = (function() {
       '  </div>',
       '  <div class="mkt-card__grid">' + gridHTML + '</div>',
       '  <div class="mkt-card__acts">',
-      '    <button class="mkt-brief-btn">SEND TO BRIEFING</button>',
+      '    <button class="mkt-brief-btn">SEND TO NEURAL WEB</button>',
       '    <span class="mkt-card__employees">' + (d.fullTimeEmployees != null ? d.fullTimeEmployees.toLocaleString('en-US') + ' employees' : '') + '</span>',
       '  </div>',
       '</div>',
     ].join('\n');
   }
 
-  // ── Send deep-dive data to Case Builder ───────────────────────────────────
-  function sendToBriefing(d) {
-    var lines = [
-      '## Market Intelligence Brief: ' + d.symbol,
-      '',
-      '**' + (d.name || d.symbol) + '**' + (d.country ? '  ·  ' + d.country : ''),
-      (d.sector ? 'Sector: ' + d.sector : '') + (d.industry ? '  |  Industry: ' + d.industry : ''),
-      '',
-      '### Price & Performance',
-      '- Price: ' + fmt(d.price, 2, '$') + '  |  Change: ' + fmtPct(d.changePercent),
-      '- 50-Day MA: ' + fmt(d.fiftyDayAverage, 2, '$') + '  |  200-Day MA: ' + fmt(d.twoHundredDayAverage, 2, '$'),
-      '',
-      '### Fundamentals',
-      '- Market Cap: ' + fmtBig(d.marketCap),
-      '- P/E (TTM): ' + (d.trailingPE != null ? d.trailingPE.toFixed(2) : '—') + '  |  P/E (Fwd): ' + (d.forwardPE != null ? d.forwardPE.toFixed(2) : '—'),
-      '- EPS (TTM): ' + (d.trailingEps != null ? '$' + d.trailingEps.toFixed(2) : '—'),
-      '- Volume: ' + (d.volume != null ? Math.round(d.volume).toLocaleString() : '—') + '  |  Avg Volume: ' + (d.averageVolume != null ? Math.round(d.averageVolume).toLocaleString() : '—'),
-    ].join('\n');
+  // ── Route deep-dive data into Neural Web via event bus ────────────────────
+  function sendToNeuralWeb(d) {
+    // Gate: Neural Web is a paid feature
+    var tier = window.ArgusSession ? window.ArgusSession.tier : 'viewer';
+    if (tier !== 'pro' && tier !== 'admin' && tier !== 'owner') {
+      if (window.ArgusUI && typeof window.ArgusUI.showUpgradePrompt === 'function') {
+        window.ArgusUI.showUpgradePrompt();
+      }
+      return;
+    }
 
-    // Switch to Case Builder tab and inject
-    var tab = document.querySelector('[data-tab="case"]');
-    if (tab) tab.click();
-    setTimeout(function() {
-      var ta = document.getElementById('case-input');
-      if (!ta) return;
-      ta.value = (ta.value ? ta.value + '\n\n' : '') + lines;
-      ta.dispatchEvent(new Event('input'));
-    }, 150);
+    // Build standardised payload — no DOM scraping, uses in-memory data only
+    var payload = {
+      type:      'market_ticker',
+      source:    'market_intelligence',
+      timestamp: Date.now(),
+      data: {
+        ticker:         d.symbol,
+        name:           d.name || d.symbol,
+        price:          d.price,
+        change_percent: d.changePercent,
+        volume:         d.volume,
+        market_cap:     d.marketCap,
+        pe_ratio:       d.trailingPE,
+        eps:            d.trailingEps,
+        ma_50:          d.fiftyDayAverage,
+        ma_200:         d.twoHundredDayAverage,
+        context: {
+          asset_class: (d.quoteType || 'EQUITY').toLowerCase(),
+          country:     d.country  || null,
+          sector:      d.sector   || null,
+          industry:    d.industry || null,
+        },
+      },
+    };
+
+    ArgusBus.emit('ARGUS_SEND_TO_NEURAL_WEB', payload);
   }
 
   // ── Wire search bar ───────────────────────────────────────────────────────
@@ -12363,7 +12387,8 @@ function getNodeRadius(n) {
   if (n.type === 'company')    return 13 + (RISK_WEIGHTS[n.risk] || 1);
   if (n.type === 'news')       return 12 + (RISK_WEIGHTS[n.risk] || 1);
   if (n.type === 'aircraft')   return 11;
-  if (n.type === 'chokepoint') return 16 + (RISK_WEIGHTS[n.risk] || 1) * 2;
+  if (n.type === 'chokepoint')    return 16 + (RISK_WEIGHTS[n.risk] || 1) * 2;
+  if (n.type === 'market_ticker') return 14;
   return 14 + (RISK_WEIGHTS[n.risk] || 1) * 2;
 }
 
@@ -12694,6 +12719,30 @@ function drawNode(ctx, n, pos, hovered, selected) {
     ctx.lineWidth = hovered ? 2 : 1.2;
     ctx.stroke();
 
+  } else if (n.type === 'market_ticker') {
+    // Rounded rectangle badge — green/red tint based on price direction
+    var bw = r * 1.9, bh = r * 1.2;
+    var brad = 3;
+    ctx.beginPath();
+    ctx.moveTo(pos.x - bw / 2 + brad, pos.y - bh / 2);
+    ctx.lineTo(pos.x + bw / 2 - brad, pos.y - bh / 2);
+    ctx.arcTo(pos.x + bw / 2, pos.y - bh / 2, pos.x + bw / 2, pos.y - bh / 2 + brad, brad);
+    ctx.lineTo(pos.x + bw / 2, pos.y + bh / 2 - brad);
+    ctx.arcTo(pos.x + bw / 2, pos.y + bh / 2, pos.x + bw / 2 - brad, pos.y + bh / 2, brad);
+    ctx.lineTo(pos.x - bw / 2 + brad, pos.y + bh / 2);
+    ctx.arcTo(pos.x - bw / 2, pos.y + bh / 2, pos.x - bw / 2, pos.y + bh / 2 - brad, brad);
+    ctx.lineTo(pos.x - bw / 2, pos.y - bh / 2 + brad);
+    ctx.arcTo(pos.x - bw / 2, pos.y - bh / 2, pos.x - bw / 2 + brad, pos.y - bh / 2, brad);
+    ctx.closePath();
+    ctx.fillStyle = hexToRgba(color, 0.16);
+    ctx.fill();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = hovered ? 2 : 1.3;
+    ctx.stroke();
+    // Candlestick bar icon
+    ctx.fillStyle = hexToRgba(color, 0.7);
+    ctx.fillRect(pos.x - 2.5, pos.y - r * 0.45, 5, r * 0.9);
+
   } else {
     // Event node — colored circle with type-color inner dot
     ctx.beginPath();
@@ -12730,7 +12779,8 @@ function drawNodeLabel(ctx, n, pos) {
     : n.type === 'aircraft'   ? '#66ddff'
     : n.type === 'company'    ? '#ff99aa'
     : n.type === 'news'       ? '#cc88ff'
-    : n.type === 'chokepoint' ? '#ffaa33'
+    : n.type === 'chokepoint'    ? '#ffaa33'
+    : n.type === 'market_ticker' ? nodeColor(n)
     : '#8899bb';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'top';
@@ -12747,7 +12797,11 @@ function nodeColor(n) {
   if (n.type === 'company')    return '#ff99aa';
   if (n.type === 'news')       return '#cc88ff';
   if (n.type === 'aircraft')   return '#66ddff';
-  if (n.type === 'chokepoint') return '#ffaa33';
+  if (n.type === 'chokepoint')    return '#ffaa33';
+  if (n.type === 'market_ticker') {
+    var pct = n._payload && n._payload.change_percent;
+    return pct == null ? '#c5d7e8' : pct > 0 ? '#00ff88' : pct < 0 ? '#ff0044' : '#c5d7e8';
+  }
   return RISK_COLORS[n.risk] || '#4a7da8';
 }
 
@@ -13041,6 +13095,35 @@ function showInspector(node) {
       field('NAME', node.label),
       field('TYPE', node.entityType || '—'),
       field('RELATIONSHIPS', relEdgeCount + ' detected edges'),
+    ].join('');
+
+  } else if (node.type === 'market_ticker') {
+    var mpd = node._payload || {};
+    var mcolor = nodeColor(node);
+    var mpct = mpd.change_percent;
+    var mpctStr = mpct != null ? (mpct > 0 ? '+' : '') + mpct.toFixed(2) + '%' : '—';
+    var mpctCol = mpct == null ? '#c5d7e8' : mpct > 0 ? '#00ff88' : mpct < 0 ? '#ff0044' : '#c5d7e8';
+    function mfmt(v, dec, pre) { return v != null ? (pre||'') + parseFloat(v).toFixed(dec||2) : '—'; }
+    function mfmtBig(v) {
+      if (v == null) return '—';
+      if (v >= 1e12) return '$' + (v/1e12).toFixed(2) + 'T';
+      if (v >= 1e9)  return '$' + (v/1e9).toFixed(2)  + 'B';
+      if (v >= 1e6)  return '$' + (v/1e6).toFixed(2)  + 'M';
+      return '$' + v.toFixed(0);
+    }
+    body.innerHTML = [
+      '<div style="font-size:8px;letter-spacing:2px;color:' + mcolor + ';margin-bottom:8px">◈ MARKET TICKER</div>',
+      field('TICKER',     '<span style="color:' + mcolor + ';font-size:12px;font-weight:700">' + node.label + '</span>'),
+      field('NAME',       mpd.name || '—'),
+      field('PRICE',      mfmt(mpd.price, 2, '$') + '  <span style="color:' + mpctCol + '">' + mpctStr + '</span>'),
+      field('MARKET CAP', mfmtBig(mpd.market_cap)),
+      field('P/E RATIO',  mpd.pe_ratio != null ? mpd.pe_ratio.toFixed(2) : '—'),
+      field('EPS',        mfmt(mpd.eps, 2, '$')),
+      field('50 DMA',     mfmt(mpd.ma_50, 2, '$')),
+      field('200 DMA',    mfmt(mpd.ma_200, 2, '$')),
+      mpd.context && mpd.context.sector   ? field('SECTOR',   mpd.context.sector)   : '',
+      mpd.context && mpd.context.country  ? field('COUNTRY',  mpd.context.country)  : '',
+      mpd.context && mpd.context.asset_class ? field('ASSET CLASS', mpd.context.asset_class.toUpperCase()) : '',
     ].join('');
 
   } else if (node.type === 'signal') {
@@ -14919,11 +15002,48 @@ function deleteNode() {
   updateTopbar();
 }
 
+// ── Ingest payload from event bus ─────────────────────────────────────────────
+// Derives risk level and risk score from market data for use in node coloring.
+function deriveMarketRisk(payload) {
+  var pct = payload.data && payload.data.change_percent;
+  if (pct == null) return 'WATCH';
+  if (pct < -5) return 'CRITICAL';
+  if (pct < -2) return 'WARNING';
+  return 'WATCH';
+}
+
+function ingest(payload) {
+  if (!payload || !payload.type || !payload.data) return;
+
+  var nodeId = payload.type + ':' + (payload.data.ticker || payload.source) + ':' + payload.timestamp;
+
+  var node = {
+    id:        nodeId,
+    type:      payload.type,
+    label:     payload.data.ticker || nodeId,
+    risk:      deriveMarketRisk(payload),
+    source:    payload.source,
+    timestamp: payload.timestamp,
+    _payload:  payload.data,
+  };
+
+  // Open overlay first so canvas is sized before addManualNode computes position
+  open();
+  // Add to graph with random canvas position (addManualNode handles layout + re-render)
+  addManualNode(node, null, null);
+}
+
+// ── Wire event bus listener ───────────────────────────────────────────────────
+ArgusBus.on('ARGUS_SEND_TO_NEURAL_WEB', function(payload) {
+  ingest(payload);
+});
+
 // ── Public API ────────────────────────────────────────────────────────────────
 return {
   open:          open,
   close:         close,
   toggle:        toggle,
+  ingest:        ingest,
   setCountry:    function(c){ setCountry(c); buildCountryList(); updateTopbar(); },
   updateFilters:    updateFilters,
   rebuildGraph:     rebuildGraph,

@@ -11201,16 +11201,28 @@ window.ArgusPortWatch = (function () {
   // ── Chokepoint name → our internal ID mapping ────────────────────────────────
   // Regex matched against "portname country" — additive, new IDs can be appended.
   var CHOKEPOINT_MATCHERS = [
+    // Gulf / Indian Ocean
     { id: 'hormuz',      re: /jebel.ali|abu.dhabi|muscat|bandar.?abbas|fujairah|salalah|sohar|khor.fakkan|umm.al.quwain/i },
-    { id: 'suez',        re: /port.?said|suez|damietta|ismailia/i },
     { id: 'bab_cp',      re: /djibouti|aden|hodeidah|berbera|obock/i },
-    { id: 'malacca',     re: /singapore|port.klang|tanjung.pelepas|penang|batam|belawan|dumai/i },
-    { id: 'panama',      re: /balboa|colon|cristobal|panama/i },
+    // Mediterranean / Black Sea
+    { id: 'suez',        re: /port.?said|suez|damietta|ismailia/i },
     { id: 'bosphorus',   re: /istanbul|ambarli|haydarpasa|izmit|gebze|derince|tekirdag/i },
-    { id: 'gibraltar',   re: /algeciras|tangier|tanger.?med|ceuta/i },
     { id: 'dardanelles', re: /canakkale|izmir|aliaga/i },
+    // Atlantic / North Sea
+    // 'gibraltar' removed — no matching chokepoint ID in the UI; algeciras/tangier served by nearby data
+    { id: 'dover',       re: /calais|dunkerque|zeebrugge|antwerp|antwerpen|rotterdam|felixstowe|dover/i },
+    // Baltic approaches
+    { id: 'oresund',     re: /copenhagen|kobenhavn|malmoe|malmö|helsingborg|helsingor|elsinore|aarhus/i },
+    { id: 'great_belt',  re: /fredericia|odense|vejle|korsoor|korsoer|nyborg/i },
+    // Americas
+    { id: 'panama_cp',   re: /balboa|colon|cristobal|panama/i },
+    // Asia-Pacific
+    { id: 'malacca',     re: /singapore|port.klang|tanjung.pelepas|penang|batam|belawan|dumai/i },
+    { id: 'taiwan_cp',   re: /keelung|kaohsiung|taichung|taipei|xiamen|amoy/i },
     { id: 'lombok',      re: /lombok|makassar|surabaya|balikpapan/i },
-    { id: 'capegoodh',   re: /cape.?town|durban|port.elizabeth|east.london/i },
+    { id: 'sunda',       re: /merak|panjang|cilegon|banten/i },
+    // Southern routes
+    { id: 'cape_cp',     re: /cape.?town|durban|port.elizabeth|east.london/i },
   ];
 
   function matchChokepoint(portname, country) {

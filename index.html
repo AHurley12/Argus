@@ -3885,15 +3885,17 @@ document.addEventListener('DOMContentLoaded', function() {
     .globeImageUrl('https://unpkg.com/three-globe/example/img/earth-dark.jpg')
     .bumpImageUrl('https://unpkg.com/three-globe/example/img/earth-topology.png');
 
-  // Globe group — everything that rotates together
+  // Globe group — contains ONLY the globe mesh/texture
   const globeGroup = new THREE.Group();
   globeGroup.add(Globe);
   scene.add(globeGroup);
+  // Rotate texture to align with data coordinate system (lon+180 formula places lon=0 at +X)
+  globeGroup.rotation.y = Math.PI / 2;
 
-  // Rotate the entire group so lon=90 (Indian Ocean / Middle East) faces the camera (+Z).
-  // Rotating globeGroup (not Globe) means the texture, country polygons, coordinate grid,
-  // and ALL marker layers share the same coordinate frame — no per-layer offset needed.
-  globeGroup.rotation.y = Math.PI;
+  // Data group — contains all markers (events, AIS, flights, chokepoints, countries, grid)
+  // Separate from globeGroup so texture can be corrected without affecting marker positions
+  const dataGroup = new THREE.Group();
+  scene.add(dataGroup);
 
   // ── Coordinate Grid ─────────────────────────────────────────────────────────
   var coordinateGrid = (function buildGrid() {
@@ -3927,7 +3929,7 @@ document.addEventListener('DOMContentLoaded', function() {
       group.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts2), mat2));
     }
 
-    globeGroup.add(group);
+    dataGroup.add(group);
     return group;
   })();
 
@@ -4101,7 +4103,7 @@ document.addEventListener('DOMContentLoaded', function() {
     ring.userData = { isPulseRing: true, phase: Math.random() * Math.PI * 2, _hcMarker: true };
     eventMarkerGroup.add(ring);
   });
-  globeGroup.add(eventMarkerGroup);
+  dataGroup.add(eventMarkerGroup);
   // Hide hardcoded event markers and their pulse rings on first load
   window.eventMarkers.forEach(function(m) { m.visible = false; });
   eventMarkerGroup.children.forEach(function(obj) {
@@ -4399,7 +4401,7 @@ document.addEventListener('DOMContentLoaded', function() {
     var t = COUNTRIES_DATA.find(function(c) { return c.code === rt.to; });
     if (f && t) addRouteArc(f.rawLat, f.rawLon, t.rawLat, t.rawLon, STATIC_RC[rt.risk], rt.vol);
   });
-  globeGroup.add(staticMarkerGroup);
+  dataGroup.add(staticMarkerGroup);
   // Hide country markers and chokepoint hit spheres/prisms/rings on first load
   window.countryMarkers.forEach(function(m)   { m.visible = false; });
   window.chokepointMarkers.forEach(function(m) { m.visible = false; });
@@ -4557,6 +4559,8 @@ document.addEventListener('DOMContentLoaded', function() {
       globeGroup.rotation.y += dx * 0.005;
       globeGroup.rotation.x += dy * 0.005;
       globeGroup.rotation.x = Math.max(-Math.PI / 2.2, Math.min(Math.PI / 2.2, globeGroup.rotation.x));
+      dataGroup.rotation.y = globeGroup.rotation.y;
+      dataGroup.rotation.x = globeGroup.rotation.x;
       prevMouse = { x: e.clientX, y: e.clientY };
     }
   });
@@ -4922,7 +4926,7 @@ document.addEventListener('DOMContentLoaded', function() {
   });
 
   // Expose for external access
-  window.ArgusGlobe = { scene: scene, camera: camera, renderer: renderer, globe: Globe, globeGroup: globeGroup, eventMarkerGroup: eventMarkerGroup, latLonToVector: latLonToVector, clearHover: clearHoverTooltip };
+  window.ArgusGlobe = { scene: scene, camera: camera, renderer: renderer, globe: Globe, globeGroup: globeGroup, dataGroup: dataGroup, eventMarkerGroup: eventMarkerGroup, latLonToVector: latLonToVector, clearHover: clearHoverTooltip };
 
   // ── Hardcoded Event Queue — FIFO bounded, max 40 ─────────────────────────────
   // Scope guard: ONLY events with source === 'HARDCODED' are tracked or evicted.

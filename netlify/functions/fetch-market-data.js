@@ -1,8 +1,9 @@
 // netlify/functions/fetch-market-data.js
-// Handles: EIA (Brent, WTI, inventory), FRED (USD index, GEPU, yield curve),
+// Handles: EIA (Brent, WTI, crude inventory WoW change — 2 weeks fetched)
+//          FRED (USD trade index, yield curve 10Y-2Y, US 10Y treasury — daily series only)
 //          Yahoo Finance (global indexes: FTSE, DAX, Nikkei, HSI, VIX — true values)
-//          Stooq (BDI + index fallback)
-// Cache: Supabase market_intelligence table, 60-minute TTL
+//          Stooq (index fallback — BDI removed, unreliable server-side)
+// Cache: Supabase market_intelligence table, 10-minute TTL
 
 const { createClient } = require('@supabase/supabase-js');
 
@@ -103,7 +104,8 @@ async function fetchYahooIndexes() {
 // ── EIA: Brent, WTI, crude inventory ────────────────────────────────────────
 async function fetchEIA() {
   const base   = `https://api.eia.gov/v2/petroleum/pri/spt/data/?api_key=${EIA_KEY}&frequency=daily&data[0]=value&sort[0][column]=period&sort[0][direction]=desc&length=1`;
-  const invUrl = `https://api.eia.gov/v2/petroleum/stoc/wstk/data/?api_key=${EIA_KEY}&frequency=weekly&data[0]=value&facets[series][]=WCESTUS1&sort[0][column]=period&sort[0][direction]=desc&length=1`;
+  // Fetch 2 weeks of inventory to calculate WoW change
+  const invUrl = `https://api.eia.gov/v2/petroleum/stoc/wstk/data/?api_key=${EIA_KEY}&frequency=weekly&data[0]=value&facets[series][]=WCESTUS1&sort[0][column]=period&sort[0][direction]=desc&length=2`;
 
   const [brentRes, wtiRes, invRes] = await Promise.all([
     fetch(base + '&facets[series][]=RBRTE'),
@@ -117,15 +119,19 @@ async function fetchEIA() {
   }
 
   const [brentJson, wtiJson, invJson] = await Promise.all([brentRes.json(), wtiRes.json(), invRes.json()]);
-  const brent = val(brentJson), wti = val(wtiJson), inv = val(invJson);
+  const brent = val(brentJson), wti = val(wtiJson);
+  const invRows = invJson?.response?.data || [];
+  const inv     = invRows[0] ? { value: parseFloat(invRows[0].value), period: invRows[0].period } : null;
+  const invPrev = invRows[1] ? { value: parseFloat(invRows[1].value) } : null;
 
   return {
-    brent:        brent?.value  ?? null,
-    brentDate:    brent?.period ?? null,
-    wti:          wti?.value    ?? null,
-    wtiDate:      wti?.period   ?? null,
-    crudeInv:     inv?.value    ?? null,
-    crudeInvDate: inv?.period   ?? null,
+    brent:        brent?.value    ?? null,
+    brentDate:    brent?.period   ?? null,
+    wti:          wti?.value      ?? null,
+    wtiDate:      wti?.period     ?? null,
+    crudeInv:     inv?.value      ?? null,
+    crudeInvDate: inv?.period     ?? null,
+    crudeInvPrev: invPrev?.value  ?? null,
   };
 }
 
@@ -142,38 +148,32 @@ async function fetchFRED() {
     return (!v || v === '.') ? null : parseFloat(v);
   }
 
-  const [usdRes, gepuRes, yieldRes, dgs10Res, bundRes, giltRes] = await Promise.all([
+  // DTWEXBGS = USD broad trade index (daily); T10Y2Y = yield curve (daily); DGS10 = US 10Y (daily)
+  // GEPU (monthly), Bund (monthly), Gilt (monthly) removed — too stale for real-time panel
+  const [usdRes, yieldRes, dgs10Res] = await Promise.all([
     fetch(url('DTWEXBGS')),
-    fetch(url('GEPUCURRENT')),
     fetch(url('T10Y2Y')),
     fetch(url('DGS10')),
-    fetch(url('IRLTLT01DEM156N')),
-    fetch(url('IRLTLT01GBM156N')),
   ]);
 
-  const [usdJson, gepuJson, yieldJson, dgs10Json, bundJson, giltJson] = await Promise.all([
-    usdRes.json(), gepuRes.json(), yieldRes.json(),
-    dgs10Res.json(), bundRes.json(), giltRes.json(),
+  const [usdJson, yieldJson, dgs10Json] = await Promise.all([
+    usdRes.json(), yieldRes.json(), dgs10Res.json(),
   ]);
 
   return {
     usd:        parseVal(usdJson),
-    usdDate:    usdJson?.observations?.[0]?.date  ?? null,
-    gepu:       parseVal(gepuJson),
-    gepuDate:   gepuJson?.observations?.[0]?.date ?? null,
+    usdDate:    usdJson?.observations?.[0]?.date   ?? null,
     yield10y2y: parseVal(yieldJson),
     yieldDate:  yieldJson?.observations?.[0]?.date ?? null,
     bonds: {
       us10y: parseVal(dgs10Json),
-      bund:  parseVal(bundJson),
-      gilt:  parseVal(giltJson),
     },
   };
 }
 
 // ── Stooq: BDI + index fallback ──────────────────────────────────────────────
 async function fetchStooq() {
-  const syms = ['^ftse', '^dax', '^n225', '^hsi', '^vix', 'bdi'].join(',');
+  const syms = ['^ftse', '^dax', '^n225', '^hsi', '^vix'].join(',');
   const url  = `https://stooq.com/q/l/?s=${encodeURIComponent(syms)}&f=sd2t2ohlcvn&h&e=csv`;
 
   const res = await fetch(url);

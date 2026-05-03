@@ -249,7 +249,7 @@
       </div>
       <div id="mkt-deep-dive"></div>
 
-      <div class="dp-section">CURRENCY &amp; ENERGY</div>
+      <div class="dp-section">FX &amp; MACRO</div>
 
       <div class="dp-row">
         <div class="dp-label">EUR / USD<span>Euro · Yahoo Finance</span></div>
@@ -264,9 +264,12 @@
         <div class="dp-value" id="fx-usdjpy" style="color:#c5d7e8">—</div>
       </div>
       <div class="dp-row">
-        <div class="dp-label">USD TRADE INDEX<span>vs broad basket · Yahoo Finance</span></div>
+        <div class="dp-label">USD TRADE INDEX<span>vs broad basket · FRED</span></div>
         <div class="dp-value" id="usd-val" style="color:#c5d7e8">—</div>
       </div>
+
+      <div class="dp-section dp-section--spaced">ENERGY</div>
+
       <div class="dp-row">
         <div class="dp-label">BRENT CRUDE<span>BZ=F futures · Yahoo Finance</span></div>
         <div class="dp-value" id="brent-val" style="color:#c5d7e8">—</div>
@@ -276,11 +279,15 @@
         <div class="dp-value" id="wti-val" style="color:#c5d7e8">—</div>
       </div>
       <div class="dp-row">
-        <div class="dp-label">US CRUDE STOCKS<span>Weekly inventory · EIA</span></div>
+        <div class="dp-label">OIL INVENTORY ΔWoW<span>Week-over-week change · EIA</span></div>
         <div class="dp-value" id="crude-inv-val" style="color:#c5d7e8">—</div>
       </div>
+      <div class="dp-row">
+        <div class="dp-label">BRENT-WTI SPREAD<span>Quality/location premium · EIA</span></div>
+        <div class="dp-value" id="contango-val" style="color:#c5d7e8">—</div>
+      </div>
 
-      <div class="dp-section dp-section--spaced">MARKETS &amp; RISK</div>
+      <div class="dp-section dp-section--spaced">RISK SIGNALS</div>
 
       <button class="exchanges-btn" onclick="ArgusData.toggleExchanges()">
         <span>◈ GLOBAL EXCHANGES</span>
@@ -288,23 +295,16 @@
       </button>
 
       <div class="dp-row" style="margin-top:8px">
-        <div class="dp-label">POLICY UNCERTAINTY<span>Global Econ Policy Index · FRED</span></div>
-        <div class="dp-value" id="gepu-val" style="color:#c5d7e8">—</div>
+        <div class="dp-label">VIX<span>Market fear gauge · CBOE</span></div>
+        <div class="dp-value" id="vix-val" style="color:#c5d7e8">—</div>
       </div>
       <div class="dp-row">
-        <div class="dp-label">YIELD CURVE (10Y-2Y)<span>Recession signal · Fed Reserve</span></div>
+        <div class="dp-label">YIELD CURVE (10Y-2Y)<span>Recession signal · FRED</span></div>
         <div class="dp-value" id="yield-val" style="color:#c5d7e8">—</div>
       </div>
       <div class="dp-row">
-        <div class="dp-label">S&amp;P 500 (SPY)<span>US equity benchmark · Yahoo Finance</span></div>
-        <div style="text-align:right">
-          <div class="dp-value" id="spy-val" style="color:#c5d7e8">—</div>
-          <div class="dp-value--sub" id="spy-change"></div>
-        </div>
-      </div>
-      <div class="dp-row">
-        <div class="dp-label">BALTIC DRY INDEX<span>Dry bulk shipping demand · Stooq</span></div>
-        <div class="dp-value" id="bdi-val" style="color:#c5d7e8">N/A</div>
+        <div class="dp-label">US 10Y TREASURY<span>Risk-free rate · Yahoo Finance</span></div>
+        <div class="dp-value" id="us10y-val" style="color:#c5d7e8">—</div>
       </div>
 
       <div class="dp-section dp-section--spaced">COMMODITIES</div>
@@ -337,27 +337,8 @@
           <div class="dp-value--sub" id="wheat-chg"></div>
         </div>
       </div>
-      <div class="dp-row">
-        <div class="dp-label">BRENT-WTI SPREAD<span>Quality/location premium · EIA</span></div>
-        <div class="dp-value" id="contango-val" style="color:#c5d7e8">—</div>
-      </div>
 
-      <div class="dp-section dp-section--spaced">BOND YIELDS</div>
-
-      <div class="dp-row">
-        <div class="dp-label">US 10Y TREASURY<span>Risk-free rate · Yahoo Finance</span></div>
-        <div class="dp-value" id="us10y-val" style="color:#c5d7e8">—</div>
-      </div>
-      <div class="dp-row">
-        <div class="dp-label">GERMAN BUND 10Y<span>EU benchmark · FRED</span></div>
-        <div class="dp-value" id="bund-val" style="color:#c5d7e8">—</div>
-      </div>
-      <div class="dp-row">
-        <div class="dp-label">UK GILT 10Y<span>BOE benchmark · FRED</span></div>
-        <div class="dp-value" id="gilt-val" style="color:#c5d7e8">—</div>
-      </div>
-
-      <div class="dp-section dp-section--spaced">CRYPTO RISK</div>
+      <div class="dp-section dp-section--spaced">CRYPTO</div>
 
       <div class="dp-row">
         <div class="dp-label">BITCOIN<span>BTC/USD · Yahoo Finance</span></div>
@@ -373,6 +354,14 @@
           <div class="dp-value--sub" id="eth-chg"></div>
         </div>
       </div>
+
+      <!-- Hidden legacy elements — values still captured for buildSnapshot/exports -->
+      <span id="spy-val"    style="display:none"></span>
+      <span id="spy-change" style="display:none"></span>
+      <span id="gepu-val"   style="display:none"></span>
+      <span id="bdi-val"    style="display:none"></span>
+      <span id="bund-val"   style="display:none"></span>
+      <span id="gilt-val"   style="display:none"></span>
     </div>
   </aside>
 
@@ -1990,25 +1979,24 @@ window.ArgusData = (function() {
     sp('brent-val', d.brent);
     sp('wti-val',   d.wti);
     var invEl = document.getElementById('crude-inv-val');
-    if (invEl && d.crudeInv != null) {
-      var inv = parseFloat(d.crudeInv);
-      invEl.textContent = inv.toFixed(1) + ' Mb';
+    if (invEl && d.crudeInv != null && d.crudeInvPrev != null) {
+      var change = parseFloat(d.crudeInv) - parseFloat(d.crudeInvPrev);
+      invEl.textContent = (change >= 0 ? '+' : '') + change.toFixed(1) + ' Mb';
+      // Draw (negative) = bullish for price → green; Build (positive) = bearish → red
+      invEl.style.color = change < 0 ? '#00ff88' : change > 0 ? '#ff0044' : '#c5d7e8';
+    } else if (invEl && d.crudeInv != null) {
+      invEl.textContent = parseFloat(d.crudeInv).toFixed(1) + ' Mb';
       invEl.style.color = '#c5d7e8';
     }
     updateBrentWTISpread();
   }
 
-  // ── FRED — USD Index, GEPU, Yield Curve ──────────────────────────────────
+  // ── FRED — USD Index, Yield Curve (10Y-2Y) ───────────────────────────────
   function renderFREDTicker() {
     var d = window._fredData;
     if (!d) return;
     var usdEl = document.getElementById('usd-val');
     if (usdEl && d.usd != null) usdEl.textContent = parseFloat(d.usd).toFixed(2);
-    var gepuEl = document.getElementById('gepu-val');
-    if (gepuEl && d.gepu != null) {
-      gepuEl.textContent = Math.round(d.gepu);
-      gepuEl.style.color = d.gepu > 200 ? '#ff0044' : d.gepu > 130 ? '#ff9933' : d.gepu > 80 ? '#ffcc00' : '#00ff88';
-    }
     var yEl = document.getElementById('yield-val');
     if (yEl && d.yield10y2y != null) {
       yEl.textContent = parseFloat(d.yield10y2y).toFixed(2) + '%';
@@ -2043,7 +2031,6 @@ window.ArgusData = (function() {
 
       L.push('--- MACRO INDICATORS ---');
       L.push('USD Trade Index:    ' + (fr.usd        != null ? parseFloat(fr.usd).toFixed(2)              : 'pending') + ' (' + (fr.usdDate   || '—') + ')');
-      L.push('Policy Uncertainty: ' + (fr.gepu       != null ? Math.round(fr.gepu) + ' GEPU'              : 'pending') + ' (' + (fr.gepuDate  || '—') + ')');
       L.push('Yield Curve 10Y-2Y: ' + (fr.yield10y2y != null ? parseFloat(fr.yield10y2y).toFixed(2) + '%' : 'pending') + ' (' + (fr.yieldDate || '—') + ')');
       L.push('');
 
@@ -2367,9 +2354,8 @@ window.ArgusData = (function() {
       if (!el || val == null) return;
       el.textContent = val.toFixed(2) + '%';
     }
+    // US 10Y shown in RISK SIGNALS panel; bund/gilt hidden (FRED monthly series too stale)
     setYield('us10y-val', bonds.us10y);
-    setYield('bund-val',  bonds.bund);
-    setYield('gilt-val',  bonds.gilt);
   }
 
   function init() {
@@ -2381,7 +2367,8 @@ window.ArgusData = (function() {
       // Dead market caches — these keys are no longer written; remove once so stale
       // data never surfaces as a false fallback in ingestCommodities / similar readers
       ['argus_td_v3','argus_eia_v8','argus_fred_v4','argus_av_v6',
-       'argus_fh_comm_v1','argus_fh_comm_ts_v1','argus_pg_ex_v1','argus_pg_ex_ts_v1'].forEach(function(k) {
+       'argus_fh_comm_v1','argus_fh_comm_ts_v1','argus_pg_ex_v1','argus_pg_ex_ts_v1',
+       'argus_bdi_v2','argus_bdi_ts_v2'].forEach(function(k) {
         if (localStorage.getItem(k) !== null) localStorage.removeItem(k);
       });
     } catch(e) {}
@@ -2389,7 +2376,7 @@ window.ArgusData = (function() {
     // Each function has its own TTL cache and returns immediately on cache hit;
     // the delay only costs anything on a cold first load or after expiry.
     var _mktFns = [
-      fetchMarketData, fetchYFinance, fetchBDI
+      fetchMarketData, fetchYFinance
     ];
     _mktFns.forEach(function(fn, i) {
       setTimeout(fn, i * 600 + Math.floor(Math.random() * 400));
@@ -2518,7 +2505,6 @@ window.ArgusData = (function() {
         '^n225': { elId: 'idx-nikkei', chgId: 'idx-nikkei-chg', prefix: '',  dec: 0 },
         '^hsi':  { elId: 'idx-hsi',    chgId: 'idx-hsi-chg',    prefix: '',  dec: 0 },
         '^vix':  { elId: 'idx-vix',    chgId: null,             prefix: '',  dec: 2 },
-        'bdi':   { elId: 'bdi-val',    chgId: null,             prefix: '',  dec: 0 },
       };
       Object.keys(MAP).forEach(function(sym) {
         var s = d.stooq[sym]; if (!s) return;
@@ -2626,8 +2612,9 @@ window.ArgusData = (function() {
     // ── VIX (color-coded by level) ────────────────────────────────────────────
     if (data['^VIX'] && data['^VIX'].price != null) {
       var vix = data['^VIX'].price;
-      setEl('idx-vix', vix.toFixed(2),
-        vix > 30 ? '#ff0044' : vix > 20 ? '#ff9933' : vix > 15 ? '#ffcc00' : '#00ff88');
+      var vixColor = vix > 30 ? '#ff0044' : vix > 20 ? '#ff9933' : vix > 15 ? '#ffcc00' : '#00ff88';
+      setEl('idx-vix', vix.toFixed(2), vixColor);   // global exchanges accordion
+      setEl('vix-val', vix.toFixed(2), vixColor);   // RISK SIGNALS panel row
     }
 
     // ── FX rates ──────────────────────────────────────────────────────────────
@@ -4754,11 +4741,6 @@ window.ArgusUI = (function() {
 
       // ── POLICY UNCERTAINTY ───────────────────────────────────────────────────
       html += '<div class="detail__section-header">POLICY UNCERTAINTY</div>';
-      var fr       = window._fredData || {};
-      var gepuStr  = fr.gepu != null
-        ? Math.round(fr.gepu) + ' &nbsp;<span style="font-size:7px;color:#4a7da8">GLOBAL INDEX · ' + (fr.gepuDate || '—') + '</span>'
-        : '<span style="color:#4a7da8">— LOADING —</span>';
-      html += '<div class="detail__row"><span class="detail__label">GLOBAL EPU INDEX</span><span class="detail__value">' + gepuStr + '</span></div>';
 
       var regLbl = d.score > 70 ? 'HIGH' : d.score > 45 ? 'MODERATE' : 'LOW';
       var regCol = d.score > 70 ? '#ff9933' : d.score > 45 ? '#ffcc00' : '#00ff88';
@@ -12107,7 +12089,8 @@ function scanRelationships() {
   // 3. Signal nodes — text corpus + live market data telemetry
   var mktHits = MARKET_SIGNALS.filter(function(s){ return allTextL.indexOf(s) !== -1; });
   if (window._eiaData  && window._eiaData.brent  && window._eiaData.brent  > 85)    mktHits.push('brent $' + window._eiaData.brent.toFixed(0));
-  if (window._fredData && window._fredData.gepu   && window._fredData.gepu   > 200)  mktHits.push('gepu ' + window._fredData.gepu.toFixed(0));
+  var _vixEl = document.getElementById('vix-val'); var _vixV = _vixEl ? parseFloat(_vixEl.textContent) : NaN;
+  if (!isNaN(_vixV) && _vixV > 30) mktHits.push('vix ' + _vixV.toFixed(1));
   if (window._fredData && window._fredData.yield10y2y !== null && window._fredData.yield10y2y < 0) mktHits.push('inverted yield');
   if (mktHits.length) {
     var mnid = 'signal:market';

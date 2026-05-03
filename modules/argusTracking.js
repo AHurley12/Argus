@@ -193,7 +193,7 @@ var SHIP_TYPE_COLORS = {
 // stale=true → dead-reckoned or carry-forward position; rendered at reduced opacity
 function placeAircraft(lat, lon, heading, callsign, country, flightType, alt, region, icao24, gs, phase, stale) {
   var AG  = window.ArgusGlobe;
-  var pos = AG.latLonToVector(lat, lon, R.AIRCRAFT);
+  var pos = AG.latLonToVector(lat, lon, 101.8);
   var ft  = flightType || 'unknown';
 
   var mat = new THREE.SpriteMaterial({
@@ -232,7 +232,7 @@ function placeAircraft(lat, lon, heading, callsign, country, flightType, alt, re
 // ── Ship marker — top-down SVG ship sprite ────────────────────────────────────
 function placeShip(lat, lon, name, sog, cog, typeCategory, mmsi, region, navStatus, destination) {
   var AG  = window.ArgusGlobe;
-  var pos = AG.latLonToVector(lat, lon, R.SHIP);
+  var pos = AG.latLonToVector(lat, lon, 101.5);
   var tc  = typeCategory || 'other';
 
   // Rotate sprite so bow points in the vessel's COG direction.
@@ -374,8 +374,8 @@ function renderCorridors(corridors) {
     var dLat    = halfLen * Math.cos(hRad);
     var dLon    = halfLen * Math.sin(hRad) / cosLat;
 
-    var p1 = AG.latLonToVector(c.lat - dLat, c.lon - dLon, R.CORRIDOR);
-    var p2 = AG.latLonToVector(c.lat + dLat, c.lon + dLon, R.CORRIDOR);
+    var p1 = AG.latLonToVector(c.lat - dLat, c.lon - dLon, 101.9);
+    var p2 = AG.latLonToVector(c.lat + dLat, c.lon + dLon, 101.9);
 
     var opacity = Math.min(0.72, 0.22 + c.count * 0.04);
     var line = new THREE.Line(

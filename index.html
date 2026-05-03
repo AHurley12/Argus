@@ -920,6 +920,31 @@ document.addEventListener('DOMContentLoaded', function() {
   const dataGroup = new THREE.Group();
   scene.add(dataGroup);
 
+  // ── Coordinate helpers ───────────────────────────────────────────────────────
+  // Layered radii prevent z-fighting between co-planar marker groups.
+  // Globe surface = 100. Each layer sits 0.5–3.5 units above it.
+  var R = {
+    GRID:     100.39,  // coordinate grid lines
+    MARKER:   101,     // countries, chokepoints, static routes
+    SHIP:     101.5,   // VesselAPI commercial ships
+    AIS:      101.3,   // live AIS vessels (below ships, no z-fight)
+    AIRCRAFT: 101.8,   // aircraft + capital cities
+    CORRIDOR: 101.9,   // flight corridor endpoints
+    EVENT:    102,     // dynamic event pins + permanent markers
+    DISASTER: 103.5    // GDACS/USGS disaster markers (top layer)
+  };
+
+  function latLonToVector(lat, lon, r) {
+    r = r || 100;
+    var phi   = (90 - lat) * Math.PI / 180;
+    var theta = (lon + 180) * Math.PI / 180;
+    return new THREE.Vector3(
+      -r * Math.sin(phi) * Math.cos(theta),
+       r * Math.cos(phi),
+       r * Math.sin(phi) * Math.sin(theta)
+    );
+  }
+
   // ── Coordinate Grid ─────────────────────────────────────────────────────────
   var coordinateGrid = (function buildGrid() {
     var group   = new THREE.Group();
@@ -998,31 +1023,6 @@ document.addEventListener('DOMContentLoaded', function() {
   var fill = new THREE.DirectionalLight(0x001a33, 0.5);
   fill.position.set(-5, -2, -5);
   scene.add(fill);
-
-  // ── Coordinate helpers ───────────────────────────────────────────────────────
-  // Layered radii prevent z-fighting between co-planar marker groups.
-  // Globe surface = 100. Each layer sits 0.5–3.5 units above it.
-  var R = {
-    GRID:     100.39,  // coordinate grid lines
-    MARKER:   101,     // countries, chokepoints, static routes
-    SHIP:     101.5,   // VesselAPI commercial ships
-    AIS:      101.3,   // live AIS vessels (below ships, no z-fight)
-    AIRCRAFT: 101.8,   // aircraft + capital cities
-    CORRIDOR: 101.9,   // flight corridor endpoints
-    EVENT:    102,     // dynamic event pins + permanent markers
-    DISASTER: 103.5    // GDACS/USGS disaster markers (top layer)
-  };
-
-  function latLonToVector(lat, lon, r) {
-    r = r || 100;
-    var phi   = (90 - lat) * Math.PI / 180;
-    var theta = (lon + 180) * Math.PI / 180;
-    return new THREE.Vector3(
-      -r * Math.sin(phi) * Math.cos(theta),
-       r * Math.cos(phi),
-       r * Math.sin(phi) * Math.sin(theta)
-    );
-  }
 
   // ── Visibility culling (front-hemisphere only) ───────────────────────────────
   function isFacingCamera(mesh) {

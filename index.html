@@ -4559,7 +4559,9 @@ document.addEventListener('DOMContentLoaded', function() {
       globeGroup.rotation.y += dx * 0.005;
       globeGroup.rotation.x += dy * 0.005;
       globeGroup.rotation.x = Math.max(-Math.PI / 2.2, Math.min(Math.PI / 2.2, globeGroup.rotation.x));
-      dataGroup.rotation.y = globeGroup.rotation.y;
+      // dataGroup has no initial offset, so subtract the fixed PI/2 texture correction
+      // to keep globe mesh and data layer in sync during drag.
+      dataGroup.rotation.y = globeGroup.rotation.y - Math.PI / 2;
       dataGroup.rotation.x = globeGroup.rotation.x;
       prevMouse = { x: e.clientX, y: e.clientY };
     }
@@ -4615,6 +4617,8 @@ document.addEventListener('DOMContentLoaded', function() {
     globeGroup.rotation.y += dx * 0.005;
     globeGroup.rotation.x += dy * 0.005;
     globeGroup.rotation.x  = Math.max(-Math.PI / 2.2, Math.min(Math.PI / 2.2, globeGroup.rotation.x));
+    dataGroup.rotation.y = globeGroup.rotation.y - Math.PI / 2;
+    dataGroup.rotation.x = globeGroup.rotation.x;
     _prevTouch = { x: e.touches[0].clientX, y: e.touches[0].clientY };
   }, { passive: false });  // passive: false required for e.preventDefault()
 

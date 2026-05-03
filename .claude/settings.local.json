@@ -43,7 +43,18 @@
       "Bash(awk NR>=4990 && NR<=5040:*)",
       "Bash(awk 'NR>=11680 && NR<=11700' C:/Users/aidan/Desktop/Argus/index.html)",
       "Bash(awk 'NR>=11888 && NR<=11905' C:/Users/aidan/Desktop/Argus/index.html)",
-      "Bash(awk NR>=4556 && NR<=4640:*)"
+      "Bash(awk NR>=4556 && NR<=4640:*)",
+      "Read(//c/Users/aidan/Desktop/Argus/**)",
+      "Bash(perl -i -pe 's/correctLongitude\\\\\\(\\(\\\\w+\\)\\\\\\)/\\\\1/g' \"C:/Users/aidan/Desktop/Argus/index.html\")",
+      "Bash(perl -i -pe 's/correctLongitude\\\\\\(\\(\\\\w+\\\\.\\\\w+\\)\\\\\\)/\\\\1/g' \"C:/Users/aidan/Desktop/Argus/index.html\")",
+      "Bash(perl -i -pe ':*)",
+      "Bash(perl -i -pe 's/\\(\\\\blatLonToVector\\\\\\([^,]+,\\\\s*[^,]+,\\\\s*\\)101\\\\b/$1R.MARKER/g' \"C:/Users/aidan/Desktop/Argus/index.html\")",
+      "Bash(perl -i -pe 's/var radius\\\\s*=\\\\s*100\\\\.39;/var radius = R.GRID;/' \"C:/Users/aidan/Desktop/Argus/index.html\")",
+      "Bash(awk 'NR>=4112 && NR<=4477 {print}' \"C:/Users/aidan/Desktop/Argus/index.html\")",
+      "Bash(awk 'NR>=4112 && NR<=4477 {:*)",
+      "Read(//tmp/**)",
+      "Bash(perl -i -pe 's/^  //' \"C:/Users/aidan/Desktop/Argus/data/static-data.js\")",
+      "Bash(perl -i -pe 's/corrLon\\\\\\(\\(\\\\w+\\)\\\\\\)/\\\\1/g; s/corrLon\\\\\\(\\(\\\\w+\\\\.\\\\w+\\)\\\\\\)/\\\\1/g; s/corrLon\\\\\\(\\(\\\\w+\\\\.\\\\w+ - \\\\w+\\)\\\\\\)/\\\\1/g; s/corrLon\\\\\\(\\(\\\\w+\\\\.\\\\w+ \\\\+ \\\\w+\\)\\\\\\)/\\\\1/g' \"C:/Users/aidan/Desktop/Argus/index.html\")"
     ]
   }
 }

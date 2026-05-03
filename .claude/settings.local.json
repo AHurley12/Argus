@@ -54,7 +54,8 @@
       "Bash(awk 'NR>=4112 && NR<=4477 {:*)",
       "Read(//tmp/**)",
       "Bash(perl -i -pe 's/^  //' \"C:/Users/aidan/Desktop/Argus/data/static-data.js\")",
-      "Bash(perl -i -pe 's/corrLon\\\\\\(\\(\\\\w+\\)\\\\\\)/\\\\1/g; s/corrLon\\\\\\(\\(\\\\w+\\\\.\\\\w+\\)\\\\\\)/\\\\1/g; s/corrLon\\\\\\(\\(\\\\w+\\\\.\\\\w+ - \\\\w+\\)\\\\\\)/\\\\1/g; s/corrLon\\\\\\(\\(\\\\w+\\\\.\\\\w+ \\\\+ \\\\w+\\)\\\\\\)/\\\\1/g' \"C:/Users/aidan/Desktop/Argus/index.html\")"
+      "Bash(perl -i -pe 's/corrLon\\\\\\(\\(\\\\w+\\)\\\\\\)/\\\\1/g; s/corrLon\\\\\\(\\(\\\\w+\\\\.\\\\w+\\)\\\\\\)/\\\\1/g; s/corrLon\\\\\\(\\(\\\\w+\\\\.\\\\w+ - \\\\w+\\)\\\\\\)/\\\\1/g; s/corrLon\\\\\\(\\(\\\\w+\\\\.\\\\w+ \\\\+ \\\\w+\\)\\\\\\)/\\\\1/g' \"C:/Users/aidan/Desktop/Argus/index.html\")",
+      "Bash(echo \"exit: $?\")"
     ]
   }
 }

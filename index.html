@@ -2768,7 +2768,7 @@ var ArgusMarket = (function() {
         _lastResult = d;
         deep.innerHTML = renderCard(d);
         var btn = deep.querySelector('.mkt-brief-btn');
-        if (btn) btn.addEventListener('click', function() { sendToNeuralWeb(d); });
+        if (btn) btn.addEventListener('click', function() { sendToNeuralWeb(d, btn); });
         return;
       }
     } catch(e) {}
@@ -2791,7 +2791,7 @@ var ArgusMarket = (function() {
         deep.innerHTML = renderCard(res.search);
         // Wire briefing button
         var btn = deep.querySelector('.mkt-brief-btn');
-        if (btn) btn.addEventListener('click', function() { sendToNeuralWeb(res.search); });
+        if (btn) btn.addEventListener('click', function() { sendToNeuralWeb(res.search, btn); });
       })
       .catch(function(e) {
         deep.innerHTML = '<div class="mkt-card__empty">ERROR: ' + e.message + '</div>';
@@ -2869,8 +2869,8 @@ var ArgusMarket = (function() {
     ].join('\n');
   }
 
-  // ── Route deep-dive data into Neural Web via event bus ────────────────────
-  function sendToNeuralWeb(d) {
+  // ── Route deep-dive data into Neural Web notes ───────────────────────────
+  function sendToNeuralWeb(d, triggerBtn) {
     // Gate: Neural Web is a paid feature
     var tier = window.ArgusSession ? window.ArgusSession.tier : 'viewer';
     if (tier !== 'pro' && tier !== 'admin' && tier !== 'owner') {
@@ -2883,32 +2883,35 @@ var ArgusMarket = (function() {
       return;
     }
 
-    // Build standardised payload — no DOM scraping, uses in-memory data only
-    var payload = {
-      type:      'market_ticker',
-      source:    'market_intelligence',
-      timestamp: Date.now(),
-      data: {
-        ticker:         d.symbol,
-        name:           d.name || d.symbol,
-        price:          d.price,
-        change_percent: d.changePercent,
-        volume:         d.volume,
-        market_cap:     d.marketCap,
-        pe_ratio:       d.trailingPE,
-        eps:            d.trailingEps,
-        ma_50:          d.fiftyDayAverage,
-        ma_200:         d.twoHundredDayAverage,
-        context: {
-          asset_class: (d.quoteType || 'EQUITY').toLowerCase(),
-          country:     d.country  || null,
-          sector:      d.sector   || null,
-          industry:    d.industry || null,
-        },
-      },
-    };
+    // Format stock data as a readable analyst note block
+    var ts  = new Date().toISOString().replace('T', ' ').slice(0, 16) + ' UTC';
+    var chg = d.changePercent != null ? (d.changePercent >= 0 ? '+' : '') + d.changePercent.toFixed(2) + '%' : '—';
+    var lines = [
+      '## $' + d.symbol + ' — ' + (d.name || d.symbol),
+      'Queried: ' + ts,
+      '',
+      'Price: ' + (d.price != null ? (d.currency === 'USD' ? '$' : '') + d.price.toFixed(2) : '—') + '  Change: ' + chg,
+      'Market Cap: ' + fmtBig(d.marketCap) + '  P/E (TTM): ' + (d.trailingPE != null ? d.trailingPE.toFixed(2) : '—'),
+      'Volume: ' + (d.volume != null ? Math.round(d.volume).toLocaleString('en-US') : '—'),
+    ];
+    if (d.sector || d.industry) lines.push('Sector: ' + [d.sector, d.industry].filter(Boolean).join(' · '));
+    if (d.country)               lines.push('Country: ' + d.country);
+    var note = lines.join('\n');
 
-    ArgusBus.emit('ARGUS_SEND_TO_NEURAL_WEB', payload);
+    if (window.ArgusNeuralWeb && typeof window.ArgusNeuralWeb.appendNote === 'function') {
+      window.ArgusNeuralWeb.appendNote(note);
+    }
+
+    // Button confirmation flash
+    if (triggerBtn) {
+      var orig = triggerBtn.textContent;
+      triggerBtn.textContent = '✓ SENT';
+      triggerBtn.style.color = '#00ff88';
+      setTimeout(function() {
+        triggerBtn.textContent = orig;
+        triggerBtn.style.color = '';
+      }, 1800);
+    }
   }
 
   // ── Wire search bar ───────────────────────────────────────────────────────
@@ -15097,6 +15100,16 @@ return {
   exportGraph:      exportGraph,
   getState:         function(){ return state; },
   getStore:         function(){ return store; },
+  appendNote: function(text) {
+    open();
+    var ta = document.getElementById('nw-notes-input');
+    if (ta) {
+      if (!ta.value) ta.value = loadNotes();
+      ta.value = (ta.value ? ta.value.trimEnd() + '\n\n' : '') + text;
+      saveNotes(ta.value);
+    }
+    switchTab('notes');
+  },
 };
 
 }());

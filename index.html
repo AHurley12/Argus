@@ -4880,19 +4880,24 @@ window.ArgusUI = (function() {
           html += '<div class="detail__row"><span class="detail__label">' + row[0] + '</span><span class="detail__value"' + (row[2] ? ' style="color:' + row[2] + '"' : '') + '>' + row[1] + '</span></div>';
         });
       } else {
-        html += '<div class="detail__placeholder" style="margin-top:10px">PORT WATCH DATA LOADING…</div>';
-        // One-shot refresh: re-render this panel when PortWatch data arrives
-        (function(capturedD) {
-          function onReady() {
-            window.removeEventListener('argus:portwatch:ready', onReady);
-            // Only re-render if this panel is still open for the same chokepoint
-            var panel2 = document.getElementById('panel-detail');
-            if (panel2 && panel2.classList.contains('is-visible')) {
-              ArgusUI.showStaticDetail(capturedD);
+        var pwLoaded = window._portWatchState && window._portWatchState.lastFetch > 0;
+        if (pwLoaded) {
+          html += '<div class="detail__placeholder" style="margin-top:10px">NO PORTWATCH DATA AVAILABLE FOR THIS REGION</div>';
+        } else {
+          html += '<div class="detail__placeholder" style="margin-top:10px">PORT WATCH DATA LOADING…</div>';
+          // One-shot refresh: re-render this panel when PortWatch data arrives
+          (function(capturedD) {
+            function onReady() {
+              window.removeEventListener('argus:portwatch:ready', onReady);
+              // Only re-render if this panel is still open for the same chokepoint
+              var panel2 = document.getElementById('panel-detail');
+              if (panel2 && panel2.classList.contains('is-visible')) {
+                ArgusUI.showStaticDetail(capturedD);
+              }
             }
-          }
-          window.addEventListener('argus:portwatch:ready', onReady);
-        }(d));
+            window.addEventListener('argus:portwatch:ready', onReady);
+          }(d));
+        }
       }
       var energyCPs = ['hormuz','bab_cp','suez','bosphorus'];
       if (energyCPs.indexOf(d.id) !== -1 && window._eiaData) {

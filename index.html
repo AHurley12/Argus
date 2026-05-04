@@ -4881,6 +4881,18 @@ window.ArgusUI = (function() {
         });
       } else {
         html += '<div class="detail__placeholder" style="margin-top:10px">PORT WATCH DATA LOADING…</div>';
+        // One-shot refresh: re-render this panel when PortWatch data arrives
+        (function(capturedD) {
+          function onReady() {
+            window.removeEventListener('argus:portwatch:ready', onReady);
+            // Only re-render if this panel is still open for the same chokepoint
+            var panel2 = document.getElementById('panel-detail');
+            if (panel2 && panel2.classList.contains('is-visible')) {
+              ArgusUI.showStaticDetail(capturedD);
+            }
+          }
+          window.addEventListener('argus:portwatch:ready', onReady);
+        }(d));
       }
       var energyCPs = ['hormuz','bab_cp','suez','bosphorus'];
       if (energyCPs.indexOf(d.id) !== -1 && window._eiaData) {
@@ -11446,6 +11458,9 @@ window.ArgusPortWatch = (function () {
       populateLegacyPortData(ports);  // fills window._portData for existing UI
 
       _state.lastFetch = Date.now();
+
+      // Signal to any open detail panel that port data is now ready
+      window.dispatchEvent(new CustomEvent('argus:portwatch:ready'));
 
       var cpKeys = Object.keys(window._portData || {});
       console.log(

@@ -55,7 +55,10 @@
       "Read(//tmp/**)",
       "Bash(perl -i -pe 's/^  //' \"C:/Users/aidan/Desktop/Argus/data/static-data.js\")",
       "Bash(perl -i -pe 's/corrLon\\\\\\(\\(\\\\w+\\)\\\\\\)/\\\\1/g; s/corrLon\\\\\\(\\(\\\\w+\\\\.\\\\w+\\)\\\\\\)/\\\\1/g; s/corrLon\\\\\\(\\(\\\\w+\\\\.\\\\w+ - \\\\w+\\)\\\\\\)/\\\\1/g; s/corrLon\\\\\\(\\(\\\\w+\\\\.\\\\w+ \\\\+ \\\\w+\\)\\\\\\)/\\\\1/g' \"C:/Users/aidan/Desktop/Argus/index.html\")",
-      "Bash(echo \"exit: $?\")"
+      "Bash(echo \"exit: $?\")",
+      "Bash(wc -l /c/Users/aidan/Desktop/Argus/tmp_*.js)",
+      "Bash(git -C /c/Users/aidan/Desktop/Argus log --oneline -20 -- \"tmp_main.js\" \"tmp_s2.js\")",
+      "Bash(awk 'NR>=5825 && NR<=5850' C:/Users/aidan/Desktop/Argus/index.html)"
     ]
   }
 }

@@ -15,6 +15,7 @@ serve(async (req) => {
   const keyless = ['gdelt', 'reliefweb', 'usgs']
   if (keyless.includes(source)) {
     const response = await fetch(url)
+    if (!response.ok) return new Response('Upstream error: ' + response.status, { status: 502, headers: corsHeaders })
     const data = await response.json()
     return new Response(JSON.stringify(data), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -35,6 +36,7 @@ serve(async (req) => {
   if (!key) return new Response('Unknown source', { status: 400 })
   const finalUrl = url.replace('__KEY__', key)
   const response = await fetch(finalUrl)
+  if (!response.ok) return new Response('Upstream error: ' + response.status, { status: 502, headers: corsHeaders })
   const data = await response.json()
   return new Response(JSON.stringify(data), {
     headers: { ...corsHeaders, 'Content-Type': 'application/json' },

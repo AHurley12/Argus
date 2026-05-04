@@ -2401,11 +2401,7 @@ window.ArgusData = (function() {
       if (cached && Date.now() - ts < TTL) return;
     } catch(e) {}
 
-    var canUseBackend = (
-      window.location.hostname.indexOf('netlify') !== -1 ||
-      window.location.hostname === 'localhost' ||
-      window.location.hostname === '127.0.0.1'
-    );
+    var canUseBackend = window.location.protocol !== 'file:';
 
     function applyBDIRows(rows) {
       if (!rows.length) throw new Error('Empty');
@@ -5835,13 +5831,10 @@ var data      = { events: [], tones: {}, chokeScores: {}, context: '' };
 // ── GDELT proxies — null (file://) origin safe, tried in order ───────────────
 // Key constraint: file:// sends Origin: null — many proxies block this.
 // Proxies below are ordered by reliability from null origin in 2025-2026.
-var SUPA_ANON_GDELT = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndidnpseHRyb2V3eHJtb254b2R4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM3OTQzNzMsImV4cCI6MjA4OTM3MDM3M30.0zp-wQ3wKpYc0f7LqFCOEea_d9HJuWnUSWgF4BAW82w';
 var GDELT_PROXIES = [
-  // 1. Supabase data-proxy — most reliable from GitHub Pages, no rate limit issues
-  function(url) { return '__SUPA__' + url; },
-  // 2. codetabs — rate-limited fallback
+  // 1. codetabs — rate-limited fallback (file:// origin only)
   function(url) { return 'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(url); },
-  // 3. corsproxy.io — final fallback
+  // 2. corsproxy.io — final fallback (file:// origin only)
   function(url) { return 'https://corsproxy.io/?url=' + encodeURIComponent(url); },
 ];
 
@@ -5969,21 +5962,7 @@ async function safeFetch(gdeltUrl) {
     if (p > 0) await new Promise(function(r) { setTimeout(r, 7000); });
     var proxyUrl = GDELT_PROXIES[p](gdeltUrl);
     try {
-      var r;
-      // Supabase passthrough — POST to data-proxy with source='gdelt' (keyless passthrough)
-      if (proxyUrl.indexOf('__SUPA__') === 0) {
-        var targetUrl = proxyUrl.slice(8);
-        r = await fetch('https://wbvzlxtroewxrmonxodx.supabase.co/functions/v1/data-proxy', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': 'Bearer ' + SUPA_ANON_GDELT
-          },
-          body: JSON.stringify({ source: 'gdelt', url: targetUrl })
-        });
-      } else {
-        r = await fetch(proxyUrl);
-      }
+      var r = await fetch(proxyUrl);
       if (!r.ok) { console.warn('GDELT proxy[' + p + ']: HTTP ' + r.status); continue; }
       var trimmed = (await r.text()).trim();
       if (!trimmed) { console.warn('GDELT proxy[' + p + ']: empty response'); continue; }
@@ -6323,11 +6302,7 @@ setInterval(function () { if (!document.hidden) fetchAll(); }, TTL);
     }
   } catch(e) {}
 
-  var canUseBackend = (
-    window.location.hostname.indexOf('netlify') !== -1 ||
-    window.location.hostname === 'localhost' ||
-    window.location.hostname === '127.0.0.1'
-  );
+  var canUseBackend = window.location.protocol !== 'file:';
 
   if (canUseBackend) {
     // Use Netlify function — server-side, no CORS issues, uses FIRMS_MAP_KEY env var
@@ -6567,7 +6542,7 @@ return { switchTab: switchTab, getData: function() { return data; } };
      SCRIPT 4 — UN Humanitarian Data (GDACS + UNHCR)
      Sources : GDACS GeoJSON — UN disaster coordination, CORS-open, no key
                UNHCR population API — displacement figures, CORS-open, no key
-     Exposes : window.ArgusRW  — { getCountryData, getDisasters, init }
+     Exposes : window.ArgusRW  — { getCountryData, getDisasters }
                window._rwData  — per-ISO3 UN intelligence, keyed by ISO3
      Fallback plan in context:
        Option 1 — Re-try RSS with better parse guard
@@ -6657,11 +6632,7 @@ function fetchGDACS() {
     console.log('GDACS: ' + count + ' active disasters indexed across ' + Object.keys(window._rwData).length + ' countries');
   }
 
-  var canUseBackend = (
-    window.location.hostname.indexOf('netlify') !== -1 ||
-    window.location.hostname === 'localhost' ||
-    window.location.hostname === '127.0.0.1'
-  );
+  var canUseBackend = window.location.protocol !== 'file:';
 
   if (canUseBackend) {
     // Use Netlify function — server-side, no CORS issues
@@ -6864,7 +6835,7 @@ function getDisasters()       { return window._rwData; }
 
 init();
 
-return { getCountryData: getCountryData, getDisasters: getDisasters, init: init };
+return { getCountryData: getCountryData, getDisasters: getDisasters };
 
 })(); // end ArgusRW
 </script>
@@ -15071,20 +15042,6 @@ function ingest(payload) {
   open();
   // Add to graph with random canvas position (addManualNode handles layout + re-render)
   addManualNode(node, null, null);
-}
-
-// ── Wire event bus listener ───────────────────────────────────────────────────
-// Guard: ArgusBus is defined in an earlier script block; if that block errored,
-// this call must not throw or it would prevent window.ArgusNeuralWeb from being set.
-try {
-  ArgusBus.on('ARGUS_SEND_TO_NEURAL_WEB', function(payload) { ingest(payload); });
-} catch(e) {
-  // Retry once DOM is ready — handles edge case where script blocks loaded out of order
-  window.addEventListener('DOMContentLoaded', function() {
-    if (typeof ArgusBus !== 'undefined') {
-      ArgusBus.on('ARGUS_SEND_TO_NEURAL_WEB', function(payload) { ingest(payload); });
-    }
-  });
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────

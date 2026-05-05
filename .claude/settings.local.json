@@ -59,7 +59,31 @@
       "Bash(wc -l /c/Users/aidan/Desktop/Argus/tmp_*.js)",
       "Bash(git -C /c/Users/aidan/Desktop/Argus log --oneline -20 -- \"tmp_main.js\" \"tmp_s2.js\")",
       "Bash(awk 'NR>=5825 && NR<=5850' C:/Users/aidan/Desktop/Argus/index.html)",
-      "Bash(wc:*)"
+      "Bash(wc:*)",
+      "Bash(sed -n '2960,2975p' C:/Users/aidan/Desktop/Argus/index.html)",
+      "Bash(sed -n '6540,6560p' C:/Users/aidan/Desktop/Argus/index.html)",
+      "Bash(sed -n '1838,1852p' C:/Users/aidan/Desktop/Argus/index.html)",
+      "Bash(sed -n '2718,2722p' C:/Users/aidan/Desktop/Argus/index.html)",
+      "Bash(awk 'NR>=2718 && NR<=3200' C:/Users/aidan/Desktop/Argus/index.html)",
+      "Bash(sed -n '11678,11692p' \"C:/Users/aidan/Desktop/Argus/index.html\")",
+      "Bash(sed -n '15068,15074p' \"C:/Users/aidan/Desktop/Argus/index.html\")",
+      "Bash(sed -n '5818,5825p' /c/Users/aidan/Desktop/Argus/index.html)",
+      "Bash(sed -n '6536,6543p' /c/Users/aidan/Desktop/Argus/index.html)",
+      "Bash(sed -n '6550,6557p' /c/Users/aidan/Desktop/Argus/index.html)",
+      "Bash(sed -n '6838,6845p' /c/Users/aidan/Desktop/Argus/index.html)",
+      "Bash(sed -n '11154,11161p' /c/Users/aidan/Desktop/Argus/index.html)",
+      "Bash(sed -n '11467,11474p' /c/Users/aidan/Desktop/Argus/index.html)",
+      "Bash(sed -n '11675,11682p' /c/Users/aidan/Desktop/Argus/index.html)",
+      "Bash(sed -n '15070,15077p' /c/Users/aidan/Desktop/Argus/index.html)",
+      "Bash(sed -n '654,660p' C:/Users/aidan/Desktop/Argus/index.html)",
+      "Bash(sed -n '735,740p' C:/Users/aidan/Desktop/Argus/index.html)",
+      "Bash(sed -n '805,815p' C:/Users/aidan/Desktop/Argus/index.html)",
+      "Bash(sed -n '655,658p' C:/Users/aidan/Desktop/Argus/index.html)",
+      "Bash(sed -n '731,737p' C:/Users/aidan/Desktop/Argus/index.html)",
+      "Bash(sed -n '650,660p' C:/Users/aidan/Desktop/Argus/index.html)",
+      "Bash(sed -n '5668,5690p' C:/Users/aidan/Desktop/Argus/index.html)",
+      "Bash(sed -n '9998,10006p' C:/Users/aidan/Desktop/Argus/index.html)",
+      "Bash(sed -n '10206,10214p' C:/Users/aidan/Desktop/Argus/index.html)"
     ]
   }
 }

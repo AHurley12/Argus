@@ -58,7 +58,8 @@
       "Bash(echo \"exit: $?\")",
       "Bash(wc -l /c/Users/aidan/Desktop/Argus/tmp_*.js)",
       "Bash(git -C /c/Users/aidan/Desktop/Argus log --oneline -20 -- \"tmp_main.js\" \"tmp_s2.js\")",
-      "Bash(awk 'NR>=5825 && NR<=5850' C:/Users/aidan/Desktop/Argus/index.html)"
+      "Bash(awk 'NR>=5825 && NR<=5850' C:/Users/aidan/Desktop/Argus/index.html)",
+      "Bash(wc:*)"
     ]
   }
 }

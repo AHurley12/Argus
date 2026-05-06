@@ -1505,14 +1505,18 @@ document.addEventListener('DOMContentLoaded', function() {
       });
     }
     if (staticMarkerGroup.visible) {
-      staticMarkerGroup.children.forEach(function(obj) {
-        if (obj.userData.isPulseRingStatic) {
-          obj.userData.phase += 0.028;
-          obj.scale.setScalar(1 + 0.35 * Math.sin(obj.userData.phase));
-          obj.material.opacity = 0.38 * (1 - Math.abs(Math.sin(obj.userData.phase)));
-        }
-        if (obj.userData.isStaticSpike) { obj.rotation.y += 0.016; obj.rotation.x += 0.008; }
-      });
+      // Pre-cached arrays: 14 rings + 14 spikes instead of 338-child forEach
+      var _cr = window.chokepointRings, _cs = window.chokepointSpikes;
+      for (var _ri = 0; _ri < _cr.length; _ri++) {
+        var _r = _cr[_ri];
+        _r.userData.phase += 0.028;
+        _r.scale.setScalar(1 + 0.35 * Math.sin(_r.userData.phase));
+        _r.material.opacity = 0.38 * (1 - Math.abs(Math.sin(_r.userData.phase)));
+      }
+      for (var _si = 0; _si < _cs.length; _si++) {
+        _cs[_si].rotation.y += 0.016;
+        _cs[_si].rotation.x += 0.008;
+      }
     }
     if (routeArcLines.length) {
       routeArcLines.forEach(function(line, i) {
@@ -9985,6 +9989,10 @@ if (document.readyState === 'loading') {
 <script src="/modules/argusTracking.js"></script>
 
 
+
+<!-- AIS visual layer — must load before argusAIS.js -->
+<script src="/core/globe/materials.js"></script>
+<script src="/core/globe/instancedAIS.js"></script>
 
 <!-- SCRIPT 4b — ArgusAIS: AISstream Realtime Layer -->
 <script src="/modules/argusAIS.js"></script>

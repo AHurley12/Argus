@@ -211,6 +211,38 @@ function _processAndRender() {
     }
   });
   if (!foundSelected) _aisState.selectedVesselId = null;
+
+  // ── Sync InstancedMesh visual state from sprite state ───────────────────
+  // ArgusSelection drives sprite.material.opacity (dim) and sprite.scale (highlight).
+  // Since sprites are invisible (material.visible=false), we mirror to InstancedMesh.
+  if (window.ArgusAISInstanced) {
+    // Dim: all vessels every tick — cheap (3 array writes per vessel, no matrix work)
+    aisMarkers.forEach(function(entry, mmsi) {
+      window.ArgusAISInstanced.setDimFactor(mmsi, entry.sprite.material.opacity / AIS_OPACITY);
+    });
+    // Scale: only on selection change — avoids per-tick matrix rebuilds for 1500 vessels
+    var _curSel = _aisState.selectedVesselId;
+    if (_curSel !== _aisState._prevSelectedId) {
+      // Reset previously selected vessel to base scale
+      if (_aisState._prevSelectedId != null) {
+        var _pEnt = aisMarkers.get(_aisState._prevSelectedId);
+        if (_pEnt) {
+          var _pud = _pEnt.sprite.userData;
+          window.ArgusAISInstanced.setScale(_aisState._prevSelectedId, 0.89, _pud.lat, _pud.lon, _pud.heading);
+        }
+      }
+      // Apply enlarged scale to newly selected vessel
+      if (_curSel != null) {
+        var _sEnt = aisMarkers.get(_curSel);
+        if (_sEnt) {
+          var _ssp = _sEnt.sprite;
+          var _sud = _ssp.userData;
+          window.ArgusAISInstanced.setScale(_curSel, _ssp.scale.x, _sud.lat, _sud.lon, _sud.heading);
+        }
+      }
+      _aisState._prevSelectedId = _curSel;
+    }
+  }
 }
 
 // ── renderAIS — syncs dirty vessel state → THREE sprites ─────────────────────
@@ -263,6 +295,7 @@ function upsertAISMarker(mmsi, name, lat, lon, heading, velocity, shipType, navS
     sprite.userData.navStatus = navStatus;
     sprite.userData.title     = label;
     entry.updatedAt = now;
+    if (window.ArgusAISInstanced) window.ArgusAISInstanced.upsert(mmsi, lat, lon, heading, aisColor(tc));
   } else {
     // Evict oldest entry if we're at the cap
     if (aisMarkers.size >= AIS_MAX_MARKERS) evictOldest();
@@ -276,6 +309,7 @@ function upsertAISMarker(mmsi, name, lat, lon, heading, velocity, shipType, navS
       rotation:    cogRad,
       depthTest:   false,
     });
+    mat.visible = false;  // ghost sprite — raycasting preserved; InstancedMesh handles rendering
     var sprite = new THREE.Sprite(mat);
     sprite.position.copy(pos);
     sprite.scale.set(0.89, 0.89, 1);
@@ -296,6 +330,7 @@ function upsertAISMarker(mmsi, name, lat, lon, heading, velocity, shipType, navS
     aisGroup.add(sprite);
     aisMarkers.set(mmsi, { sprite: sprite, updatedAt: now });
     _aisSprites.push(sprite);   // register in flat array for raycasters + ArgusSelection
+    if (window.ArgusAISInstanced) window.ArgusAISInstanced.upsert(mmsi, lat, lon, heading, aisColor(tc));
   }
 }
 
@@ -341,6 +376,7 @@ function evictOldest() {
       }
     }
 
+    if (window.ArgusAISInstanced) window.ArgusAISInstanced.remove(oldest);
     aisGroup.remove(_evSprite);
     aisMarkers.delete(oldest);
     var _evIdx = _aisSprites.indexOf(_evSprite);
@@ -354,6 +390,7 @@ function evictOldest() {
 function toggle() {
   aisOn = !aisOn;
   if (aisGroup) aisGroup.visible = aisOn;
+  if (window.ArgusAISInstanced) window.ArgusAISInstanced.setVisible(aisOn);
   if (window.ArgusLayerState) window.ArgusLayerState.aisVessels = aisOn;  // keeps canInteract() + raycasters in sync
   var btn = document.getElementById('btn-track-ais');
   if (btn) {
@@ -529,6 +566,9 @@ function connectAISStream() {
     attempts++;
     if (ensureGroup() && window._argusShTex) {
       clearInterval(timer);
+
+      // ── Initialise InstancedMesh visual layer ────────────────────────────
+      if (window.ArgusAISInstanced) window.ArgusAISInstanced.init(aisGroup);
 
       // ── Feature parity: hook AIS sprites into all interaction systems ──────
       //

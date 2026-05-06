@@ -1566,6 +1566,20 @@ document.addEventListener('DOMContentLoaded', function() {
   // Expose for external access
   window.ArgusGlobe = { scene: scene, camera: camera, renderer: renderer, globe: Globe, globeGroup: globeGroup, dataGroup: dataGroup, eventMarkerGroup: eventMarkerGroup, latLonToVector: latLonToVector, R: R, clearHover: clearHoverTooltip };
 
+  // ── Read-only debug interface — diagnostics only, no mutation surface ─────────
+  window.ArgusDebug = Object.freeze({
+    getScene:    function() { return scene; },
+    getRenderer: function() { return renderer; },
+    getAIS:      function() {
+      var inst = window.ArgusAISInstanced;
+      return {
+        count:    inst ? inst.getCount() : 0,
+        capacity: 1500,   // AIS_MAX_MARKERS — must match instancedAIS.js MAX
+        mesh:     inst ? inst.getMesh()  : null,
+      };
+    },
+  });
+
   // ── Hardcoded Event Queue — FIFO bounded, max 40 ─────────────────────────────
   // Scope guard: ONLY events with source === 'HARDCODED' are tracked or evicted.
   // API events (_gdeltMarker, _unMarker, _permanentPin, _analystPin, _manualPin)

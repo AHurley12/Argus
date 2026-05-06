@@ -3866,7 +3866,12 @@ async function fetchAndClassify() {
   filtered = deduplicateByTitle(filtered, 0.72);
 
   console.log('ARGUS NewsData: ' + articles.length + ' fetched, ' + filtered.length + ' after filter+dedup');
-  var classified = filtered.map(classifyArticle);
+  // Yield to browser before CPU-heavy classification loop (requestIdleCallback shim for older browsers)
+  var classified = await new Promise(function(resolve) {
+    (window.requestIdleCallback || function(cb) { setTimeout(cb, 0); })(function() {
+      resolve(filtered.map(classifyArticle));
+    });
+  });
   // AI second-pass: refine type + severity using Claude Haiku (no-op if key not set)
   classified = await applyAIClassifications(classified);
   // Sort: highest humanitarian-weighted priority first
@@ -10007,6 +10012,9 @@ if (document.readyState === 'loading') {
 }());
 </script>
 
+
+<!-- Aircraft visual layer — must load before argusTracking.js -->
+<script src="/core/globe/instancedAircraft.js"></script>
 
 <!-- SCRIPT 4 — ArgusTracking: Aircraft + Ships + patchShTex shim -->
 <script src="/modules/argusTracking.js"></script>

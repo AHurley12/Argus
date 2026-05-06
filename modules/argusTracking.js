@@ -142,6 +142,7 @@ function init() {
     aircraftGroup.name     = 'ArgusAircraft';
     aircraftGroup.visible  = false;
     AG.eventMarkerGroup.add(aircraftGroup);
+    if (window.ArgusAircraftInstanced) window.ArgusAircraftInstanced.init(aircraftGroup, _acTex);
   }
   if (!corridorGroup) {
     corridorGroup         = new THREE.Group();
@@ -167,8 +168,12 @@ function ensureInit() {
 // Tracking markers are NOT in window.eventMarkers — no cross-array filter needed.
 function clearGroup(group, hitsArr) {
   hitsArr.length = 0;
-  while (group.children.length) {
-    var child = group.children[0];
+  // Snapshot children first — removes inside the loop would shift indices.
+  // _keepAlive children (InstancedMeshes) are skipped so they survive the rebuild.
+  var toRemove = group.children.slice();
+  for (var i = 0; i < toRemove.length; i++) {
+    var child = toRemove[i];
+    if (child.userData && child.userData._keepAlive) continue;
     // Dispose material(s) — releases GPU shader program reference.
     // Do NOT dispose child.material.map (shared texture — owned by ensureGeometries).
     if (child.material) {
@@ -208,18 +213,20 @@ var SHIP_TYPE_COLORS = {
 // ── Aircraft marker — oriented by heading, tinted by flight type ──────────────
 // stale=true → dead-reckoned or carry-forward position; rendered at reduced opacity
 function placeAircraft(lat, lon, heading, callsign, country, flightType, alt, region, icao24, gs, phase, stale) {
-  var AG  = window.ArgusGlobe;
-  var pos = AG.latLonToVector(lat, lon, 101.8);
-  var ft  = flightType || 'unknown';
+  var AG         = window.ArgusGlobe;
+  var pos        = AG.latLonToVector(lat, lon, 101.8);
+  var ft         = flightType || 'unknown';
+  var acColorHex = AC_TYPE_COLORS[ft] !== undefined ? AC_TYPE_COLORS[ft] : 0xffffff;
 
   var mat = new THREE.SpriteMaterial({
     map:         _acTex,
-    color:       new THREE.Color(AC_TYPE_COLORS[ft] !== undefined ? AC_TYPE_COLORS[ft] : 0xffffff),
+    color:       new THREE.Color(acColorHex),
     transparent: true,
     opacity:     stale ? 0.45 : 0.92,  // dimmed for carry-forward / dead-reckoned
     rotation:    (heading != null && !isNaN(heading)) ? -heading * Math.PI / 180 : 0,
     depthTest:   false
   });
+  mat.visible = false;  // ghost sprite — raycasting preserved; InstancedMesh handles rendering
   var sprite = new THREE.Sprite(mat);
   sprite.position.copy(pos);
   sprite.scale.set(1.75, 1.75, 1);
@@ -243,6 +250,7 @@ function placeAircraft(lat, lon, heading, callsign, country, flightType, alt, re
   };
   aircraftGroup.add(sprite);
   aircraftHits.push(sprite);
+  if (window.ArgusAircraftInstanced) window.ArgusAircraftInstanced.upsert(lat, lon, heading, acColorHex, !!stale, sprite);
 }
 
 // ── Ship marker — top-down SVG ship sprite ────────────────────────────────────
@@ -404,6 +412,7 @@ function renderCorridors(corridors) {
 
 function renderAircraft(json) {
   if (!aircraftGroup) return;
+  if (window.ArgusAircraftInstanced) window.ArgusAircraftInstanced.clear();
   clearGroup(aircraftGroup, aircraftHits);
   if (!json) { updateStatus(); return; }
 
@@ -564,6 +573,7 @@ function toggleAircraft() {
       }());
     }
   } else {
+    if (window.ArgusAircraftInstanced) window.ArgusAircraftInstanced.clear();
     clearGroup(aircraftGroup, aircraftHits);
     if (refreshTimer) { clearTimeout(refreshTimer); refreshTimer = null; }
   }

@@ -83,7 +83,8 @@
       "Bash(sed -n '650,660p' C:/Users/aidan/Desktop/Argus/index.html)",
       "Bash(sed -n '5668,5690p' C:/Users/aidan/Desktop/Argus/index.html)",
       "Bash(sed -n '9998,10006p' C:/Users/aidan/Desktop/Argus/index.html)",
-      "Bash(sed -n '10206,10214p' C:/Users/aidan/Desktop/Argus/index.html)"
+      "Bash(sed -n '10206,10214p' C:/Users/aidan/Desktop/Argus/index.html)",
+      "Bash(awk 'NR==1708||NR==5682' index.html)"
     ]
   }
 }

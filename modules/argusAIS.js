@@ -287,6 +287,7 @@ function upsertAISMarker(mmsi, name, lat, lon, heading, velocity, shipType, navS
     var entry  = aisMarkers.get(mmsi);
     var sprite = entry.sprite;
     sprite.position.copy(AG.latLonToVector(lat, lon, AIS_ALTITUDE));
+    sprite.updateWorldMatrix(false, false);  // keep matrixWorld valid for click raycast
     sprite.material.rotation = cogRad;
     sprite.material.color.setHex(aisColor(tc));
     sprite.userData.lat       = lat;
@@ -310,10 +311,12 @@ function upsertAISMarker(mmsi, name, lat, lon, heading, velocity, shipType, navS
       rotation:    cogRad,
       depthTest:   false,
     });
-    mat.visible = false;  // ghost sprite — raycasting preserved; InstancedMesh handles rendering
     var sprite = new THREE.Sprite(mat);
     sprite.position.copy(pos);
     sprite.scale.set(0.89, 0.89, 1);
+    // Detached from scene — InstancedMesh renders visually.
+    // updateWorldMatrix ensures matrixWorld is valid for raycaster.intersectObjects().
+    sprite.updateWorldMatrix(false, false);
     sprite.userData = {
       isShip:       true,       // enables canInteract(), click routing, ArgusSelection
       isAISVessel:  true,       // source tag — keeps AIS identity without breaking anything
@@ -328,7 +331,7 @@ function upsertAISMarker(mmsi, name, lat, lon, heading, velocity, shipType, navS
       velocity:     velocity,
       navStatus:    navStatus,
     };
-    aisGroup.add(sprite);
+    // NOT added to aisGroup — proxy for raycasting/ArgusSelection only.
     aisMarkers.set(mmsi, { sprite: sprite, updatedAt: now });
     _aisSprites.push(sprite);   // register in flat array for raycasters + ArgusSelection
     if (window.ArgusAISInstanced) window.ArgusAISInstanced.upsert(mmsi, lat, lon, heading, aisColor(tc));
@@ -378,7 +381,7 @@ function evictOldest() {
     }
 
     if (window.ArgusAISInstanced) window.ArgusAISInstanced.remove(oldest);
-    aisGroup.remove(_evSprite);
+    // _evSprite was never added to aisGroup — no group.remove() needed.
     aisMarkers.delete(oldest);
     var _evIdx = _aisSprites.indexOf(_evSprite);
     if (_evIdx !== -1) _aisSprites.splice(_evIdx, 1);  // keep flat array in sync

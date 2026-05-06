@@ -226,10 +226,12 @@ function placeAircraft(lat, lon, heading, callsign, country, flightType, alt, re
     rotation:    (heading != null && !isNaN(heading)) ? -heading * Math.PI / 180 : 0,
     depthTest:   false
   });
-  mat.visible = false;  // ghost sprite — raycasting preserved; InstancedMesh handles rendering
   var sprite = new THREE.Sprite(mat);
   sprite.position.copy(pos);
   sprite.scale.set(1.75, 1.75, 1);
+  // Detached from scene — InstancedMesh renders visually.
+  // updateWorldMatrix ensures matrixWorld is valid for raycaster.intersectObjects().
+  sprite.updateWorldMatrix(false, false);
 
   var cs = (callsign || '').trim() || '???';
   sprite.userData = {
@@ -248,7 +250,7 @@ function placeAircraft(lat, lon, heading, callsign, country, flightType, alt, re
     region:      region || null,
     stale:       !!stale,
   };
-  aircraftGroup.add(sprite);
+  // NOT added to aircraftGroup — proxy for raycasting/ArgusSelection only.
   aircraftHits.push(sprite);
   if (window.ArgusAircraftInstanced) window.ArgusAircraftInstanced.upsert(lat, lon, heading, acColorHex, !!stale, sprite);
 }

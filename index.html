@@ -1583,6 +1583,20 @@ document.addEventListener('DOMContentLoaded', function() {
         mesh:     inst ? inst.getMesh()  : null,
       };
     },
+    // Traverse the live scene and report all Sprite objects by parent group.
+    // Expected after render-pipeline cleanup: vessels only (0 aircraft, 0 AIS).
+    // Usage: ArgusDebug.sceneSprites()
+    sceneSprites: function() {
+      var buckets = {};
+      scene.traverse(function(o) {
+        if (o.type !== 'Sprite') return;
+        var grp = (o.parent && o.parent.name) ? o.parent.name : '(no parent)';
+        buckets[grp] = (buckets[grp] || 0) + 1;
+      });
+      var total = Object.values(buckets).reduce(function(s, n) { return s + n; }, 0);
+      console.log('Scene sprites: ' + total + ' total', buckets);
+      return { total: total, byGroup: buckets };
+    },
   });
 
   // ── Hardcoded Event Queue — FIFO bounded, max 40 ─────────────────────────────

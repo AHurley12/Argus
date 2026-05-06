@@ -167,7 +167,23 @@ function ensureInit() {
 // Tracking markers are NOT in window.eventMarkers — no cross-array filter needed.
 function clearGroup(group, hitsArr) {
   hitsArr.length = 0;
-  while (group.children.length) group.remove(group.children[0]);
+  while (group.children.length) {
+    var child = group.children[0];
+    // Dispose material(s) — releases GPU shader program reference.
+    // Do NOT dispose child.material.map (shared texture — owned by ensureGeometries).
+    if (child.material) {
+      if (Array.isArray(child.material)) {
+        for (var mi = 0; mi < child.material.length; mi++) {
+          if (child.material[mi].dispose) child.material[mi].dispose();
+        }
+      } else {
+        if (child.material.dispose) child.material.dispose();
+      }
+    }
+    // Sprites have no geometry (built-in quad) — guard avoids throw on undefined.
+    if (child.geometry && child.geometry.dispose) child.geometry.dispose();
+    group.remove(child);
+  }
 }
 
 // ── Aircraft type → sprite tint (multiplied against white SVG texture) ────────

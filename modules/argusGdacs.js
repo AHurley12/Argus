@@ -239,6 +239,7 @@ function plotDisasters() {
     ring.lookAt(pos.clone().normalize().multiplyScalar(200));
     ring.userData = { isPulseRing: true, phase: Math.random() * Math.PI * 2, _unMarker: true };
     AG.eventMarkerGroup.add(ring);
+    if (window._pulseRings) window._pulseRings.push(ring);
 
     placed++;
   });

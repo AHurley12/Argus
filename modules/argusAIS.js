@@ -136,6 +136,7 @@ function updateVesselState(mmsi, name, lat, lon, heading, velocity, shipType, na
 // marks _dirtyVessels for entries that meaningfully changed, then calls renderAIS().
 // Diagnostic gates and rate sampling live here (not in ingest or sprite paths).
 function _processAndRender() {
+  if (document.hidden) return;  // tab not visible — skip processing, preserve buffer
   if (!_ingestBuffer.length) return;
 
   // Drain the entire buffer in one pass — most recent value per MMSI wins naturally
@@ -586,9 +587,9 @@ function connectAISStream() {
         var _vmsBase = window._vesselMarkers || [];
         Object.defineProperty(window, '_vesselMarkers', {
           get: function () {
-            var out = _vmsBase.slice();
-            aisMarkers.forEach(function (e) { out.push(e.sprite); });
-            return out;
+            // _aisSprites is kept in sync with aisMarkers by upsert/evict —
+            // concat is O(N) array copy vs prior O(N) Map iteration + push per entry.
+            return _vmsBase.concat(_aisSprites);
           },
           set: function (v) { _vmsBase = v || []; },
           configurable: true,

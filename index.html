@@ -683,6 +683,7 @@ window.countryMarkers    = [];
 window.chokepointMarkers = [];   // unused after refactor, kept for external compat
 window.chokepointSpikes  = [];   // rotating prism meshes (isStaticSpike)
 window.chokepointRings   = [];   // pulse ring meshes (isPulseRingStatic)
+window._pulseRings       = [];   // all isPulseRing:true meshes — pre-cached for animate() loop
 
 // ── Layer visibility — Single Source of Truth ────────────────────────────────
 // All hover detection and tooltip rendering MUST derive from this state.
@@ -963,6 +964,7 @@ document.addEventListener('DOMContentLoaded', function() {
     ring.lookAt(pos.clone().normalize().multiplyScalar(200));
     ring.userData = { isPulseRing: true, phase: Math.random() * Math.PI * 2, _hcMarker: true };
     eventMarkerGroup.add(ring);
+    window._pulseRings.push(ring);
   });
   dataGroup.add(eventMarkerGroup);
   // Hide hardcoded event markers and their pulse rings on first load
@@ -1496,13 +1498,16 @@ document.addEventListener('DOMContentLoaded', function() {
     // Only animate groups that are currently visible — skipping hidden groups
     // eliminates up to 84,000 no-op iterations/sec when layers are toggled off.
     if (eventMarkerGroup.visible) {
-      eventMarkerGroup.children.forEach(function(obj) {
-        if (obj.userData.isPulseRing) {
-          obj.userData.phase += 0.04;
-          obj.scale.setScalar(1 + 0.4 * Math.sin(obj.userData.phase));
-          obj.material.opacity = 0.4 * (1 - Math.abs(Math.sin(obj.userData.phase)));
-        }
-      });
+      // Pre-cached pulse ring array replaces unbounded children.forEach scan.
+      // parent-null check safely skips rings evicted from the scene (no removal needed).
+      var _pr = window._pulseRings;
+      for (var _pi = 0; _pi < _pr.length; _pi++) {
+        var _pring = _pr[_pi];
+        if (!_pring.parent) continue;
+        _pring.userData.phase += 0.04;
+        _pring.scale.setScalar(1 + 0.4 * Math.sin(_pring.userData.phase));
+        _pring.material.opacity = 0.4 * (1 - Math.abs(Math.sin(_pring.userData.phase)));
+      }
     }
     if (staticMarkerGroup.visible) {
       // Pre-cached arrays: 14 rings + 14 spikes instead of 338-child forEach
@@ -1680,6 +1685,7 @@ document.addEventListener('DOMContentLoaded', function() {
       ring.lookAt(pos.clone().normalize().multiplyScalar(200));
       ring.userData = { isPulseRing: true, phase: Math.random() * Math.PI * 2, _hcMarker: true };
       AG.eventMarkerGroup.add(ring);
+      window._pulseRings.push(ring);
       if (window.ArgusLayerState) ring.visible = !!window.ArgusLayerState.events;
 
       // FIFO cap — evict oldest hardcoded event if now over limit
@@ -5149,6 +5155,7 @@ window.ArgusEvents = (function() {
     ring.lookAt(pos.clone().normalize().multiplyScalar(200));
     ring.userData = { isPulseRing: true, phase: Math.random() * Math.PI * 2, _manualPin: true };
     AG.eventMarkerGroup.add(ring);
+    window._pulseRings.push(ring);
 
     manualPins.push({ mesh: mesh, ring: ring, data: data });
     if (typeof window.updateNodeCounts === 'function') window.updateNodeCounts();
@@ -7357,6 +7364,7 @@ window.ArgusAdmin = (function() {
     ring.lookAt(pos.clone().normalize().multiplyScalar(200));
     ring.userData = { isPulseRing: true, phase: Math.random() * Math.PI * 2, _analystPin: true };
     AG.eventMarkerGroup.add(ring);
+    window._pulseRings.push(ring);
 
     if (!window._analystPins) window._analystPins = [];
     window._analystPins.push({ mesh: mesh, ring: ring, reqId: reqId, title: req.title });
@@ -7566,6 +7574,7 @@ window._plotPermanentMarkers = function(classified) {
     ring.lookAt(pos.clone().normalize().multiplyScalar(200));
     ring.userData = { isPulseRing: true, phase: Math.random() * Math.PI * 2, _permanentPin: true };
     AG.eventMarkerGroup.add(ring);
+    window._pulseRings.push(ring);
     if (window.ArgusLayerState) ring.visible = !!window.ArgusLayerState.events;
 
     window._permanentPins.push({ permId: ev.id, mesh: mesh, ring: ring, title: ev.title });

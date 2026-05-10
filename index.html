@@ -789,8 +789,8 @@ document.addEventListener('DOMContentLoaded', function() {
   var coordinateGrid = (function buildGrid() {
     var group   = new THREE.Group();
     var radius = R.GRID;
-    var matMinor = new THREE.LineBasicMaterial({ color: 0x0f4a7a, transparent: true, opacity: 0.25 });
-    var matMajor = new THREE.LineBasicMaterial({ color: 0x1a6a9a, transparent: true, opacity: 0.40 });
+    var matMinor = new THREE.LineBasicMaterial({ color: 0x04131f });  // 0x0f4a7a * 0.25 — opacity baked in
+    var matMajor = new THREE.LineBasicMaterial({ color: 0x0a2a3e });  // 0x1a6a9a * 0.40 — opacity baked in
 
     // Latitude parallels
     for (var lat = -90; lat <= 90; lat += 5) {
@@ -1019,7 +1019,7 @@ document.addEventListener('DOMContentLoaded', function() {
     if (withSpike) {
       var spike = new THREE.Mesh(
         new THREE.OctahedronGeometry(size * 1.6, 0),
-        new THREE.MeshBasicMaterial({ color: color, wireframe: true, transparent: true, opacity: 0.72 })
+        new THREE.MeshBasicMaterial({ color: new THREE.Color().copy(color).multiplyScalar(0.72), wireframe: true })
       );
       spike.position.copy(pos);
       spike.userData = { isStaticSpike: true };

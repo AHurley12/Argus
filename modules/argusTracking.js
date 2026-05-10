@@ -53,6 +53,52 @@ window._aircraftMarkers = aircraftHits;
 window._vesselMarkers   = shipHits;
 window._vesselMap       = vesselMap;
 
+// ── Ghost-sprite pools — eliminate allocation churn on refresh cycles ──────────
+// Aircraft: up to 750 new SpriteMaterial + Sprite every 90s without pooling (~8/sec).
+// Ships:    up to 500 new SpriteMaterial + Sprite every 30 min without pooling.
+// Ghost sprites are pure JS objects (never added to any scene group). Their
+// SpriteMaterial properties (color, opacity, rotation) are mutable — pool reuses
+// them by overwriting in place, avoiding JS heap churn and GC spikes.
+var _acSpritePool = [];   // available pooled aircraft sprites
+var _shSpritePool = [];   // available pooled ship sprites
+var AC_POOL_MAX   = 850;  // cap: slightly above AIRCRAFT_LIMIT to bound memory use
+var SH_POOL_MAX   = 550;  // cap: slightly above SHIP_LIMIT
+
+// Lifecycle audit counters — exposed via getLifecycleAudit()
+var _lcAudit = { created: 0, reused: 0, staleEvictions: 0 };
+
+// Acquire a sprite from the aircraft pool (or allocate new if pool is empty).
+// Caller MUST reset material properties and userData before use.
+function _acquireAcSprite() {
+  if (_acSpritePool.length) { _lcAudit.reused++; return _acSpritePool.pop(); }
+  _lcAudit.created++;
+  // Material is minimal — texture tint + rotation set per-acquire, not in constructor
+  return new THREE.Sprite(new THREE.SpriteMaterial({ map: _acTex, transparent: true, depthTest: false }));
+}
+
+// Return all current aircraft ghost sprites to the pool for the next refresh cycle.
+// Called at the start of renderAircraft() / aircraft toggle-off.
+function _releaseAcSprites() {
+  for (var i = 0; i < aircraftHits.length; i++) {
+    if (_acSpritePool.length < AC_POOL_MAX) _acSpritePool.push(aircraftHits[i]);
+    // else: pool is full — excess sprite is dropped and GC'd
+  }
+  aircraftHits.length = 0;
+}
+
+function _acquireShSprite() {
+  if (_shSpritePool.length) { _lcAudit.reused++; return _shSpritePool.pop(); }
+  _lcAudit.created++;
+  return new THREE.Sprite(new THREE.SpriteMaterial({ map: _shTex, transparent: true, depthTest: false }));
+}
+
+function _releaseShSprites() {
+  for (var i = 0; i < shipHits.length; i++) {
+    if (_shSpritePool.length < SH_POOL_MAX) _shSpritePool.push(shipHits[i]);
+  }
+  shipHits.length = 0;
+}
+
 // Shared geometries (created once, reused across all markers)
 var _acTex, _shTex;
 function ensureGeometries() {
@@ -219,15 +265,15 @@ function placeAircraft(lat, lon, heading, callsign, country, flightType, alt, re
   var ft         = flightType || 'unknown';
   var acColorHex = AC_TYPE_COLORS[ft] !== undefined ? AC_TYPE_COLORS[ft] : 0xffffff;
 
-  var mat = new THREE.SpriteMaterial({
-    map:         _acTex,
-    color:       new THREE.Color(acColorHex),
-    transparent: true,
-    opacity:     stale ? 0.45 : 0.92,  // dimmed for carry-forward / dead-reckoned
-    rotation:    (heading != null && !isNaN(heading)) ? -heading * Math.PI / 180 : 0,
-    depthTest:   false
-  });
-  var sprite = new THREE.Sprite(mat);
+  // Pool reuse: acquire sprite + update mutable material properties in place.
+  // Avoids new SpriteMaterial + new Sprite allocation on every 90s refresh cycle.
+  var sprite = _acquireAcSprite();
+  var mat    = sprite.material;
+  mat.color.setHex(acColorHex);
+  mat.opacity  = stale ? 0.45 : 0.92;  // dimmed for carry-forward / dead-reckoned
+  mat.rotation = (heading != null && !isNaN(heading)) ? -heading * Math.PI / 180 : 0;
+  // mat.map = _acTex is already set at pool-create time; never changes
+
   sprite.position.copy(pos);
   sprite.scale.set(1.75, 1.75, 1);
   // Detached from scene — InstancedMesh renders visually.
@@ -269,15 +315,14 @@ function placeShip(lat, lon, name, sog, cog, typeCategory, mmsi, region, navStat
   // If no COG data, sprite stays bow-up (0 rad) — better than a random orientation.
   var cogRad = (cog != null && !isNaN(cog)) ? -cog * Math.PI / 180 : 0;
 
-  var mat = new THREE.SpriteMaterial({
-    map:         _shTex,
-    color:       new THREE.Color(SHIP_TYPE_COLORS[tc] !== undefined ? SHIP_TYPE_COLORS[tc] : SHIP_TYPE_COLORS.other),
-    transparent: true,
-    opacity:     0.92,
-    rotation:    cogRad,
-    depthTest:   false
-  });
-  var sprite = new THREE.Sprite(mat);
+  // Pool reuse: same pattern as placeAircraft — update mutable properties in place.
+  var sprite = _acquireShSprite();
+  var mat    = sprite.material;
+  mat.color.setHex(SHIP_TYPE_COLORS[tc] !== undefined ? SHIP_TYPE_COLORS[tc] : SHIP_TYPE_COLORS.other);
+  mat.opacity  = 0.92;
+  mat.rotation = cogRad;
+  // mat.map = _shTex is already set at pool-create time; never changes
+
   sprite.position.copy(pos);
   sprite.scale.set(0.89, 0.89, 1);
   // Detached from scene — InstancedMesh renders visually.
@@ -395,7 +440,16 @@ function fetchAndRenderAircraft() {
 // globe surface. Length and opacity scale with aircraft count in the corridor.
 function renderCorridors(corridors) {
   if (!corridorGroup) return;
-  while (corridorGroup.children.length) corridorGroup.remove(corridorGroup.children[0]);
+  // Dispose geometry + material before removing — prevents WebGL resource leak on each 90s rebuild.
+  // (BufferGeometry creates a VBO; LineBasicMaterial registers a shader program reference.
+  //  Without explicit dispose(), these accumulate in the GPU driver until renderer.dispose().)
+  var _cOld = corridorGroup.children.slice();
+  for (var _ci = 0; _ci < _cOld.length; _ci++) {
+    var _cl = _cOld[_ci];
+    if (_cl.geometry) _cl.geometry.dispose();
+    if (_cl.material) _cl.material.dispose();
+    corridorGroup.remove(_cl);
+  }
   if (!corridors || !corridors.length) return;
 
   var AG  = window.ArgusGlobe;
@@ -424,7 +478,8 @@ function renderCorridors(corridors) {
 function renderAircraft(json) {
   if (!aircraftGroup) return;
   if (window.ArgusAircraftInstanced) window.ArgusAircraftInstanced.clear();
-  clearGroup(aircraftGroup, aircraftHits);
+  _releaseAcSprites();              // return ghost sprites to pool before rebuild
+  clearGroup(aircraftGroup, aircraftHits);  // handles _keepAlive InstancedMesh skip; no-op for sprites
   if (!json) { updateStatus(); return; }
 
   // v4 schema: { aircraft, corridors, activeCells, staleCells, ... }
@@ -443,7 +498,7 @@ function renderAircraft(json) {
   _prevPositions.forEach(function(prev, icao24) {
     if (currentIds.has(icao24)) return;                          // present — no DR needed
     var age = nowMs - prev.seenAt;
-    if (age > AC_CACHE_MS * 2) return;                          // too old — drop
+    if (age > AC_CACHE_MS * 2) { _lcAudit.staleEvictions++; return; }  // too old — drop
     if (prev.track == null || prev.gs == null || prev.gs < 50) return; // no vector — skip
     var dtHours = age / 3600000;
     var distNm  = prev.gs * dtHours;
@@ -541,6 +596,7 @@ function fetchShipsFromBackend() {
 
 function stopShips() {
   if (shipRefreshTimer) { clearTimeout(shipRefreshTimer); shipRefreshTimer = null; }
+  _releaseShSprites();  // return ghost sprites to pool before clearing buffer
   shipBuffer    = [];
   lastShipFetch = 0;
   vesselMap     = new Map();
@@ -550,7 +606,8 @@ function stopShips() {
 function renderShips() {
   if (!shipGroup) return;
   if (window.ArgusShipsInstanced) window.ArgusShipsInstanced.clear();
-  clearGroup(shipGroup, shipHits);
+  _releaseShSprites();              // return ghost sprites to pool before rebuild
+  clearGroup(shipGroup, shipHits);  // handles _keepAlive InstancedMesh skip; no-op for sprites
   // Spec: limit to SHIP_LIMIT, highest SOG first (moving ships take priority)
   var sorted = shipBuffer.slice().sort(function (a, b) { return (b.sog || 0) - (a.sog || 0); });
   sorted.slice(0, SHIP_LIMIT).forEach(function (s) {
@@ -586,6 +643,7 @@ function toggleAircraft() {
     }
   } else {
     if (window.ArgusAircraftInstanced) window.ArgusAircraftInstanced.clear();
+    _releaseAcSprites();
     clearGroup(aircraftGroup, aircraftHits);
     if (refreshTimer) { clearTimeout(refreshTimer); refreshTimer = null; }
   }
@@ -691,11 +749,20 @@ function filterByType(data, type) {
 
 // ── Public API ────────────────────────────────────────────────────────────────
 return {
-  toggleAircraft:  toggleAircraft,
-  toggleShips:     toggleShips,
-  refreshAircraft: function () { lastFetch = 0; fetchAndRenderAircraft(); },
-  refreshShips:    function () { lastShipFetch = 0; fetchShipsFromBackend(); },
-  filterByType:    filterByType,
+  toggleAircraft:      toggleAircraft,
+  toggleShips:         toggleShips,
+  refreshAircraft:     function () { lastFetch = 0; fetchAndRenderAircraft(); },
+  refreshShips:        function () { lastShipFetch = 0; fetchShipsFromBackend(); },
+  filterByType:        filterByType,
+  getLifecycleAudit:   function () {
+    return {
+      created:        _lcAudit.created,
+      reused:         _lcAudit.reused,
+      staleEvictions: _lcAudit.staleEvictions,
+      acPoolSize:     _acSpritePool.length,
+      shPoolSize:     _shSpritePool.length,
+    };
+  },
 };
 
 }());

@@ -232,8 +232,9 @@ window.ArgusAircraftInstanced = (function () {
 
       for (var i = 0; i < grp.arr.length; i++) {
         var e = grp.arr[i];
-        // Skip sprites removed from scene (clearGroup ran before clear())
-        if (!e.sprite || !e.sprite.parent || !e.sprite.material) continue;
+        // Aircraft ghost sprites are never added to any scene group — no parent check.
+        // (parent===null is always true for detached sprites; checking it would skip everything)
+        if (!e.sprite || !e.sprite.material) continue;
 
         // Dim: only write when factor actually changed — avoids buffer upload at steady state
         var dimF = e.sprite.material.opacity / e.baseOpacity;

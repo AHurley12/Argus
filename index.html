@@ -1598,9 +1598,36 @@ document.addEventListener('DOMContentLoaded', function() {
   window.ArgusDirtyAudit = {
     get: function () {
       return {
-        ais:      window.ArgusAISInstanced      ? window.ArgusAISInstanced.getAudit()      : null,
-        ships:    window.ArgusShipsInstanced    ? window.ArgusShipsInstanced.getAudit()    : null,
-        aircraft: window.ArgusAircraftInstanced ? window.ArgusAircraftInstanced.getAudit() : null,
+        ais:       window.ArgusAISInstanced      ? window.ArgusAISInstanced.getAudit()      : null,
+        ships:     window.ArgusShipsInstanced    ? window.ArgusShipsInstanced.getAudit()    : null,
+        aircraft:  window.ArgusAircraftInstanced ? window.ArgusAircraftInstanced.getAudit() : null,
+        selection: window.ArgusSelection         ? window.ArgusSelection.getAudit()         : null,
+      };
+    },
+  };
+
+  // ── ArgusLifecycleAudit — entity lifecycle effectiveness surface (removable) ──
+  // Usage: ArgusLifecycleAudit.get()
+  //   .createdEntities    — new sprites allocated (pool miss, cold start)
+  //   .reusedEntities     — sprites reused from pool (allocation avoided)
+  //   .allocationsAvoided — same as reusedEntities (spec alias)
+  //   .staleEvictions     — dead-reckoned aircraft dropped for exceeding max age
+  //   .acPoolSize         — current aircraft sprite pool depth
+  //   .shPoolSize         — current ship sprite pool depth
+  //
+  // After first full aircraft refresh: reusedEntities / (reusedEntities + createdEntities)
+  // should approach 1.0 for subsequent refreshes with stable entity count.
+  // Remove: delete window.ArgusLifecycleAudit before ship deploy.
+  window.ArgusLifecycleAudit = {
+    get: function () {
+      var t = window.ArgusTracking ? window.ArgusTracking.getLifecycleAudit() : null;
+      return {
+        createdEntities:    t ? t.created        : 0,
+        reusedEntities:     t ? t.reused         : 0,
+        allocationsAvoided: t ? t.reused         : 0,
+        staleEvictions:     t ? t.staleEvictions : 0,
+        acPoolSize:         t ? t.acPoolSize     : 0,
+        shPoolSize:         t ? t.shPoolSize     : 0,
       };
     },
   };
@@ -10496,12 +10523,16 @@ window.ArgusSelection = (function () {
   };
 
   // ── State ──────────────────────────────────────────────────────────────────
-  var _locked     = null;   // locked Sprite | null
-  var _dimmed     = false;  // whether dim is currently applied
-  var _panelOpen  = false;
-  var _trackRing  = null;   // THREE.Mesh ring around locked entity
-  var _panel      = null;   // disambiguation DOM element
-  var _panelOc    = null;   // outside-click handler ref — kept so _closePanel can remove it
+  var _locked       = null;   // locked Sprite | null
+  var _dimmed       = false;  // whether dim is currently applied
+  var _dimmedExcept = null;   // the sprite currently exempted from dim (highlighted)
+  var _panelOpen    = false;
+  var _trackRing    = null;   // THREE.Mesh ring around locked entity
+  var _panel        = null;   // disambiguation DOM element
+  var _panelOc      = null;   // outside-click handler ref — kept so _closePanel can remove it
+
+  // ── Dirty-flag audit counters ─────────────────────────────────────────────
+  var _selAudit = { dimFull: 0, dimIncremental: 0, skippedHovers: 0 };
 
   // ── Helpers ────────────────────────────────────────────────────────────────
   function _all() {
@@ -10570,32 +10601,63 @@ window.ArgusSelection = (function () {
   }
 
   // ── Dim/restore ────────────────────────────────────────────────────────────
+  //
+  // Incremental dim: after the initial O(N) scan, hover transitions between
+  // entities are O(1) — only the 2 changing sprites are written.
+  //
+  //   Initial dim  (not yet dimmed): O(N) — unavoidable, sets all to DIM_OPACITY
+  //   Hover transition (already dimmed, new entity): O(1) — write 2 sprites
+  //   Same entity again (onHover skip catches it first): O(0) — no call at all
+  //   Restore (unlock / mouse leaves candidates): O(N) — unavoidable, resets all
+  //
+  // _dimmedExcept tracks which sprite is currently at full brightness so the
+  // transition path knows which sprite to send back to DIM_OPACITY.
   function _applyDim(except) {
-    var markers = _all();
-    for (var i = 0; i < markers.length; i++) {
-      var s = markers[i];
-      if (s === except) {
-        var hs = _baseScale(s) * CFG.HIGHLIGHT_SCALE;
-        s.scale.set(hs, hs, 1);
-        s.material.opacity = _baseOpacity(s);
-      } else {
-        var bs = _baseScale(s);
-        s.scale.set(bs, bs, 1);
-        s.material.opacity = CFG.DIM_OPACITY;
+    if (!_dimmed) {
+      // ── Initial dim: full population scan (unavoidable) ──────────────────
+      var markers = _all();
+      for (var i = 0; i < markers.length; i++) {
+        var s   = markers[i];
+        var bsc = _baseScale(s);
+        if (s === except) {
+          s.scale.set(bsc * CFG.HIGHLIGHT_SCALE, bsc * CFG.HIGHLIGHT_SCALE, 1);
+          s.material.opacity = _baseOpacity(s);
+        } else {
+          s.scale.set(bsc, bsc, 1);
+          s.material.opacity = CFG.DIM_OPACITY;
+        }
       }
+      _dimmed = true;
+      _selAudit.dimFull++;
+    } else {
+      // ── Incremental transition: only touch 2 sprites ─────────────────────
+      // Dim the previously highlighted sprite (if it changed)
+      if (_dimmedExcept && _dimmedExcept !== except) {
+        var ps  = _dimmedExcept;
+        var pbs = _baseScale(ps);
+        ps.scale.set(pbs, pbs, 1);
+        ps.material.opacity = CFG.DIM_OPACITY;
+      }
+      // Highlight the new sprite
+      var ebs = _baseScale(except);
+      except.scale.set(ebs * CFG.HIGHLIGHT_SCALE, ebs * CFG.HIGHLIGHT_SCALE, 1);
+      except.material.opacity = _baseOpacity(except);
+      _selAudit.dimIncremental++;
     }
-    _dimmed = true;
+    _dimmedExcept = except;
   }
 
   function _restore() {
+    if (!_dimmed) return;  // guard: avoid redundant O(N) scan if not dimmed
     var markers = _all();
     for (var i = 0; i < markers.length; i++) {
-      var s = markers[i];
+      var s   = markers[i];
+      var bs  = _baseScale(s);
       s.material.opacity = _baseOpacity(s);
-      var bs = _baseScale(s);
       s.scale.set(bs, bs, 1);
     }
-    _dimmed = false;
+    _dimmed       = false;
+    _dimmedExcept = null;
   }
 
   // ── Tracking ring (pulsing ring around locked entity in world space) ────────
@@ -10758,6 +10820,8 @@ window.ArgusSelection = (function () {
     var W = window.innerWidth, H = window.innerHeight;
     var cs = _candidates(mx, my, G.camera, W, H);
     if (!cs.length) { if (_dimmed) _restore(); return; }
+    // Same entity as last tick — skip _applyDim entirely (avoids O(N→1) write path)
+    if (cs[0].sprite === _dimmedExcept) { _selAudit.skippedHovers++; return; }
     _applyDim(cs[0].sprite);
   }
 
@@ -10792,10 +10856,12 @@ window.ArgusSelection = (function () {
     if (_locked && !_locked.parent) unlock();
   }
 
+  function getAudit() { return { dimFull: _selAudit.dimFull, dimIncremental: _selAudit.dimIncremental, skippedHovers: _selAudit.skippedHovers }; }
+
   // Init — keyboard ESC to unlock
   document.addEventListener('keydown', function (e) { if (e.key === 'Escape') unlock(); });
 
-  return { onHover: onHover, onClick: onClick, tick: tick, unlock: unlock };
+  return { onHover: onHover, onClick: onClick, tick: tick, unlock: unlock, getAudit: getAudit };
 }());
 </script>
 </body>

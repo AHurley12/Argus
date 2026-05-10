@@ -47,13 +47,16 @@ window.ArgusShipsInstanced = (function () {
   var _idx = 0;
 
   // Sprite sync array — rebuilt each clear() / upsert() cycle.
-  // Entry: { sprite, idx, lat, lon, heading, baseR, baseG, baseB }
+  // Entry: { sprite, idx, lat, lon, heading, baseR, baseG, baseB, lastDimF }
   var _sprites = [];
 
   // Base RGB per slot — used for dim/restore without re-querying hex color
   var _baseRGB = new Float32Array(MAX * 3);
 
   var _syncTimer = null;  // 100ms dim/scale sync interval handle
+
+  // ── Dirty-flag audit counters (exposed via getAudit()) ───────────────────────
+  var _audit = { dirtyOpacity: 0, skippedOpacity: 0 };
 
   // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -170,23 +173,28 @@ window.ArgusShipsInstanced = (function () {
 
     // Record sprite reference for the 100ms dim/scale poller.
     // Ghost sprites have no parent (never added to scene) — no parent guard needed.
+    // lastDimF tracks the last written dim factor so _syncFromSprites can skip no-op writes.
     _sprites.push({
-      sprite:  sprite,
-      idx:     idx,
-      lat:     lat,
-      lon:     lon,
-      heading: heading,
-      baseR:   _tmpCol.r,
-      baseG:   _tmpCol.g,
-      baseB:   _tmpCol.b,
+      sprite:   sprite,
+      idx:      idx,
+      lat:      lat,
+      lon:      lon,
+      heading:  heading,
+      baseR:    _tmpCol.r,
+      baseG:    _tmpCol.g,
+      baseB:    _tmpCol.b,
+      lastDimF: 1.0,  // dirty-flag: full brightness at upsert time
     });
   }
 
   // ── 100ms dim/scale sync ─────────────────────────────────────────────────────
   // ArgusSelection modifies ghost sprite opacity (dim) and scale (highlight).
   // This poller mirrors those changes to the InstancedMesh so the visual matches.
-  // Ghost sprites have no parent (not in scene) — skip the parent-null guard used
-  // in instancedAircraft.js; check material existence directly instead.
+  // Ghost sprites have no parent (not in scene) — check material existence directly.
+  //
+  // Dirty-flag optimisation: lastDimF tracks the previously written dim factor.
+  // When dimFactor hasn't changed (steady state: no selection active, dimF = 1.0
+  // for all sprites), the inner body is a no-op and instanceColor is NOT uploaded.
   function _syncFromSprites() {
     if (!_ready || !_sprites.length) return;
 
@@ -197,13 +205,19 @@ window.ArgusShipsInstanced = (function () {
       var e = _sprites[i];
       if (!e.sprite || !e.sprite.material) continue;
 
-      // Dim: map sprite opacity → instanceColor factor
+      // Dim: only write when factor actually changed — avoids buffer upload at steady state
       var dimF = e.sprite.material.opacity / 0.92;
-      var off  = e.idx * 3;
-      _mesh.instanceColor.array[off]     = e.baseR * dimF;
-      _mesh.instanceColor.array[off + 1] = e.baseG * dimF;
-      _mesh.instanceColor.array[off + 2] = e.baseB * dimF;
-      colorDirty = true;
+      if (Math.abs(dimF - e.lastDimF) > 0.001) {
+        e.lastDimF = dimF;
+        var off = e.idx * 3;
+        _mesh.instanceColor.array[off]     = e.baseR * dimF;
+        _mesh.instanceColor.array[off + 1] = e.baseG * dimF;
+        _mesh.instanceColor.array[off + 2] = e.baseB * dimF;
+        colorDirty = true;
+        _audit.dirtyOpacity++;
+      } else {
+        _audit.skippedOpacity++;
+      }
 
       // Scale: ArgusSelection enlarges selected sprite
       if (Math.abs(e.sprite.scale.x - SCALE_SH) > 0.01) {
@@ -226,6 +240,7 @@ window.ArgusShipsInstanced = (function () {
 
   function getCount() { return _idx; }
   function getMesh()  { return _mesh; }
+  function getAudit() { return { dirtyOpacity: _audit.dirtyOpacity, skippedOpacity: _audit.skippedOpacity }; }
 
   return {
     init:       init,
@@ -234,5 +249,6 @@ window.ArgusShipsInstanced = (function () {
     setVisible: setVisible,
     getCount:   getCount,
     getMesh:    getMesh,
+    getAudit:   getAudit,
   };
 }());

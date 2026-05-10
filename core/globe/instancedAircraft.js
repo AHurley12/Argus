@@ -50,7 +50,7 @@ window.ArgusAircraftInstanced = (function () {
   var _staleIdx  = 0;
 
   // Sprite sync arrays — rebuilt on each clear() / upsert() cycle.
-  // Entry: { sprite, idx, lat, lon, heading, baseOpacity, baseR, baseG, baseB }
+  // Entry: { sprite, idx, lat, lon, heading, baseOpacity, baseR, baseG, baseB, lastDimF }
   var _normalSprites = [];
   var _staleSprites  = [];
 
@@ -59,6 +59,9 @@ window.ArgusAircraftInstanced = (function () {
   var _baseRGB_s = new Float32Array(MAX * 3);  // stale aircraft base colors
 
   var _syncTimer = null;  // 100ms dim/scale sync interval handle
+
+  // ── Dirty-flag audit counters (exposed via getAudit()) ───────────────────────
+  var _audit = { dirtyOpacity: 0, skippedOpacity: 0 };
 
   // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -195,12 +198,14 @@ window.ArgusAircraftInstanced = (function () {
 
     if (idx + 1 > mesh.count) mesh.count = idx + 1;
 
-    // Record sprite reference for the 100ms dim/scale poller
+    // Record sprite reference for the 100ms dim/scale poller.
+    // lastDimF tracks the last written dim factor so _syncFromSprites skips no-op writes.
     spArr.push({
       sprite: sprite, idx: idx,
       lat: lat, lon: lon, heading: heading,
       baseOpacity: baseOp,
       baseR: _tmpCol.r, baseG: _tmpCol.g, baseB: _tmpCol.b,
+      lastDimF: 1.0,  // dirty-flag: full brightness at upsert time
     });
   }
 
@@ -208,6 +213,10 @@ window.ArgusAircraftInstanced = (function () {
   // ArgusSelection modifies ghost sprite opacity (dim) and scale (highlight).
   // This poller mirrors those changes to the InstancedMesh so the visual matches.
   // parent===null guard skips sprites evicted by clearGroup() before clear() runs.
+  //
+  // Dirty-flag optimisation: lastDimF tracks the previously written dim factor.
+  // At steady state (nothing selected, dimF = 1.0 for all), no writes occur and
+  // neither instanceColor buffer is uploaded.
   function _syncFromSprites() {
     if (!_ready) return;
 
@@ -226,13 +235,19 @@ window.ArgusAircraftInstanced = (function () {
         // Skip sprites removed from scene (clearGroup ran before clear())
         if (!e.sprite || !e.sprite.parent || !e.sprite.material) continue;
 
-        // Dim: map sprite opacity → instanceColor factor
+        // Dim: only write when factor actually changed — avoids buffer upload at steady state
         var dimF = e.sprite.material.opacity / e.baseOpacity;
-        var off  = e.idx * 3;
-        grp.mesh.instanceColor.array[off]     = grp.bRGB[off]     * dimF;
-        grp.mesh.instanceColor.array[off + 1] = grp.bRGB[off + 1] * dimF;
-        grp.mesh.instanceColor.array[off + 2] = grp.bRGB[off + 2] * dimF;
-        colorDirty = true;
+        if (Math.abs(dimF - e.lastDimF) > 0.001) {
+          e.lastDimF = dimF;
+          var off = e.idx * 3;
+          grp.mesh.instanceColor.array[off]     = grp.bRGB[off]     * dimF;
+          grp.mesh.instanceColor.array[off + 1] = grp.bRGB[off + 1] * dimF;
+          grp.mesh.instanceColor.array[off + 2] = grp.bRGB[off + 2] * dimF;
+          colorDirty = true;
+          _audit.dirtyOpacity++;
+        } else {
+          _audit.skippedOpacity++;
+        }
 
         // Scale: ArgusSelection enlarges selected sprite (1.75 → ~2.54)
         if (Math.abs(e.sprite.scale.x - SCALE_AC) > 0.01) {
@@ -261,11 +276,14 @@ window.ArgusAircraftInstanced = (function () {
     return _normalIdx + _staleIdx;
   }
 
+  function getAudit() { return { dirtyOpacity: _audit.dirtyOpacity, skippedOpacity: _audit.skippedOpacity }; }
+
   return {
     init:       init,
     clear:      clear,
     upsert:     upsert,
     setVisible: setVisible,
     getCount:   getCount,
+    getAudit:   getAudit,
   };
 }());

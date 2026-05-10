@@ -1586,6 +1586,25 @@ document.addEventListener('DOMContentLoaded', function() {
     entityCounts: {}, renderBreakdown: {},
   };
 
+  // ── ArgusDirtyAudit — dirty-flag effectiveness surface (removable) ────────────
+  // Usage: ArgusDirtyAudit.get()
+  //   .ais.skippedOpacity   — dim writes skipped for AIS (no-op at steady state)
+  //   .ships.skippedOpacity — dim writes skipped for ships (eliminates 10/s uploads)
+  //   .aircraft.skippedOpacity — dim writes skipped for aircraft
+  //
+  // skippedOpacity / (dirtyOpacity + skippedOpacity) = skip rate.
+  // At steady state with no selection: skip rate ≈ 100% for all three systems.
+  // Remove: delete window.ArgusDirtyAudit before ship deploy.
+  window.ArgusDirtyAudit = {
+    get: function () {
+      return {
+        ais:      window.ArgusAISInstanced      ? window.ArgusAISInstanced.getAudit()      : null,
+        ships:    window.ArgusShipsInstanced    ? window.ArgusShipsInstanced.getAudit()    : null,
+        aircraft: window.ArgusAircraftInstanced ? window.ArgusAircraftInstanced.getAudit() : null,
+      };
+    },
+  };
+
   animate();
 
   // ── Resize Handler ───────────────────────────────────────────────────────────

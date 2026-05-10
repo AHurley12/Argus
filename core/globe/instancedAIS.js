@@ -48,7 +48,14 @@ window.ArgusAISInstanced = (function () {
   var _maxUsedIdx = -1;                           // highest allocated index; drives _mesh.count
 
   // Base RGB per instance (stored for dim/restore without re-querying hexColor)
-  var _baseRGB = new Float32Array(MAX * 3);       // initialised to 1,1,1
+  var _baseRGB  = new Float32Array(MAX * 3);       // initialised to 1,1,1
+
+  // Last written dim factor per instance — dirty-flag for setDimFactor().
+  // Skips the color write + needsUpdate when dimFactor hasn't changed (common steady state).
+  var _lastDim  = new Float32Array(MAX);           // initialised to 1.0 in init()
+
+  // ── Dirty-flag audit counters (exposed via getAudit()) ───────────────────────
+  var _audit = { dirtyOpacity: 0, skippedOpacity: 0 };
 
   // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -139,6 +146,7 @@ window.ArgusAISInstanced = (function () {
     for (var j = 0; j < MAX; j++) {
       _mesh.setMatrixAt(j, _dummy.matrix);
       _baseRGB[j * 3] = _baseRGB[j * 3 + 1] = _baseRGB[j * 3 + 2] = 1.0;
+      _lastDim[j] = 1.0;  // full brightness — matches initial base color state
     }
     _mesh.instanceMatrix.needsUpdate = true;
 
@@ -203,12 +211,13 @@ window.ArgusAISInstanced = (function () {
       _mesh.instanceMatrix.needsUpdate = true;
     }
 
-    // Update colour
+    // Update colour — reset lastDim so the next setDimFactor sees the correct delta
     _tmpCol.setHex(hexColor);
     var off = idx * 3;
     _baseRGB[off]     = _tmpCol.r;
     _baseRGB[off + 1] = _tmpCol.g;
     _baseRGB[off + 2] = _tmpCol.b;
+    _lastDim[idx] = 1.0;  // base color written at full brightness
     _writeColor(idx, _tmpCol.r, _tmpCol.g, _tmpCol.b);
     _mesh.instanceColor.needsUpdate = true;
   }
@@ -226,12 +235,22 @@ window.ArgusAISInstanced = (function () {
   }
 
   // Sync dim/highlight from sprite state → InstancedMesh colour.
-  // Called by argusAIS.js every render tick (300 ms).
+  // Called by argusAIS.js on every AIS data batch for ALL markers.
   // dimFactor: 1.0 = full brightness, ~0.13 = ArgusSelection DIM_OPACITY relative.
+  //
+  // Dirty-flag optimisation: skips the write + needsUpdate when dimFactor hasn't
+  // changed. At steady state (no selection active) all vessels have dimFactor = 1.0,
+  // so the entire loop in argusAIS.js becomes O(N) map lookups with zero buffer writes.
   function setDimFactor(mmsi, dimFactor) {
     if (!_ready) return;
     var idx = _mmsiToIdx.get(mmsi);
     if (idx === undefined) return;
+    // Skip write if unchanged — main win when nothing is selected (dimFactor stays 1.0)
+    if (Math.abs(dimFactor - _lastDim[idx]) < 0.001) {
+      _audit.skippedOpacity++;
+      return;
+    }
+    _lastDim[idx] = dimFactor;
     var off = idx * 3;
     _writeColor(idx,
       _baseRGB[off]     * dimFactor,
@@ -239,6 +258,7 @@ window.ArgusAISInstanced = (function () {
       _baseRGB[off + 2] * dimFactor
     );
     _mesh.instanceColor.needsUpdate = true;
+    _audit.dirtyOpacity++;
   }
 
   // Scale update (ArgusSelection highlights selected vessel at 1.45× base scale).
@@ -261,6 +281,7 @@ window.ArgusAISInstanced = (function () {
   // Diagnostics
   function getCount()   { return _mmsiToIdx.size; }
   function getMesh()    { return _mesh; }
+  function getAudit()   { return { dirtyOpacity: _audit.dirtyOpacity, skippedOpacity: _audit.skippedOpacity }; }
 
   return {
     init:         init,
@@ -271,5 +292,6 @@ window.ArgusAISInstanced = (function () {
     setVisible:   setVisible,
     getCount:     getCount,
     getMesh:      getMesh,
+    getAudit:     getAudit,
   };
 }());

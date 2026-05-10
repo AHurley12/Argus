@@ -1,7 +1,7 @@
 // modules/argusAIS.js
 // AISstream Realtime Layer — WebSocket vessel tracking
 // Extracted from index.html SCRIPT 4b. Zero logic changes.
-// Dependencies (globals): window.THREE, window.ArgusGlobe, window._aisSprites,
+// Dependencies (globals): window.THREE, window.ArgusGlobe, window.ArgusEntityRegistry,
 //   window._argusShTex (set by argusTracking.js patchShTex shim)
 // Public API: window.ArgusAIS
 
@@ -31,17 +31,15 @@ var AIS_DIFF_LON   = 0.0001;
 var AIS_DIFF_HDG   = 2;      // degrees
 
 // ── State ──────────────────────────────────────────────────────────────────────
-var aisGroup   = null;      // THREE.Group containing all AIS sprites
+var aisGroup    = null;      // THREE.Group containing all AIS sprites
 var aisMarkers  = new Map(); // mmsi → { sprite, updatedAt }
-var _aisSprites = [];        // flat sprite array — mirrors aisMarkers, consumed by raycasters
 var aisOn       = true;      // default ON (button initialised is-active)
 var wsAIS       = null;     // live WebSocket to wss://stream.aisstream.io
 var reconnTimer = null;     // reconnect timeout handle
 var _aisMsgCount = 0;       // diagnostic counter — how many WS messages received
 
-// Expose for console inspection and raycaster access
-window._aisMarkers  = aisMarkers;
-window._aisSprites  = _aisSprites;
+// Expose Map for console inspection. Sprite array access goes through ArgusEntityRegistry.
+window._aisMarkers = aisMarkers;
 
 // ── Diagnostics — all flags default to NO-OP, no behavior change unless set ──
 // Access from console: ArgusAIS.diag  /  ArgusAIS.diagReport()
@@ -333,7 +331,7 @@ function upsertAISMarker(mmsi, name, lat, lon, heading, velocity, shipType, navS
     };
     // NOT added to aisGroup — proxy for raycasting/ArgusSelection only.
     aisMarkers.set(mmsi, { sprite: sprite, updatedAt: now });
-    _aisSprites.push(sprite);   // register in flat array for raycasters + ArgusSelection
+    if (window.ArgusEntityRegistry) window.ArgusEntityRegistry.register(mmsi, 'ais_vessel', sprite, sprite.userData);
     if (window.ArgusAISInstanced) window.ArgusAISInstanced.upsert(mmsi, lat, lon, heading, aisColor(tc));
   }
 }
@@ -381,10 +379,9 @@ function evictOldest() {
     }
 
     if (window.ArgusAISInstanced) window.ArgusAISInstanced.remove(oldest);
+    if (window.ArgusEntityRegistry) window.ArgusEntityRegistry.remove(oldest);
     // _evSprite was never added to aisGroup — no group.remove() needed.
     aisMarkers.delete(oldest);
-    var _evIdx = _aisSprites.indexOf(_evSprite);
-    if (_evIdx !== -1) _aisSprites.splice(_evIdx, 1);  // keep flat array in sync
     _aisState.vessels.delete(oldest);  // keep state layer in sync
     _dirtyVessels.delete(oldest);      // cancel any pending sprite sync for this MMSI
   }
@@ -574,31 +571,11 @@ function connectAISStream() {
       // ── Initialise InstancedMesh visual layer ────────────────────────────
       if (window.ArgusAISInstanced) window.ArgusAISInstanced.init(aisGroup);
 
-      // ── Feature parity: hook AIS sprites into all interaction systems ──────
-      //
-      // window._vesselMarkers getter — merges shipHits (VesselAPI) + AIS sprites.
-      // Every system that reads this array gets both sources automatically:
-      //   • Hover _frustumFilter (line 4463)
-      //   • Click raycast target list (line 4529)
-      //   • ArgusSelection._all() (line 18503) → dim / highlight / ring
-      //   • renderShips() sets it via assignment → our setter captures shipHits
-      //
-      // IMPORTANT: renderShips() does `window._vesselMarkers = shipHits` each fetch.
-      // The setter captures that array; the getter merges it with live aisMarkers
-      // so neither fetch cycle nor AIS update needs to know about each other.
-      (function patchVesselMarkers() {
-        var _vmsBase = window._vesselMarkers || [];
-        Object.defineProperty(window, '_vesselMarkers', {
-          get: function () {
-            // _aisSprites is kept in sync with aisMarkers by upsert/evict —
-            // concat is O(N) array copy vs prior O(N) Map iteration + push per entry.
-            return _vmsBase.concat(_aisSprites);
-          },
-          set: function (v) { _vmsBase = v || []; },
-          configurable: true,
-        });
-        console.log('[ArgusAIS] _vesselMarkers getter installed — AIS sprites now visible to hover/click/selection');
-      }());
+      // AIS sprite exposure is now handled by ArgusEntityRegistry:
+      //   window._aisSprites  → registry getter → AIS ghost sprites (raycasters)
+      //   ArgusSelection._all() queries 'ais_vessel' type from registry directly
+      // No patchVesselMarkers needed — registry provides both ship and AIS sprites
+      // to all interaction systems via separate type-indexed arrays.
 
       // ── Feature parity: include AIS vessels in window._trackingData ────────
       //

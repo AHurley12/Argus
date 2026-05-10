@@ -1,7 +1,7 @@
 // modules/argusTracking.js
 // Live tracking: Aircraft (OpenSky Network) + Ships (VesselAPI)
 // Extracted from index.html SCRIPT 4. Zero logic changes.
-// Dependencies (globals): window.THREE, window.ArgusGlobe, window._vesselMarkers, window._aircraftMarkers
+// Dependencies (globals): window.THREE, window.ArgusGlobe, window.ArgusEntityRegistry
 // Public API: window.ArgusTracking, window.ArgusTraffic
 
 window.ArgusTracking = (function () {
@@ -48,10 +48,8 @@ var refreshTimer  = null;   // setInterval handle for aircraft auto-refresh
 var shipRefreshTimer  = null; // setInterval handle for ship auto-refresh
 var lastShipFetch = 0;      // timestamp of last successful ship fetch
 
-// Expose spec-required window arrays/map immediately (updated by render functions)
-window._aircraftMarkers = aircraftHits;
-window._vesselMarkers   = shipHits;
-window._vesselMap       = vesselMap;
+// Expose spec-required window map immediately (array getters installed by ArgusEntityRegistry)
+window._vesselMap = vesselMap;
 
 // ── Ghost-sprite pools — eliminate allocation churn on refresh cycles ──────────
 // Aircraft: up to 750 new SpriteMaterial + Sprite every 90s without pooling (~8/sec).
@@ -299,6 +297,7 @@ function placeAircraft(lat, lon, heading, callsign, country, flightType, alt, re
   };
   // NOT added to aircraftGroup — proxy for raycasting/ArgusSelection only.
   aircraftHits.push(sprite);
+  if (window.ArgusEntityRegistry) window.ArgusEntityRegistry.register(icao24 || (lat + ',' + lon), 'aircraft', sprite, sprite.userData);
   if (window.ArgusAircraftInstanced) window.ArgusAircraftInstanced.upsert(lat, lon, heading, acColorHex, !!stale, sprite);
 }
 
@@ -348,11 +347,12 @@ function placeShip(lat, lon, name, sog, cog, typeCategory, mmsi, region, navStat
   // NOT added to shipGroup — InstancedMesh renders visually; sprite is a ghost
   // proxy for raycasting and ArgusSelection only (mirrors aircraft/AIS pattern).
   shipHits.push(sprite);
+  if (window.ArgusEntityRegistry) window.ArgusEntityRegistry.register(mmsi || (lat + ',' + lon), 'ship', sprite, sprite.userData);
   if (window.ArgusShipsInstanced) {
     var shipColorHex = SHIP_TYPE_COLORS[tc] !== undefined ? SHIP_TYPE_COLORS[tc] : SHIP_TYPE_COLORS.other;
     window.ArgusShipsInstanced.upsert(lat, lon, cog, shipColorHex, sprite);
   }
-  // Tracking markers are managed via shipHits / window._vesselMarkers.
+  // Tracking markers are managed via shipHits (pool) and ArgusEntityRegistry ('ship' type).
   // They are NOT pushed to window.eventMarkers to keep the event system clean.
 }
 
@@ -479,6 +479,7 @@ function renderAircraft(json) {
   if (!aircraftGroup) return;
   if (window.ArgusAircraftInstanced) window.ArgusAircraftInstanced.clear();
   _releaseAcSprites();              // return ghost sprites to pool before rebuild
+  if (window.ArgusEntityRegistry) window.ArgusEntityRegistry.clearType('aircraft');
   clearGroup(aircraftGroup, aircraftHits);  // handles _keepAlive InstancedMesh skip; no-op for sprites
   if (!json) { updateStatus(); return; }
 
@@ -536,7 +537,6 @@ function renderAircraft(json) {
     corridorGroup.visible = aircraftOn;
   }
 
-  window._aircraftMarkers = aircraftHits;
   normalizeTracking();
   updateStatus();
 }
@@ -597,6 +597,7 @@ function fetchShipsFromBackend() {
 function stopShips() {
   if (shipRefreshTimer) { clearTimeout(shipRefreshTimer); shipRefreshTimer = null; }
   _releaseShSprites();  // return ghost sprites to pool before clearing buffer
+  if (window.ArgusEntityRegistry) window.ArgusEntityRegistry.clearType('ship');
   shipBuffer    = [];
   lastShipFetch = 0;
   vesselMap     = new Map();
@@ -607,13 +608,13 @@ function renderShips() {
   if (!shipGroup) return;
   if (window.ArgusShipsInstanced) window.ArgusShipsInstanced.clear();
   _releaseShSprites();              // return ghost sprites to pool before rebuild
+  if (window.ArgusEntityRegistry) window.ArgusEntityRegistry.clearType('ship');
   clearGroup(shipGroup, shipHits);  // handles _keepAlive InstancedMesh skip; no-op for sprites
   // Spec: limit to SHIP_LIMIT, highest SOG first (moving ships take priority)
   var sorted = shipBuffer.slice().sort(function (a, b) { return (b.sog || 0) - (a.sog || 0); });
   sorted.slice(0, SHIP_LIMIT).forEach(function (s) {
     placeShip(s.lat, s.lon, s.name, s.sog, s.cog, s.typeCategory, s.mmsi, s.region, s.navStatus, s.destination);
   });
-  window._vesselMarkers = shipHits;
   normalizeTracking();
   updateStatus();
 }
@@ -644,6 +645,7 @@ function toggleAircraft() {
   } else {
     if (window.ArgusAircraftInstanced) window.ArgusAircraftInstanced.clear();
     _releaseAcSprites();
+    if (window.ArgusEntityRegistry) window.ArgusEntityRegistry.clearType('aircraft');
     clearGroup(aircraftGroup, aircraftHits);
     if (refreshTimer) { clearTimeout(refreshTimer); refreshTimer = null; }
   }

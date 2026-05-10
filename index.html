@@ -10134,6 +10134,9 @@ if (document.readyState === 'loading') {
 </script>
 
 
+<!-- Entity registry — must load before argusTracking.js and argusAIS.js -->
+<script src="/core/registry/argusEntityRegistry.js"></script>
+
 <!-- Aircraft visual layer — must load before argusTracking.js -->
 <script src="/core/globe/instancedAircraft.js"></script>
 
@@ -10536,11 +10539,13 @@ window.ArgusSelection = (function () {
 
   // ── Helpers ────────────────────────────────────────────────────────────────
   function _all() {
-    var out = [];
-    if (window._aircraftMarkers) for (var i = 0; i < window._aircraftMarkers.length; i++) out.push(window._aircraftMarkers[i]);
-    if (window._vesselMarkers)   for (var j = 0; j < window._vesselMarkers.length;   j++) out.push(window._vesselMarkers[j]);
-    if (window._aisSprites)      for (var k = 0; k < window._aisSprites.length;      k++) out.push(window._aisSprites[k]);
-    return out;
+    if (!window.ArgusEntityRegistry) return [];
+    var ls    = window.ArgusLayerState;
+    var types = [];
+    if (!ls || ls.aircraft)   types.push('aircraft');
+    if (!ls || ls.vessels)    types.push('ship');
+    if (!ls || ls.aisVessels) types.push('ais_vessel');
+    return window.ArgusEntityRegistry.getSprites(types);
   }
 
   function _baseScale(s)   { return s.userData.isAircraft ? CFG.BASE_SCALE_AC : CFG.BASE_SCALE_SH; }
@@ -10567,7 +10572,9 @@ window.ArgusSelection = (function () {
 
     for (var i = 0; i < markers.length; i++) {
       var s = markers[i];
-      if (!s.visible || !s.parent || !s.parent.visible) continue;
+      // Ghost sprites (instanced entities) have no scene parent — _all() already
+      // filters by active layers, so only check explicit sprite visibility here.
+      if (!s.visible) continue;
       var sc = _toScreen(s, cam, W, H);  // pass sprite, not .position
       if (sc.z > 1 || sc.z < -1) continue;  // outside clip planes = back of globe or far clip
       s._scx = sc.x; s._scy = sc.y;
@@ -10672,7 +10679,14 @@ window.ArgusSelection = (function () {
     _trackRing.position.copy(sprite.position);
     var cam = window.ArgusGlobe && window.ArgusGlobe.camera;
     if (cam) _trackRing.lookAt(cam.position);
-    if (sprite.parent) sprite.parent.add(_trackRing);
+    // Ghost sprites (instanced entities) have no scene parent — attach ring to
+    // eventMarkerGroup so it renders in the correct world-space coordinate frame.
+    var AG = window.ArgusGlobe;
+    if (sprite.parent) {
+      sprite.parent.add(_trackRing);
+    } else if (AG && AG.eventMarkerGroup) {
+      AG.eventMarkerGroup.add(_trackRing);
+    }
   }
 
   function _removeRing() {
@@ -10851,9 +10865,20 @@ window.ArgusSelection = (function () {
       if (cam) _trackRing.lookAt(cam.position);
       _trackRing.material.opacity = 0.35 + 0.28 * Math.sin(Date.now() / 650);
     }
-    // Auto-unlock if locked sprite was removed (layer toggled off / data refresh)
-    // O(1): THREE.js sets .parent = null when an object is removed from the scene
-    if (_locked && !_locked.parent) unlock();
+    // Auto-unlock if locked entity was removed (layer toggled off / data refresh).
+    // Ghost sprites (aircraft, ships, AIS) always have parent=null, so we check the
+    // registry instead. Falls back to the parent check for non-registry sprites.
+    if (_locked) {
+      var _stillActive;
+      var _lud = _locked.userData;
+      var _lid = _lud && (_lud.icao24 || _lud.mmsi);
+      if (window.ArgusEntityRegistry && _lid) {
+        _stillActive = !!window.ArgusEntityRegistry.get(_lid);
+      } else {
+        _stillActive = !!_locked.parent;
+      }
+      if (!_stillActive) unlock();
+    }
   }
 
   function getAudit() { return { dimFull: _selAudit.dimFull, dimIncremental: _selAudit.dimIncremental, skippedHovers: _selAudit.skippedHovers }; }

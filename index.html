@@ -826,12 +826,14 @@ document.addEventListener('DOMContentLoaded', function() {
       var cnOn = !(window.ArgusLayerState.countries);
       window.ArgusLayerState.countries = cnOn;
       window.countryMarkers.forEach(function(m) { m.visible = cnOn; });
+      if (window.ArgusCountriesInstanced) window.ArgusCountriesInstanced.setVisible(cnOn);
       if (!cnOn) clearHoverTooltip();
     }
     if (e.key.toLowerCase() === 'v') {
       var capOn = !(window.ArgusLayerState.capitals);
       window.ArgusLayerState.capitals = capOn;
       capitalMarkers.forEach(function(m) { m.visible = capOn; });
+      if (window.ArgusCapitalsInstanced) window.ArgusCapitalsInstanced.setVisible(capOn);
       if (!capOn) clearHoverTooltip();
     }
     if (e.key.toLowerCase() === 'e') {
@@ -984,12 +986,16 @@ document.addEventListener('DOMContentLoaded', function() {
     var pos   = latLonToVector(rawLat, rawLon, R.MARKER);
     var color = new THREE.Color(colorHex);
 
-    // Chokepoints use an invisible hit sphere (no visual bubble, interaction preserved)
+    // Country and chokepoint meshes both use material.visible=false so they never
+    // generate draw calls. Country meshes keep their color property so GDELT can
+    // still call mesh.material.color.set() to record the risk update; ArgusCountriesInstanced
+    // syncs that color to the InstancedMesh visuals via updateColor().
+    // object.visible is still managed by the 'C' toggle for canInteract() gating.
     var mesh = new THREE.Mesh(
       new THREE.SphereGeometry(size, 14, 14),
       userData.isChokepoint
         ? new THREE.MeshBasicMaterial({ visible: false })
-        : new THREE.MeshBasicMaterial({ color: color, transparent: true, opacity: 0.82 })
+        : new THREE.MeshBasicMaterial({ color: color, visible: false })
     );
     mesh.position.copy(pos);
     mesh.userData = userData;
@@ -1089,6 +1095,11 @@ document.addEventListener('DOMContentLoaded', function() {
     if (f && t) addRouteArc(f.rawLat, f.rawLon, t.rawLat, t.rawLon, STATIC_RC[rt.risk], rt.vol);
   });
   dataGroup.add(staticMarkerGroup);
+  // Country InstancedMesh — 195 countries → 1 draw call.
+  // latLonToVector passed directly — window.ArgusGlobe is not yet set at this point.
+  if (window.ArgusCountriesInstanced) {
+    window.ArgusCountriesInstanced.init(staticMarkerGroup, COUNTRIES_DATA, STATIC_RC, latLonToVector);
+  }
   // Hide country markers and chokepoint hit spheres/prisms/rings on first load
   window.countryMarkers.forEach(function(m)   { m.visible = false; });
   window.chokepointMarkers.forEach(function(m) { m.visible = false; });
@@ -1148,6 +1159,11 @@ document.addEventListener('DOMContentLoaded', function() {
     return new THREE.CanvasTexture(cv);
   }());
 
+  // Ghost sprites for capitalMarkers — NOT added to scene.
+  // ArgusCapitalsInstanced.init() renders all capitals via ONE InstancedMesh draw call.
+  // Ghost sprites carry userData for hover/click/tooltips and are used by the raycaster
+  // and ArgusSelection exactly as the old per-entity sprites were.
+  // sprite.visible is still managed by the 'V' toggle loop (canInteract compatibility).
   var capitalMarkers = [];
   capitalCitiesData.forEach(function(city) {
     var pos = latLonToVector(city.lat, city.lon, R.AIRCRAFT);
@@ -1160,6 +1176,8 @@ document.addEventListener('DOMContentLoaded', function() {
     var sprite = new THREE.Sprite(mat);
     sprite.position.copy(pos);
     sprite.scale.set(1.68, 1.68, 1);
+    // Detached from scene — updateWorldMatrix keeps matrixWorld valid for raycaster.
+    sprite.updateWorldMatrix(false, false);
     sprite.userData = {
       isCapitalCity: true,
       city:          city.capital,
@@ -1168,10 +1186,15 @@ document.addEventListener('DOMContentLoaded', function() {
       lat:           city.lat,
       lon:           city.lon
     };
-    eventMarkerGroup.add(sprite);
+    // NOT added to eventMarkerGroup — InstancedMesh handles visual rendering.
     capitalMarkers.push(sprite);
   });
-  // Hide capital city markers on first load
+  // InstancedMesh renders all capitals in 1 draw call; starts hidden (matches old behavior).
+  // latLonToVector passed directly — window.ArgusGlobe is not yet set at this point.
+  if (window.ArgusCapitalsInstanced) {
+    window.ArgusCapitalsInstanced.init(eventMarkerGroup, _cityTex, capitalCitiesData, latLonToVector);
+  }
+  // Hide ghost sprites on first load so canInteract() correctly gates them off.
   capitalMarkers.forEach(function(m) { m.visible = false; });
 
   // ── Mouse Controls ───────────────────────────────────────────────────────────
@@ -1536,7 +1559,33 @@ document.addEventListener('DOMContentLoaded', function() {
 
     if (window.ArgusSelection) ArgusSelection.tick();
     renderer.render(scene, camera);
+
+    // ── ArgusRenderAudit — updated every frame, removable ────────────────────────
+    if (window.ArgusRenderAudit) {
+      var _ri = renderer.info.render;
+      window.ArgusRenderAudit.drawCalls  = _ri.calls;
+      window.ArgusRenderAudit.triangles  = _ri.triangles;
+      window.ArgusRenderAudit.lines      = _ri.lines;
+      window.ArgusRenderAudit.points     = _ri.points;
+      window.ArgusRenderAudit.entityCounts = {
+        ais:       window.ArgusAISInstanced       ? window.ArgusAISInstanced.getCount()       : 0,
+        aircraft:  window.ArgusAircraftInstanced  ? window.ArgusAircraftInstanced.getCount()  : 0,
+        ships:     window.ArgusShipsInstanced     ? window.ArgusShipsInstanced.getCount()     : 0,
+        capitals:  window.ArgusCapitalsInstanced  ? window.ArgusCapitalsInstanced.getCount()  : 0,
+        countries: window.ArgusCountriesInstanced ? window.ArgusCountriesInstanced.getCount() : 0,
+      };
+    }
   }
+
+  // ── ArgusRenderAudit — diagnostic surface (removable) ────────────────────────
+  // Usage: ArgusRenderAudit.drawCalls  (updated each frame after renderer.render)
+  //        ArgusRenderAudit.entityCounts.ships / .capitals / etc.
+  // Remove: delete window.ArgusRenderAudit before ship deploy.
+  window.ArgusRenderAudit = {
+    drawCalls: 0, triangles: 0, lines: 0, points: 0,
+    entityCounts: {}, renderBreakdown: {},
+  };
+
   animate();
 
   // ── Resize Handler ───────────────────────────────────────────────────────────
@@ -1583,8 +1632,20 @@ document.addEventListener('DOMContentLoaded', function() {
         mesh:     inst ? inst.getMesh()  : null,
       };
     },
+    getShips: function() {
+      var inst = window.ArgusShipsInstanced;
+      return { count: inst ? inst.getCount() : 0, capacity: 520, mesh: inst ? inst.getMesh() : null };
+    },
+    getCapitals: function() {
+      var inst = window.ArgusCapitalsInstanced;
+      return { count: inst ? inst.getCount() : 0, mesh: inst ? inst.getMesh() : null };
+    },
+    getCountries: function() {
+      var inst = window.ArgusCountriesInstanced;
+      return { count: inst ? inst.getCount() : 0, mesh: inst ? inst.getMesh() : null };
+    },
     // Traverse the live scene and report all Sprite objects by parent group.
-    // Expected after render-pipeline cleanup: vessels only (0 aircraft, 0 AIS).
+    // Expected after render-pipeline cleanup: 0 sprites in scene (all systems migrated).
     // Usage: ArgusDebug.sceneSprites()
     sceneSprites: function() {
       var buckets = {};
@@ -10029,6 +10090,15 @@ if (document.readyState === 'loading') {
 
 <!-- Aircraft visual layer — must load before argusTracking.js -->
 <script src="/core/globe/instancedAircraft.js"></script>
+
+<!-- Ship visual layer — must load before argusTracking.js -->
+<script src="/core/globe/instancedShips.js"></script>
+
+<!-- Capital city visual layer — must load before globe DOMContentLoaded block -->
+<script src="/core/globe/instancedCapitals.js"></script>
+
+<!-- Country marker visual layer — must load before globe DOMContentLoaded block -->
+<script src="/core/globe/instancedCountries.js"></script>
 
 <!-- SCRIPT 4 — ArgusTracking: Aircraft + Ships + patchShTex shim -->
 <script src="/modules/argusTracking.js"></script>

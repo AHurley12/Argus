@@ -155,6 +155,7 @@ function init() {
     shipGroup.name    = 'ArgusShips';
     shipGroup.visible = false;
     AG.eventMarkerGroup.add(shipGroup);
+    if (window.ArgusShipsInstanced) window.ArgusShipsInstanced.init(shipGroup, _shTex);
   }
   return true;
 }
@@ -279,6 +280,9 @@ function placeShip(lat, lon, name, sog, cog, typeCategory, mmsi, region, navStat
   var sprite = new THREE.Sprite(mat);
   sprite.position.copy(pos);
   sprite.scale.set(0.89, 0.89, 1);
+  // Detached from scene — InstancedMesh renders visually.
+  // updateWorldMatrix ensures matrixWorld is valid for raycaster.intersectObjects().
+  sprite.updateWorldMatrix(false, false);
 
   var label = (name || '').trim() || 'VESSEL';
   sprite.userData = {
@@ -296,8 +300,13 @@ function placeShip(lat, lon, name, sog, cog, typeCategory, mmsi, region, navStat
     navStatus:    navStatus   != null ? navStatus : null,
     destination:  destination || null
   };
-  shipGroup.add(sprite);
+  // NOT added to shipGroup — InstancedMesh renders visually; sprite is a ghost
+  // proxy for raycasting and ArgusSelection only (mirrors aircraft/AIS pattern).
   shipHits.push(sprite);
+  if (window.ArgusShipsInstanced) {
+    var shipColorHex = SHIP_TYPE_COLORS[tc] !== undefined ? SHIP_TYPE_COLORS[tc] : SHIP_TYPE_COLORS.other;
+    window.ArgusShipsInstanced.upsert(lat, lon, cog, shipColorHex, sprite);
+  }
   // Tracking markers are managed via shipHits / window._vesselMarkers.
   // They are NOT pushed to window.eventMarkers to keep the event system clean.
 }
@@ -540,6 +549,7 @@ function stopShips() {
 
 function renderShips() {
   if (!shipGroup) return;
+  if (window.ArgusShipsInstanced) window.ArgusShipsInstanced.clear();
   clearGroup(shipGroup, shipHits);
   // Spec: limit to SHIP_LIMIT, highest SOG first (moving ships take priority)
   var sorted = shipBuffer.slice().sort(function (a, b) { return (b.sog || 0) - (a.sog || 0); });
@@ -606,6 +616,7 @@ function toggleShips() {
     }
   } else {
     stopShips();
+    if (window.ArgusShipsInstanced) window.ArgusShipsInstanced.clear();
     clearGroup(shipGroup, shipHits);
   }
 

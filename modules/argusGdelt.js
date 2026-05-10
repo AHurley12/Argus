@@ -315,7 +315,12 @@ function applyToGlobe() {
       if (!td) return;
       var gRisk = toneToRisk(td.tone);
       var sRisk = mesh.userData.risk || 'LOW';
-      if (RANK[gRisk] > RANK[sRisk]) { mesh.material.color.set(RISK_COLORS[gRisk]); mesh.userData._gdeltRisk = gRisk; }
+      if (RANK[gRisk] > RANK[sRisk]) {
+        mesh.material.color.set(RISK_COLORS[gRisk]);
+        mesh.userData._gdeltRisk = gRisk;
+        // Sync upgraded risk color to the InstancedMesh visual layer.
+        if (window.ArgusCountriesInstanced) window.ArgusCountriesInstanced.updateColor(mesh.userData.code, RISK_COLORS[gRisk]);
+      }
       mesh.userData._gdeltTone  = td.tone;
       mesh.userData._gdeltCount = td.count;
     });

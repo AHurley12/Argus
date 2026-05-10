@@ -730,7 +730,7 @@ document.addEventListener('DOMContentLoaded', function() {
   const Globe = new ThreeGlobe();
 
   // Fetch country polygons (Natural Earth 110m)
-  fetch('https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_50m_admin_0_countries.geojson')
+  fetch('https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_110m_admin_0_countries.geojson')
     .then(function(r) { return r.json(); })
     .then(function(geo) {
       // ThreeGlobe 2.30 — call setters individually; chaining breaks after polygonStrokeColor

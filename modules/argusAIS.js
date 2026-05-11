@@ -62,6 +62,8 @@ var _diag = {
   _rateLogTimer: null,
 };
 
+var _processingInProgress = false; // re-entrancy guard for chunked batch processing
+
 // ── State layer ───────────────────────────────────────────────────────────────
 // _aisState is the source of truth for vessel data; aisMarkers holds the sprites.
 // Architecture:
@@ -133,70 +135,9 @@ function updateVesselState(mmsi, name, lat, lon, heading, velocity, shipType, na
 // Drains _ingestBuffer, diffs each entry against _aisState.vessels, writes state,
 // marks _dirtyVessels for entries that meaningfully changed, then calls renderAIS().
 // Diagnostic gates and rate sampling live here (not in ingest or sprite paths).
-function _processAndRender() {
-  if (document.hidden) return;  // tab not visible — skip processing, preserve buffer
-  if (!_ingestBuffer.length) return;
-
-  // Drain the entire buffer in one pass — most recent value per MMSI wins naturally
-  // because we overwrite state on each write (Map.set is idempotent by key).
-  var batch = _ingestBuffer.splice(0, _ingestBuffer.length);
-
-  // ── Diagnostic freeze gate ────────────────────────────────────────────────
-  if (_diag.freeze) return;
-
-  var now = Date.now();
-
-  for (var i = 0; i < batch.length; i++) {
-    var v    = batch[i];
-    var mmsi = v.mmsi;
-
-    // ── Throttle gate (per-vessel min interval) ───────────────────────────
-    if (_diag.throttleMs > 0 && _aisState.vessels.has(mmsi)) {
-      if (now - _aisState.vessels.get(mmsi).updatedAt < _diag.throttleMs) continue;
-    }
-
-    // ── Rate sampling ─────────────────────────────────────────────────────
-    _diag._rateSamples.push(now);
-    if (_diag._rateSamples.length > 2000) {
-      var _cutoff = now - 10000;
-      var _si = 0;
-      while (_si < _diag._rateSamples.length && _diag._rateSamples[_si] < _cutoff) _si++;
-      if (_si > 0) _diag._rateSamples.splice(0, _si);
-    }
-
-    // ── Diff check — only mark dirty if the vessel actually moved/changed ─
-    // New vessels are always dirty. Existing vessels only if position or
-    // heading changed beyond the threshold, or name/type changed.
-    var existing = _aisState.vessels.get(mmsi);
-    var dirty;
-    if (!existing) {
-      dirty = true;
-      _diag.createCount++;
-    } else {
-      _diag.updateCount++;
-      dirty = (
-        Math.abs(v.lat     - existing.lat)     > AIS_DIFF_LAT ||
-        Math.abs(v.lon     - existing.lon)     > AIS_DIFF_LON ||
-        (v.heading != null && existing.heading != null &&
-          Math.abs(v.heading - existing.heading) > AIS_DIFF_HDG) ||
-        // null ↔ value transitions always count as changed
-        (v.heading == null) !== (existing.heading == null) ||
-        v.name     !== existing.name ||
-        v.shipType !== existing.shipType
-      );
-    }
-
-    // ── Write to state (always — keep timestamps + velocity current) ──────
-    _aisState.vessels.set(mmsi, {
-      name: v.name, lat: v.lat, lon: v.lon,
-      heading: v.heading, velocity: v.velocity,
-      shipType: v.shipType, navStatus: v.navStatus,
-      updatedAt: now,
-    });
-
-    if (dirty) _dirtyVessels.add(mmsi);
-  }
-
+// ── Post-batch finalization — runs after all chunks complete ──────────────────
+// Calls renderAIS(), syncs selection state and InstancedMesh dim/scale.
+function _finishProcessAndRender() {
   renderAIS();
 
   // ── Selection tracking — scan sprite scales to keep selectedVesselId current ─
@@ -241,6 +182,94 @@ function _processAndRender() {
       }
       _aisState._prevSelectedId = _curSel;
     }
+  }
+
+  _processingInProgress = false;
+}
+
+// ── Chunked batch processor — 250 vessels per tick, yields via setTimeout(0) ──
+var AIS_CHUNK_SIZE = 250;
+function _processBatchChunk(batch, start, now) {
+  var end = Math.min(start + AIS_CHUNK_SIZE, batch.length);
+  for (var i = start; i < end; i++) {
+    var v    = batch[i];
+    var mmsi = v.mmsi;
+
+    // ── Throttle gate (per-vessel min interval) ───────────────────────────
+    if (_diag.throttleMs > 0 && _aisState.vessels.has(mmsi)) {
+      if (now - _aisState.vessels.get(mmsi).updatedAt < _diag.throttleMs) continue;
+    }
+
+    // ── Rate sampling ─────────────────────────────────────────────────────
+    _diag._rateSamples.push(now);
+    if (_diag._rateSamples.length > 2000) {
+      var _cutoff = now - 10000;
+      var _si = 0;
+      while (_si < _diag._rateSamples.length && _diag._rateSamples[_si] < _cutoff) _si++;
+      if (_si > 0) _diag._rateSamples.splice(0, _si);
+    }
+
+    // ── Diff check — only mark dirty if the vessel actually moved/changed ─
+    var existing = _aisState.vessels.get(mmsi);
+    var dirty;
+    if (!existing) {
+      dirty = true;
+      _diag.createCount++;
+    } else {
+      _diag.updateCount++;
+      dirty = (
+        Math.abs(v.lat     - existing.lat)     > AIS_DIFF_LAT ||
+        Math.abs(v.lon     - existing.lon)     > AIS_DIFF_LON ||
+        (v.heading != null && existing.heading != null &&
+          Math.abs(v.heading - existing.heading) > AIS_DIFF_HDG) ||
+        (v.heading == null) !== (existing.heading == null) ||
+        v.name     !== existing.name ||
+        v.shipType !== existing.shipType
+      );
+    }
+
+    // ── Write to state (always — keep timestamps + velocity current) ──────
+    _aisState.vessels.set(mmsi, {
+      name: v.name, lat: v.lat, lon: v.lon,
+      heading: v.heading, velocity: v.velocity,
+      shipType: v.shipType, navStatus: v.navStatus,
+      updatedAt: now,
+    });
+
+    if (dirty) _dirtyVessels.add(mmsi);
+  }
+
+  if (end < batch.length) {
+    // More chunks remain — yield to let browser handle frames/input
+    if (window.ArgusSchedulerAudit) window.ArgusSchedulerAudit.yieldedTasks++;
+    setTimeout(function () { _processBatchChunk(batch, end, now); }, 0);
+  } else {
+    // All chunks done — finalize
+    _finishProcessAndRender();
+  }
+}
+
+function _processAndRender() {
+  if (document.hidden) return;  // tab not visible — skip processing, preserve buffer
+  if (!_ingestBuffer.length) return;
+  if (_processingInProgress) return;  // previous chunked pass still running
+
+  // Drain the entire buffer in one pass — most recent value per MMSI wins naturally
+  // because we overwrite state on each write (Map.set is idempotent by key).
+  var batch = _ingestBuffer.splice(0, _ingestBuffer.length);
+
+  // ── Diagnostic freeze gate ────────────────────────────────────────────────
+  if (_diag.freeze) return;
+
+  var now = Date.now();
+
+  if (batch.length > AIS_CHUNK_SIZE) {
+    // Large batch — process cooperatively in 250-vessel chunks with setTimeout yields
+    _processingInProgress = true;
+    _processBatchChunk(batch, 0, now);
+  } else {
+    // Small batch — process synchronously (no yield overhead for typical ticks)
+    _processBatchChunk(batch, 0, now);
   }
 }
 
@@ -381,6 +410,9 @@ function evictOldest() {
     if (window.ArgusAISInstanced) window.ArgusAISInstanced.remove(oldest);
     if (window.ArgusEntityRegistry) window.ArgusEntityRegistry.remove(oldest);
     // _evSprite was never added to aisGroup — no group.remove() needed.
+    // Dispose the SpriteMaterial to free the GPU program allocation.
+    // The shared texture (_shTex / shTex) is NOT disposed — it is owned by argusTracking.js.
+    if (window.ArgusResourceTracker) window.ArgusResourceTracker.safeDisposeSprite(_evSprite, 'ais_sprite');
     aisMarkers.delete(oldest);
     _aisState.vessels.delete(oldest);  // keep state layer in sync
     _dirtyVessels.delete(oldest);      // cancel any pending sprite sync for this MMSI
@@ -679,4 +711,5 @@ return {
   get bufferSize() { return _ingestBuffer.length; }, // ArgusAIS.bufferSize — pending messages
 };
 
+if (window.ArgusModuleAudit) window.ArgusModuleAudit.register('ArgusAIS');
 }());

@@ -297,9 +297,15 @@ window.ArgusPortWatch = (function () {
     }
   }
 
-  // ── Bootstrap — immediate fetch + 10-min poll ─────────────────────────────────
-  fetchIMFPortData();
-  var _pollTimer = setInterval(fetchIMFPortData, POLL_MS);
+  // ── Bootstrap — defer initial fetch to idle so it doesn't block first render ──
+  // Port data is non-critical at startup; no UI is gated on it at load time.
+  // requestIdleCallback lets the browser complete render boot before the first fetch.
+  var _pollTimer = null;
+  (window.requestIdleCallback || function(cb) { setTimeout(cb, 200); })(function() {
+    fetchIMFPortData();
+    _pollTimer = setInterval(fetchIMFPortData, POLL_MS);
+    if (window.ArgusModuleAudit) window.ArgusModuleAudit.register('ArgusPortWatch', { deferred: true });
+  });
 
   return {
     getState:         function () { return _state; },

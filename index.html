@@ -652,6 +652,8 @@
 ══════════════════════════════════════════════════════════════════════════════ -->
 <script src="/core/runtime/perf.js"></script>
 <script src="/core/runtime/cache.js"></script>
+<!-- Module audit — must load before other modules to capture all register() calls -->
+<script src="/core/runtime/argusModuleAudit.js"></script>
 <script>
 (function() {
 'use strict';
@@ -1156,7 +1158,9 @@ document.addEventListener('DOMContentLoaded', function() {
       c.fillRect(bx, by, bw, 2);
     });
 
-    return new THREE.CanvasTexture(cv);
+    var _ct = new THREE.CanvasTexture(cv);
+    if (window.ArgusResourceTracker) window.ArgusResourceTracker.registerSharedTexture('city_atlas', _ct);
+    return _ct;
   }());
 
   // Ghost sprites for capitalMarkers — NOT added to scene.
@@ -1513,8 +1517,13 @@ document.addEventListener('DOMContentLoaded', function() {
     // Sample frame budget every 60 frames so we detect sustained render stalls
     // without paying measurement overhead on every single frame.
     var _frameNow = performance.now();
-    if (_frameLast && ++_frameCount % 60 === 0 && window.ArgusPerf) {
-      ArgusPerf.record('FRAME_TIME_MS', _frameNow - _frameLast, 16.67); // 16.67 ms = 60 fps
+    if (_frameLast) {
+      if (++_frameCount % 60 === 0 && window.ArgusPerf) {
+        ArgusPerf.record('FRAME_TIME_MS', _frameNow - _frameLast, 16.67); // 16.67 ms = 60 fps
+      }
+      if ((_frameNow - _frameLast) > 16.67 && window.ArgusSchedulerAudit) {
+        window.ArgusSchedulerAudit.frameBudgetViolations++;
+      }
     }
     _frameLast = _frameNow;
 
@@ -1632,6 +1641,45 @@ document.addEventListener('DOMContentLoaded', function() {
     },
   };
 
+  // ── ArgusSchedulerAudit — scheduler + frame budget diagnostic surface ──────────
+  // Usage: ArgusSchedulerAudit.get()
+  //   .longTasks             — LONG_TASK events observed (> 50 ms, browser-reported)
+  //   .yieldedTasks          — tasks that cooperatively yielded mid-execution
+  //   .deferredTasks         — tasks moved off the critical path to idle/timeout
+  //   .frameBudgetViolations — frames that exceeded 16.67 ms (>60 fps budget)
+  //   .worstTaskDurations    — ring buffer of the 20 longest LONG_TASK durations (ms)
+  window.ArgusSchedulerAudit = {
+    longTasks:             0,
+    yieldedTasks:          0,
+    deferredTasks:         0,
+    frameBudgetViolations: 0,
+    worstTaskDurations:    [],  // ring buffer (max 20 entries), most recent last
+    get: function () {
+      return {
+        longTasks:             this.longTasks,
+        yieldedTasks:          this.yieldedTasks,
+        deferredTasks:         this.deferredTasks,
+        frameBudgetViolations: this.frameBudgetViolations,
+        worstTaskDurations:    this.worstTaskDurations.slice(),
+      };
+    },
+  };
+  // Wire PerformanceObserver for browser-reported long tasks (Chrome/Edge only).
+  // Falls back silently on browsers that don't support longtask observation.
+  try {
+    new PerformanceObserver(function (list) {
+      var entries = list.getEntries();
+      for (var _lt = 0; _lt < entries.length; _lt++) {
+        var _lte = entries[_lt];
+        window.ArgusSchedulerAudit.longTasks++;
+        var _ltd = Math.round(_lte.duration);
+        window.ArgusSchedulerAudit.worstTaskDurations.push(_ltd);
+        if (window.ArgusSchedulerAudit.worstTaskDurations.length > 20)
+          window.ArgusSchedulerAudit.worstTaskDurations.shift();
+      }
+    }).observe({ entryTypes: ['longtask'] });
+  } catch (_ltErr) { /* longtask API not supported — audit.longTasks stays 0 */ }
+
   animate();
 
   // ── Resize Handler ───────────────────────────────────────────────────────────
@@ -1746,10 +1794,12 @@ document.addEventListener('DOMContentLoaded', function() {
         if (child.userData && child.userData._hcMarker &&
             child.userData.isPulseRing &&
             child.position.distanceTo(mesh.position) < 0.5) {
+          if (window.ArgusResourceTracker) window.ArgusResourceTracker.safeDisposeMesh(child, 'hardcoded_event');
           AG.eventMarkerGroup.remove(child);
         }
       });
 
+      if (window.ArgusResourceTracker) window.ArgusResourceTracker.safeDisposeMesh(mesh, 'hardcoded_event');
       AG.eventMarkerGroup.remove(mesh);
       window.eventMarkers = markers.filter(function(m) { return m !== mesh; });
       if (typeof window.updateNodeCounts === 'function') window.updateNodeCounts();
@@ -5451,6 +5501,8 @@ window.ArgusEvents = (function() {
     if (pinIdx !== -1) {
       var AG = window.ArgusGlobe;
       if (AG && AG.eventMarkerGroup) {
+        if (window.ArgusResourceTracker) window.ArgusResourceTracker.safeDisposeMesh(manualPins[pinIdx].mesh, 'manual_pin');
+        if (window.ArgusResourceTracker) window.ArgusResourceTracker.safeDisposeMesh(manualPins[pinIdx].ring, 'manual_pin');
         AG.eventMarkerGroup.remove(manualPins[pinIdx].mesh);
         AG.eventMarkerGroup.remove(manualPins[pinIdx].ring);
       }
@@ -5466,6 +5518,8 @@ window.ArgusEvents = (function() {
     var AG = window.ArgusGlobe;
     if (AG && AG.eventMarkerGroup) {
       manualPins.forEach(function(p) {
+        if (window.ArgusResourceTracker) window.ArgusResourceTracker.safeDisposeMesh(p.mesh, 'manual_pin');
+        if (window.ArgusResourceTracker) window.ArgusResourceTracker.safeDisposeMesh(p.ring, 'manual_pin');
         AG.eventMarkerGroup.remove(p.mesh);
         AG.eventMarkerGroup.remove(p.ring);
       });
@@ -7349,10 +7403,14 @@ window.ArgusAdmin = (function() {
       if (AG && AG.eventMarkerGroup && window._permanentPins && window._permanentPins.length) {
         window._permanentPins.forEach(function(p) {
           if (p.mesh) {
+            if (window.ArgusResourceTracker) window.ArgusResourceTracker.safeDisposeMesh(p.mesh, 'permanent_pin');
             AG.eventMarkerGroup.remove(p.mesh);
             window.eventMarkers = (window.eventMarkers || []).filter(function(m) { return m !== p.mesh; });
           }
-          if (p.ring) AG.eventMarkerGroup.remove(p.ring);
+          if (p.ring) {
+            if (window.ArgusResourceTracker) window.ArgusResourceTracker.safeDisposeMesh(p.ring, 'permanent_pin');
+            AG.eventMarkerGroup.remove(p.ring);
+          }
         });
         window._permanentPins = [];
       }
@@ -7507,6 +7565,8 @@ window.ArgusAdmin = (function() {
     window._analystPins = window._analystPins.filter(function(p) {
       if (p.reqId !== reqId) return true;
       if (AG && AG.eventMarkerGroup) {
+        if (window.ArgusResourceTracker) window.ArgusResourceTracker.safeDisposeMesh(p.mesh, 'analyst_pin');
+        if (window.ArgusResourceTracker) window.ArgusResourceTracker.safeDisposeMesh(p.ring, 'analyst_pin');
         AG.eventMarkerGroup.remove(p.mesh);
         AG.eventMarkerGroup.remove(p.ring);
       }
@@ -10134,6 +10194,9 @@ if (document.readyState === 'loading') {
 </script>
 
 
+<!-- Resource tracker — must load before all modules that create GPU resources -->
+<script src="/core/memory/argusResourceTracker.js"></script>
+
 <!-- Entity registry — must load before argusTracking.js and argusAIS.js -->
 <script src="/core/registry/argusEntityRegistry.js"></script>
 
@@ -10172,57 +10235,8 @@ if (document.readyState === 'loading') {
 ══════════════════════════════════════════════════════════════════════════════ -->
 <script src="/modules/argusPortWatch.js"></script>
 
-<!-- ══════════════════════════════════════════════════════════════════════════════
-     SCRIPT 5 — Visibility API: pause all refresh timers when tab is hidden
-     Spec: Aircraft 15m | News 30m | GDELT 20m | FIRMS 2h
-══════════════════════════════════════════════════════════════════════════════ -->
-<script>
-(function () {
-'use strict';
-
-// Collect every module that exposes a pausable refresh timer via window
-// Each entry: { name, getTimer, setTimer, fn, interval }
-// We store the timer IDs in module closures, so we use a signal approach:
-// on hidden → clear timers; on visible → re-fire immediately + restart timers.
-
-// Modules that expose their refresh controls on window
-var MANAGED = [
-  {
-    // Aircraft — ArgusTracking bootstrap already manages refreshTimer internally.
-    // We hook visibilitychange to force a stale-cache re-fetch on resume.
-    onResume: function () {
-      if (window.ArgusTracking) window.ArgusTracking.refreshAircraft();
-    }
-  }
-];
-
-// For the top-level setInterval calls (loadLiveEvents, fetchAll etc.) we cannot
-// reach their interval IDs from here. Instead, we wrap fetch calls with a
-// document.hidden guard — but those functions are already defined.
-// Simplest approach: register a global visibility flag every module can check.
-
-var _tabVisible = !document.hidden;
-Object.defineProperty(window, '_argusTabVisible', {
-  get: function () { return _tabVisible; },
-  configurable: true,
-});
-
-document.addEventListener('visibilitychange', function () {
-  _tabVisible = !document.hidden;
-
-  if (!document.hidden) {
-    // Tab became visible — tell each managed module to resume
-    MANAGED.forEach(function (m) {
-      try { if (m.onResume) m.onResume(); } catch (_) {}
-    });
-    console.log('[ArgusVisibility] Tab visible — refreshes resumed');
-  } else {
-    console.log('[ArgusVisibility] Tab hidden — fetches suppressed');
-  }
-});
-
-}());
-</script>
+<!-- Visibility API module — extracted to separate file for background parsing -->
+<script src="/core/runtime/argusVisibility.js"></script>
 
 <!-- ══════════════════════════════════════════════════════════════════════════════
      NEURAL WEB — HTML
@@ -10380,514 +10394,13 @@ document.addEventListener('visibilitychange', function () {
 ══════════════════════════════════════════════════════════════════════════════ -->
 <script src="/modules/argusNeuralWeb.js"></script>
 
-<!-- ── Dynamic Risk Scoring Engine ──────────────────────────────────────── -->
-<script>
-(function() {
-'use strict';
+<!-- Dynamic risk scoring — extracted to separate file for background parsing -->
+<script src="/core/runtime/argusDynamicRisk.js"></script>
 
-// score → risk tier (mirrors calculate-risk.js scoreToTier)
-function scoreToTier(s) {
-  if (s >= 75) return 'CRITICAL';
-  if (s >= 54) return 'WARNING';
-  if (s >= 33) return 'WATCH';
-  return 'LOW';
-}
+<!-- ArgusDataAge — extracted to separate file for background parsing -->
+<script src="/core/runtime/argusDataAge.js"></script>
 
-var RISK_TIER_RANK  = { LOW: 0, WATCH: 1, WARNING: 2, CRITICAL: 3 };
-var RISK_TIER_COLOR = { LOW: '#00ff88', WATCH: '#ffcc00', WARNING: '#ff9933', CRITICAL: '#ff0044' };
-
-// Fetch scores from calculate-risk, apply to globe markers and COUNTRIES_DATA.
-// Only upgrades risk (never silently downgrades static hand-curated baselines).
-async function fetchDynamicRisk() {
-  try {
-    var res = await fetch('/.netlify/functions/calculate-risk');
-    if (!res.ok) throw new Error('HTTP ' + res.status);
-    var json = await res.json();
-    var scores = json.scores;
-    if (!scores || !scores.length) return;
-
-    // Build lookup: ISO3 → score object
-    var byIso3 = {};
-    scores.forEach(function(s) { byIso3[s.iso3] = s; });
-
-    // ── Update COUNTRIES_DATA in place ───────────────────────────────────────
-    (window.COUNTRIES_DATA || []).forEach(function(cd) {
-      var s = byIso3[cd.code];
-      if (!s) return;
-      cd._dynamicScore  = s.dynamicScore;
-      cd._eventScore    = s.eventScore;
-      cd._volatility    = s.volatility;
-      cd._articleCount  = s.articleCount;
-    });
-
-    // ── Update globe marker colors ────────────────────────────────────────────
-    // Only escalate — if dynamic score pushes to a higher tier, update color.
-    (window.countryMarkers || []).forEach(function(mesh) {
-      var s = byIso3[mesh.userData.code];
-      if (!s) return;
-
-      var staticTier  = mesh.userData.risk || 'LOW';
-      var dynamicTier = scoreToTier(s.dynamicScore);
-
-      mesh.userData._dynamicScore = s.dynamicScore;
-      mesh.userData._eventScore   = s.eventScore;
-      mesh.userData._volatility   = s.volatility;
-
-      if (RISK_TIER_RANK[dynamicTier] > RISK_TIER_RANK[staticTier]) {
-        mesh.material.color.set(RISK_TIER_COLOR[dynamicTier]);
-        mesh.userData._dynamicTier = dynamicTier;
-      }
-    });
-
-    // Mirror to hit meshes (invisible but carry userData for detail panel)
-    (window.countryHitMeshes || []).forEach(function(mesh) {
-      var s = byIso3[mesh.userData.code];
-      if (!s) return;
-      mesh.userData._dynamicScore = s.dynamicScore;
-      mesh.userData._eventScore   = s.eventScore;
-      mesh.userData._volatility   = s.volatility;
-    });
-
-    console.log('calculate-risk: applied dynamic scores (' + json.source + ', ' + scores.length + ' countries)');
-
-  } catch(err) {
-    console.warn('calculate-risk: fetch failed —', err.message);
-  }
-}
-
-// Run after globe markers are placed (slight defer ensures globe init is done)
-window.addEventListener('DOMContentLoaded', function() {
-  setTimeout(fetchDynamicRisk, 3000);            // initial load
-  setInterval(fetchDynamicRisk, 5 * 60 * 1000); // refresh every 5 min
-});
-
-window.fetchDynamicRisk = fetchDynamicRisk; // expose for manual refresh
-
-}());
-</script>
-
-<!-- ── ArgusDataAge: Stale-While-Revalidate badge helper ────────────────── -->
-<script>
-(function() {
-'use strict';
-
-// Format a Date as HH:MMZ
-function fmtZ(d) {
-  var h = d.getUTCHours().toString().padStart(2, '0');
-  var m = d.getUTCMinutes().toString().padStart(2, '0');
-  return h + ':' + m + 'Z';
-}
-
-// Mark a data-age badge as fresh, then decay to normal after 8s
-function mark(badgeId, isoTs) {
-  var el = document.getElementById(badgeId);
-  if (!el) return;
-  var ts   = isoTs ? new Date(isoTs) : new Date();
-  el.textContent = 'AS OF ' + fmtZ(ts);
-  el.classList.remove('is-stale');
-  el.classList.add('is-fresh');
-  // Re-trigger animation by forcing reflow
-  void el.offsetWidth;
-  clearTimeout(el._ageTimer);
-  el._ageTimer = setTimeout(function() {
-    el.classList.remove('is-fresh');
-  }, 8000);
-}
-
-// Mark a badge as stale (called when TTL exceeds threshold)
-function stale(badgeId) {
-  var el = document.getElementById(badgeId);
-  if (!el) return;
-  el.classList.remove('is-fresh');
-  el.classList.add('is-stale');
-}
-
-window.ArgusDataAge = { mark: mark, stale: stale };
-}());
-</script>
-
-<!-- ════════════════════════════════════════════════════════════════════════════
-     ArgusSelection — High-density entity interaction system
-     Screen-space candidate gathering → dim/highlight → disambiguation → lock
-     ════════════════════════════════════════════════════════════════════════════ -->
-<script>
-window.ArgusSelection = (function () {
-  'use strict';
-
-  // ── Config ─────────────────────────────────────────────────────────────────
-  var CFG = {
-    SCREEN_RADIUS:    24,    // px — gather candidates within this circle
-    BUCKET_SIZE:      36,    // px — spatial grid cell size
-    DIM_OPACITY:      0.12,  // opacity for non-selected entities
-    HIGHLIGHT_SCALE:  1.45,  // multiplier on top of base scale for selected entity
-    MAX_PANEL_ROWS:   8,     // max rows in disambiguation panel
-    BASE_SCALE_AC:    1.75,  // matches placeAircraft scale
-    BASE_SCALE_SH:    0.89,  // matches placeShip / upsertAISMarker scale (−15% from 1.05)
-  };
-
-  // ── State ──────────────────────────────────────────────────────────────────
-  var _locked       = null;   // locked Sprite | null
-  var _dimmed       = false;  // whether dim is currently applied
-  var _dimmedExcept = null;   // the sprite currently exempted from dim (highlighted)
-  var _panelOpen    = false;
-  var _trackRing    = null;   // THREE.Mesh ring around locked entity
-  var _panel        = null;   // disambiguation DOM element
-  var _panelOc      = null;   // outside-click handler ref — kept so _closePanel can remove it
-
-  // ── Dirty-flag audit counters ─────────────────────────────────────────────
-  var _selAudit = { dimFull: 0, dimIncremental: 0, skippedHovers: 0 };
-
-  // ── Helpers ────────────────────────────────────────────────────────────────
-  function _all() {
-    if (!window.ArgusEntityRegistry) return [];
-    var ls    = window.ArgusLayerState;
-    var types = [];
-    if (!ls || ls.aircraft)   types.push('aircraft');
-    if (!ls || ls.vessels)    types.push('ship');
-    if (!ls || ls.aisVessels) types.push('ais_vessel');
-    return window.ArgusEntityRegistry.getSprites(types);
-  }
-
-  function _baseScale(s)   { return s.userData.isAircraft ? CFG.BASE_SCALE_AC : CFG.BASE_SCALE_SH; }
-  function _baseOpacity(s) { return s.userData.stale ? 0.45 : 0.92; }
-
-  // ── Screen-space projection — MUST use getWorldPosition, not .position ───────
-  // Sprites live in aircraftGroup → eventMarkerGroup → globeGroup (PI Y-rotation).
-  // .position is local to the parent group; projecting it gives wrong screen coords.
-  var _wp = new THREE.Vector3(); // world position scratch
-  var _rv = new THREE.Vector3(); // NDC scratch
-  function _toScreen(sprite, cam, W, H) {
-    sprite.getWorldPosition(_wp);
-    _rv.copy(_wp).project(cam);
-    return { x: (_rv.x * 0.5 + 0.5) * W, y: (1 - (_rv.y * 0.5 + 0.5)) * H, z: _rv.z };
-  }
-
-  // ── Bucket-grid candidate query — O(1) lookup, << 2 ms for 1 000+ entities ─
-  function _candidates(mx, my, cam, W, H) {
-    var B = CFG.BUCKET_SIZE, R = CFG.SCREEN_RADIUS;
-    var bR = Math.ceil(R / B) + 1;
-    var bx0 = Math.floor(mx / B), by0 = Math.floor(my / B);
-    var buckets = Object.create(null);
-    var markers = _all();
-
-    for (var i = 0; i < markers.length; i++) {
-      var s = markers[i];
-      // Ghost sprites (instanced entities) have no scene parent — _all() already
-      // filters by active layers, so only check explicit sprite visibility here.
-      if (!s.visible) continue;
-      var sc = _toScreen(s, cam, W, H);  // pass sprite, not .position
-      if (sc.z > 1 || sc.z < -1) continue;  // outside clip planes = back of globe or far clip
-      s._scx = sc.x; s._scy = sc.y;
-      var bx = Math.floor(sc.x / B), by = Math.floor(sc.y / B);
-      var k  = bx + ',' + by;
-      if (!buckets[k]) buckets[k] = [];
-      buckets[k].push(s);
-    }
-
-    var out = [];
-    for (var cx = bx0 - bR; cx <= bx0 + bR; cx++) {
-      for (var cy = by0 - bR; cy <= by0 + bR; cy++) {
-        var cell = buckets[cx + ',' + cy];
-        if (!cell) continue;
-        for (var j = 0; j < cell.length; j++) {
-          var sp = cell[j];
-          var dx = sp._scx - mx, dy = sp._scy - my;
-          var d  = Math.sqrt(dx * dx + dy * dy);
-          if (d <= R) out.push({ sprite: sp, dist: d });
-        }
-      }
-    }
-
-    // Rank: aircraft > vessel, then by proximity
-    out.sort(function (a, b) {
-      var pa = a.sprite.userData.isAircraft ? 0 : 1;
-      var pb = b.sprite.userData.isAircraft ? 0 : 1;
-      return pa !== pb ? pa - pb : a.dist - b.dist;
-    });
-    return out;
-  }
-
-  // ── Dim/restore ────────────────────────────────────────────────────────────
-  //
-  // Incremental dim: after the initial O(N) scan, hover transitions between
-  // entities are O(1) — only the 2 changing sprites are written.
-  //
-  //   Initial dim  (not yet dimmed): O(N) — unavoidable, sets all to DIM_OPACITY
-  //   Hover transition (already dimmed, new entity): O(1) — write 2 sprites
-  //   Same entity again (onHover skip catches it first): O(0) — no call at all
-  //   Restore (unlock / mouse leaves candidates): O(N) — unavoidable, resets all
-  //
-  // _dimmedExcept tracks which sprite is currently at full brightness so the
-  // transition path knows which sprite to send back to DIM_OPACITY.
-  function _applyDim(except) {
-    if (!_dimmed) {
-      // ── Initial dim: full population scan (unavoidable) ──────────────────
-      var markers = _all();
-      for (var i = 0; i < markers.length; i++) {
-        var s   = markers[i];
-        var bsc = _baseScale(s);
-        if (s === except) {
-          s.scale.set(bsc * CFG.HIGHLIGHT_SCALE, bsc * CFG.HIGHLIGHT_SCALE, 1);
-          s.material.opacity = _baseOpacity(s);
-        } else {
-          s.scale.set(bsc, bsc, 1);
-          s.material.opacity = CFG.DIM_OPACITY;
-        }
-      }
-      _dimmed = true;
-      _selAudit.dimFull++;
-    } else {
-      // ── Incremental transition: only touch 2 sprites ─────────────────────
-      // Dim the previously highlighted sprite (if it changed)
-      if (_dimmedExcept && _dimmedExcept !== except) {
-        var ps  = _dimmedExcept;
-        var pbs = _baseScale(ps);
-        ps.scale.set(pbs, pbs, 1);
-        ps.material.opacity = CFG.DIM_OPACITY;
-      }
-      // Highlight the new sprite
-      var ebs = _baseScale(except);
-      except.scale.set(ebs * CFG.HIGHLIGHT_SCALE, ebs * CFG.HIGHLIGHT_SCALE, 1);
-      except.material.opacity = _baseOpacity(except);
-      _selAudit.dimIncremental++;
-    }
-    _dimmedExcept = except;
-  }
-
-  function _restore() {
-    if (!_dimmed) return;  // guard: avoid redundant O(N) scan if not dimmed
-    var markers = _all();
-    for (var i = 0; i < markers.length; i++) {
-      var s   = markers[i];
-      var bs  = _baseScale(s);
-      s.material.opacity = _baseOpacity(s);
-      s.scale.set(bs, bs, 1);
-    }
-    _dimmed       = false;
-    _dimmedExcept = null;
-  }
-
-  // ── Tracking ring (pulsing ring around locked entity in world space) ────────
-  function _showRing(sprite) {
-    _removeRing();
-    var geo = new THREE.RingGeometry(1.5, 2.0, 48);
-    var mat = new THREE.MeshBasicMaterial({
-      color: 0x0099ff, transparent: true, opacity: 0.65,
-      side: THREE.DoubleSide, depthTest: false
-    });
-    _trackRing = new THREE.Mesh(geo, mat);
-    _trackRing.position.copy(sprite.position);
-    var cam = window.ArgusGlobe && window.ArgusGlobe.camera;
-    if (cam) _trackRing.lookAt(cam.position);
-    // Ghost sprites (instanced entities) have no scene parent — attach ring to
-    // eventMarkerGroup so it renders in the correct world-space coordinate frame.
-    var AG = window.ArgusGlobe;
-    if (sprite.parent) {
-      sprite.parent.add(_trackRing);
-    } else if (AG && AG.eventMarkerGroup) {
-      AG.eventMarkerGroup.add(_trackRing);
-    }
-  }
-
-  function _removeRing() {
-    if (!_trackRing) return;
-    if (_trackRing.parent) _trackRing.parent.remove(_trackRing);
-    _trackRing.geometry.dispose();
-    _trackRing.material.dispose();
-    _trackRing = null;
-  }
-
-  // ── Disambiguation panel ───────────────────────────────────────────────────
-  function _getPanel() {
-    if (_panel) return _panel;
-    _panel = document.createElement('div');
-    _panel.id = 'argus-sel-panel';
-    _panel.style.cssText = [
-      'position:fixed', 'z-index:9100', 'display:none',
-      'background:rgba(2,10,21,0.97)', 'border:1px solid #0f2744',
-      'border-left:2px solid #0099ff',
-      'font-family:"JetBrains Mono",monospace', 'font-size:10px',
-      'color:#c5d7e8', 'min-width:215px', 'max-width:275px',
-      'pointer-events:all', 'backdrop-filter:blur(12px)',
-      'box-shadow:0 4px 32px rgba(0,0,0,0.6)',
-    ].join(';');
-    document.body.appendChild(_panel);
-    // Remove last row's border
-    var st = document.createElement('style');
-    st.textContent = '#argus-sel-panel .asl-r:last-child{border-bottom:none!important}';
-    document.head.appendChild(st);
-    return _panel;
-  }
-
-  function _openPanel(candidates, px, py) {
-    var panel  = _getPanel();
-    _panelOpen = true;
-    var shown  = Math.min(candidates.length, CFG.MAX_PANEL_ROWS);
-
-    var html = '<div style="padding:5px 12px 5px;border-bottom:1px solid #0f2744;'
-             + 'color:#4a7da8;letter-spacing:2px;font-size:8px">'
-             + 'SELECT ENTITY — ' + candidates.length + ' NEARBY</div>';
-
-    for (var i = 0; i < shown; i++) {
-      var c  = candidates[i];
-      var ud = c.sprite.userData;
-      var icon = ud.isAircraft ? '✈' : '⛵';
-      var name = ud.isAircraft
-        ? (ud.title || ud.icao24 || 'UNKNOWN').replace(/ \[.*\]$/, '')
-        : (ud.title || ud.mmsi  || 'VESSEL');
-
-      var parts = [];
-      if (ud.isAircraft) {
-        if (ud.flightType) parts.push(ud.flightType.toUpperCase());
-        if (ud.gs)         parts.push(Math.round(ud.gs) + 'kt');
-        if (ud.alt)        parts.push(Math.round(ud.alt / 100) * 100 + 'ft');
-      } else {
-        if (ud.typeCategory) parts.push(ud.typeCategory.toUpperCase());
-        if (ud.velocity)     parts.push(Math.round(ud.velocity) + 'kt');
-      }
-      var detail = parts.join(' · ');
-
-      html += '<div class="asl-r" data-i="' + i + '" style="'
-            + 'padding:5px 12px 4px;cursor:pointer;'
-            + 'border-bottom:1px solid rgba(15,39,68,0.4);transition:background 0.1s">';
-      html += '<div style="color:#e8f4ff;letter-spacing:0.5px">' + icon + ' ' + name + '</div>';
-      if (detail) html += '<div style="color:#4a7da8;font-size:9px;margin-top:1px">' + detail + '</div>';
-      html += '<div style="color:#2a3a50;font-size:8px;margin-top:1px;letter-spacing:1px">'
-            + Math.round(c.dist) + 'px away</div>';
-      html += '</div>';
-    }
-
-    panel.innerHTML = html;
-
-    // Wire rows
-    var rows = panel.querySelectorAll('.asl-r');
-    for (var j = 0; j < rows.length; j++) {
-      (function (row, idx) {
-        row.addEventListener('mouseenter', function () {
-          row.style.background = 'rgba(0,153,255,0.07)';
-          _applyDim(candidates[idx].sprite);
-        });
-        row.addEventListener('mouseleave', function () { row.style.background = ''; });
-        row.addEventListener('click', function (ev) {
-          ev.stopPropagation();
-          _lock(candidates[idx].sprite);
-          _closePanel();
-        });
-      })(rows[j], j);
-    }
-
-    // Position near cursor, keep on screen
-    var W = window.innerWidth, H = window.innerHeight;
-    var pw = 275, ph = shown * 55 + 30;
-    panel.style.left    = Math.min(px + 14, W - pw - 8) + 'px';
-    panel.style.top     = Math.max(8, Math.min(py - 10, H - ph - 8)) + 'px';
-    panel.style.display = 'block';
-
-    // Outside-click closes panel. Store handler ref so _closePanel can remove it
-    // even when the panel is closed by a row click rather than an outside click —
-    // otherwise the self-removing pattern leaks one listener per open/close cycle.
-    if (_panelOc) document.removeEventListener('click', _panelOc);
-    setTimeout(function () {
-      _panelOc = function (ev) {
-        if (_panel && !_panel.contains(ev.target)) {
-          _closePanel();
-          if (!_locked) _restore();
-        }
-      };
-      document.addEventListener('click', _panelOc);
-    }, 120);
-  }
-
-  function _closePanel() {
-    if (_panel) _panel.style.display = 'none';
-    _panelOpen = false;
-    if (_panelOc) { document.removeEventListener('click', _panelOc); _panelOc = null; }
-  }
-
-  // ── Lock / unlock ──────────────────────────────────────────────────────────
-  function _lock(sprite) {
-    _locked = sprite;
-    _applyDim(sprite);
-    _showRing(sprite);
-    if (window.ArgusUI && sprite.userData) ArgusUI.showEventDetail(sprite.userData);
-  }
-
-  function unlock() {
-    if (!_locked && !_panelOpen) return;
-    _locked = null;
-    _removeRing();
-    _restore();
-    _closePanel();
-  }
-
-  // ── Public API ─────────────────────────────────────────────────────────────
-
-  // Call from hover handler — runs screen-space search independently of raycast results.
-  // Does NOT gate on hasTraffic: raycast often misses sprites in congested areas.
-  function onHover(mx, my) {
-    if (_locked || _panelOpen) return;
-    var ls = window.ArgusLayerState;
-    var anyTrafficLayer = !ls || ls.aircraft || ls.vessels;
-    if (!anyTrafficLayer) { if (_dimmed) _restore(); return; }
-    var G = window.ArgusGlobe;
-    if (!G) return;
-    var W = window.innerWidth, H = window.innerHeight;
-    var cs = _candidates(mx, my, G.camera, W, H);
-    if (!cs.length) { if (_dimmed) _restore(); return; }
-    // Same entity as last tick — skip _applyDim entirely (avoids O(N→1) write path)
-    if (cs[0].sprite === _dimmedExcept) { _selAudit.skippedHovers++; return; }
-    _applyDim(cs[0].sprite);
-  }
-
-  // Call from click handler when click hits vessel/aircraft area
-  // Returns true if the event was handled (caller should return early)
-  function onClick(mx, my) {
-    if (_locked) { unlock(); return true; }
-    var G = window.ArgusGlobe;
-    if (!G) return false;
-    var W  = window.innerWidth, H = window.innerHeight;
-    var cs = _candidates(mx, my, G.camera, W, H);
-    if (!cs.length) return false;
-    if (cs.length === 1 || cs[0].dist < 6) {
-      _lock(cs[0].sprite);
-    } else {
-      _applyDim(cs[0].sprite);
-      _openPanel(cs, mx, my);
-    }
-    return true;
-  }
-
-  // Call every animation frame
-  function tick() {
-    if (_trackRing && _locked) {
-      _trackRing.position.copy(_locked.position);
-      var cam = window.ArgusGlobe && window.ArgusGlobe.camera;
-      if (cam) _trackRing.lookAt(cam.position);
-      _trackRing.material.opacity = 0.35 + 0.28 * Math.sin(Date.now() / 650);
-    }
-    // Auto-unlock if locked entity was removed (layer toggled off / data refresh).
-    // Ghost sprites (aircraft, ships, AIS) always have parent=null, so we check the
-    // registry instead. Falls back to the parent check for non-registry sprites.
-    if (_locked) {
-      var _stillActive;
-      var _lud = _locked.userData;
-      var _lid = _lud && (_lud.icao24 || _lud.mmsi);
-      if (window.ArgusEntityRegistry && _lid) {
-        _stillActive = !!window.ArgusEntityRegistry.get(_lid);
-      } else {
-        _stillActive = !!_locked.parent;
-      }
-      if (!_stillActive) unlock();
-    }
-  }
-
-  function getAudit() { return { dimFull: _selAudit.dimFull, dimIncremental: _selAudit.dimIncremental, skippedHovers: _selAudit.skippedHovers }; }
-
-  // Init — keyboard ESC to unlock
-  document.addEventListener('keydown', function (e) { if (e.key === 'Escape') unlock(); });
-
-  return { onHover: onHover, onClick: onClick, tick: tick, unlock: unlock, getAudit: getAudit };
-}());
-</script>
+<!-- ArgusSelection — extracted to separate file for background parsing -->
+<script src="/core/runtime/argusSelection.js"></script>
 </body>
 </html>

@@ -170,7 +170,10 @@ function plotDisasters() {
   AG.eventMarkerGroup.children.forEach(function(o) {
     if (o.userData && o.userData._unMarker) toRemove.push(o);
   });
-  toRemove.forEach(function(o) { AG.eventMarkerGroup.remove(o); });
+  toRemove.forEach(function(o) {
+    if (window.ArgusResourceTracker) window.ArgusResourceTracker.safeDisposeMesh(o, 'gdacs_disaster');
+    AG.eventMarkerGroup.remove(o);
+  });
   window.eventMarkers = window.eventMarkers.filter(function(m) { return !m.userData._unMarker; });
 
   var SEV_COL  = { CRITICAL: 0xff0044, WARNING: 0xff9933, WATCH: 0xffcc00 };

@@ -426,20 +426,37 @@ function scanRelationships() {
     });
   });
 
-  (window.COUNTRIES_DATA || []).forEach(function(cd) {
-    var lbl = cd.label.toLowerCase();
-    if (state.selectedCountry && lbl === state.selectedCountry.toLowerCase()) return;
-    if (allTextL.indexOf(lbl) === -1) return;
-    var nid = 'entity:country:' + cd.code;
-    if (newNodeIds.has(nid)) return;
-    newNodes.push({ id: nid, type: 'entity', entityType: 'country', label: cd.label, risk: cd.risk || 'LOW' });
-    newNodeIds.add(nid);
-    evNodes.forEach(function(en) {
-      if (textOf(en).indexOf(lbl) !== -1)
-        relEdges.push({ source: en.id, target: nid, weight: 1.5, edgeType: 'correlation', detected: true });
-    });
-  });
+  // 2b. Country extraction — chunked (25 per tick) to avoid LONG_TASK on 195-entry loop.
+  // _signalsAndFinalize() runs after the last chunk completes.
+  var _nwCountries = window.COUNTRIES_DATA || [];
+  var NW_COUNTRY_CHUNK = 25;
 
+  function _processCountriesChunk(start) {
+    var end = Math.min(start + NW_COUNTRY_CHUNK, _nwCountries.length);
+    for (var ci = start; ci < end; ci++) {
+      var cd = _nwCountries[ci];
+      var lbl = cd.label.toLowerCase();
+      if (state.selectedCountry && lbl === state.selectedCountry.toLowerCase()) continue;
+      if (allTextL.indexOf(lbl) === -1) continue;
+      var nid = 'entity:country:' + cd.code;
+      if (newNodeIds.has(nid)) continue;
+      newNodes.push({ id: nid, type: 'entity', entityType: 'country', label: cd.label, risk: cd.risk || 'LOW' });
+      newNodeIds.add(nid);
+      evNodes.forEach(function(en) {
+        if (textOf(en).indexOf(lbl) !== -1)
+          relEdges.push({ source: en.id, target: nid, weight: 1.5, edgeType: 'correlation', detected: true });
+      });
+    }
+
+    if (end < _nwCountries.length) {
+      if (window.ArgusSchedulerAudit) window.ArgusSchedulerAudit.yieldedTasks++;
+      setTimeout(function() { _processCountriesChunk(end); }, 0);
+    } else {
+      _signalsAndFinalize();
+    }
+  }
+
+  function _signalsAndFinalize() {
   // 3. Signal nodes — text corpus + live market data telemetry
   var mktHits = MARKET_SIGNALS.filter(function(s){ return allTextL.indexOf(s) !== -1; });
   if (window._eiaData  && window._eiaData.brent  && window._eiaData.brent  > 85)    mktHits.push('brent $' + window._eiaData.brent.toFixed(0));
@@ -618,6 +635,9 @@ function scanRelationships() {
 
   if (window.ArgusPerf) ArgusPerf.record('SCAN_RELATIONSHIPS', performance.now() - _scanT0, 200);
   if (btn) setTimeout(function(){ btn.classList.remove('is-scanning'); btn.textContent = '⬡ SCAN RELATIONS'; }, 900);
+  } // end _signalsAndFinalize
+
+  _processCountriesChunk(0);
 
   }, 0); // end scan defer
 }
@@ -3391,4 +3411,5 @@ return {
   },
 };
 
+if (window.ArgusModuleAudit) window.ArgusModuleAudit.register('ArgusNeuralWeb');
 }());

@@ -193,3 +193,5 @@ window.ArgusRegistryAudit = {
     return window.ArgusEntityRegistry ? window.ArgusEntityRegistry.getAudit() : null;
   },
 };
+
+if (window.ArgusModuleAudit) window.ArgusModuleAudit.register('ArgusEntityRegistry');

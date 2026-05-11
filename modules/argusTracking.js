@@ -128,6 +128,7 @@ function ensureGeometries() {
     c.fillStyle = '#F0F9FF'; c.globalAlpha = 0.8; c.fill(); c.globalAlpha = 1;
 
     _acTex = new THREE.CanvasTexture(cv);
+    if (window.ArgusResourceTracker) window.ArgusResourceTracker.registerSharedTexture('aircraft_atlas', _acTex);
   }());
 
   // ── Ship sprite texture — bow-up hull shape (user SVG, scaled 2×) ───────────
@@ -173,6 +174,7 @@ function ensureGeometries() {
     c.fill();
 
     _shTex = new THREE.CanvasTexture(cv);
+    if (window.ArgusResourceTracker) window.ArgusResourceTracker.registerSharedTexture('ship_atlas', _shTex);
   }());
 }
 
@@ -537,7 +539,12 @@ function renderAircraft(json) {
     corridorGroup.visible = aircraftOn;
   }
 
-  normalizeTracking();
+  if (window.requestIdleCallback) {
+    requestIdleCallback(normalizeTracking, { timeout: 5000 });
+    if (window.ArgusSchedulerAudit) window.ArgusSchedulerAudit.deferredTasks++;
+  } else {
+    setTimeout(normalizeTracking, 0);
+  }
   updateStatus();
 }
 
@@ -615,7 +622,12 @@ function renderShips() {
   sorted.slice(0, SHIP_LIMIT).forEach(function (s) {
     placeShip(s.lat, s.lon, s.name, s.sog, s.cog, s.typeCategory, s.mmsi, s.region, s.navStatus, s.destination);
   });
-  normalizeTracking();
+  if (window.requestIdleCallback) {
+    requestIdleCallback(normalizeTracking, { timeout: 5000 });
+    if (window.ArgusSchedulerAudit) window.ArgusSchedulerAudit.deferredTasks++;
+  } else {
+    setTimeout(normalizeTracking, 0);
+  }
   updateStatus();
 }
 
@@ -832,4 +844,5 @@ window.ArgusTraffic = window.ArgusTracking;
 
     if (attempts > 300) clearInterval(timer); // 60 s hard stop
   }, 200);
+  if (window.ArgusModuleAudit) window.ArgusModuleAudit.register('ArgusTracking');
 }());

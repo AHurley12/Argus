@@ -731,16 +731,21 @@ document.addEventListener('DOMContentLoaded', function() {
   // ── Globe ───────────────────────────────────────────────────────────────────
   const Globe = new ThreeGlobe();
 
-  // Fetch country polygons (Natural Earth 110m)
-  fetch('https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_110m_admin_0_countries.geojson')
+  // Fetch country polygons (Natural Earth 50m — restored from 110m for full coastline + island fidelity)
+  // ne_50m: ~4,400 polygon features, ~500 KB — Caribbean, Indonesian, Mediterranean, Pacific islands included
+  // ne_110m was a regression (commit 0e62a0b): ~255 features, coarse coastlines, missing islands
+  fetch('https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_50m_admin_0_countries.geojson')
     .then(function(r) { return r.json(); })
     .then(function(geo) {
-      // ThreeGlobe 2.30 — call setters individually; chaining breaks after polygonStrokeColor
+      // ThreeGlobe 2.45 — call setters individually (chaining unreliable across versions)
       Globe.polygonsData(geo.features);
       Globe.polygonAltitude(0.008);
       Globe.polygonCapColor(function() { return 'rgba(100,150,200,0.48)'; });
       Globe.polygonSideColor(function() { return 'rgba(0,80,150,0.2)'; });
       Globe.polygonStrokeColor(function() { return '#0f2744'; });
+      // 3° curvature resolution — more sphere-conforming vertices than default 5°
+      // improves how large-country caps conform to globe curvature without changing colors or interactions
+      Globe.polygonCapCurvatureResolution(3);
       if (typeof Globe.polygonLabel    === 'function') Globe.polygonLabel(function(d) { return '<b>' + d.properties.ADMIN + '</b>'; });
       if (typeof Globe.onPolygonHover  === 'function') Globe.onPolygonHover(function(h) { document.body.style.cursor = h ? 'pointer' : 'grab'; });
     })
@@ -1510,6 +1515,11 @@ document.addEventListener('DOMContentLoaded', function() {
   var animT        = 0;
   var _frameLast   = 0; // timestamp of previous frame for budget sampling
   var _frameCount  = 0; // frame counter — sample every 60 frames (~1 s at 60 fps)
+  // FPS rolling average — circular buffer of the last 60 frame deltas (≈ 1 s window)
+  var _fpsBuf      = new Float32Array(60);
+  var _fpsBufIdx   = 0;
+  var _fpsBufFull  = false;
+  var _fpsMin      = 0;
   function animate() {
     requestAnimationFrame(animate);
     animT += 0.016;
@@ -1518,11 +1528,29 @@ document.addEventListener('DOMContentLoaded', function() {
     // without paying measurement overhead on every single frame.
     var _frameNow = performance.now();
     if (_frameLast) {
+      var _frameDelta = _frameNow - _frameLast;
       if (++_frameCount % 60 === 0 && window.ArgusPerf) {
-        ArgusPerf.record('FRAME_TIME_MS', _frameNow - _frameLast, 16.67); // 16.67 ms = 60 fps
+        ArgusPerf.record('FRAME_TIME_MS', _frameDelta, 16.67); // 16.67 ms = 60 fps
       }
-      if ((_frameNow - _frameLast) > 16.67 && window.ArgusSchedulerAudit) {
+      if (_frameDelta > 16.67 && window.ArgusSchedulerAudit) {
         window.ArgusSchedulerAudit.frameBudgetViolations++;
+      }
+      // FPS rolling average — store instantaneous fps in circular buffer
+      var _instantFps = _frameDelta > 0 ? (1000 / _frameDelta) : 0;
+      _fpsBuf[_fpsBufIdx] = _instantFps;
+      _fpsBufIdx = (_fpsBufIdx + 1) % 60;
+      if (_fpsBufIdx === 0) _fpsBufFull = true;
+      // Update FPS stats on ArgusRendererAudit every 60 frames
+      if (_frameCount % 60 === 0 && window.ArgusRendererAudit) {
+        var _fpsN   = _fpsBufFull ? 60 : _fpsBufIdx;
+        var _fpsSum = 0;
+        _fpsMin = Infinity;
+        for (var _fi = 0; _fi < _fpsN; _fi++) {
+          _fpsSum += _fpsBuf[_fi];
+          if (_fpsBuf[_fi] < _fpsMin) _fpsMin = _fpsBuf[_fi];
+        }
+        window.ArgusRendererAudit.fpsAvg = _fpsN ? (_fpsSum / _fpsN) : 0;
+        window.ArgusRendererAudit.fpsMin = _fpsMin === Infinity ? 0 : _fpsMin;
       }
     }
     _frameLast = _frameNow;
@@ -1571,11 +1599,14 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // ── ArgusRenderAudit — updated every frame, removable ────────────────────────
     if (window.ArgusRenderAudit) {
-      var _ri = renderer.info.render;
+      var _ri  = renderer.info.render;
+      var _rim = renderer.info.memory;
       window.ArgusRenderAudit.drawCalls  = _ri.calls;
       window.ArgusRenderAudit.triangles  = _ri.triangles;
       window.ArgusRenderAudit.lines      = _ri.lines;
       window.ArgusRenderAudit.points     = _ri.points;
+      window.ArgusRenderAudit.geometries = _rim ? _rim.geometries : 0;
+      window.ArgusRenderAudit.textures   = _rim ? _rim.textures   : 0;
       window.ArgusRenderAudit.entityCounts = {
         ais:       window.ArgusAISInstanced       ? window.ArgusAISInstanced.getCount()       : 0,
         aircraft:  window.ArgusAircraftInstanced  ? window.ArgusAircraftInstanced.getCount()  : 0,
@@ -1592,6 +1623,7 @@ document.addEventListener('DOMContentLoaded', function() {
   // Remove: delete window.ArgusRenderAudit before ship deploy.
   window.ArgusRenderAudit = {
     drawCalls: 0, triangles: 0, lines: 0, points: 0,
+    geometries: 0, textures: 0, fpsAvg: 0, fpsMin: 0,
     entityCounts: {}, renderBreakdown: {},
   };
 
@@ -10402,5 +10434,8 @@ if (document.readyState === 'loading') {
 
 <!-- ArgusSelection — extracted to separate file for background parsing -->
 <script src="/core/runtime/argusSelection.js"></script>
+
+<!-- ArgusDiagnostics — unified observability framework + debug overlay (Ctrl+Shift+D) -->
+<script src="/core/runtime/argusDiagnostics.js"></script>
 </body>
 </html>

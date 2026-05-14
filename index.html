@@ -1293,6 +1293,98 @@ document.addEventListener('DOMContentLoaded', function() {
     isDragging = false;
   }, { passive: true });
 
+  // ── Mobile-only enhanced touch controls ──────────────────────────────────────
+  // Gated strictly behind touch/coarse-pointer detection.
+  // Desktop users: zero change — none of this code runs, no variables shadow anything.
+  // Mobile users: pinch zoom, double-tap zoom, event auto-focus, wider tap hitboxes.
+  var _isMobile = (typeof window.ontouchstart !== 'undefined') ||
+    !!(window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
+
+  // Smooth camera zoom animator — used by pinch, double-tap, and event auto-focus.
+  // Interpolates camera.position.z only; never touches rotation or desktop state.
+  function _mobileZoomTo(targetZ, durationMs) {
+    targetZ = Math.max(102, Math.min(360, targetZ));
+    var startZ = camera.position.z;
+    var startT = performance.now();
+    (function _step() {
+      var t    = Math.min(1, (performance.now() - startT) / (durationMs || 350));
+      var ease = 1 - Math.pow(1 - t, 3);  // ease-out cubic
+      camera.position.z = startZ + (targetZ - startZ) * ease;
+      if (t < 1) requestAnimationFrame(_step);
+    }());
+  }
+
+  if (_isMobile) {
+    // Prevent browser gesture hijacking (scroll, native zoom) on the canvas.
+    // Desktop: touch-action is not set here — only applied inside this gate.
+    renderer.domElement.style.touchAction = 'none';
+
+    // ── Pinch-to-zoom ─────────────────────────────────────────────────────────
+    // Two-finger pinch maps to camera.position.z (same axis as desktop wheel).
+    // Existing single-finger handler already returns early for touches.length !== 1
+    // so these listeners add new behavior without conflicting.
+    var _pinchStartDist = 0;
+    var _pinchStartZ    = 0;
+
+    evtMgr.add(renderer.domElement, 'touchstart', function(e) {
+      if (e.touches.length !== 2) return;
+      var dx = e.touches[1].clientX - e.touches[0].clientX;
+      var dy = e.touches[1].clientY - e.touches[0].clientY;
+      _pinchStartDist = Math.sqrt(dx * dx + dy * dy);
+      _pinchStartZ    = camera.position.z;
+    }, { passive: true });
+
+    evtMgr.add(renderer.domElement, 'touchmove', function(e) {
+      if (e.touches.length !== 2) return;
+      e.preventDefault();  // block native browser zoom during pinch
+      var dx   = e.touches[1].clientX - e.touches[0].clientX;
+      var dy   = e.touches[1].clientY - e.touches[0].clientY;
+      var dist = Math.sqrt(dx * dx + dy * dy);
+      if (!_pinchStartDist) return;
+      // Pinch out (dist grows) → zoom in (Z shrinks). Clamped to safe camera range.
+      var newZ = Math.max(102, Math.min(360, _pinchStartZ * (_pinchStartDist / dist)));
+      camera.position.z = newZ;
+    }, { passive: false });
+
+    // ── Double-tap to zoom ─────────────────────────────────────────────────────
+    // First tap: store position + time. Second tap within 320ms and 50px: zoom.
+    // If already zoomed in (z < 160), double-tap zooms back out to default.
+    // _touchDragged (defined in the rotation handler above) guards against
+    // drag gestures being mistaken for taps.
+    var _lastTapMs  = 0;
+    var _lastTapX   = 0;
+    var _lastTapY   = 0;
+    var _DBL_TAP_MS = 320;
+    var _DBL_TAP_PX = 50;
+
+    evtMgr.add(renderer.domElement, 'touchend', function(e) {
+      if (_touchDragged) return;
+      if (!e.changedTouches.length) return;
+      var tx  = e.changedTouches[0].clientX;
+      var ty  = e.changedTouches[0].clientY;
+      var now = Date.now();
+      var dt  = now - _lastTapMs;
+      var dd  = Math.sqrt(Math.pow(tx - _lastTapX, 2) + Math.pow(ty - _lastTapY, 2));
+      if (dt < _DBL_TAP_MS && dd < _DBL_TAP_PX) {
+        // Double-tap: toggle zoom in / zoom out
+        var targetZ = camera.position.z < 160 ? 220 : 135;
+        _mobileZoomTo(targetZ, 420);
+        _lastTapMs = 0;  // reset so triple-tap doesn't re-fire
+      } else {
+        _lastTapMs = now;
+        _lastTapX  = tx;
+        _lastTapY  = ty;
+      }
+    }, { passive: true });
+
+    // ── Expanded tap hitboxes ──────────────────────────────────────────────────
+    // Raises the raycaster threshold for point and line primitives so dense
+    // clusters are easier to tap on small screens. Mesh (sphere) markers are
+    // unaffected here — auto-focus zoom handles those naturally.
+    raycasterClick.params.Points = { threshold: 4 };
+    raycasterClick.params.Line   = { threshold: 2 };
+  }
+
   // ── Hover helpers ────────────────────────────────────────────────────────────
   var _activeHoverObj = null;
 
@@ -1488,14 +1580,22 @@ document.addEventListener('DOMContentLoaded', function() {
         if (ArgusSelection.onClick(e.clientX, e.clientY)) return;
       }
       ArgusUI.showEventDetail(_topHit.userData);
+      // Mobile: smoothly zoom in toward the selected event so the detail is easier
+      // to read and nearby markers become easier to tap. No-ops on desktop (_isMobile=false).
+      if (_isMobile && camera.position.z > 155) _mobileZoomTo(135, 480);
       return;
     }
 
     // No 3D raycast hit — sprites in congested areas can be missed entirely
     // (multiple sprites at same depth, or cursor between sprite centers).
     // Fall back to screen-space search which catches these cases.
-    if (window.ArgusSelection && ((!cls || cls.aircraft) || (!cls || cls.vessels) || (!cls || cls.aisVessels))) {
-      if (ArgusSelection.onClick(e.clientX, e.clientY)) return;
+    // On mobile, always run screen-space search as a second-chance hitbox pass
+    // for all interactive layer types, not just aircraft/vessels.
+    if (window.ArgusSelection) {
+      var _ssTypes = ((!cls || cls.aircraft) || (!cls || cls.vessels) || (!cls || cls.aisVessels));
+      if (_isMobile || _ssTypes) {
+        if (ArgusSelection.onClick(e.clientX, e.clientY)) return;
+      }
     }
 
     if (!cls || cls.chokepoints) {

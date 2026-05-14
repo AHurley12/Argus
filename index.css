@@ -20,7 +20,7 @@
       --font-secondary:     'DM Mono', monospace;
       --font-admin:         'Iosevka', monospace;
       --font-display:       'Rajdhani', sans-serif;
-      --header-height:      62px;
+      --header-height:      76px;
       --panel-left-width:   290px;
       --panel-right-width:  clamp(180px, 17vw, 221px);
       --ai-panel-width:     380px;
@@ -112,6 +112,7 @@
       flex-direction: column;
       align-items: flex-start;
       gap: 0;
+      position: relative;
     }
 
     #logo {
@@ -133,9 +134,11 @@
     }
 
     .header__tagline-version {
+      position: absolute;
+      bottom: 3px;
+      right: 0;
       font-size: 10px;
       color: var(--color-accent);
-      margin-top: 2px;
       font-weight: 400;
     }
 
@@ -2921,10 +2924,9 @@
       height: 52px;
     }
 
-    /* v.beta under ARGUS (handled by desktop HTML; just adjust size on mobile) */
+    /* v.beta stays absolutely positioned on mobile — just adjust font size */
     .header__tagline-version {
       font-size: 8px;
-      margin-top: 1px;
     }
 
     /* ── Stats: compact spacing + smaller text ──────────────────────────── */

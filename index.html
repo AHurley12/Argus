@@ -709,7 +709,7 @@ document.addEventListener('DOMContentLoaded', function() {
   // ── Renderer ────────────────────────────────────────────────────────────────
   const container = document.getElementById('globe-canvas-container');
   const W = container.clientWidth  || window.innerWidth;
-  const H = container.clientHeight || (window.innerHeight - 62);
+  const H = container.clientHeight || (window.innerHeight - 76);
 
   const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, precision: 'highp' });
   renderer.setSize(W, H);
@@ -1717,7 +1717,7 @@ document.addEventListener('DOMContentLoaded', function() {
   // ── Resize Handler ───────────────────────────────────────────────────────────
   evtMgr.add(window, 'resize', function() {
     var nW = window.innerWidth;
-    var nH = window.innerHeight - 62;
+    var nH = window.innerHeight - 76;
     camera.aspect = nW / nH;
     camera.updateProjectionMatrix();
     renderer.setSize(nW, nH);

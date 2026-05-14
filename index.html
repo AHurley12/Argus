@@ -35,7 +35,7 @@
     <div class="header__left">
       <div class="header__brand">
         <div class="header__logo-wrap">
-          <div id="logo" aria-label="ARGUS">ARGUS</div>
+          <img id="logo" src="/ArgusLogo.png" alt="ARGUS" aria-label="ARGUS">
           <div class="header__tagline-version">v.beta</div>
         </div>
         <div class="header__tagline">
@@ -4216,19 +4216,31 @@ function autoSuggestTopEvents(classified) {
 }
 
 async function loadLiveEvents() {
+  // Stale-while-revalidate: show ANY cached data immediately (even if expired),
+  // then fetch fresh in the background. This eliminates the blank-panel-on-first-load
+  // bug where two sequential network calls (Supabase + Netlify) blocked rendering.
+  var cached = null;
+  var ts = 0;
   try {
-    var cached = localStorage.getItem(FEED_CACHE_KEY);
-    var ts     = parseInt(localStorage.getItem(FEED_CACHE_TS) || '0');
-    if (cached && Date.now() - ts < FEED_TTL) {
-      renderEvents(JSON.parse(cached), true);
-      // Suggest from cache too (dedup prevents re-submission)
-      try { autoSuggestTopEvents(JSON.parse(cached)); } catch(e) {}
-      return;
-    }
+    cached = localStorage.getItem(FEED_CACHE_KEY);
+    ts     = parseInt(localStorage.getItem(FEED_CACHE_TS) || '0');
   } catch(e) {}
 
-  showLoadingState();
+  if (cached) {
+    // Render stale or fresh cache immediately — user sees content within ms
+    try { renderEvents(JSON.parse(cached), true); } catch(e) {}
+  } else {
+    // True first-ever load: show skeleton while fetching
+    showLoadingState();
+  }
 
+  // Cache is still fresh — no network call needed
+  if (cached && Date.now() - ts < FEED_TTL) {
+    try { autoSuggestTopEvents(JSON.parse(cached)); } catch(e) {}
+    return;
+  }
+
+  // Fetch fresh data (background update if stale cache was already shown above)
   try {
     var liveEvents = await fetchAndClassify();
     window._lsWrite(FEED_CACHE_KEY, liveEvents);
@@ -4239,11 +4251,13 @@ async function loadLiveEvents() {
     autoSuggestTopEvents(liveEvents);
   } catch(err) {
     console.warn('Live feed error:', err.message, '— using fallback');
-    renderEvents(FALLBACK_EVENTS, false);
+    // Only show static fallback if nothing else is displayed (true cold first load)
+    if (!cached) renderEvents(FALLBACK_EVENTS, false);
   }
 }
 
-loadLiveEvents();
+// Defer 200ms so the DOM and other init fully settle before the first fetch fires
+setTimeout(loadLiveEvents, 200);
 setInterval(function () { if (!document.hidden) loadLiveEvents(); }, FEED_TTL);
 
 // ════════════════════════════════════════════════════════════════════════════

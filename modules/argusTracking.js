@@ -496,6 +496,25 @@ function renderAircraft(json) {
   var currentIds = new Set();
   states.forEach(function(s) { if (s.icao24) currentIds.add(s.icao24); });
 
+  // Publish primary ICAO24 set for ArgusProviderCache staleness checks.
+  // ArgusProviderCache reads this to determine which ICAO24s need fallback coverage.
+  if (window._argusCurrentIcao24s) {
+    window._argusCurrentIcao24s.clear();
+    currentIds.forEach(function(id) { window._argusCurrentIcao24s.add(id); });
+  }
+
+  // Merge OpenSky fallback aircraft — additive only, no primary override.
+  // Entries whose ICAO24 is already in the primary snapshot are skipped.
+  var _provBuf = window._argusProviderAircraft;
+  if (_provBuf && _provBuf.size && states.length < AIRCRAFT_LIMIT) {
+    _provBuf.forEach(function(ac, icao24) {
+      if (currentIds.has(icao24)) return;  // primary has this — skip
+      if (states.length >= AIRCRAFT_LIMIT) return;
+      states.push(ac);
+      currentIds.add(icao24);
+    });
+  }
+
   // Dead-reckon aircraft from previous snapshot absent in current
   // Uses heading + ground speed to extrapolate position over elapsed time
   _prevPositions.forEach(function(prev, icao24) {

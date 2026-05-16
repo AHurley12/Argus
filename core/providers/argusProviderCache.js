@@ -1,259 +1,167 @@
 'use strict';
 // core/providers/argusProviderCache.js
-// Additive telemetry fallback provider — AISHub (vessels) + OpenSky (aircraft).
+// Aircraft supplemental telemetry provider — OpenSky Network (additive, aircraft only).
 //
 // Architecture:
-//   This module is PURELY ADDITIVE. It only injects entities that are absent from or
-//   stale in the primary pipelines. It NEVER alters, overrides, or replaces primary data.
+//   PURELY ADDITIVE. Injects aircraft that are absent from the primary fetch-traffic
+//   snapshot. Never alters, overrides, or replaces primary data.
+//   AISstream remains the sole realtime vessel provider — no vessel fallback here.
 //
-// Staleness model (simple threshold — no probabilistic fusion):
-//   AIS vessel: stale if _aisState.vessels has no entry for this MMSI, or updatedAt is
-//               older than AIS_STALE_MS (90 seconds — 3× the AIS render interval).
-//   Aircraft: stale if cachedStates has no entry for this ICAO24 in current snapshot.
-//             We inject into a side buffer merged before renderAircraft().
+// Vessel strategy:
+//   AISstream WebSocket is the only vessel telemetry source. Future vessel additions
+//   should target metadata enrichment (IMO lookup, flag/operator, destination
+//   normalization) — NOT additional high-frequency global AIS streams.
 //
-// Injection mechanisms:
-//   Vessels: calls window.ArgusAIS.updateVesselState() — same path as WebSocket ingest.
-//            The existing _ingestBuffer → _processAndRender pipeline handles dedup.
-//   Aircraft: writes to window._argusProviderAircraft (a side buffer). renderAircraft()
-//             reads and merges this buffer before processing states, filtered by ICAO24
-//             deduplication against the primary aircraft array.
+// Aircraft staleness model:
+//   An ICAO24 is considered absent if it is not in the current primary snapshot.
+//   window._argusCurrentIcao24s (a Set) is populated by renderAircraft() on each
+//   render pass. OpenSky entries whose ICAO24 is in that Set are silently skipped.
 //
-// Priority hierarchy (highest to lowest):
-//   1. Primary pipelines (fetch-traffic, AISstream WebSocket) — always win
-//   2. Fallback providers (AISHub, OpenSky) — fill gaps only
+// Injection path:
+//   OpenSky poll → normalize → filter by _argusCurrentIcao24s → write to aircraftLiveCache.
+//   renderAircraft() reads window._argusProviderAircraft (live reference to aircraftLiveCache)
+//   and appends absent ICAO24s before processing — zero allocation on cache hit.
 //
-// Poll intervals:
-//   AISHub:  5 min (respects free-tier rate limit)
-//   OpenSky: 3 min (conservative for anonymous tier)
+// Cache:
+//   aircraftLiveCache  Map<icao24, normalizedAircraftRecord>  — live, mutated in place.
+//   Cleared and repopulated each poll cycle. renderAircraft() reads it by reference
+//   between polls — no copy, no GC pressure.
 //
-// Console policy: silent at steady state. Use ArgusProviderCache.status() for diagnostics.
+// Poll interval: 3 min (conservative for OpenSky anonymous tier).
+//   Server-side (fetch-opensky.js) caches 2 min in Supabase.
+//
+// Console policy: silent at steady state. ArgusProviderCache.status() for diagnostics.
 //
 // Dependencies:
-//   window.ArgusAIS            — for updateVesselState() injection
-//   window._argusReqCache      — for deduped fetch (reuses existing infrastructure)
-//   window.ArgusModuleAudit    — optional
+//   window._argusReqCache    — deduped fetch infrastructure (cache.js)
+//   window.ArgusModuleAudit  — optional
 //
-// Load order: after argusAIS.js and argusTracking.js
+// Load order: after argusAIS.js and argusTracking.js (last two scripts in body)
 
 (function () {
   'use strict';
 
-  // ── Config ──────────────────────────────────────────────────────────────────
-  var AISHUB_FN     = '/.netlify/functions/fetch-aishub';
-  var OPENSKY_FN    = '/.netlify/functions/fetch-opensky';
+  // ── Config ───────────────────────────────────────────────────────────────────
+  var OPENSKY_FN       = '/.netlify/functions/fetch-opensky';
+  var OPENSKY_POLL     = 3 * 60 * 1000;   // 3 min — conservative for anonymous tier
+  var MAX_INJECT       = 200;             // max aircraft to load into cache per cycle
 
-  var AIS_STALE_MS  = 90 * 1000;          // vessel is stale if not seen in 90 s
-  var AISHUB_POLL   = 5 * 60 * 1000;      // AISHub free tier: 5 min minimum
-  var OPENSKY_POLL  = 3 * 60 * 1000;      // OpenSky: 3 min (anonymous rate limit buffer)
+  // ── Live aircraft cache ──────────────────────────────────────────────────────
+  // Canonical Map<icao24, normalizedRecord>. Populated by _pollOpenSky().
+  // Consumed by renderAircraft() via window._argusProviderAircraft (live reference).
+  // Mutated in place each cycle — entries are set() / clear(), not array push/splice.
+  var aircraftLiveCache = new Map();  // icao24 → { icao24, callsign, lat, lon, track, gs, alt, flightType, stale, source }
 
-  // Maximum fallback entities to inject per poll cycle — prevents fallback
-  // from crowding out primary data if primary returns a partial snapshot.
-  var MAX_AIS_INJECT       = 300;  // vessels from AISHub per cycle
-  var MAX_OPENSKY_INJECT   = 200;  // aircraft from OpenSky per cycle
-
-  // ── State ───────────────────────────────────────────────────────────────────
-  var _aishubTimer   = null;
-  var _openskyTimer  = null;
-  var _enabled       = true;  // set false to fully suspend without reloading
-
+  // ── Audit ────────────────────────────────────────────────────────────────────
   var _audit = {
-    aishub:  { polls: 0, injected: 0, skipped: 0, lastPollMs: 0, lastError: null },
-    opensky: { polls: 0, injected: 0, skipped: 0, lastPollMs: 0, lastError: null },
+    polls: 0, injected: 0, skipped: 0, lastPollMs: 0, lastError: null,
   };
 
-  // Side buffer for OpenSky aircraft — consumed by the patched renderAircraft() wrapper.
-  // Keyed by ICAO24 to allow O(1) lookups. Cleared after each merge.
-  var _openskyBuffer = new Map();  // icao24 → normalized aircraft record
-
-  // ── AIS vessel staleness check ───────────────────────────────────────────────
-  // Returns true if this MMSI is absent from the primary AIS state store, or if
-  // the vessel's last update is older than AIS_STALE_MS.
-  function _isAISStale(mmsi) {
-    var aisModule = window.ArgusAIS;
-    if (!aisModule) return true;  // AIS not ready — inject conservatively
-
-    // Access the internal state store via the exposed diagnostic interface.
-    // ArgusAIS exposes _aisState.vessels indirectly through window._aisMarkers.
-    // We check the aisMarkers Map (mmsi → { sprite, updatedAt }) which is reliable.
-    var markers = window._aisMarkers;
-    if (!markers) return true;
-
-    var entry = markers.get(mmsi);
-    if (!entry) return true;  // not tracked at all
-    if (!entry.updatedAt) return true;
-
-    return (Date.now() - entry.updatedAt) > AIS_STALE_MS;
-  }
+  // ── State ────────────────────────────────────────────────────────────────────
+  var _openskyTimer = null;
+  var _enabled      = true;
 
   // ── Aircraft staleness check ─────────────────────────────────────────────────
-  // Returns true if this ICAO24 is absent from the current primary snapshot.
-  // We read window._argusCurrentIcao24s — a Set maintained by the renderAircraft wrapper.
-  function _isAircraftStale(icao24) {
+  // Returns true if this ICAO24 is NOT in the current primary snapshot.
+  // renderAircraft() populates window._argusCurrentIcao24s after extracting states.
+  function _isPrimaryAbsent(icao24) {
     var primary = window._argusCurrentIcao24s;
     if (!primary || !primary.size) return true;  // no primary data yet — inject conservatively
     return !primary.has(icao24);
   }
 
-  // ── AISHub poll ──────────────────────────────────────────────────────────────
-  function _pollAISHub() {
-    if (!_enabled) return;
-    var aisModule = window.ArgusAIS;
-    if (!aisModule || !aisModule.updateVesselState) return;  // AIS not initialized yet
-
-    _audit.aishub.polls++;
-
-    window._argusReqCache.fetch(AISHUB_FN)
-      .then(function (json) {
-        _audit.aishub.lastPollMs = Date.now();
-
-        if (!json || !Array.isArray(json.vessels)) return;
-
-        var injected = 0;
-        var skipped  = 0;
-
-        for (var i = 0; i < json.vessels.length && injected < MAX_AIS_INJECT; i++) {
-          var v = json.vessels[i];
-          if (!v || !v.mmsi || v.lat == null || v.lon == null) { skipped++; continue; }
-
-          if (!_isAISStale(v.mmsi)) { skipped++; continue; }
-
-          // Inject via the same path as WebSocket ingest — _ingestBuffer → _processAndRender.
-          // This ensures all existing dedup, diff, and rendering logic applies uniformly.
-          aisModule.updateVesselState(
-            v.mmsi,
-            v.name || null,
-            v.lat,
-            v.lon,
-            v.heading,
-            v.velocity,
-            v.shipType || 'unknown',
-            v.navStatus != null ? v.navStatus : null
-          );
-          injected++;
-        }
-
-        _audit.aishub.injected += injected;
-        _audit.aishub.skipped  += skipped;
-        _audit.aishub.lastError = null;
-      })
-      .catch(function (err) {
-        _audit.aishub.lastError = err.message;
-        // Silent failure — primary pipeline continues unaffected
-      });
-  }
-
   // ── OpenSky poll ─────────────────────────────────────────────────────────────
   function _pollOpenSky() {
-    if (!_enabled) return;
+    if (!_enabled || !window._argusReqCache) return;
 
-    _audit.opensky.polls++;
+    _audit.polls++;
 
     window._argusReqCache.fetch(OPENSKY_FN)
       .then(function (json) {
-        _audit.opensky.lastPollMs = Date.now();
+        _audit.lastPollMs = Date.now();
+        _audit.lastError  = null;
 
         if (!json || !Array.isArray(json.aircraft)) return;
 
-        // Write to side buffer — renderAircraft() wrapper will merge on next render.
-        // Clear first so we don't accumulate across polls.
-        _openskyBuffer.clear();
+        // Repopulate cache — clear first to evict stale ICAO24s from previous cycle.
+        // All mutations are in-place on the Map; the window reference stays stable.
+        aircraftLiveCache.clear();
 
         var injected = 0;
         var skipped  = 0;
 
-        for (var i = 0; i < json.aircraft.length && injected < MAX_OPENSKY_INJECT; i++) {
+        for (var i = 0; i < json.aircraft.length; i++) {
+          if (injected >= MAX_INJECT) break;
           var ac = json.aircraft[i];
           if (!ac || !ac.icao24 || ac.lat == null || ac.lon == null) { skipped++; continue; }
 
-          if (!_isAircraftStale(ac.icao24)) { skipped++; continue; }
+          // Only cache ICAO24s absent from the current primary snapshot.
+          // On the next renderAircraft() call, the merge step re-checks this anyway,
+          // but pre-filtering here avoids polluting the cache with known duplicates.
+          if (!_isPrimaryAbsent(ac.icao24)) { skipped++; continue; }
 
-          _openskyBuffer.set(ac.icao24, ac);
+          // Mutate in place if already cached (ICAO24 re-appearing after primary miss).
+          // set() on an existing key overwrites — Map reference identity is preserved.
+          aircraftLiveCache.set(ac.icao24, ac);
           injected++;
         }
 
-        _audit.opensky.injected += injected;
-        _audit.opensky.skipped  += skipped;
-        _audit.opensky.lastError = null;
+        _audit.injected += injected;
+        _audit.skipped  += skipped;
       })
       .catch(function (err) {
-        _audit.opensky.lastError = err.message;
+        _audit.lastError = err.message;
+        // Silent failure — primary aircraft pipeline continues unaffected.
       });
   }
 
-  // ── renderAircraft wrapper ───────────────────────────────────────────────────
-  // Patches ArgusTracking.renderAircraft (internal) by hooking fetchAndRenderAircraft.
-  // Strategy: intercept at the cachedStates level before renderAircraft() is called.
-  //
-  // We install a MutationObserver-free approach: poll for ArgusTracking readiness,
-  // then wrap the internal fetchAndRenderAircraft to:
-  //   1. After primary fetch resolves: extract the ICAO24 Set into _argusCurrentIcao24s
-  //   2. Append _openskyBuffer entries that are absent from the primary snapshot
-  //   3. Call renderAircraft with the merged payload
-  //
-  // This is accomplished by wrapping at the window.ArgusTracking public interface level.
-  // ArgusTracking exposes no renderAircraft directly — we hook via a shared side buffer
-  // that renderAircraft reads before processing. The buffer is installed as a property
-  // on the cachedStates object so it flows naturally through the existing code path.
-  //
-  // SIMPLER approach used here: we expose _openskyBuffer on the window and patch
-  // argusTracking's renderAircraft call site by injecting into cachedStates.aircraft
-  // after the primary fetch, before the next render pass. This avoids monkey-patching
-  // private functions and is fully reversible.
-  //
-  // Implementation: ArgusTracking reads window._argusProviderAircraft (if set) and
-  // appends entries whose icao24 is NOT in the primary states array. We set this global
-  // and ArgusTracking will read it. This requires one addition to argusTracking.js —
-  // a single 4-line read of window._argusProviderAircraft inside renderAircraft().
-  //
-  // We also maintain window._argusCurrentIcao24s — the Set of ICAO24s in the current
-  // primary snapshot, built inside renderAircraft() after states are extracted.
-  //
-  // Both globals are documented in ARGUS_GLOBALS.md (if present).
-
-  window._argusProviderAircraft = _openskyBuffer;  // live reference — always current
-  window._argusCurrentIcao24s   = new Set();       // populated by renderAircraft() patch
+  // ── Publish globals ──────────────────────────────────────────────────────────
+  // window._argusProviderAircraft  — live Map reference consumed by renderAircraft()
+  // window._argusCurrentIcao24s    — Set populated by renderAircraft() for staleness checks
+  // window.aircraftLiveCache       — canonical public name per architecture spec
+  window._argusProviderAircraft = aircraftLiveCache;   // live reference — always current
+  window._argusCurrentIcao24s   = new Set();           // populated by renderAircraft() on each pass
+  window.aircraftLiveCache      = aircraftLiveCache;   // canonical alias
 
   // ── Start / stop ─────────────────────────────────────────────────────────────
   function start() {
-    if (_aishubTimer || _openskyTimer) return;  // already running
+    if (_openskyTimer) return;  // already running
 
-    // Initial polls — staggered 10 s apart to avoid burst at startup
-    setTimeout(_pollAISHub,  10 * 1000);
+    // Initial poll deferred 20 s — primary pipeline gets its first render in first.
+    // This ensures _argusCurrentIcao24s is populated before we filter against it.
     setTimeout(_pollOpenSky, 20 * 1000);
 
-    // Recurring polls
-    _aishubTimer  = setInterval(_pollAISHub,  AISHUB_POLL);
     _openskyTimer = setInterval(_pollOpenSky, OPENSKY_POLL);
 
-    console.log('[ArgusProviderCache] started — AISHub every 5 min, OpenSky every 3 min');
+    console.log('[ArgusProviderCache] started — OpenSky supplemental aircraft every 3 min');
   }
 
   function stop() {
-    if (_aishubTimer)  { clearInterval(_aishubTimer);  _aishubTimer  = null; }
     if (_openskyTimer) { clearInterval(_openskyTimer); _openskyTimer = null; }
-    _openskyBuffer.clear();
+    aircraftLiveCache.clear();
     _enabled = false;
   }
 
   function status() {
     return {
-      enabled:  _enabled,
-      aishub:   JSON.parse(JSON.stringify(_audit.aishub)),
-      opensky:  JSON.parse(JSON.stringify(_audit.opensky)),
-      openskyBufferSize: _openskyBuffer.size,
+      enabled:          _enabled,
+      cacheSize:        aircraftLiveCache.size,
+      polls:            _audit.polls,
+      injected:         _audit.injected,
+      skipped:          _audit.skipped,
+      lastPollMs:       _audit.lastPollMs,
+      lastError:        _audit.lastError,
     };
   }
 
   window.ArgusProviderCache = { start: start, stop: stop, status: status };
 
-  // Auto-start when ArgusTracking is ready (it loads before this file)
-  // Defer to next tick so all modules finish their own init first.
+  // Auto-start — defer one tick so all modules complete init first.
   setTimeout(function () {
     if (window._argusReqCache) {
       start();
     } else {
-      // _argusReqCache not ready — retry once after 3 s
+      // Retry once after 3 s if request cache hasn't initialized yet.
       setTimeout(function () { if (window._argusReqCache) start(); }, 3000);
     }
   }, 0);

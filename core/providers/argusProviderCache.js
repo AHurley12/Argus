@@ -44,7 +44,8 @@
   // ── Config ───────────────────────────────────────────────────────────────────
   var OPENSKY_FN       = '/.netlify/functions/fetch-opensky';
   var OPENSKY_POLL     = 3 * 60 * 1000;   // 3 min — conservative for anonymous tier
-  var MAX_INJECT       = 200;             // max aircraft to load into cache per cycle
+  var MAX_INJECT       = 200;             // hard ceiling: cache never exceeds this count
+  var STALE_MS         = OPENSKY_POLL * 3; // 9 min — force-evict after 3 missed cycles
 
   // ── Live aircraft cache ──────────────────────────────────────────────────────
   // Canonical Map<icao24, normalizedRecord>. Populated by _pollOpenSky().
@@ -54,7 +55,7 @@
 
   // ── Audit ────────────────────────────────────────────────────────────────────
   var _audit = {
-    polls: 0, injected: 0, skipped: 0, lastPollMs: 0, lastError: null,
+    polls: 0, injected: 0, skipped: 0, expired: 0, lastPollMs: 0, lastError: null,
   };
 
   // ── State ────────────────────────────────────────────────────────────────────
@@ -71,10 +72,14 @@
   }
 
   // ── OpenSky poll ─────────────────────────────────────────────────────────────
+  // Diff-based update — never blind-clears the cache.
+  // Explicit expiration: delete entries absent from incoming snapshot OR older than STALE_MS.
+  // Hard cap: aircraftLiveCache.size is guaranteed ≤ MAX_INJECT after every cycle.
   function _pollOpenSky() {
     if (!_enabled || !window._argusReqCache) return;
 
     _audit.polls++;
+    var sizeAtStart = aircraftLiveCache.size;
 
     window._argusReqCache.fetch(OPENSKY_FN)
       .then(function (json) {
@@ -83,31 +88,91 @@
 
         if (!json || !Array.isArray(json.aircraft)) return;
 
-        // Repopulate cache — clear first to evict stale ICAO24s from previous cycle.
-        // All mutations are in-place on the Map; the window reference stays stable.
-        aircraftLiveCache.clear();
+        var nowMs = Date.now();
 
-        var injected = 0;
-        var skipped  = 0;
-
-        for (var i = 0; i < json.aircraft.length; i++) {
-          if (injected >= MAX_INJECT) break;
-          var ac = json.aircraft[i];
-          if (!ac || !ac.icao24 || ac.lat == null || ac.lon == null) { skipped++; continue; }
-
-          // Only cache ICAO24s absent from the current primary snapshot.
-          // On the next renderAircraft() call, the merge step re-checks this anyway,
-          // but pre-filtering here avoids polluting the cache with known duplicates.
-          if (!_isPrimaryAbsent(ac.icao24)) { skipped++; continue; }
-
-          // Mutate in place if already cached (ICAO24 re-appearing after primary miss).
-          // set() on an existing key overwrites — Map reference identity is preserved.
-          aircraftLiveCache.set(ac.icao24, ac);
-          injected++;
+        // ── Emergency guard: corrupt cache detection ───────────────────────────
+        // If something external wrote to window.aircraftLiveCache without the
+        // injection cap, the Map may be inflated to thousands or hundreds of
+        // thousands of entries. Iterating that in Step 2 would itself cause a
+        // long task. Short-circuit with clear() instead — next poll repopulates.
+        if (aircraftLiveCache.size > MAX_INJECT * 2) {
+          console.warn('[ArgusProviderCache] Cache inflated to', aircraftLiveCache.size,
+            'entries — clearing. Investigate external writes to window.aircraftLiveCache.');
+          aircraftLiveCache.clear();
         }
 
-        _audit.injected += injected;
-        _audit.skipped  += skipped;
+        // ── Step 1: Build capped, deduplicated incoming set ────────────────────
+        // Process the response first — build the set of valid, primary-absent ICAO24s
+        // we actually intend to keep this cycle. Cap applied here prevents the loop
+        // from writing more than MAX_INJECT entries regardless of response size.
+        var incomingIds = new Set();
+        var incoming    = [];
+
+        for (var i = 0; i < json.aircraft.length; i++) {
+          if (incoming.length >= MAX_INJECT) break;
+          var ac = json.aircraft[i];
+          if (!ac || !ac.icao24 || ac.lat == null || ac.lon == null) continue;
+          if (incomingIds.has(ac.icao24)) continue;  // dedup within this response
+          if (!_isPrimaryAbsent(ac.icao24)) continue;
+          incomingIds.add(ac.icao24);
+          incoming.push(ac);
+        }
+
+        // ── Step 2: Explicit stale expiration ──────────────────────────────────
+        // Delete any cache entry that is:
+        //   (a) absent from the incoming snapshot — dropped by primary or OpenSky, or
+        //   (b) older than STALE_MS regardless — secondary circuit-breaker.
+        // This is O(cache size) and mutates the live Map directly. The window reference
+        // (window._argusProviderAircraft) stays stable — no reassignment needed.
+        var expired = 0;
+        aircraftLiveCache.forEach(function (entry, id) {
+          var tooOld = (entry._cachedAt != null) && (nowMs - entry._cachedAt) > STALE_MS;
+          if (!incomingIds.has(id) || tooOld) {
+            aircraftLiveCache.delete(id);
+            expired++;
+          }
+        });
+
+        // ── Step 3: Diff upsert — UPDATE existing entries, CREATE new ones ─────
+        // Stable ICAO24 is the canonical key. Same aircraft across polls → same key.
+        // No ID instability here: ICAO24 is a fixed transponder address, not derived
+        // from timestamps, random values, or per-cycle data.
+        var created = 0;
+        var updated = 0;
+
+        for (var j = 0; j < incoming.length; j++) {
+          var entry  = incoming[j];
+          var exists = aircraftLiveCache.has(entry.icao24);
+          entry._cachedAt = nowMs;  // stamp insertion time for STALE_MS circuit-breaker
+          aircraftLiveCache.set(entry.icao24, entry);
+          if (exists) { updated++; } else { created++; }
+        }
+
+        // ── Step 4: Hard cap — belt-and-suspenders ─────────────────────────────
+        // Should never fire under normal operation (Step 1 cap prevents it).
+        // Guards against any external writes to window.aircraftLiveCache that bypass
+        // the injection path (e.g. direct console manipulation, external modules).
+        if (aircraftLiveCache.size > MAX_INJECT) {
+          var iter = aircraftLiveCache.keys();
+          var trim = aircraftLiveCache.size - MAX_INJECT;
+          for (var k = 0; k < trim; k++) aircraftLiveCache.delete(iter.next().value);
+          console.warn('[ArgusProviderCache] HARD CAP — trimmed', trim, 'excess entries. Investigate write source.');
+        }
+
+        // ── Step 5: Structured cycle diagnostic ───────────────────────────────
+        var delta = aircraftLiveCache.size - sizeAtStart;
+        console.log(
+          '[OpenSky Cycle]',
+          'created:', created,
+          '| updated:', updated,
+          '| expired:', expired,
+          '| cacheSize:', aircraftLiveCache.size,
+          '| growthDelta:', (delta >= 0 ? '+' : '') + delta
+        );
+
+        _audit.injected += created + updated;
+        _audit.skipped  += (json.aircraft.length - incoming.length);
+        _audit.expired  += expired;
       })
       .catch(function (err) {
         _audit.lastError = err.message;
@@ -149,6 +214,7 @@
       polls:            _audit.polls,
       injected:         _audit.injected,
       skipped:          _audit.skipped,
+      expired:          _audit.expired,
       lastPollMs:       _audit.lastPollMs,
       lastError:        _audit.lastError,
     };

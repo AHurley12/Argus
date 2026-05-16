@@ -171,6 +171,7 @@ exports.handler = async function (event) {
     if (!resp.ok) {
       throw new Error(`OpenSky HTTP ${resp.status}`);
     }
+    console.log('[OpenSky FETCH SUCCESS]', resp.status);
     rawJson = await resp.json();
   } catch (err) {
     console.error('[fetch-opensky] upstream fetch failed:', err.message);
@@ -182,6 +183,7 @@ exports.handler = async function (event) {
   }
 
   const stateVectors = rawJson && Array.isArray(rawJson.states) ? rawJson.states : [];
+  console.log('[OpenSky RAW STATES]', stateVectors.length);
   const aircraft = [];
   const seen = new Set();
 
@@ -192,6 +194,7 @@ exports.handler = async function (event) {
     seen.add(norm.icao24);
     aircraft.push(norm);
   }
+  console.log('[OpenSky NORMALIZED COUNT]', aircraft.length);
 
   const payload = { aircraft, source: 'opensky', ts: Date.now() };
 

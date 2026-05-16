@@ -2152,8 +2152,113 @@ function buildPortAnalytics() {
   return result;
 }
 
+// ── OpenSky supplemental aircraft analytics (memoized) ───────────────────────
+// Reads window.aircraftLiveCache (Map<icao24, normalizedRecord>) — the OpenSky
+// supplemental provider cache. Separate from snap.flights which comes from the
+// primary ADS-B render pipeline.
+
+var OSKY_BASE_KEYS = {
+  '1h':  { key: 'argus_osky_base_1h',  ttl: 60  * 60 * 1000 },
+  '24h': { key: 'argus_osky_base_24h', ttl: 24  * 60 * 60 * 1000 },
+  '7d':  { key: 'argus_osky_base_7d',  ttl: 7   * 24 * 60 * 60 * 1000 },
+};
+
+function getOrSetOpenSkyBaseline(currentCount, timeRange) {
+  var tr     = timeRange || '24h';
+  var cfg    = OSKY_BASE_KEYS[tr] || OSKY_BASE_KEYS['24h'];
+  var nowMs  = Date.now();
+  var stored = null;
+  try { stored = JSON.parse(localStorage.getItem(cfg.key) || 'null'); } catch (_) {}
+  if (!stored || (nowMs - stored.ts) > cfg.ttl) {
+    stored = { ts: nowMs, count: currentCount };
+    try { localStorage.setItem(cfg.key, JSON.stringify(stored)); } catch (_) {}
+  }
+  return stored;
+}
+
+// Map lat/lon to a named aviation region
+function _oskyRegion(lat, lon) {
+  if (lat == null || lon == null) return 'OTHER';
+  if (lat >= 15 && lat <= 72  && lon >= -170 && lon <= -55) return 'N. AMERICA';
+  if (lat >  -55 && lat < 15  && lon >= -85  && lon <= -30) return 'L. AMERICA';
+  if (lat >= 35  && lat <= 72  && lon >= -10  && lon <= 45)  return 'EUROPE';
+  if (lat >= -35 && lat <  35  && lon >= -18  && lon <= 55)  return 'AFRICA / ME';
+  if (lat >= 5   && lat <= 55  && lon >  45   && lon <= 150) return 'ASIA';
+  if (lat >  -50 && lat <  5   && lon >= 95   && lon <= 180) return 'OCEANIA';
+  return 'OTHER';
+}
+
+var _oskyCache    = null;
+var _oskyCacheKey = '';
+
+function buildOpenSkyAnalytics() {
+  var liveCache = window.aircraftLiveCache;
+  if (!liveCache || !liveCache.size) return null;
+
+  var cacheKey = String(liveCache.size);
+  if (_oskyCacheKey === cacheKey && _oskyCache) return _oskyCache;
+  _oskyCacheKey = cacheKey;
+
+  var typeCounts  = {};
+  var altBands    = { high: 0, medium: 0, low: 0 };
+  var altHasData  = 0;
+  var totalGs     = 0;
+  var gsCount     = 0;
+  var regionCounts = {};
+  var total       = 0;
+
+  liveCache.forEach(function (ac) {
+    total++;
+
+    var ft = ac.flightType || 'unknown';
+    typeCounts[ft] = (typeCounts[ft] || 0) + 1;
+
+    if (ac.alt != null) {
+      altHasData++;
+      if      (ac.alt > 20000) { altBands.high++;   }
+      else if (ac.alt >= 5000) { altBands.medium++; }
+      else                     { altBands.low++;    }
+    }
+
+    if (ac.gs != null && ac.gs > 0) {
+      totalGs += ac.gs;
+      gsCount++;
+    }
+
+    var region = _oskyRegion(ac.lat, ac.lon);
+    regionCounts[region] = (regionCounts[region] || 0) + 1;
+  });
+
+  // Convert raw counts to integer percentages
+  var typePct = {};
+  Object.keys(typeCounts).forEach(function (k) {
+    typePct[k] = Math.round(typeCounts[k] / total * 100);
+  });
+
+  var altBandPct = {};
+  if (altHasData > 0) {
+    altBandPct.high   = Math.round(altBands.high   / altHasData * 100);
+    altBandPct.medium = Math.round(altBands.medium / altHasData * 100);
+    altBandPct.low    = Math.round(altBands.low    / altHasData * 100);
+  }
+
+  var regionPct = {};
+  Object.keys(regionCounts).forEach(function (k) {
+    regionPct[k] = Math.round(regionCounts[k] / total * 100);
+  });
+
+  _oskyCache = {
+    total:      total,
+    typePct:    typePct,
+    altBandPct: altBandPct,
+    avgGs:      gsCount > 0 ? Math.round(totalGs / gsCount) : null,
+    regionPct:  regionPct,
+  };
+  return _oskyCache;
+}
+
 // ── Collapsible section helper (toggle via onclick on header) ─────────────────
-var _portMacroCollapsed = { macro: false, meso: false, regions: false, ports: false, imf_global: false, imf_regions: true, imf_signals: true };
+var _portMacroCollapsed = { macro: false, meso: false, opensky: false, regions: false, ports: false, imf_global: false, imf_regions: true, imf_signals: true };
 
 function _macroSection(id, title, badge, colorCls, contentHtml) {
   // 'r_*' region keys default to collapsed (not in initial object)
@@ -2513,10 +2618,76 @@ function renderAnalytics() {
 
   var mesoBadge = noData ? 'no layer' : (snap.ships.length + 'v ' + snap.flights.length + 'f');
 
+  // ── Build OPENSKY section ─────────────────────────────────────────────────────
+  var oskyData   = buildOpenSkyAnalytics();
+  var oskyBase   = getOrSetOpenSkyBaseline(oskyData ? oskyData.total : 0, state.analyticsTimeRange);
+  var oskyAgeMin = Math.round((Date.now() - oskyBase.ts) / 60000);
+  var oskyAgeStr = oskyAgeMin < 60 ? oskyAgeMin + 'm ago' : Math.round(oskyAgeMin / 60) + 'h ago';
+  var oskyInner  = '';
+
+  if (!oskyData) {
+    oskyInner = '<div style="padding:10px 0;text-align:center;font-size:9px;letter-spacing:1px;color:#4a6888;opacity:0.6">ENABLE AIRCRAFT LAYER<br>OR AWAITING OPENSKY POLL</div>';
+  } else {
+    var oskyChange = pctChange(oskyData.total, oskyBase.count);
+    var oskyChgFmt = function(v) {
+      if (v === null) return '<span style="color:#4a6888">N/A</span>';
+      var col = v > 0 ? '#00ff88' : (v < 0 ? '#ff4466' : '#4a7da8');
+      return '<span style="color:' + col + '">' + (v > 0 ? '+' : '') + v + '%</span>';
+    };
+
+    oskyInner += trHtml;
+    oskyInner += field('SUPPLEMENTAL AC', oskyData.total + '&nbsp;&nbsp;' + oskyChgFmt(oskyChange));
+
+    // Flight type distribution
+    var OSKY_TYPE_COL = { commercial: '#66ddff', cargo: '#4488ff', military: '#ff4444', unknown: '#5577aa' };
+    var oskyTypeHtml = Object.keys(oskyData.typePct)
+      .sort(function (a, b) { return oskyData.typePct[b] - oskyData.typePct[a]; })
+      .map(function (k) {
+        return '<div style="margin-bottom:4px"><span style="color:#4a7da8;display:inline-block;width:76px;font-size:10px">' +
+          k.toUpperCase() + '</span>' + miniBar(oskyData.typePct[k], OSKY_TYPE_COL[k] || '#5577aa') + '</div>';
+      }).join('');
+    if (oskyTypeHtml) oskyInner += field('FLIGHT TYPES', oskyTypeHtml);
+
+    // Altitude band distribution
+    if (oskyData.altBandPct.high != null || oskyData.altBandPct.medium != null || oskyData.altBandPct.low != null) {
+      var OSKY_ALT_COL = { high: '#00ccff', medium: '#66ddff', low: '#ffcc00' };
+      var OSKY_ALT_LBL = { high: '>20K FT', medium: '5-20K FT', low: '<5K FT' };
+      var oskyAltHtml = ['high', 'medium', 'low'].filter(function (k) { return oskyData.altBandPct[k]; }).map(function (k) {
+        return '<div style="margin-bottom:4px"><span style="color:#4a7da8;display:inline-block;width:76px;font-size:10px">' +
+          OSKY_ALT_LBL[k] + '</span>' + miniBar(oskyData.altBandPct[k], OSKY_ALT_COL[k]) + '</div>';
+      }).join('');
+      if (oskyAltHtml) oskyInner += field('ALTITUDE BANDS', oskyAltHtml);
+    }
+
+    // Average speed
+    if (oskyData.avgGs != null) {
+      oskyInner += field('AVG SPEED', '<span style="color:#66ddff">' + oskyData.avgGs + '</span> <span style="color:#4a6888">kt</span>');
+    }
+
+    // Regional distribution (top 5)
+    var oskyRegKeys = Object.keys(oskyData.regionPct)
+      .sort(function (a, b) { return oskyData.regionPct[b] - oskyData.regionPct[a]; })
+      .slice(0, 5);
+    if (oskyRegKeys.length) {
+      var oskyRegHtml = oskyRegKeys.map(function (k) {
+        return '<div style="margin-bottom:4px"><span style="color:#4a7da8;display:inline-block;width:76px;font-size:10px">' +
+          k + '</span>' + miniBar(oskyData.regionPct[k], '#88aacc') + '</div>';
+      }).join('');
+      oskyInner += field('REGIONS', oskyRegHtml);
+    }
+
+    oskyInner += '<div style="margin-top:10px;font-size:9px;letter-spacing:0.5px;color:#4a6888;opacity:0.8;line-height:1.6">' +
+      'BASELINE FROM ' + oskyAgeStr.toUpperCase() + ' · SUPPLEMENTAL ONLY' +
+      '</div>';
+  }
+
+  var oskyBadge = oskyData ? oskyData.total + ' ac' : 'no data';
+
   // ── Assemble with top-level collapsible wrappers ──────────────────────────────
   var html = '';
-  html += _macroSection('macro', 'IMF PORTWATCH', macroBadge, '#00ccff', macroInner || '<div style="padding:8px 0;font-size:9px;color:#4a6888;text-align:center">AWAITING DATA</div>');
-  html += _macroSection('meso',  'AIS / ADS-B',   mesoBadge,  'var(--nw-purple)', mesoInner);
+  html += _macroSection('macro',   'IMF PORTWATCH',   macroBadge, '#00ccff',          macroInner || '<div style="padding:8px 0;font-size:9px;color:#4a6888;text-align:center">AWAITING DATA</div>');
+  html += _macroSection('meso',    'AIS / ADS-B',     mesoBadge,  'var(--nw-purple)', mesoInner);
+  html += _macroSection('opensky', 'OPENSKY NETWORK', oskyBadge,  '#66ddff',          oskyInner);
 
   body.innerHTML = html;
   _bindAnalyticsTimeRange(body);

@@ -18,17 +18,28 @@
 //
 // We cache 120 seconds in Supabase (generous buffer around OpenSky's 10s update cycle).
 //
-// Env: SUPABASE_URL, SUPABASE_SERVICE_KEY, OPENSKY_USER (optional), OPENSKY_PASS (optional)
+// Env: SUPABASE_URL, SUPABASE_SERVICE_KEY,
+//      OPENSKY_USERNAME (optional), OPENSKY_PASSWORD (optional),
+//      OPENSKY_BASE_URL (optional), OPENSKY_POLL_INTERVAL_MS (optional),
+//      ENABLE_OPENSKY (optional, default true)
+//
+// Legacy env vars OPENSKY_USER / OPENSKY_PASS are still accepted as fallbacks.
 
 const { createClient } = require('@supabase/supabase-js');
 
 const SUPABASE_URL  = process.env.SUPABASE_URL;
 const SUPABASE_KEY  = process.env.SUPABASE_SERVICE_KEY;
-const OS_USER       = process.env.OPENSKY_USER || '';
-const OS_PASS       = process.env.OPENSKY_PASS || '';
+// Credential resolution: canonical names take priority over legacy names
+const OS_USER       = process.env.OPENSKY_USERNAME || process.env.OPENSKY_USER || '';
+const OS_PASS       = process.env.OPENSKY_PASSWORD || process.env.OPENSKY_PASS || '';
+// Feature gate — set ENABLE_OPENSKY=false to disable without removing credentials
+const ENABLE_OPENSKY = (process.env.ENABLE_OPENSKY || 'true').toLowerCase() !== 'false';
+// Base URL — override for custom OpenSky-compatible endpoints
+const OS_BASE_URL   = (process.env.OPENSKY_BASE_URL || 'https://opensky-network.org/api').replace(/\/$/, '');
 
 const CACHE_KEY     = 'opensky_aircraft_v1';
-const CACHE_TTL_MS  = 2 * 60 * 1000;  // 2 min — conservative for anonymous tier
+// Cache TTL: env-driven or 2 min default — conservative for anonymous tier
+const CACHE_TTL_MS  = parseInt(process.env.OPENSKY_POLL_INTERVAL_MS || String(2 * 60 * 1000));
 
 // Hard cap: prevent flooding the render pipeline if OpenSky returns a huge snapshot.
 // Primary pipeline already caps at 750; fallback should never exceed the residual gap.
@@ -111,6 +122,15 @@ exports.handler = async function (event) {
     return { statusCode: 204, headers: CORS_HEADERS, body: '' };
   }
 
+  // Feature gate — return empty aircraft array when disabled
+  if (!ENABLE_OPENSKY) {
+    return {
+      statusCode: 200,
+      headers: CORS_HEADERS,
+      body: JSON.stringify({ aircraft: [], source: 'opensky', ts: Date.now(), disabled: true }),
+    };
+  }
+
   const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
   // ── Supabase cache read ────────────────────────────────────────────────────
@@ -135,7 +155,7 @@ exports.handler = async function (event) {
 
   // ── OpenSky REST fetch ─────────────────────────────────────────────────────
   // /api/states/all — global snapshot, no bbox
-  let osUrl = 'https://opensky-network.org/api/states/all';
+  let osUrl = OS_BASE_URL + '/states/all';
   const fetchOpts = {
     headers: { 'Accept': 'application/json' },
     signal: AbortSignal.timeout ? AbortSignal.timeout(15000) : undefined,

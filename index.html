@@ -6035,6 +6035,21 @@ ArgusMarket.init();
 ══════════════════════════════════════════════════════════════════════════════ -->
 <script src="/modules/argusGdacs.js"></script>
 
+<!-- ══════════════════════════════════════════════════════════════════════════════
+     SCRIPT 5 — Intelligence Layer Overlays
+     Isolated sparse intelligence systems — separate from realtime telemetry.
+     Each module maintains its own cache, update cadence, and render strategy.
+
+     ArgusACLED  — geopolitical conflict/event intelligence (4h poll, acledEventCache)
+     ArgusNOAA   — environmental/weather intelligence (15m poll, weatherOverlayCache)
+     ArgusGEM    — energy infrastructure intelligence (daily, energyInfrastructureCache)
+
+     These are NOT realtime telemetry streams. DO NOT mix with aircraft/vessel pipelines.
+══════════════════════════════════════════════════════════════════════════════ -->
+<script src="/modules/argusAcled.js"></script>
+<script src="/modules/argusNoaa.js"></script>
+<script src="/modules/argusGem.js"></script>
+
   <!-- ── Global Exchanges Popup ─────────────────────────────────────────────── -->
 
 

@@ -9,29 +9,24 @@
 //   { aircraft: [{ icao24, callsign, lat, lon, track, gs, alt, flightType, source }], source: 'opensky', ts: <epoch> }
 //
 // Setup:
-//   No credentials required for anonymous access (rate-limited to ~100 req/day).
-//   For higher rate limits, add:
-//     Netlify dashboard → Site → Environment variables:
-//       OPENSKY_USER = your_opensky_username
-//       OPENSKY_PASS = your_opensky_password
-//   With credentials: 400 req/day, credentials sent as HTTP Basic Auth.
+//   Credentials sent as HTTP Basic Auth to OpenSky.
+//   Netlify dashboard → Site → Environment variables:
+//     OPENSKY_ID     = your_opensky_client_id
+//     OPENSKY_SECRET = your_opensky_secret
 //
 // We cache 120 seconds in Supabase (generous buffer around OpenSky's 10s update cycle).
 //
 // Env: SUPABASE_URL, SUPABASE_SERVICE_KEY,
-//      OPENSKY_USERNAME (optional), OPENSKY_PASSWORD (optional),
+//      OPENSKY_ID, OPENSKY_SECRET,
 //      OPENSKY_BASE_URL (optional), OPENSKY_POLL_INTERVAL_MS (optional),
 //      ENABLE_OPENSKY (optional, default true)
-//
-// Legacy env vars OPENSKY_USER / OPENSKY_PASS are still accepted as fallbacks.
 
 const { createClient } = require('@supabase/supabase-js');
 
 const SUPABASE_URL  = process.env.SUPABASE_URL;
 const SUPABASE_KEY  = process.env.SUPABASE_SERVICE_KEY;
-// Credential resolution: canonical names take priority over legacy names
-const OS_USER       = process.env.OPENSKY_USERNAME || process.env.OPENSKY_USER || '';
-const OS_PASS       = process.env.OPENSKY_PASSWORD || process.env.OPENSKY_PASS || '';
+const OS_USER       = process.env.OPENSKY_ID     || '';
+const OS_PASS       = process.env.OPENSKY_SECRET  || '';
 // Feature gate — set ENABLE_OPENSKY=false to disable without removing credentials
 const ENABLE_OPENSKY = (process.env.ENABLE_OPENSKY || 'true').toLowerCase() !== 'false';
 // Base URL — override for custom OpenSky-compatible endpoints

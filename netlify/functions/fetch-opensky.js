@@ -5,41 +5,71 @@
 // Used as additive fallback when the primary fetch-traffic function has no data
 // for a region (stale cell, receiver gap) or after a complete primary failure.
 //
+// Auth: OAuth2 client credentials flow. Basic Auth (username/password) is no
+// longer accepted by OpenSky. Credentials are exchanged for a 30-min Bearer
+// token which is cached in-memory across warm function invocations.
+//
 // Response shape (normalized for argusProviderCache.js):
 //   { aircraft: [{ icao24, callsign, lat, lon, track, gs, alt, flightType, source }], source: 'opensky', ts: <epoch> }
 //
-// Setup:
-//   Credentials sent as HTTP Basic Auth to OpenSky.
-//   Netlify dashboard → Site → Environment variables:
-//     OPENSKY_ID     = your_opensky_client_id
-//     OPENSKY_SECRET = your_opensky_secret
-//
-// We cache 120 seconds in Supabase (generous buffer around OpenSky's 10s update cycle).
-//
 // Env: SUPABASE_URL, SUPABASE_SERVICE_KEY,
-//      OPENSKY_ID, OPENSKY_SECRET,
+//      OPENSKY_ID     (OAuth2 client_id),
+//      OPENSKY_SECRET (OAuth2 client_secret),
 //      OPENSKY_BASE_URL (optional), OPENSKY_POLL_INTERVAL_MS (optional),
 //      ENABLE_OPENSKY (optional, default true)
 
 const { createClient } = require('@supabase/supabase-js');
 
-const SUPABASE_URL  = process.env.SUPABASE_URL;
-const SUPABASE_KEY  = process.env.SUPABASE_SERVICE_KEY;
-const OS_USER       = process.env.OPENSKY_ID     || '';
-const OS_PASS       = process.env.OPENSKY_SECRET  || '';
-// Feature gate — set ENABLE_OPENSKY=false to disable without removing credentials
-const ENABLE_OPENSKY = (process.env.ENABLE_OPENSKY || 'true').toLowerCase() !== 'false';
-// Base URL — override for custom OpenSky-compatible endpoints
-const OS_BASE_URL   = (process.env.OPENSKY_BASE_URL || 'https://opensky-network.org/api').replace(/\/$/, '');
+const SUPABASE_URL    = process.env.SUPABASE_URL;
+const SUPABASE_KEY    = process.env.SUPABASE_SERVICE_KEY;
+const OS_CLIENT_ID    = process.env.OPENSKY_ID     || '';
+const OS_CLIENT_SEC   = process.env.OPENSKY_SECRET || '';
+const ENABLE_OPENSKY  = (process.env.ENABLE_OPENSKY || 'true').toLowerCase() !== 'false';
+const OS_BASE_URL     = (process.env.OPENSKY_BASE_URL || 'https://opensky-network.org/api').replace(/\/$/, '');
+const OS_TOKEN_URL    = 'https://auth.opensky-network.org/auth/realms/opensky-network/protocol/openid-connect/token';
 
-const CACHE_KEY     = 'opensky_aircraft_v1';
-// Cache TTL: env-driven or 2 min default — conservative for anonymous tier
-const CACHE_TTL_MS  = parseInt(process.env.OPENSKY_POLL_INTERVAL_MS || String(2 * 60 * 1000));
-
-// Hard cap: prevent flooding the render pipeline if OpenSky returns a huge snapshot.
-// Primary pipeline already caps at 750; fallback should never exceed the residual gap.
+const CACHE_KEY    = 'opensky_aircraft_v1';
+const CACHE_TTL_MS = parseInt(process.env.OPENSKY_POLL_INTERVAL_MS || String(2 * 60 * 1000));
 const MAX_AIRCRAFT = 400;
 
+// ── In-memory token cache (survives warm Netlify function instances) ───────────
+// Tokens last 30 min — we refresh 2 min early to avoid expiry mid-request.
+let _tokenCache = null; // { token: string, expiresAt: number }
+
+async function getAccessToken() {
+  const now = Date.now();
+  if (_tokenCache && _tokenCache.expiresAt > now + 2 * 60 * 1000) {
+    return _tokenCache.token;
+  }
+
+  const body = new URLSearchParams({
+    grant_type:    'client_credentials',
+    client_id:     OS_CLIENT_ID,
+    client_secret: OS_CLIENT_SEC,
+  });
+
+  const resp = await fetch(OS_TOKEN_URL, {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body:    body.toString(),
+    signal:  AbortSignal.timeout ? AbortSignal.timeout(10000) : undefined,
+  });
+
+  if (!resp.ok) {
+    throw new Error(`OpenSky token exchange failed: HTTP ${resp.status}`);
+  }
+
+  const json = await resp.json();
+  if (!json.access_token) throw new Error('OpenSky token response missing access_token');
+
+  // expires_in is in seconds; default 1800 (30 min) if not present
+  const expiresIn = (json.expires_in || 1800) * 1000;
+  _tokenCache = { token: json.access_token, expiresAt: now + expiresIn };
+  console.log('[OpenSky TOKEN] acquired, expires in', Math.round(expiresIn / 60000), 'min');
+  return _tokenCache.token;
+}
+
+// ── Flight classification ─────────────────────────────────────────────────────
 const CARGO_PREFIXES      = ['FDX', 'UPS', 'CLX', 'GTI', 'ABX'];
 const MILITARY_PREFIXES   = ['RCH', 'BAF', 'RAF', 'AMC', 'NAV'];
 const COMMERCIAL_PREFIXES = ['DAL', 'UAL', 'AAL', 'SWA', 'BAW', 'AFR', 'KLM'];
@@ -53,25 +83,14 @@ function classifyFlight(callsign, alt) {
   return 'unknown';
 }
 
-// OpenSky returns state vectors as arrays with positional fields.
+// ── State vector normalizer ───────────────────────────────────────────────────
 // Field indices per OpenSky Network API v1 docs:
-//   0  icao24 (string)
-//   1  callsign (string, space-padded)
-//   2  origin_country
-//   3  time_position
-//   4  last_contact
-//   5  longitude (float)
-//   6  latitude (float)
-//   7  baro_altitude (float, meters)
-//   8  on_ground (bool)
-//   9  velocity (float, m/s)
-//   10 true_track (float, degrees from north)
-//   11 vertical_rate
-//   12 sensors
-//   13 geo_altitude (float, meters)
-//   14 squawk
-//   15 spi
-//   16 position_source
+//   0  icao24 (string)   1  callsign   2  origin_country
+//   3  time_position      4  last_contact
+//   5  longitude (float)  6  latitude (float)
+//   7  baro_altitude (m)  8  on_ground (bool)
+//   9  velocity (m/s)    10  true_track (deg)  11  vertical_rate
+//  12  sensors           13  geo_altitude (m)  14  squawk
 function normalizeState(sv) {
   if (!Array.isArray(sv) || sv.length < 11) return null;
   const icao24 = String(sv[0] || '').trim();
@@ -84,13 +103,11 @@ function normalizeState(sv) {
   if (lat < -90 || lat > 90 || lon < -180 || lon > 180) return null;
 
   const callsign = (sv[1] || '').trim();
-  // Altitude: prefer baro, fall back to geo — convert meters → feet
-  const altM   = sv[7] != null ? sv[7] : sv[13];
-  const altFt  = altM != null ? Math.round(altM * 3.28084) : null;
-  // Velocity: m/s → knots
-  const velMs  = sv[9];
-  const gs     = velMs != null ? Math.round(velMs * 1.94384) : null;
-  const track  = sv[10] != null ? sv[10] : null;
+  const altM     = sv[7] != null ? sv[7] : sv[13];
+  const altFt    = altM != null ? Math.round(altM * 3.28084) : null;
+  const velMs    = sv[9];
+  const gs       = velMs != null ? Math.round(velMs * 1.94384) : null;
+  const track    = sv[10] != null ? sv[10] : null;
 
   return {
     icao24:     icao24,
@@ -117,7 +134,6 @@ exports.handler = async function (event) {
     return { statusCode: 204, headers: CORS_HEADERS, body: '' };
   }
 
-  // Feature gate — return empty aircraft array when disabled
   if (!ENABLE_OPENSKY) {
     return {
       statusCode: 200,
@@ -148,24 +164,39 @@ exports.handler = async function (event) {
     }
   } catch (_) { /* cache miss — proceed to fetch */ }
 
+  // ── OAuth2 token exchange ─────────────────────────────────────────────────
+  let token = null;
+  if (OS_CLIENT_ID && OS_CLIENT_SEC) {
+    try {
+      token = await getAccessToken();
+    } catch (err) {
+      console.error('[fetch-opensky] token exchange failed:', err.message);
+      return {
+        statusCode: 502,
+        headers: CORS_HEADERS,
+        body: JSON.stringify({ error: 'OpenSky auth failed', aircraft: [] }),
+      };
+    }
+  }
+
   // ── OpenSky REST fetch ─────────────────────────────────────────────────────
-  // /api/states/all — global snapshot, no bbox
-  let osUrl = OS_BASE_URL + '/states/all';
   const fetchOpts = {
     headers: { 'Accept': 'application/json' },
-    signal: AbortSignal.timeout ? AbortSignal.timeout(15000) : undefined,
+    signal:  AbortSignal.timeout ? AbortSignal.timeout(15000) : undefined,
   };
-  if (OS_USER && OS_PASS) {
-    const creds = Buffer.from(`${OS_USER}:${OS_PASS}`).toString('base64');
-    fetchOpts.headers['Authorization'] = `Basic ${creds}`;
+  if (token) {
+    fetchOpts.headers['Authorization'] = 'Bearer ' + token;
   }
 
   let rawJson;
   try {
-    const resp = await fetch(osUrl, fetchOpts);
-    if (!resp.ok) {
-      throw new Error(`OpenSky HTTP ${resp.status}`);
+    const resp = await fetch(OS_BASE_URL + '/states/all', fetchOpts);
+    if (resp.status === 401) {
+      // Token rejected — clear cache and fail cleanly (next invocation will re-exchange)
+      _tokenCache = null;
+      throw new Error('OpenSky 401 — token invalidated, will retry next poll');
     }
+    if (!resp.ok) throw new Error('OpenSky HTTP ' + resp.status);
     console.log('[OpenSky FETCH SUCCESS]', resp.status);
     rawJson = await resp.json();
   } catch (err) {
@@ -179,13 +210,13 @@ exports.handler = async function (event) {
 
   const stateVectors = rawJson && Array.isArray(rawJson.states) ? rawJson.states : [];
   console.log('[OpenSky RAW STATES]', stateVectors.length);
-  const aircraft = [];
-  const seen = new Set();
 
+  const aircraft = [];
+  const seen     = new Set();
   for (let i = 0; i < stateVectors.length && aircraft.length < MAX_AIRCRAFT; i++) {
     const norm = normalizeState(stateVectors[i]);
     if (!norm) continue;
-    if (seen.has(norm.icao24)) continue;  // dedup within this snapshot
+    if (seen.has(norm.icao24)) continue;
     seen.add(norm.icao24);
     aircraft.push(norm);
   }

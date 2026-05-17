@@ -85,7 +85,13 @@
       "Bash(sed -n '9998,10006p' C:/Users/aidan/Desktop/Argus/index.html)",
       "Bash(sed -n '10206,10214p' C:/Users/aidan/Desktop/Argus/index.html)",
       "Bash(awk 'NR==1708||NR==5682' index.html)",
-      "Bash(curl -s \"https://argusintel.live/modules/argusNeuralWeb.js\")"
+      "Bash(curl -s \"https://argusintel.live/modules/argusNeuralWeb.js\")",
+      "mcp__claude_ai_Supabase__list_projects",
+      "WebFetch(domain:argusintel.live)",
+      "mcp__claude_ai_Netlify__netlify-project-services-reader",
+      "mcp__claude_ai_Netlify__netlify-deploy-services-reader",
+      "WebFetch(domain:openskynetwork.github.io)",
+      "WebFetch(domain:auth.opensky-network.org)"
     ]
   }
 }

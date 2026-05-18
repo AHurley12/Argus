@@ -172,9 +172,9 @@ exports.handler = async function (event) {
     } catch (err) {
       console.error('[fetch-opensky] token exchange failed:', err.message);
       return {
-        statusCode: 502,
+        statusCode: 200,
         headers: CORS_HEADERS,
-        body: JSON.stringify({ error: 'OpenSky auth failed', aircraft: [] }),
+        body: JSON.stringify({ diag: true, error: err.message, client_id: OS_CLIENT_ID, aircraft: [] }),
       };
     }
   }

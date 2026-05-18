@@ -171,11 +171,8 @@ exports.handler = async function (event) {
       token = await getAccessToken();
     } catch (err) {
       console.error('[fetch-opensky] token exchange failed:', err.message);
-      return {
-        statusCode: 200,
-        headers: CORS_HEADERS,
-        body: JSON.stringify({ diag: true, error: err.message, client_id: OS_CLIENT_ID, aircraft: [] }),
-      };
+      // [TEMP DIAG] fall through to anonymous attempt so we can test API reachability independently
+      console.warn('[fetch-opensky] falling back to anonymous for reachability test');
     }
   }
 
@@ -202,9 +199,9 @@ exports.handler = async function (event) {
   } catch (err) {
     console.error('[fetch-opensky] upstream fetch failed:', err.message);
     return {
-      statusCode: 502,
+      statusCode: 200,
       headers: CORS_HEADERS,
-      body: JSON.stringify({ error: 'OpenSky upstream unavailable', aircraft: [] }),
+      body: JSON.stringify({ diag: true, error: 'api: ' + err.message, authed: !!token, aircraft: [] }),
     };
   }
 

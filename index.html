@@ -2356,11 +2356,46 @@ window.ArgusData = (function() {
 
   var chartCache = {};
   var chartDebounceTimer = null;
+  var chartActiveSym       = null;   // currently displayed symbol
+  var chartActiveTimeframe = '1M';   // default timeframe
+
+  // Trading-day slice sizes for the 252-point 1Y dataset
+  var CHART_TF_POINTS = { '1D': 2, '1W': 5, '1M': 21, '1Y': 252 };
+
+  // Returns a price/date slice from the cached full dataset — zero network calls.
+  function getChartSlice(sym, tf) {
+    var cached = chartCache[sym];
+    if (!cached || !cached.prices || !cached.prices.length) return null;
+    var n      = CHART_TF_POINTS[tf] || cached.prices.length;
+    return {
+      prices: cached.prices.slice(-n),
+      dates:  cached.dates ? cached.dates.slice(-n) : [],
+    };
+  }
 
   // ── Inline SVG sparkline chart with Y/X axis markers ─────────────────────
-  function drawChart(prices, sym) {
+  // dates param is optional — falls back to chartCache[sym].dates for legacy callers.
+  function drawChart(prices, sym, dates) {
     var svg = document.getElementById('exchanges-chart');
-    if (!svg || !prices || !prices.length) return;
+    if (!svg) return;
+
+    // Sanitize: drop NaN, null, non-finite values before rendering
+    var clean = (prices || []).filter(function(p) {
+      return typeof p === 'number' && isFinite(p) && !isNaN(p);
+    });
+    if (clean.length < 2) {
+      // Not enough data to draw — show placeholder and bail
+      while (svg.firstChild) svg.removeChild(svg.firstChild);
+      var msg = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+      msg.setAttribute('x', '146'); msg.setAttribute('y', '38');
+      msg.setAttribute('text-anchor', 'middle');
+      msg.setAttribute('style', 'font-size:8px;fill:#2a4a6a;letter-spacing:2px');
+      msg.textContent = clean.length === 0 ? 'NO DATA' : 'INSUFFICIENT DATA';
+      svg.appendChild(msg);
+      return;
+    }
+
+    prices = clean;
 
     while (svg.firstChild) svg.removeChild(svg.firstChild);
 
@@ -2372,7 +2407,8 @@ window.ArgusData = (function() {
     var max = Math.max.apply(null, prices);
     if (min === max) { min -= 1; max += 1; }
     var yRange = max - min;
-    var xStep = CW / (prices.length - 1);
+    // Guard: prices.length guaranteed ≥ 2 here (checked above)
+    var xStep = prices.length > 1 ? CW / (prices.length - 1) : CW;
 
     function px(i) { return PL + i * xStep; }
     function py(p)  { return PT + (1 - (p - min) / yRange) * CH; }
@@ -2439,14 +2475,14 @@ window.ArgusData = (function() {
         svg.appendChild(t);
       });
 
-    // X-axis date markers: start / mid / end — sourced from chartCache
-    var dates = (chartCache[sym] && chartCache[sym].dates) || [];
-    if (dates.length >= 2) {
-      var midIdx = Math.floor(dates.length / 2);
+    // X-axis date markers: start / mid / end — use passed dates param, fall back to full cache
+    var xDates = (dates && dates.length ? dates : null) || (chartCache[sym] && chartCache[sym].dates) || [];
+    if (xDates.length >= 2) {
+      var midIdx = Math.floor(xDates.length / 2);
       [
-        { label: dates[0],           idx: 0,          anchor: 'start'  },
-        { label: dates[midIdx],      idx: midIdx,      anchor: 'middle' },
-        { label: dates[dates.length - 1], idx: dates.length - 1, anchor: 'end' },
+        { label: xDates[0],                   idx: 0,               anchor: 'start'  },
+        { label: xDates[midIdx],               idx: midIdx,          anchor: 'middle' },
+        { label: xDates[xDates.length - 1],    idx: xDates.length-1, anchor: 'end'    },
       ].forEach(function(m) {
         var tx = px(m.idx).toFixed(1);
         var tick = document.createElementNS('http://www.w3.org/2000/svg', 'line');
@@ -2486,7 +2522,19 @@ window.ArgusData = (function() {
     svg.appendChild(dot);
   }
 
+  function _applyChartSlice(sym, label) {
+    var slice = getChartSlice(sym, chartActiveTimeframe);
+    if (!slice) return false;
+    var rangeEl = document.getElementById('chart-range');
+    if (rangeEl && slice.dates && slice.dates.length) {
+      rangeEl.textContent = slice.dates[0] + ' → ' + slice.dates[slice.dates.length - 1];
+    }
+    drawChart(slice.prices, sym, slice.dates);
+    return true;
+  }
+
   function selectExchange(sym, label) {
+    chartActiveSym = sym;
     document.querySelectorAll('.exchanges-popup__row').forEach(function(r) { r.classList.remove('is-selected'); });
     var row = document.getElementById('ex-row-' + sym);
     if (row) row.classList.add('is-selected');
@@ -2494,11 +2542,7 @@ window.ArgusData = (function() {
 
     // Instant render if already cached
     if (chartCache[sym] && chartCache[sym].prices && chartCache[sym].prices.length) {
-      var d = chartCache[sym];
-      if (d.dates && d.dates.length) {
-        document.getElementById('chart-range').textContent = d.dates[0] + ' → ' + d.dates[d.dates.length - 1];
-      }
-      drawChart(d.prices, sym);
+      _applyChartSlice(sym, label);
       return;
     }
 
@@ -2513,16 +2557,31 @@ window.ArgusData = (function() {
         .then(function(d) {
           chartCache[sym] = d;
           document.getElementById('chart-label').textContent = label;
-          if (d.dates && d.dates.length) {
-            document.getElementById('chart-range').textContent = d.dates[0] + ' → ' + d.dates[d.dates.length - 1];
-          }
-          drawChart(d.prices, sym);
+          _applyChartSlice(sym, label);
         })
         .catch(function(err) {
           document.getElementById('chart-label').textContent = label + ' — ERROR';
           console.warn('Chart fetch failed:', sym, err.message);
         });
     }, 2000);
+  }
+
+  function setChartTimeframe(tf) {
+    if (!CHART_TF_POINTS[tf]) return;
+    chartActiveTimeframe = tf;
+    // Update button visual states
+    ['1D','1W','1M','1Y'].forEach(function(t) {
+      var btn = document.getElementById('chart-tf-' + t);
+      if (!btn) return;
+      btn.style.color    = t === tf ? '#00ccff' : '#4a7da8';
+      btn.style.borderColor = t === tf ? '#00ccff' : '#1a3a5c';
+    });
+    // Re-render from cache — no network call
+    if (chartActiveSym && chartCache[chartActiveSym]) {
+      var labelEl = document.getElementById('chart-label');
+      var label = labelEl ? labelEl.textContent : chartActiveSym;
+      _applyChartSlice(chartActiveSym, label);
+    }
   }
 
   function renderBondYields(bonds) {
@@ -2869,7 +2928,7 @@ window.ArgusData = (function() {
     // QQQ and ^TYX are fetched + cached; no dedicated DOM element in current UI
   }
 
-  return { init: init, buildSnapshot: buildSnapshot, downloadSnapshot: downloadSnapshot, toggleExchanges: toggleExchanges, selectExchange: selectExchange };
+  return { init: init, buildSnapshot: buildSnapshot, downloadSnapshot: downloadSnapshot, toggleExchanges: toggleExchanges, selectExchange: selectExchange, setChartTimeframe: setChartTimeframe };
 
 })(); // end ArgusData
 
@@ -6062,9 +6121,15 @@ ArgusMarket.init();
     </div>
     <!-- Chart area -->
     <div style="padding:10px 14px 0;border-bottom:1px solid rgba(15,39,68,0.4)">
-      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px">
         <span id="chart-label" style="font-size:9px;letter-spacing:2px;color:#00ccff;font-weight:700">SELECT A ROW</span>
-        <span id="chart-range" style="font-size:7px;color:#4a7da8;letter-spacing:1px">30D</span>
+        <span id="chart-range" style="font-size:7px;color:#4a7da8;letter-spacing:1px"></span>
+      </div>
+      <div style="display:flex;gap:4px;margin-bottom:6px">
+        <button id="chart-tf-1D" onclick="ArgusData.setChartTimeframe('1D')" style="background:none;border:1px solid #1a3a5c;color:#4a7da8;font-size:7px;letter-spacing:1px;padding:2px 5px;cursor:pointer;font-family:monospace">1D</button>
+        <button id="chart-tf-1W" onclick="ArgusData.setChartTimeframe('1W')" style="background:none;border:1px solid #1a3a5c;color:#4a7da8;font-size:7px;letter-spacing:1px;padding:2px 5px;cursor:pointer;font-family:monospace">1W</button>
+        <button id="chart-tf-1M" onclick="ArgusData.setChartTimeframe('1M')" style="background:none;border:1px solid #00ccff;color:#00ccff;font-size:7px;letter-spacing:1px;padding:2px 5px;cursor:pointer;font-family:monospace">1M</button>
+        <button id="chart-tf-1Y" onclick="ArgusData.setChartTimeframe('1Y')" style="background:none;border:1px solid #1a3a5c;color:#4a7da8;font-size:7px;letter-spacing:1px;padding:2px 5px;cursor:pointer;font-family:monospace">1Y</button>
       </div>
       <svg id="exchanges-chart" width="100%" height="70" viewBox="0 0 292 70" preserveAspectRatio="none"
            style="display:block;overflow:visible">

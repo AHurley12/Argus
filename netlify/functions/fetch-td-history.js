@@ -32,7 +32,9 @@ exports.handler = async function (event) {
     return { statusCode: 503, headers: HEADERS, body: JSON.stringify({ error: 'TD_KEY not configured' }) };
   }
 
-  const url = `${TD_BASE}/time_series?symbol=${encodeURIComponent(symbol)}&interval=1day&outputsize=30&apikey=${apiKey}`;
+  // Fetch 1Y (252 trading days) — client slices to 1D/1W/1M/1Y locally from this dataset.
+  // Larger upfront fetch eliminates per-timeframe round-trips.
+  const url = `${TD_BASE}/time_series?symbol=${encodeURIComponent(symbol)}&interval=1day&outputsize=252&apikey=${apiKey}`;
 
   try {
     const controller = new AbortController();

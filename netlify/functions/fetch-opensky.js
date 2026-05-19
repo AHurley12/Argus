@@ -24,7 +24,7 @@ const SUPABASE_URL    = process.env.SUPABASE_URL;
 const SUPABASE_KEY    = process.env.SUPABASE_SERVICE_KEY;
 const OS_CLIENT_ID    = process.env.OPENSKY_ID     || '';
 const OS_CLIENT_SEC   = process.env.OPENSKY_SECRET || '';
-const ENABLE_OPENSKY  = (process.env.ENABLE_OPENSKY || 'true').toLowerCase() !== 'false';
+const ENABLE_OPENSKY  = (process.env.ENABLE_OPENSKY || 'false').toLowerCase() !== 'false';
 const OS_BASE_URL     = (process.env.OPENSKY_BASE_URL || 'https://opensky-network.org/api').replace(/\/$/, '');
 const OS_TOKEN_URL    = 'https://auth.opensky-network.org/auth/realms/opensky-network/protocol/openid-connect/token';
 

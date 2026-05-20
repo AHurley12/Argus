@@ -140,6 +140,16 @@ function updateVesselState(mmsi, name, lat, lon, heading, velocity, shipType, na
 function _finishProcessAndRender() {
   renderAIS();
 
+  // ── Rate sample cleanup — once per tick, not once per vessel ─────────────
+  // The per-vessel path only pushed; trimming here is O(window-size) once
+  // instead of O(window-size × batch-size) that the old inline code produced.
+  var _rCutoff = Date.now() - 10000;
+  var _rTrim   = 0;
+  while (_rTrim < _diag._rateSamples.length && _diag._rateSamples[_rTrim] < _rCutoff) _rTrim++;
+  if (_rTrim > 0) _diag._rateSamples.splice(0, _rTrim);
+  // Safety cap: prevent unbounded growth if all samples fall inside the 10 s window
+  if (_diag._rateSamples.length > 4000) _diag._rateSamples.splice(0, _diag._rateSamples.length - 2000);
+
   // ── Selection tracking — scan sprite scales to keep selectedVesselId current ─
   // ArgusSelection highlights the locked sprite to scale ~1.29 (0.89 × 1.45); normal is 0.89.
   // We read this externally rather than patching ArgusSelection internals.
@@ -156,12 +166,18 @@ function _finishProcessAndRender() {
   // ArgusSelection drives sprite.material.opacity (dim) and sprite.scale (highlight).
   // Since sprites are invisible (material.visible=false), we mirror to InstancedMesh.
   if (window.ArgusAISInstanced) {
-    // Dim: all vessels every tick — cheap (3 array writes per vessel, no matrix work)
-    aisMarkers.forEach(function(entry, mmsi) {
-      window.ArgusAISInstanced.setDimFactor(mmsi, entry.sprite.material.opacity / AIS_OPACITY);
-    });
-    // Scale: only on selection change — avoids per-tick matrix rebuilds for 1500 vessels
+    // Dim: gated on selection — at steady state (nothing selected) all dimFactors are
+    // 1.0 and setDimFactor's dirty-flag skips all writes. Skipping the aisMarkers.forEach
+    // entirely when there is no active or recently-cleared selection avoids 1500 Map
+    // lookups + function calls per 300 ms tick for zero benefit.
     var _curSel = _aisState.selectedVesselId;
+    if (_curSel !== null || _aisState._prevSelectedId !== null) {
+      aisMarkers.forEach(function(entry, mmsi) {
+        window.ArgusAISInstanced.setDimFactor(mmsi, entry.sprite.material.opacity / AIS_OPACITY);
+      });
+      window.ArgusAISInstanced.commitBatch();
+    }
+    // Scale: only on selection change — avoids per-tick matrix rebuilds for 1500 vessels
     if (_curSel !== _aisState._prevSelectedId) {
       // Reset previously selected vessel to base scale
       if (_aisState._prevSelectedId != null) {
@@ -200,14 +216,11 @@ function _processBatchChunk(batch, start, now) {
       if (now - _aisState.vessels.get(mmsi).updatedAt < _diag.throttleMs) continue;
     }
 
-    // ── Rate sampling ─────────────────────────────────────────────────────
+    // ── Rate sampling — push only; cleanup runs once per tick in _finishProcessAndRender ──
+    // Moving the O(array) scan out of the per-vessel loop prevents O(batch × array)
+    // growth: at 100 vessels/tick and a 3000-entry window the old code did 300,000
+    // comparisons per tick; the new path does 3000 once.
     _diag._rateSamples.push(now);
-    if (_diag._rateSamples.length > 2000) {
-      var _cutoff = now - 10000;
-      var _si = 0;
-      while (_si < _diag._rateSamples.length && _diag._rateSamples[_si] < _cutoff) _si++;
-      if (_si > 0) _diag._rateSamples.splice(0, _si);
-    }
 
     // ── Diff check — only mark dirty if the vessel actually moved/changed ─
     var existing = _aisState.vessels.get(mmsi);
@@ -290,6 +303,8 @@ function renderAIS(externalVessels) {
     upsertAISMarker(mmsi, v.name, v.lat, v.lon, v.heading, v.velocity, v.shipType, v.navStatus);
   });
   _dirtyVessels.clear();
+  // Flush batched needsUpdate flags once after all upserts — avoids per-vessel GPU flag churn
+  if (window.ArgusAISInstanced) window.ArgusAISInstanced.commitBatch();
 }
 
 // ── Pure sprite-sync — no gates, no diagnostics, just THREE.js ───────────────

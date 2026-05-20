@@ -57,6 +57,11 @@ window.ArgusAISInstanced = (function () {
   // ── Dirty-flag audit counters (exposed via getAudit()) ───────────────────────
   var _audit = { dirtyOpacity: 0, skippedOpacity: 0 };
 
+  // ── Batch-upload flags — set by upsert()/setDimFactor(), flushed by commitBatch() ─
+  // Prevents per-vessel GPU buffer uploads; one upload per renderAIS() call instead.
+  var _matrixNeedsUpdate = false;
+  var _colorNeedsUpdate  = false;
+
   // ── Helpers ───────────────────────────────────────────────────────────────────
 
   // Step 2.3 — build billboard matrix using surface-normal orientation.
@@ -208,7 +213,7 @@ window.ArgusAISInstanced = (function () {
     // Update matrix (position + heading)
     if (_buildMatrix(lat, lon, heading, SCALE)) {
       _mesh.setMatrixAt(idx, _dummy.matrix);
-      _mesh.instanceMatrix.needsUpdate = true;
+      _matrixNeedsUpdate = true;  // flushed once by commitBatch() after all upserts
     }
 
     // Update colour — reset lastDim so the next setDimFactor sees the correct delta
@@ -219,7 +224,7 @@ window.ArgusAISInstanced = (function () {
     _baseRGB[off + 2] = _tmpCol.b;
     _lastDim[idx] = 1.0;  // base color written at full brightness
     _writeColor(idx, _tmpCol.r, _tmpCol.g, _tmpCol.b);
-    _mesh.instanceColor.needsUpdate = true;
+    _colorNeedsUpdate = true;   // flushed once by commitBatch() after all upserts
   }
 
   // Remove an AIS instance (vessel evicted from argusAIS.js).
@@ -257,7 +262,7 @@ window.ArgusAISInstanced = (function () {
       _baseRGB[off + 1] * dimFactor,
       _baseRGB[off + 2] * dimFactor
     );
-    _mesh.instanceColor.needsUpdate = true;
+    _colorNeedsUpdate = true;   // flushed once by commitBatch() after the dim loop
     _audit.dirtyOpacity++;
   }
 
@@ -271,6 +276,16 @@ window.ArgusAISInstanced = (function () {
       _mesh.setMatrixAt(idx, _dummy.matrix);
       _mesh.instanceMatrix.needsUpdate = true;
     }
+  }
+
+  // ── commitBatch — flush pending GPU buffer uploads ────────────────────────────
+  // Called once per renderAIS() cycle after all upsert()/setDimFactor() calls complete.
+  // Consolidates what were previously per-vessel needsUpdate flag sets into a single
+  // upload trigger — same GPU work, zero redundant flag sets in between.
+  function commitBatch() {
+    if (!_ready) return;
+    if (_matrixNeedsUpdate) { _mesh.instanceMatrix.needsUpdate = true; _matrixNeedsUpdate = false; }
+    if (_colorNeedsUpdate)  { _mesh.instanceColor.needsUpdate  = true; _colorNeedsUpdate  = false; }
   }
 
   // Toggle visibility (mirrors argusAIS.js toggle()).
@@ -288,6 +303,7 @@ window.ArgusAISInstanced = (function () {
     upsert:       upsert,
     remove:       remove,
     setDimFactor: setDimFactor,
+    commitBatch:  commitBatch,
     setScale:     setScale,
     setVisible:   setVisible,
     getCount:     getCount,

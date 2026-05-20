@@ -92,7 +92,8 @@
       "mcp__claude_ai_Netlify__netlify-deploy-services-reader",
       "WebFetch(domain:openskynetwork.github.io)",
       "WebFetch(domain:auth.opensky-network.org)",
-      "Bash(ping:*)"
+      "Bash(ping:*)",
+      "Bash(netlify status:*)"
     ]
   }
 }

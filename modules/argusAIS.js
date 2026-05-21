@@ -76,7 +76,8 @@ var _processingInProgress = false; // re-entrancy guard for chunked batch proces
 //     └─ renderAIS()                           (sprite sync, O(dirty))
 var _aisState = {
   vessels:          new Map(),  // mmsi → { name, lat, lon, heading, velocity, shipType, navStatus, updatedAt }
-  selectedVesselId: null,       // mmsi of currently locked vessel — set by scale-scan after each render
+  selectedVesselId: null,       // mmsi of highlighted AIS vessel — set each render tick
+  _prevSelectedId:  null,       // selectedVesselId from the previous tick — drives dim/scale sync
 };
 var _ingestBuffer = [];         // raw normalized vessel objects pushed by handleAISMessage
 var _dirtyVessels = new Set();  // MMSIs that actually changed and need sprite sync this tick
@@ -152,12 +153,16 @@ function _finishProcessAndRender() {
   if (_diag._rateSamples.length > 4000) _diag._rateSamples.splice(0, _diag._rateSamples.length - 2000);
 
   // ── Selection tracking — O(1) read from ArgusSelection instead of O(N) scan ─
-  // ArgusSelection.getLocked() returns the locked sprite directly; reading its
-  // userData.mmsi and confirming it exists in aisMarkers replaces the old
-  // forEach that checked every sprite's scale.x > 1.2 each tick.
-  var _lockedSprite = window.ArgusSelection && window.ArgusSelection.getLocked();
-  var _lockedMmsi   = (_lockedSprite && _lockedSprite.userData) ? _lockedSprite.userData.mmsi : undefined;
-  _aisState.selectedVesselId = (_lockedMmsi != null && aisMarkers.has(_lockedMmsi)) ? _lockedMmsi : null;
+  // The old code used scale.x > 1.2 to detect the highlighted vessel — ArgusSelection
+  // scales the highlighted sprite to 0.89 × 1.45 = 1.29 on BOTH hover and lock.
+  // getDimmedExcept() returns _dimmedExcept, which is the sprite at full brightness
+  // (set by _applyDim on every hover and click, cleared by _restore on mouse-leave /
+  // unlock).  This matches the old scan exactly: hover and lock both trigger dim sync.
+  // getLocked() alone was wrong — it only reflects click/lock, not hover.
+  var _AS = window.ArgusSelection;
+  var _activeSprite = _AS && (_AS.getDimmedExcept ? _AS.getDimmedExcept() : _AS.getLocked());
+  var _activeMmsi   = (_activeSprite && _activeSprite.userData) ? _activeSprite.userData.mmsi : undefined;
+  _aisState.selectedVesselId = (_activeMmsi != null && aisMarkers.has(_activeMmsi)) ? _activeMmsi : null;
 
   // ── Sync InstancedMesh visual state from sprite state ───────────────────
   // ArgusSelection drives sprite.material.opacity (dim) and sprite.scale (highlight).

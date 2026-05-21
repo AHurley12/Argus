@@ -74,7 +74,10 @@ window.ArgusSelection = (function () {
   var _pEntityN  = -1;                              // entity count at last build
   var _pCacheTs  = 0;                              // performance.now() at last build
   var _PCACHE_TTL = 250;  // ms — max age before forced rebuild (catches AIS position updates)
-  var _CAM_EPS   = 1e-4;  // camera movement threshold before cache is invalidated
+  var _CAM_EPS   = 1e-3;  // camera movement threshold before cache is invalidated
+  // 1e-3 tolerates OrbitControls damping residuals (~0.001/frame during deceleration)
+  // while still detecting intentional pans (~0.01+/frame). 1e-4 was too tight and
+  // caused constant cache misses during the ~1-2s deceleration tail after any pan.
 
   function _cacheStale(cam, markers, W, H) {
     if (!_pCache) return true;
@@ -443,14 +446,19 @@ window.ArgusSelection = (function () {
 
   function getAudit() { return { dimFull: _selAudit.dimFull, dimIncremental: _selAudit.dimIncremental, skippedHovers: _selAudit.skippedHovers }; }
 
-  // Returns the currently locked sprite, or null.  Used by entity modules
-  // (e.g. argusAIS) to read selection state in O(1) instead of scanning all sprites.
+  // Returns the currently locked sprite, or null.
   function getLocked() { return _locked; }
+
+  // Returns the sprite currently at full brightness (hover highlight OR locked entity).
+  // _dimmedExcept is set by _applyDim() on every hover and on lock; cleared by _restore()
+  // on mouse-leave and unlock.  This matches what the old AIS scale-scan detected
+  // (scale > 1.2 = the highlighted sprite, whether from hover or click).
+  function getDimmedExcept() { return _dimmedExcept; }
 
   // Init — keyboard ESC to unlock
   document.addEventListener('keydown', function (e) { if (e.key === 'Escape') unlock(); });
 
   if (window.ArgusModuleAudit) window.ArgusModuleAudit.register('ArgusSelection');
 
-  return { onHover: onHover, onClick: onClick, tick: tick, unlock: unlock, getAudit: getAudit, getLocked: getLocked };
+  return { onHover: onHover, onClick: onClick, tick: tick, unlock: unlock, getAudit: getAudit, getLocked: getLocked, getDimmedExcept: getDimmedExcept };
 }());

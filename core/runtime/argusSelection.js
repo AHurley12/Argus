@@ -51,49 +51,109 @@ window.ArgusSelection = (function () {
   function _baseScale(s)   { return s.userData.isAircraft ? CFG.BASE_SCALE_AC : CFG.BASE_SCALE_SH; }
   function _baseOpacity(s) { return s.userData.stale ? 0.45 : 0.92; }
 
-  // ── Screen-space projection — MUST use getWorldPosition, not .position ───────
-  // Sprites live in aircraftGroup → eventMarkerGroup → globeGroup (PI Y-rotation).
-  // .position is local to the parent group; projecting it gives wrong screen coords.
+  // ── Screen-space projection scratch vectors ───────────────────────────────
   var _wp = new THREE.Vector3(); // world position scratch
   var _rv = new THREE.Vector3(); // NDC scratch
-  function _toScreen(sprite, cam, W, H) {
-    sprite.getWorldPosition(_wp);
-    _rv.copy(_wp).project(cam);
-    return { x: (_rv.x * 0.5 + 0.5) * W, y: (1 - (_rv.y * 0.5 + 0.5)) * H, z: _rv.z };
+
+  // ── Screen-position cache ──────────────────────────────────────────────────
+  // Projecting 1500+ entities via getWorldPosition+project every 100ms hover
+  // tick is the primary LONG_TASK source.  The cache rebuilds only when the
+  // camera moves, entity count changes, or the TTL expires (250ms — one step
+  // below the AIS 300ms render cycle so moving vessels stay fresh).
+  // On a cache hit the entire O(N) projection loop is skipped; the lookup is
+  // O(candidates_in_nearby_buckets) — typically 0–5 entities.
+  //
+  // Cache fields:
+  //   xs, ys, zs  — Float32Array screen coords per entity (reused to avoid GC)
+  //   sprites     — entity array parallel to xs/ys/zs
+  //   buckets     — pre-built bucket dict keyed "bx,by" → [indices]
+  //   w, h        — viewport size at build time
+  var _pCache    = null;
+  var _pCamPX = 0, _pCamPY = 0, _pCamPZ = 0;      // camera position snapshot
+  var _pCamQX = 0, _pCamQY = 0, _pCamQW = 0;      // camera quaternion snapshot (3 of 4 components)
+  var _pEntityN  = -1;                              // entity count at last build
+  var _pCacheTs  = 0;                              // performance.now() at last build
+  var _PCACHE_TTL = 250;  // ms — max age before forced rebuild (catches AIS position updates)
+  var _CAM_EPS   = 1e-4;  // camera movement threshold before cache is invalidated
+
+  function _cacheStale(cam, markers, W, H) {
+    if (!_pCache) return true;
+    if (markers.length !== _pEntityN) return true;
+    if (W !== _pCache.w || H !== _pCache.h) return true;
+    if (performance.now() - _pCacheTs > _PCACHE_TTL) return true;
+    if (Math.abs(cam.position.x  - _pCamPX) > _CAM_EPS) return true;
+    if (Math.abs(cam.position.y  - _pCamPY) > _CAM_EPS) return true;
+    if (Math.abs(cam.position.z  - _pCamPZ) > _CAM_EPS) return true;
+    if (Math.abs(cam.quaternion.x - _pCamQX) > _CAM_EPS) return true;
+    if (Math.abs(cam.quaternion.y - _pCamQY) > _CAM_EPS) return true;
+    if (Math.abs(cam.quaternion.w - _pCamQW) > _CAM_EPS) return true;
+    return false;
   }
 
-  // ── Bucket-grid candidate query — O(1) lookup, << 2 ms for 1 000+ entities ─
+  function _rebuildCache(markers, cam, W, H) {
+    var n = markers.length;
+    var B = CFG.BUCKET_SIZE;
+    // Reuse typed arrays when size matches — avoids GC pressure
+    var xs = (_pCache && _pCache.xs.length === n) ? _pCache.xs : new Float32Array(n);
+    var ys = (_pCache && _pCache.ys.length === n) ? _pCache.ys : new Float32Array(n);
+    var zs = (_pCache && _pCache.zs.length === n) ? _pCache.zs : new Float32Array(n);
+
+    // MUST use getWorldPosition, not .position — sprites in scene groups
+    // inherit parent transforms (globeGroup PI Y-rotation) so .position is local.
+    // Ghost sprites (parent===null) make this a no-op beyond a .position copy,
+    // but scene-attached sprites (capitals, event markers) need the full traversal.
+    var buckets = Object.create(null);
+    for (var i = 0; i < n; i++) {
+      markers[i].getWorldPosition(_wp);
+      _rv.copy(_wp).project(cam);
+      xs[i] = (_rv.x * 0.5 + 0.5) * W;
+      ys[i] = (1 - (_rv.y * 0.5 + 0.5)) * H;
+      zs[i] = _rv.z;
+      markers[i]._scx = xs[i];
+      markers[i]._scy = ys[i];
+      // Exclude back-of-globe / beyond far-clip from buckets (z range: -1..1)
+      if (zs[i] < -1 || zs[i] > 1) continue;
+      var bx = Math.floor(xs[i] / B), by = Math.floor(ys[i] / B);
+      var k  = bx + ',' + by;
+      if (!buckets[k]) buckets[k] = [];
+      buckets[k].push(i);
+    }
+
+    _pCache = { xs: xs, ys: ys, zs: zs, sprites: markers, buckets: buckets, w: W, h: H };
+    _pCamPX = cam.position.x; _pCamPY = cam.position.y; _pCamPZ = cam.position.z;
+    _pCamQX = cam.quaternion.x; _pCamQY = cam.quaternion.y; _pCamQW = cam.quaternion.w;
+    _pEntityN = n;
+    _pCacheTs = performance.now();
+  }
+
+  // ── Bucket-grid candidate query ────────────────────────────────────────────
+  // Cache-hit path: O(candidates in nearby cells) — typically 0–5 entities.
+  // Cache-miss path: O(N) rebuild (getWorldPosition+project), then O(1) lookup.
+  // Rebuild triggers: camera moved, entity count changed, or TTL expired (250ms).
   function _candidates(mx, my, cam, W, H) {
     var B = CFG.BUCKET_SIZE, R = CFG.SCREEN_RADIUS;
     var bR = Math.ceil(R / B) + 1;
     var bx0 = Math.floor(mx / B), by0 = Math.floor(my / B);
-    var buckets = Object.create(null);
     var markers = _all();
 
-    for (var i = 0; i < markers.length; i++) {
-      var s = markers[i];
-      // Ghost sprites (instanced entities) have no scene parent — _all() already
-      // filters by active layers, so only check explicit sprite visibility here.
-      if (!s.visible) continue;
-      var sc = _toScreen(s, cam, W, H);  // pass sprite, not .position
-      if (sc.z > 1 || sc.z < -1) continue;  // outside clip planes = back of globe or far clip
-      s._scx = sc.x; s._scy = sc.y;
-      var bx = Math.floor(sc.x / B), by = Math.floor(sc.y / B);
-      var k  = bx + ',' + by;
-      if (!buckets[k]) buckets[k] = [];
-      buckets[k].push(s);
-    }
+    if (_cacheStale(cam, markers, W, H)) _rebuildCache(markers, cam, W, H);
 
+    var xs = _pCache.xs, ys = _pCache.ys;
+    var sprites  = _pCache.sprites;
+    var buckets  = _pCache.buckets;
     var out = [];
+
     for (var cx = bx0 - bR; cx <= bx0 + bR; cx++) {
       for (var cy = by0 - bR; cy <= by0 + bR; cy++) {
         var cell = buckets[cx + ',' + cy];
         if (!cell) continue;
         for (var j = 0; j < cell.length; j++) {
-          var sp = cell[j];
-          var dx = sp._scx - mx, dy = sp._scy - my;
+          var idx = cell[j];
+          // Re-check visibility: layer may have toggled since last cache build
+          if (!sprites[idx].visible) continue;
+          var dx = xs[idx] - mx, dy = ys[idx] - my;
           var d  = Math.sqrt(dx * dx + dy * dy);
-          if (d <= R) out.push({ sprite: sp, dist: d });
+          if (d <= R) out.push({ sprite: sprites[idx], dist: d });
         }
       }
     }

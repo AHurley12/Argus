@@ -16,6 +16,7 @@ var AISSTREAM_KEY = '';
 
 // ── Config ─────────────────────────────────────────────────────────────────────
 var AIS_OPACITY  = 0.92;   // matches VesselAPI — required for ArgusSelection dim/restore parity
+var AIS_DIM_F    = 0.12 / 0.92;  // ArgusSelection.CFG.DIM_OPACITY / AIS_OPACITY — keep in sync with ArgusSelection
 var AIS_ALTITUDE = 101.3;  // must match R.AIS defined in globe init — no z-fighting with R.SHIP (101.5)
 // Cap how many unique vessels we keep in memory. Oldest-updated get evicted
 // once this limit is hit so the globe doesn't accumulate stale ghosts.
@@ -150,41 +151,58 @@ function _finishProcessAndRender() {
   // Safety cap: prevent unbounded growth if all samples fall inside the 10 s window
   if (_diag._rateSamples.length > 4000) _diag._rateSamples.splice(0, _diag._rateSamples.length - 2000);
 
-  // ── Selection tracking — scan sprite scales to keep selectedVesselId current ─
-  // ArgusSelection highlights the locked sprite to scale ~1.29 (0.89 × 1.45); normal is 0.89.
-  // We read this externally rather than patching ArgusSelection internals.
-  var foundSelected = false;
-  aisMarkers.forEach(function (entry, mmsi) {
-    if (entry.sprite.scale.x > 1.2) {
-      _aisState.selectedVesselId = mmsi;
-      foundSelected = true;
-    }
-  });
-  if (!foundSelected) _aisState.selectedVesselId = null;
+  // ── Selection tracking — O(1) read from ArgusSelection instead of O(N) scan ─
+  // ArgusSelection.getLocked() returns the locked sprite directly; reading its
+  // userData.mmsi and confirming it exists in aisMarkers replaces the old
+  // forEach that checked every sprite's scale.x > 1.2 each tick.
+  var _lockedSprite = window.ArgusSelection && window.ArgusSelection.getLocked();
+  var _lockedMmsi   = (_lockedSprite && _lockedSprite.userData) ? _lockedSprite.userData.mmsi : undefined;
+  _aisState.selectedVesselId = (_lockedMmsi != null && aisMarkers.has(_lockedMmsi)) ? _lockedMmsi : null;
 
   // ── Sync InstancedMesh visual state from sprite state ───────────────────
   // ArgusSelection drives sprite.material.opacity (dim) and sprite.scale (highlight).
   // Since sprites are invisible (material.visible=false), we mirror to InstancedMesh.
   if (window.ArgusAISInstanced) {
-    // Dim: gated on selection — at steady state (nothing selected) all dimFactors are
-    // 1.0 and setDimFactor's dirty-flag skips all writes. Skipping the aisMarkers.forEach
-    // entirely when there is no active or recently-cleared selection avoids 1500 Map
-    // lookups + function calls per 300 ms tick for zero benefit.
-    var _curSel = _aisState.selectedVesselId;
-    if (_curSel !== null || _aisState._prevSelectedId !== null) {
-      aisMarkers.forEach(function(entry, mmsi) {
-        window.ArgusAISInstanced.setDimFactor(mmsi, entry.sprite.material.opacity / AIS_OPACITY);
-      });
-      window.ArgusAISInstanced.commitBatch();
+    // ── Dim sync — event-driven, O(N) only on selection transitions ───────────
+    // Previous: O(1500) forEach reading sprite opacity every 300ms tick while
+    // any vessel was selected.
+    // New: compare current vs previous selected MMSI — only act when state changes.
+    //   none → AIS selected  : O(N) dim-all + highlight selected (unavoidable)
+    //   AIS selected → none  : O(N) restore-all               (unavoidable)
+    //   AIS A → AIS B        : O(1) swap — dim prev, highlight new
+    //   same vessel, no change: O(0) — nothing written
+    var _curSel  = _aisState.selectedVesselId;
+    var _prevSel = _aisState._prevSelectedId;
+    var _inst    = window.ArgusAISInstanced;
+    if (_curSel !== _prevSel) {
+      if (_curSel !== null && _prevSel === null) {
+        // New AIS selection: dim every vessel, then restore the selected one
+        aisMarkers.forEach(function(entry, mmsi) {
+          _inst.setDimFactor(mmsi, mmsi === _curSel ? 1.0 : AIS_DIM_F);
+        });
+        _inst.commitBatch();
+      } else if (_curSel === null && _prevSel !== null) {
+        // Selection cleared: restore all to full brightness
+        aisMarkers.forEach(function(entry, mmsi) {
+          _inst.setDimFactor(mmsi, 1.0);
+        });
+        _inst.commitBatch();
+      } else {
+        // Locked vessel changed: update only the two affected entries
+        _inst.setDimFactor(_prevSel, AIS_DIM_F);
+        if (aisMarkers.has(_curSel)) _inst.setDimFactor(_curSel, 1.0);
+        _inst.commitBatch();
+      }
     }
-    // Scale: only on selection change — avoids per-tick matrix rebuilds for 1500 vessels
-    if (_curSel !== _aisState._prevSelectedId) {
+
+    // ── Scale sync — O(1), only on selection change ────────────────────────
+    if (_curSel !== _prevSel) {
       // Reset previously selected vessel to base scale
-      if (_aisState._prevSelectedId != null) {
-        var _pEnt = aisMarkers.get(_aisState._prevSelectedId);
+      if (_prevSel != null) {
+        var _pEnt = aisMarkers.get(_prevSel);
         if (_pEnt) {
           var _pud = _pEnt.sprite.userData;
-          window.ArgusAISInstanced.setScale(_aisState._prevSelectedId, 0.89, _pud.lat, _pud.lon, _pud.heading);
+          _inst.setScale(_prevSel, 0.89, _pud.lat, _pud.lon, _pud.heading);
         }
       }
       // Apply enlarged scale to newly selected vessel
@@ -193,7 +211,7 @@ function _finishProcessAndRender() {
         if (_sEnt) {
           var _ssp = _sEnt.sprite;
           var _sud = _ssp.userData;
-          window.ArgusAISInstanced.setScale(_curSel, _ssp.scale.x, _sud.lat, _sud.lon, _sud.heading);
+          _inst.setScale(_curSel, _ssp.scale.x, _sud.lat, _sud.lon, _sud.heading);
         }
       }
       _aisState._prevSelectedId = _curSel;

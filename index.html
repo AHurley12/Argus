@@ -1454,18 +1454,21 @@ document.addEventListener('DOMContentLoaded', function() {
   evtMgr.add(window, 'mousemove', function(e) {
     var ls = window.ArgusLayerState;
 
-    // Bail immediately if cursor is not directly over the canvas (e.g. over a panel).
+    // Throttle first — cheapest possible gate before any DOM work.
+    // elementFromPoint is a full DOM hit-test and must not run on every mousemove.
+    var _nowMs = performance.now();
+    if (_nowMs - _lastRaycastMs < _RAYCAST_THROTTLE) return;
+
+    // Bail if cursor is not directly over the canvas (e.g. over a panel).
     // elementFromPoint returns the topmost element under the cursor — if it isn't the
     // renderer canvas then hover detection must not run and any live tooltip is cleared.
+    // Runs after the throttle so it fires at most once per 100 ms.
     var topEl = document.elementFromPoint(e.clientX, e.clientY);
     if (topEl !== renderer.domElement) {
       if (tooltip.style.display !== 'none') clearHoverTooltip();
       return;
     }
 
-    // Throttle: skip if called within 100 ms of the last raycast pass.
-    var _nowMs = performance.now();
-    if (_nowMs - _lastRaycastMs < _RAYCAST_THROTTLE) return;
     _lastRaycastMs = _nowMs;
 
     mouseHover.x =  (e.clientX / window.innerWidth)  * 2 - 1;

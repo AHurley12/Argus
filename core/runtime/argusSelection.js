@@ -443,10 +443,14 @@ window.ArgusSelection = (function () {
 
   function getAudit() { return { dimFull: _selAudit.dimFull, dimIncremental: _selAudit.dimIncremental, skippedHovers: _selAudit.skippedHovers }; }
 
+  // Returns the currently locked sprite, or null.  Used by entity modules
+  // (e.g. argusAIS) to read selection state in O(1) instead of scanning all sprites.
+  function getLocked() { return _locked; }
+
   // Init — keyboard ESC to unlock
   document.addEventListener('keydown', function (e) { if (e.key === 'Escape') unlock(); });
 
   if (window.ArgusModuleAudit) window.ArgusModuleAudit.register('ArgusSelection');
 
-  return { onHover: onHover, onClick: onClick, tick: tick, unlock: unlock, getAudit: getAudit };
+  return { onHover: onHover, onClick: onClick, tick: tick, unlock: unlock, getAudit: getAudit, getLocked: getLocked };
 }());

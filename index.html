@@ -17,8 +17,8 @@
        To rebuild: cd apps/web && npm install && npm run build:vendor
        Source:     apps/web/src/vendor-globals.js
        Config:     apps/web/vite.vendor.config.js                          -->
-  <script src="/vendor/vendor.js"></script>
-  <script src="/data/static-data.js"></script>
+  <script src="/vendor/vendor.js?v=7c66ebc"></script>
+  <script src="/data/static-data.js?v=7c66ebc"></script>
 
   <link rel="stylesheet" href="/index.css">
 </head>
@@ -650,10 +650,10 @@
      All globe-local variables are inside DOMContentLoaded.
      Shared state is exposed on window.ArgusGlobe.*
 ══════════════════════════════════════════════════════════════════════════════ -->
-<script src="/core/runtime/perf.js"></script>
-<script src="/core/runtime/cache.js"></script>
+<script src="/core/runtime/perf.js?v=7c66ebc"></script>
+<script src="/core/runtime/cache.js?v=7c66ebc"></script>
 <!-- Module audit — must load before other modules to capture all register() calls -->
-<script src="/core/runtime/argusModuleAudit.js"></script>
+<script src="/core/runtime/argusModuleAudit.js?v=7c66ebc"></script>
 <script>
 (function() {
 'use strict';
@@ -6080,7 +6080,7 @@ ArgusMarket.init();
      Self-contained module: touches event feed tab, globe colors, AI context.
      Fails silently. No dependency on ArgusData render functions.
 ══════════════════════════════════════════════════════════════════════════════ -->
-<script src="/modules/argusGdelt.js"></script>
+<script src="/modules/argusGdelt.js?v=7c66ebc"></script>
 
 <!-- ══════════════════════════════════════════════════════════════════════════════
      SCRIPT 4 — UN Humanitarian Data (GDACS + UNHCR)
@@ -6094,7 +6094,7 @@ ArgusMarket.init();
        Option 3 — Wait for ReliefWeb appname approval
        Option 4 — Remove Script 4, GDELT covers conflict signal already
 ══════════════════════════════════════════════════════════════════════════════ -->
-<script src="/modules/argusGdacs.js"></script>
+<script src="/modules/argusGdacs.js?v=7c66ebc"></script>
 
 <!-- ══════════════════════════════════════════════════════════════════════════════
      SCRIPT 5 — Intelligence Layer Overlays
@@ -6107,9 +6107,9 @@ ArgusMarket.init();
 
      These are NOT realtime telemetry streams. DO NOT mix with aircraft/vessel pipelines.
 ══════════════════════════════════════════════════════════════════════════════ -->
-<script src="/modules/argusAcled.js"></script>
-<script src="/modules/argusNoaa.js"></script>
-<script src="/modules/argusGem.js"></script>
+<script src="/modules/argusAcled.js?v=7c66ebc"></script>
+<script src="/modules/argusNoaa.js?v=7c66ebc"></script>
+<script src="/modules/argusGem.js?v=7c66ebc"></script>
 
   <!-- ── Global Exchanges Popup ─────────────────────────────────────────────── -->
 
@@ -10423,34 +10423,34 @@ if (document.readyState === 'loading') {
 
 
 <!-- Resource tracker — must load before all modules that create GPU resources -->
-<script src="/core/memory/argusResourceTracker.js"></script>
+<script src="/core/memory/argusResourceTracker.js?v=7c66ebc"></script>
 
 <!-- Entity registry — must load before argusTracking.js and argusAIS.js -->
-<script src="/core/registry/argusEntityRegistry.js"></script>
+<script src="/core/registry/argusEntityRegistry.js?v=7c66ebc"></script>
 
 <!-- Aircraft visual layer — must load before argusTracking.js -->
-<script src="/core/globe/instancedAircraft.js"></script>
+<script src="/core/globe/instancedAircraft.js?v=7c66ebc"></script>
 
 <!-- Ship visual layer — must load before argusTracking.js -->
-<script src="/core/globe/instancedShips.js"></script>
+<script src="/core/globe/instancedShips.js?v=7c66ebc"></script>
 
 <!-- Capital city visual layer — must load before globe DOMContentLoaded block -->
-<script src="/core/globe/instancedCapitals.js"></script>
+<script src="/core/globe/instancedCapitals.js?v=7c66ebc"></script>
 
 <!-- Country marker visual layer — must load before globe DOMContentLoaded block -->
-<script src="/core/globe/instancedCountries.js"></script>
+<script src="/core/globe/instancedCountries.js?v=7c66ebc"></script>
 
 <!-- SCRIPT 4 — ArgusTracking: Aircraft + Ships + patchShTex shim -->
-<script src="/modules/argusTracking.js"></script>
+<script src="/modules/argusTracking.js?v=7c66ebc"></script>
 
 
 
 <!-- AIS visual layer — must load before argusAIS.js -->
-<script src="/core/globe/materials.js"></script>
-<script src="/core/globe/instancedAIS.js"></script>
+<script src="/core/globe/materials.js?v=7c66ebc"></script>
+<script src="/core/globe/instancedAIS.js?v=7c66ebc"></script>
 
 <!-- SCRIPT 4b — ArgusAIS: AISstream Realtime Layer -->
-<script src="/modules/argusAIS.js"></script>
+<script src="/modules/argusAIS.js?v=7c66ebc"></script>
 
 
 
@@ -10461,10 +10461,10 @@ if (document.readyState === 'loading') {
      Populates: window._portWatchState, window._portData (legacy hook),
                 window._portWatchSignals (analytics signals for AI context).
 ══════════════════════════════════════════════════════════════════════════════ -->
-<script src="/modules/argusPortWatch.js"></script>
+<script src="/modules/argusPortWatch.js?v=7c66ebc"></script>
 
 <!-- Visibility API module — extracted to separate file for background parsing -->
-<script src="/core/runtime/argusVisibility.js"></script>
+<script src="/core/runtime/argusVisibility.js?v=7c66ebc"></script>
 
 <!-- ══════════════════════════════════════════════════════════════════════════════
      NEURAL WEB — HTML
@@ -10620,21 +10620,21 @@ if (document.readyState === 'loading') {
      SCRIPT 6 — ArgusNeuralWeb: Country-Centric Intelligence Graph
      3-layer architecture: Data → State → View. Non-destructive.
 ══════════════════════════════════════════════════════════════════════════════ -->
-<script src="/modules/argusNeuralWeb.js"></script>
+<script src="/modules/argusNeuralWeb.js?v=7c66ebc"></script>
 
 <!-- Dynamic risk scoring — extracted to separate file for background parsing -->
-<script src="/core/runtime/argusDynamicRisk.js"></script>
+<script src="/core/runtime/argusDynamicRisk.js?v=7c66ebc"></script>
 
 <!-- ArgusDataAge — extracted to separate file for background parsing -->
-<script src="/core/runtime/argusDataAge.js"></script>
+<script src="/core/runtime/argusDataAge.js?v=7c66ebc"></script>
 
 <!-- ArgusSelection — extracted to separate file for background parsing -->
-<script src="/core/runtime/argusSelection.js"></script>
+<script src="/core/runtime/argusSelection.js?v=7c66ebc"></script>
 
 <!-- ArgusDiagnostics — unified observability framework + debug overlay (Ctrl+Shift+D) -->
-<script src="/core/runtime/argusDiagnostics.js"></script>
+<script src="/core/runtime/argusDiagnostics.js?v=7c66ebc"></script>
 
 <!-- ArgusProviderCache — OpenSky supplemental aircraft provider (additive, cache-aware) -->
-<script src="/core/providers/argusProviderCache.js"></script>
+<script src="/core/providers/argusProviderCache.js?v=7c66ebc"></script>
 </body>
 </html>

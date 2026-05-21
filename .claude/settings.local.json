@@ -93,7 +93,10 @@
       "WebFetch(domain:openskynetwork.github.io)",
       "WebFetch(domain:auth.opensky-network.org)",
       "Bash(ping:*)",
-      "Bash(netlify status:*)"
+      "Bash(netlify status:*)",
+      "Bash(npm run:*)",
+      "Bash(npx tsc:*)",
+      "Bash(npx netlify-cli:*)"
     ]
   }
 }

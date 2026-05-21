@@ -298,6 +298,27 @@ window.ArgusAISInstanced = (function () {
   function getMesh()    { return _mesh; }
   function getAudit()   { return { dirtyOpacity: _audit.dirtyOpacity, skippedOpacity: _audit.skippedOpacity }; }
 
+  // Visual health check — call ArgusAISInstanced.visualReport() from console
+  function visualReport() {
+    console.group('%c[ArgusAISInstanced Visual Report]', 'color:#00ccff;font-weight:bold');
+    console.log('  _ready           :', _ready);
+    console.log('  _mesh            :', _mesh ? 'EXISTS' : 'NULL');
+    if (_mesh) {
+      console.log('  _mesh.count      :', _mesh.count, '(instances rendered)');
+      console.log('  _mesh.visible    :', _mesh.visible);
+      console.log('  _mesh.parent     :', _mesh.parent ? _mesh.parent.name || 'unnamed group' : 'NULL — not in scene!');
+      var mat = _mesh.material;
+      console.log('  material.map     :', mat.map ? 'SET (uuid ' + mat.map.uuid.slice(0,8) + ')' : 'NULL — no texture!');
+      console.log('  material.opacity :', mat.opacity);
+      console.log('  instanceColor    :', _mesh.instanceColor ? 'SET' : 'NULL');
+    }
+    console.log('  _mmsiToIdx.size  :', _mmsiToIdx.size, '(vessels tracked)');
+    console.log('  _freePool.length :', _freePool.length);
+    console.log('  _maxUsedIdx      :', _maxUsedIdx);
+    console.log('  window._argusShTex:', window._argusShTex ? 'SET' : 'NULL');
+    console.groupEnd();
+  }
+
   return {
     init:         init,
     upsert:       upsert,
@@ -309,5 +330,6 @@ window.ArgusAISInstanced = (function () {
     getCount:     getCount,
     getMesh:      getMesh,
     getAudit:     getAudit,
+    visualReport: visualReport,
   };
 }());

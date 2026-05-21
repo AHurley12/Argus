@@ -140,6 +140,9 @@ function updateVesselState(mmsi, name, lat, lon, heading, velocity, shipType, na
 // ── Post-batch finalization — runs after all chunks complete ──────────────────
 // Calls renderAIS(), syncs selection state and InstancedMesh dim/scale.
 function _finishProcessAndRender() {
+  // Reset re-entrancy flag immediately — must run even if renderAIS() or dim
+  // sync throws, so subsequent setInterval ticks are not permanently blocked.
+  _processingInProgress = false;
   renderAIS();
 
   // ── Rate sample cleanup — once per tick, not once per vessel ─────────────
@@ -222,8 +225,6 @@ function _finishProcessAndRender() {
       _aisState._prevSelectedId = _curSel;
     }
   }
-
-  _processingInProgress = false;
 }
 
 // ── Chunked batch processor — 250 vessels per tick, yields via setTimeout(0) ──
@@ -290,12 +291,13 @@ function _processAndRender() {
   if (!_ingestBuffer.length) return;
   if (_processingInProgress) return;  // previous chunked pass still running
 
+  // ── Diagnostic freeze gate — checked BEFORE draining buffer so messages
+  // are preserved and replayed when freeze is lifted.
+  if (_diag.freeze) return;
+
   // Drain the entire buffer in one pass — most recent value per MMSI wins naturally
   // because we overwrite state on each write (Map.set is idempotent by key).
   var batch = _ingestBuffer.splice(0, _ingestBuffer.length);
-
-  // ── Diagnostic freeze gate ────────────────────────────────────────────────
-  if (_diag.freeze) return;
 
   var now = Date.now();
 
@@ -399,7 +401,18 @@ function upsertAISMarker(mmsi, name, lat, lon, heading, velocity, shipType, navS
     // NOT added to aisGroup — proxy for raycasting/ArgusSelection only.
     aisMarkers.set(mmsi, { sprite: sprite, updatedAt: now });
     if (window.ArgusEntityRegistry) window.ArgusEntityRegistry.register(mmsi, 'ais_vessel', sprite, sprite.userData);
-    if (window.ArgusAISInstanced) window.ArgusAISInstanced.upsert(mmsi, lat, lon, heading, aisColor(tc));
+    if (window.ArgusAISInstanced) {
+      window.ArgusAISInstanced.upsert(mmsi, lat, lon, heading, aisColor(tc));
+      // One-time log: confirm first vessel reached the InstancedMesh
+      if (aisMarkers.size === 1) {
+        console.log('[ArgusAIS] first vessel upserted to InstancedMesh — mmsi=' + mmsi + ' lat=' + lat.toFixed(2) + ' lon=' + lon.toFixed(2));
+        if (!window.ArgusAISInstanced.getMesh()) {
+          console.warn('[ArgusAIS] ⚠ InstancedMesh is NULL — ArgusAISInstanced.init() did not complete. Call ArgusAIS.diagReport() for details.');
+        }
+      }
+    } else if (aisMarkers.size === 1) {
+      console.warn('[ArgusAIS] ⚠ ArgusAISInstanced not available — vessels will not render visually. Check instancedAIS.js loaded before argusAIS.js.');
+    }
   }
 }
 
@@ -710,6 +723,21 @@ function diagReport() {
   var hitPct = total ? (((_diag.updateCount / total) * 100).toFixed(1) + '%') : '—';
 
   console.group('%c[ArgusAIS Diagnostic]', 'color:#00ff88;font-weight:bold');
+  console.log('── Bootstrap / Visual Layer ─────────────────────────');
+  console.log('  ArgusAISInstanced  :', window.ArgusAISInstanced ? 'LOADED' : '⚠ MISSING (instancedAIS.js load failure?)');
+  console.log('  _argusShTex        :', window._argusShTex ? 'SET' : '⚠ NULL (patchShTex not resolved)');
+  console.log('  aisGroup           :', aisGroup ? 'CREATED' : '⚠ NULL (ArgusGlobe not ready)');
+  if (window.ArgusAISInstanced) {
+    var _inst = window.ArgusAISInstanced;
+    var _mesh = _inst.getMesh();
+    console.log('  instanced ready    :', _mesh ? 'YES (count=' + _mesh.count + ')' : '⚠ NO — init() did not complete');
+    console.log('  instanced vessels  :', _inst.getCount());
+  }
+  console.log('  wsAIS state        :', wsAIS ? ('OPEN state=' + wsAIS.readyState) : '⚠ NULL (not connected)');
+  console.log('  _processingInProg  :', _processingInProgress);
+  console.log('  _ingestBuffer.len  :', _ingestBuffer.length);
+  console.log('  msg received       :', _aisMsgCount);
+  console.log('');
   console.log('── Step 1: Update Rate ──────────────────────────────');
   console.log('  Current (last 1s)  :', s1,  'updates/sec');
   console.log('  Avg     (last 5s)  :', (s5 / 5).toFixed(1), 'updates/sec');
@@ -733,6 +761,7 @@ function diagReport() {
   console.log('  ArgusAIS.diag.throttleMs  = 0           → no throttle (default)');
   console.log('  ArgusAIS.diag.logEvictions= true        → log every eviction in real-time');
   console.groupEnd();
+  if (window.ArgusAISInstanced) window.ArgusAISInstanced.visualReport();
 }
 
 // ── Public API ─────────────────────────────────────────────────────────────────

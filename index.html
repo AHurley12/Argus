@@ -1116,8 +1116,7 @@ document.addEventListener('DOMContentLoaded', function() {
   // Node counter — exposed on window for data script
   window.updateNodeCounts = function() {
     var nodes    = window.eventMarkers
-      .filter(function(m) { return !m.userData.isAircraft && !m.userData.isShip; })
-      .concat(window.chokepointMarkers);
+      .filter(function(m) { return !m.userData.isAircraft && !m.userData.isShip; });
     var critical = nodes.filter(function(m) {
       return (m.userData.severity || m.userData.risk) === 'CRITICAL';
     }).length;

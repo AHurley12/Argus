@@ -1116,7 +1116,7 @@ document.addEventListener('DOMContentLoaded', function() {
   // Node counter — exposed on window for data script
   window.updateNodeCounts = function() {
     var nodes    = window.eventMarkers
-      .filter(function(m) { return !m.userData.isAircraft && !m.userData.isShip; });
+      .filter(function(m) { return !m.userData.isAircraft && !m.userData.isShip && !m.userData._floodMarker; });
     var critical = nodes.filter(function(m) {
       return (m.userData.severity || m.userData.risk) === 'CRITICAL';
     }).length;
@@ -3389,7 +3389,7 @@ function renderEvents(events, isLive) {
     evList.appendChild(div);
   });
   window.updateNodeCounts();
-  document.getElementById('ev-feed-count').textContent = window.eventMarkers.filter(function(m) { return !m.userData.isAircraft && !m.userData.isShip; }).length;
+  document.getElementById('ev-feed-count').textContent = window.eventMarkers.filter(function(m) { return !m.userData.isAircraft && !m.userData.isShip && !m.userData._floodMarker; }).length;
 }
 // Wrap renderEvents to cache the current event list for cross-module access
 window.renderEvents = function(events, isLive) {

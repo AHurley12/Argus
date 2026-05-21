@@ -179,6 +179,8 @@ function plotDisasters() {
   var SEV_COL  = { CRITICAL: 0xff0044, WARNING: 0xff9933, WATCH: 0xffcc00 };
   var PLOT_SEV = { CRITICAL: true, WARNING: true };
   var RANK     = { WATCH: 0, WARNING: 1, CRITICAL: 2 };
+  // Flood blue — water colour applied to all FL-type markers regardless of severity
+  var FLOOD_COL = 0x2299ee;
   var placed   = 0;
 
   Object.keys(window._rwData).forEach(function(iso) {
@@ -200,24 +202,29 @@ function plotDisasters() {
       lat = cd.rawLat; lon = cd.rawLon;
     }
 
-    var pos = AG.latLonToVector(lat, lon, R.DISASTER);
-    var col = SEV_COL[worst.sev] || 0xff9933;
+    var pos     = AG.latLonToVector(lat, lon, R.DISASTER);
+    var isFlood = (worst.types[0] === 'FL');
+    var col     = isFlood ? FLOOD_COL : (SEV_COL[worst.sev] || 0xff9933);
+    var countryLabel = (window.COUNTRIES_DATA && window.COUNTRIES_DATA.find(function(c){return c.code===iso;}) || {}).label || iso;
 
-    // Octahedron — visually distinct from GDELT spheres
+    // Flood: small sphere (half country-dot size = ~0.54), blue
+    // Other disasters: sphere dot matching chokepoint scale (1.3), severity colour
+    var markerRadius = isFlood ? 0.54 : 1.3;
     var mesh = new THREE.Mesh(
-      new THREE.OctahedronGeometry(2.1, 0),
-      new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.82 })
+      new THREE.SphereGeometry(markerRadius, 14, 14),
+      new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: isFlood ? 0.80 : 0.85 })
     );
     mesh.position.copy(pos);
-    mesh.rotation.y = Math.PI / 4;
     mesh.userData = {
       _unMarker:    true,
+      _floodMarker: isFlood,
       isUNDisaster: true,
       isCountry:    false,
       type:         worst.types[0] || 'DISASTER',
       severity:     worst.sev,
-      title:        (window.COUNTRIES_DATA && window.COUNTRIES_DATA.find(function(c){return c.code===iso;}) || {}).label + ': ' + worst.name,
-      impact:       'GDACS active disaster. Alert: ' + worst.sev + '. ' + entry.disasters.length + ' event(s) tracked.' +
+      title:        countryLabel + ': ' + worst.name,
+      impact:       (isFlood ? 'Active flood event. ' : 'GDACS active disaster. ') +
+                    'Alert: ' + worst.sev + '. ' + entry.disasters.length + ' event(s) tracked.' +
                     (entry.displaced ? ' IDPs: ' + Number(entry.displaced).toLocaleString() + '.' : ''),
       source:       'UN GDACS · UNHCR',
       countryCode:  iso,
@@ -225,18 +232,23 @@ function plotDisasters() {
     AG.eventMarkerGroup.add(mesh);
     window.eventMarkers.push(mesh);
 
-    var outline = new THREE.Mesh(
-      new THREE.OctahedronGeometry(2.6, 0),
-      new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.22, wireframe: true })
-    );
-    outline.position.copy(pos);
-    outline.rotation.y = Math.PI / 4;
-    outline.userData = { _unMarker: true };
-    AG.eventMarkerGroup.add(outline);
+    // Non-flood disasters get a subtle wireframe halo for visual weight
+    if (!isFlood) {
+      var outline = new THREE.Mesh(
+        new THREE.SphereGeometry(1.6, 10, 10),
+        new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.18, wireframe: true })
+      );
+      outline.position.copy(pos);
+      outline.userData = { _unMarker: true };
+      AG.eventMarkerGroup.add(outline);
+    }
 
+    // Pulse ring — proportional to marker size
+    var ringInner = isFlood ? 0.70 : 1.60;
+    var ringOuter = isFlood ? 1.10 : 2.40;
     var ring = new THREE.Mesh(
-      new THREE.RingGeometry(2.4, 3.6, 32),
-      new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.32, side: THREE.DoubleSide })
+      new THREE.RingGeometry(ringInner, ringOuter, 28),
+      new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: isFlood ? 0.28 : 0.32, side: THREE.DoubleSide })
     );
     ring.position.copy(pos);
     ring.lookAt(pos.clone().normalize().multiplyScalar(200));

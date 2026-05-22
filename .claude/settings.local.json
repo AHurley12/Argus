@@ -96,7 +96,9 @@
       "Bash(netlify status:*)",
       "Bash(npm run:*)",
       "Bash(npx tsc:*)",
-      "Bash(npx netlify-cli:*)"
+      "Bash(npx netlify-cli:*)",
+      "Read(//c/Users/aidan/.netlify/**)",
+      "Read(//c/Users/aidan/AppData/Roaming/netlify/**)"
     ]
   }
 }

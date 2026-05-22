@@ -27,6 +27,7 @@ exports.handler = async function (event) {
   }
 
   const key = process.env.AISSTREAM_KEY || '';
+  console.log('[ais-config] key length:', key.length);
   if (!key) {
     return {
       statusCode: 503,

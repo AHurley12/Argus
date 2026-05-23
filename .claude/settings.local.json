@@ -99,7 +99,8 @@
       "Bash(npx netlify-cli:*)",
       "Read(//c/Users/aidan/.netlify/**)",
       "Read(//c/Users/aidan/AppData/Roaming/netlify/**)",
-      "Bash(sed:*)"
+      "Bash(sed:*)",
+      "Bash(netlify deploy:*)"
     ]
   }
 }

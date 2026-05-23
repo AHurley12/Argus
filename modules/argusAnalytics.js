@@ -1002,15 +1002,38 @@ window.ArgusAnalytics = (function () {
   }
 
   // ── Data refresh — Port Watch (live state, no fetch) ─────────────────────────
+  // Self-retrying: if _portWatchState is empty (PortWatch fetch in-flight),
+  // schedule short-interval retries until data arrives — avoids relying on the
+  // one-shot argus:portwatch:ready event which fires before init() runs.
+  var _portsRetryTimer = null;
+  var _portsRetryCount = 0;
+
   function _refreshPorts() {
+    clearTimeout(_portsRetryTimer);
+
     var pa = null;
     var nw = window.ArgusNeuralWeb;
     if (nw && typeof nw.getPortAnalytics === 'function') {
-      pa = nw.getPortAnalytics();
+      try { pa = nw.getPortAnalytics(); } catch (e) {}
     }
-    _state.ports.data = pa ? _normalizePort(pa) : null;
+
+    var data = null;
+    if (pa) {
+      try { data = _normalizePort(pa); } catch (e) {}
+    }
+
+    _state.ports.data = data;
     _state.ports.ts   = Date.now();
     _repaint('ports');
+
+    // If no data yet, retry at increasing intervals until PortWatch populates
+    if (!data && _portsRetryCount < 10) {
+      _portsRetryCount++;
+      var delay = _portsRetryCount <= 4 ? 3000 : 8000;  // fast then slow
+      _portsRetryTimer = setTimeout(_refreshPorts, delay);
+    } else if (data) {
+      _portsRetryCount = 0;  // reset for next manual refresh
+    }
   }
 
   // ── Data fetch — NOAA ─────────────────────────────────────────────────────────
@@ -1077,12 +1100,6 @@ window.ArgusAnalytics = (function () {
     setTimeout(_refreshPorts, 2000);
     setTimeout(_pollNoaa,  5000);
     setTimeout(_pollIntel, 9000);
-
-    // React to PortWatch ready event — fires when initial IMF fetch completes.
-    // Catches the race where _refreshPorts runs before PortWatch has ingested data.
-    window.addEventListener('argus:portwatch:ready', function () {
-      _refreshPorts();
-    });
 
     // Periodic refresh timers
     _timers.ais   = setInterval(_refreshAIS,   REFRESH_AIS_MS);

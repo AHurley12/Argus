@@ -696,7 +696,8 @@ window.ArgusLayerState = {
   capitals:    false,
   vessels:     false,
   aircraft:    false,
-  aisVessels:  true    // mirrors aisOn default (true) in ArgusAIS
+  aisVessels:  true,   // mirrors aisOn default (true) in ArgusAIS
+  weather:     false,  // animated NOAA pulse + cyclone sprite layer
 };
 
 document.addEventListener('DOMContentLoaded', function() {
@@ -1703,7 +1704,8 @@ document.addEventListener('DOMContentLoaded', function() {
       clearHoverTooltip();
     }
 
-    if (window.ArgusSelection) ArgusSelection.tick();
+    if (window.ArgusSelection)    ArgusSelection.tick();
+    if (window.ArgusWeatherLayer) ArgusWeatherLayer.tick();
     renderer.render(scene, camera);
 
     // ── ArgusRenderAudit — updated every frame, removable ────────────────────────
@@ -6116,6 +6118,7 @@ ArgusMarket.init();
 ══════════════════════════════════════════════════════════════════════════════ -->
 <script src="/modules/argusAcled.js?v=weather-fix"></script>
 <script src="/modules/argusNoaa.js?v=weather-fix"></script>
+<script src="/modules/argusWeatherLayer.js?v=weather-fix"></script>
 <script src="/modules/argusGem.js?v=weather-fix"></script>
 
   <!-- ── Global Exchanges Popup ─────────────────────────────────────────────── -->

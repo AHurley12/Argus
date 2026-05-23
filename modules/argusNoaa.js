@@ -58,7 +58,12 @@ window.ArgusNOAA = (function () {
     'Unknown':  0xff9933,  // default orange
   };
 
-  function _severityColor(severity) {
+  var WEATHER_BLUE = 0x2299ee;
+  var WEATHER_RE   = /flood|storm|rain|snow|blizzard|drought|tornado|cyclone|monsoon|surge/i;
+
+  function _severityColor(severity, eventType) {
+    // Flood and precipitation-type alerts always use water blue regardless of severity
+    if (eventType && WEATHER_RE.test(eventType)) return WEATHER_BLUE;
     return SEVERITY_COLORS[severity] || SEVERITY_COLORS['Unknown'];
   }
 
@@ -106,7 +111,7 @@ window.ArgusNOAA = (function () {
     weatherOverlayCache.forEach(function (alert) {
       if (_placedIds.has(alert.id)) return;
 
-      var col      = _severityColor(alert.severity);
+      var col      = _severityColor(alert.severity, alert.eventType);
       var pos      = AG.latLonToVector(alert.lat, alert.lon, altR);
       var isTrop   = _isTropicalCyclone(alert.eventType);
 

@@ -475,6 +475,7 @@
       <div class="kbd-row"><span class="kbd-key">C</span><span class="kbd-label">COUNTRIES</span></div>
       <div class="kbd-row"><span class="kbd-key">V</span><span class="kbd-label">CITIES</span></div>
       <div class="kbd-row"><span class="kbd-key">E</span><span class="kbd-label">EVENTS</span></div>
+      <div class="kbd-row"><span class="kbd-key">W</span><span class="kbd-label">WEATHER</span></div>
       <div class="kbd-row"><span class="kbd-key">A</span><span class="kbd-label">AIRCRAFT</span></div>
       <div class="kbd-row"><span class="kbd-key">S</span><span class="kbd-label">SHIPS</span></div>
       <div class="kbd-row"><span class="kbd-key">K</span><span class="kbd-label">CHOKEPOINTS</span></div>
@@ -498,6 +499,20 @@
         <span class="legend__label" style="color:#ff0044">CRITICAL</span>
       </div>
 
+      <div class="hud-section">WEATHER LAYER</div>
+      <div class="legend__row">
+        <div class="legend__dot" style="background:#72eeff;box-shadow:0 0 6px rgba(114,238,255,0.6)"></div>
+        <span class="legend__label" style="color:#72eeff">MINOR / MODERATE</span>
+      </div>
+      <div class="legend__row">
+        <div class="legend__dot" style="background:#4fc3ff;box-shadow:0 0 6px rgba(79,195,255,0.7)"></div>
+        <span class="legend__label" style="color:#4fc3ff">SEVERE</span>
+      </div>
+      <div class="legend__row">
+        <div class="legend__dot" style="background:#ffffff;box-shadow:0 0 6px rgba(255,255,255,0.5)"></div>
+        <span class="legend__label" style="color:#c0e8ff">EXTREME</span>
+      </div>
+
       <div class="hud-section">MARKERS</div>
       <div class="marker-row"><span class="marker-icon" style="color:#72eeff">⊞</span>CITY / CAPITAL</div>
       <div class="marker-row"><span class="marker-icon" style="color:#c0ddff">●</span>COUNTRY NODE</div>
@@ -505,6 +520,8 @@
       <div class="marker-row"><span class="marker-icon" style="color:#2DD4BF">⚓</span>VESSEL</div>
       <div class="marker-row"><span class="marker-icon" style="color:#BAE6FD">✈</span>AIRCRAFT</div>
       <div class="marker-row"><span class="marker-icon" style="color:#aaaaaa">⚡</span>EVENT</div>
+      <div class="marker-row"><span class="marker-icon" style="color:#72eeff">◉</span>WEATHER PULSE</div>
+      <div class="marker-row"><span class="marker-icon" style="color:#4fc3ff">⊛</span>TROPICAL CYCLONE</div>
       <div class="marker-row"><span class="marker-icon" style="color:#4a7da8">──</span>TRADE ROUTE</div>
     </div>
     <button id="hud-legend-toggle" onclick="this.parentElement.classList.toggle('is-open')" aria-label="Toggle legend">
@@ -523,6 +540,9 @@
     <button id="btn-track-ais" class="track-btn track-ais is-active"
             onclick="window.ArgusAIS && ArgusAIS.toggle()"
             title="Toggle AISstream live vessels (Supabase Realtime · WebSocket feed)">◈ AIS LIVE</button>
+    <button id="btn-track-weather" class="track-btn track-weather"
+            onclick="window._toggleWeatherLayer && window._toggleWeatherLayer()"
+            title="Toggle NOAA atmospheric intelligence layer — NWS alerts + NHC tropical cyclones (key W)">⊛ WEATHER</button>
     <div id="tracking-status"></div>
   </div>
   <!-- AIS render layer — placeholder for JS-driven vessel list; hidden by default.
@@ -680,7 +700,8 @@
 }());
 
 // ── Global marker registries (accessed by data script and GDELT module) ──────
-window.eventMarkers      = [];
+window.eventMarkers      = [];   // ACLED, GDACS, GEM, GDELT, manual pins — toggled by E key
+window.weatherMarkers    = [];   // NOAA NWS/NHC static markers — toggled by weather button (W)
 window.countryMarkers    = [];
 window.chokepointMarkers = [];   // unused after refactor, kept for external compat
 window.chokepointSpikes  = [];   // rotating prism meshes (isStaticSpike)
@@ -847,13 +868,17 @@ document.addEventListener('DOMContentLoaded', function() {
     if (e.key.toLowerCase() === 'e') {
       var evOn = !(window.ArgusLayerState.events);
       window.ArgusLayerState.events = evOn;
+      // eventMarkers: ACLED, GDACS, GEM, GDELT, manual pins — NOT NOAA weather
       window.eventMarkers.forEach(function(m) { m.visible = evOn; });
-      // Also toggle pulse rings (they are NOT in eventMarkers)
+      // Also toggle pulse rings that belong to non-weather events
       var _emg = window.ArgusGlobe && window.ArgusGlobe.eventMarkerGroup;
       if (_emg) _emg.children.forEach(function(obj) {
-        if (obj.userData && obj.userData.isPulseRing) obj.visible = evOn;
+        if (obj.userData && obj.userData.isPulseRing && !obj.userData._noaaMarker) obj.visible = evOn;
       });
       if (!evOn) clearHoverTooltip();
+    }
+    if (e.key.toLowerCase() === 'w') {
+      _toggleWeatherLayer();
     }
     if (e.key.toLowerCase() === 'k') {
       var cpOn = !(window.ArgusLayerState.chokepoints);
@@ -864,6 +889,22 @@ document.addEventListener('DOMContentLoaded', function() {
       if (!cpOn) clearHoverTooltip();
     }
   });
+
+  // ── Weather layer toggle — shared by W key and #btn-track-weather ────────────
+  function _toggleWeatherLayer() {
+    var wOn = !(window.ArgusLayerState && window.ArgusLayerState.weather);
+    if (window.ArgusLayerState) window.ArgusLayerState.weather = wOn;
+    // NOAA static markers (argusNoaa.js)
+    (window.weatherMarkers || []).forEach(function(m) { m.visible = wOn; });
+    // ArgusWeatherLayer animated sprites
+    if (window.ArgusWeatherLayer) window.ArgusWeatherLayer.setVisible(wOn);
+    // Sync button active state
+    var btn = document.getElementById('btn-track-weather');
+    if (btn) btn.classList.toggle('is-active', wOn);
+    if (!wOn) clearHoverTooltip();
+  }
+  // Expose so onclick attribute can reach it
+  window._toggleWeatherLayer = _toggleWeatherLayer;
 
   // ── Lights ──────────────────────────────────────────────────────────────────
   scene.add(new THREE.AmbientLight(0x2a4560, 1.6));
@@ -977,8 +1018,9 @@ document.addEventListener('DOMContentLoaded', function() {
     window._pulseRings.push(ring);
   });
   dataGroup.add(eventMarkerGroup);
-  // Hide hardcoded event markers and their pulse rings on first load
+  // Hide hardcoded event markers, pulse rings, and weather markers on first load
   window.eventMarkers.forEach(function(m) { m.visible = false; });
+  window.weatherMarkers.forEach(function(m) { m.visible = false; });
   eventMarkerGroup.children.forEach(function(obj) {
     if (obj.userData && obj.userData.isPulseRing) obj.visible = false;
   });
@@ -1419,6 +1461,8 @@ document.addEventListener('DOMContentLoaded', function() {
     if (d.isCountry)     return ls.countries;
     if (d.isCapitalCity) return ls.capitals;
     if (d.isChokepoint)  return ls.chokepoints;
+    // NOAA static markers and ArgusWeatherLayer sprites — gated by weather layer, not events
+    if (d._noaaMarker || d.isNOAA || d._weatherLayer || d.isWeather) return !!ls.weather;
     return ls.events;
   }
 
@@ -1508,6 +1552,7 @@ document.addEventListener('DOMContentLoaded', function() {
     // out of the candidate list entirely.
     var _candidates = _frustumFilter([
       (!ls || ls.events)      ? window.eventMarkers            : null,
+      (!ls || ls.weather)     ? window.weatherMarkers          : null,
       (!ls || ls.chokepoints) ? window.chokepointMarkers       : null,
       (!ls || ls.aircraft)    ? (window._aircraftMarkers || []) : null,
       (!ls || ls.vessels)     ? (window._vesselMarkers   || []) : null,
@@ -1576,6 +1621,7 @@ document.addEventListener('DOMContentLoaded', function() {
     var cls = window.ArgusLayerState;
     var _evTargets = []
       .concat((!cls || cls.events)      ? window.eventMarkers           : [])
+      .concat((!cls || cls.weather)     ? window.weatherMarkers         : [])
       .concat((!cls || cls.aircraft)    ? window._aircraftMarkers || [] : [])
       .concat((!cls || cls.vessels)     ? window._vesselMarkers   || [] : [])
       .concat((!cls || cls.aisVessels)  ? window._aisSprites      || [] : []);
@@ -5767,9 +5813,11 @@ window.ArgusEvents = (function() {
 
   function closeModal() {
     document.getElementById('es-modal-overlay').classList.remove('is-open');
-    // Restore event marker visibility to whatever the layer state says
+    // Restore layer visibility to whatever the layer state says
     var evOn = !window.ArgusLayerState || window.ArgusLayerState.events;
-    if (window.eventMarkers) window.eventMarkers.forEach(function(m) { m.visible = evOn; });
+    var wOn  = !window.ArgusLayerState || window.ArgusLayerState.weather;
+    if (window.eventMarkers)  window.eventMarkers.forEach(function(m)  { m.visible = evOn; });
+    if (window.weatherMarkers) window.weatherMarkers.forEach(function(m) { m.visible = wOn; });
   }
 
   // ── Community Intel: Supabase helpers ────────────────────────────────────────
@@ -6770,9 +6818,11 @@ window.ArgusAnalyst = (function() {
     ['ar-title','ar-location','ar-source','ar-notes'].forEach(function(id) {
       document.getElementById(id).value = '';
     });
-    // Restore event marker visibility to whatever the layer state says
+    // Restore layer visibility to whatever the layer state says
     var evOn = !window.ArgusLayerState || window.ArgusLayerState.events;
-    if (window.eventMarkers) window.eventMarkers.forEach(function(m) { m.visible = evOn; });
+    var wOn  = !window.ArgusLayerState || window.ArgusLayerState.weather;
+    if (window.eventMarkers)  window.eventMarkers.forEach(function(m)  { m.visible = evOn; });
+    if (window.weatherMarkers) window.weatherMarkers.forEach(function(m) { m.visible = wOn; });
   }
 
   function showModalMsg(text, isError) {

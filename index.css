@@ -2407,6 +2407,17 @@
     background: rgba(52, 211, 153, 0.07);
     box-shadow: 0 0 8px rgba(52, 211, 153, 0.18);
   }
+  /* NOAA atmospheric intelligence layer — nucleus cyan matches WeatherPulseTexture core */
+  .track-btn.track-weather.is-active {
+    border-color: #72eeff;
+    color: #72eeff;
+    background: rgba(114, 238, 255, 0.07);
+    box-shadow: 0 0 8px rgba(114, 238, 255, 0.20);
+  }
+  .track-btn.track-weather:hover {
+    border-color: #4fc3ff;
+    color: #4fc3ff;
+  }
   #tracking-status {
     font-size: 7px;
     letter-spacing: 1px;

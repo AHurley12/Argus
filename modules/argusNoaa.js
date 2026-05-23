@@ -19,7 +19,7 @@
 // Render:
 //   Diff-based overlay markers on globe eventMarkerGroup.
 //   Severity color coding: Extreme (magenta), Severe (red-orange), Moderate (yellow).
-//   Visibility tied to window.ArgusLayerState.events.
+//   Visibility tied to window.ArgusLayerState.weather.
 //
 // Globals:
 //   window.weatherOverlayCache — Map<id, alert> per architecture spec
@@ -83,7 +83,7 @@ window.ArgusNOAA = (function () {
 
     var R       = AG.R || {};
     var altR    = (R.MARKER || 101) + 0.5;  // very slightly above event markers
-    var visible = !!(window.ArgusLayerState && window.ArgusLayerState.events);
+    var visible = !!(window.ArgusLayerState && window.ArgusLayerState.weather);
     var added   = 0;
     var removed = 0;
 
@@ -102,7 +102,7 @@ window.ArgusNOAA = (function () {
       removed++;
     }
     if (removed > 0) {
-      window.eventMarkers = (window.eventMarkers || []).filter(function (m) {
+      window.weatherMarkers = (window.weatherMarkers || []).filter(function (m) {
         return !(m.userData && m.userData._noaaMarker && !weatherOverlayCache.has(m.userData._noaaId));
       });
     }
@@ -143,7 +143,7 @@ window.ArgusNOAA = (function () {
       };
 
       AG.eventMarkerGroup.add(mesh);
-      if (window.eventMarkers) window.eventMarkers.push(mesh);
+      if (window.weatherMarkers) window.weatherMarkers.push(mesh);
       _placedIds.add(alert.id);
       added++;
     });
@@ -240,7 +240,7 @@ window.ArgusNOAA = (function () {
         if (window.ArgusResourceTracker) window.ArgusResourceTracker.safeDisposeMesh(toRemove[i], 'noaa_alert');
         AG.eventMarkerGroup.remove(toRemove[i]);
       }
-      window.eventMarkers = (window.eventMarkers || []).filter(function (m) {
+      window.weatherMarkers = (window.weatherMarkers || []).filter(function (m) {
         return !(m.userData && m.userData._noaaMarker);
       });
     }

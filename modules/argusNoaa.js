@@ -127,11 +127,12 @@ window.ArgusNOAA = (function () {
       mesh.position.copy(pos);
       mesh.visible = visible;
       mesh.userData = {
-        _noaaMarker: true,
-        _noaaId:     alert.id,
-        type:        alert.eventType,
-        isNOAA:      true,
-        isCountry:   false,
+        _noaaMarker:  true,
+        _noaaId:      alert.id,
+        _floodMarker: WEATHER_RE.test(alert.eventType || ''),
+        type:         alert.eventType,
+        isNOAA:       true,
+        isCountry:    false,
         title:       alert.eventType + (alert.areaDesc ? ' — ' + alert.areaDesc.slice(0, 60) : ''),
         impact:      (alert.headline || alert.eventType) +
                      (alert.severity ? '. Severity: ' + alert.severity : '') +

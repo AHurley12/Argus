@@ -106,7 +106,9 @@
       "Bash(curl -s https://argusintel.live)",
       "Bash(curl -s https://argusintel.live/modules/argusPortWatch.js)",
       "Bash(curl -s https://argusintel.live/netlify/functions/fetch-portwatch)",
-      "Bash(curl -s \"https://argusintel.live/.netlify/functions/fetch-portwatch\")"
+      "Bash(curl -s \"https://argusintel.live/.netlify/functions/fetch-portwatch\")",
+      "Bash(curl -s \"https://argusintel.live/modules/argusAnalytics.js\")",
+      "Bash(curl -s \"https://argusintel.live/modules/argusPortWatch.js\")"
     ]
   }
 }

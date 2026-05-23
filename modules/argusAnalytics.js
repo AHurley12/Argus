@@ -918,6 +918,12 @@ window.ArgusAnalytics = (function () {
     setTimeout(_pollNoaa,  5000);
     setTimeout(_pollIntel, 9000);
 
+    // React to PortWatch ready event — fires when initial IMF fetch completes.
+    // Catches the race where _refreshPorts runs before PortWatch has ingested data.
+    window.addEventListener('argus:portwatch:ready', function () {
+      _refreshPorts();
+    });
+
     // Periodic refresh timers
     _timers.ais   = setInterval(_refreshAIS,   REFRESH_AIS_MS);
     _timers.ports = setInterval(_refreshPorts, REFRESH_PORTS_MS);

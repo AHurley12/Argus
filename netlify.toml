@@ -1,5 +1,5 @@
 [build]
-  command   = "cd apps/web && npm install && npm run build:vendor"
+  command   = "npm install && cd apps/web && npm install && npm run build:vendor"
   publish   = "."
   functions = "netlify/functions"
 

@@ -76,84 +76,11 @@ window.ArgusNOAA = (function () {
   }
 
   // ── Diff-based render ────────────────────────────────────────────────────────
+  // Static mesh rendering is intentionally suppressed.
+  // ArgusWeatherLayer (argusWeatherLayer.js) is the sole visual owner of NOAA data.
+  // This module maintains the weatherOverlayCache data pipeline only.
   function _renderAlerts() {
-    var AG = window.ArgusGlobe;
-    if (!AG || !AG.eventMarkerGroup || !AG.latLonToVector) return;
-    if (!weatherOverlayCache.size) return;
-
-    var R       = AG.R || {};
-    var altR    = (R.MARKER || 101) + 0.5;  // very slightly above event markers
-    var visible = !!(window.ArgusLayerState && window.ArgusLayerState.weather);
-    var added   = 0;
-    var removed = 0;
-
-    // ── Remove expired alerts ────────────────────────────────────────────────
-    var toRemove = [];
-    AG.eventMarkerGroup.children.forEach(function (o) {
-      if (o.userData && o.userData._noaaMarker && !weatherOverlayCache.has(o.userData._noaaId)) {
-        toRemove.push(o);
-      }
-    });
-    for (var r = 0; r < toRemove.length; r++) {
-      var dead = toRemove[r];
-      if (window.ArgusResourceTracker) window.ArgusResourceTracker.safeDisposeMesh(dead, 'noaa_alert');
-      AG.eventMarkerGroup.remove(dead);
-      _placedIds.delete(dead.userData._noaaId);
-      removed++;
-    }
-    if (removed > 0) {
-      window.weatherMarkers = (window.weatherMarkers || []).filter(function (m) {
-        return !(m.userData && m.userData._noaaMarker && !weatherOverlayCache.has(m.userData._noaaId));
-      });
-    }
-
-    // ── Add new alerts ───────────────────────────────────────────────────────
-    weatherOverlayCache.forEach(function (alert) {
-      if (_placedIds.has(alert.id)) return;
-
-      var col      = _severityColor(alert.severity, alert.eventType);
-      var pos      = AG.latLonToVector(alert.lat, alert.lon, altR);
-      var isTrop   = _isTropicalCyclone(alert.eventType);
-
-      // Tropical cyclones use TetrahedronGeometry to distinguish from other alerts
-      var geom = isTrop
-        ? new THREE.TetrahedronGeometry(2.2, 0)
-        : new THREE.SphereGeometry(1.6, 8, 8);
-
-      var mesh = new THREE.Mesh(
-        geom,
-        new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.80 })
-      );
-      mesh.position.copy(pos);
-      mesh.visible = visible;
-      mesh.userData = {
-        _noaaMarker:  true,
-        _noaaId:      alert.id,
-        _floodMarker: WEATHER_RE.test(alert.eventType || ''),
-        type:         alert.eventType,
-        isNOAA:       true,
-        isCountry:    false,
-        title:       alert.eventType + (alert.areaDesc ? ' — ' + alert.areaDesc.slice(0, 60) : ''),
-        impact:      (alert.headline || alert.eventType) +
-                     (alert.severity ? '. Severity: ' + alert.severity : '') +
-                     (alert.urgency  ? '. Urgency: '  + alert.urgency  : '') +
-                     (alert.expires  ? '. Expires: '  + alert.expires.slice(0, 10) : ''),
-        source:      alert.source || 'NOAA',
-        countryCode: null,
-      };
-
-      AG.eventMarkerGroup.add(mesh);
-      if (window.weatherMarkers) window.weatherMarkers.push(mesh);
-      _placedIds.add(alert.id);
-      added++;
-    });
-
-    _audit.placed  += added;
-    _audit.removed += removed;
-
-    if (added > 0 || removed > 0) {
-      if (typeof window.updateNodeCounts === 'function') window.updateNodeCounts();
-    }
+    /* no-op: ArgusWeatherLayer handles all NOAA visual rendering */
   }
 
   // ── Load API response into cache ──────────────────────────────────────────────

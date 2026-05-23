@@ -3,10 +3,14 @@
 // Animated NOAA weather intelligence overlay — pulse + cyclone sprite markers.
 //
 // Architecture:
-//   Animated canvas-texture sprites layered on top of argusNoaa.js static markers.
-//   WeatherPulseTexture: concentric ring pulse for flood/severe weather alerts.
-//   CycloneMarker: rotating arm + counter-rotating eye group for tropical cyclones.
-//   Polls /.netlify/functions/fetch-noaa every 60s (parallel to argusNoaa.js 15m poll).
+//   Sole visual owner of NOAA NWS/NHC data. argusNoaa.js maintains the data feed
+//   and weatherOverlayCache but no longer renders static geometry — this module
+//   handles all NOAA marker rendering via canvas-texture THREE.Sprite objects.
+//
+//   Sprites are added to AG.weatherSpriteGroup, which is a child of AG.dataGroup.
+//   This is the REQUIRED parent — latLonToVector outputs coords in dataGroup local
+//   space, NOT scene root. Adding to scene directly causes position misalignment.
+//   Coordinate conversion uses AG.latLonToVector (authoritative, not a local copy).
 //
 // Marker types:
 //   pulse   — flood, tornado, thunderstorm, winter storm, wind alerts
@@ -464,18 +468,6 @@ window.ArgusWeatherLayer = (function () {
     if (this.sprite.parent) this.sprite.parent.remove(this.sprite);
   };
 
-  // ── Geo conversion ────────────────────────────────────────────────────────────
-
-  function latLonToVec3(lat, lon, r) {
-    var phi   = (90 - lat) * Math.PI / 180;
-    var theta = (lon + 180) * Math.PI / 180;
-    return new THREE.Vector3(
-      -(r * Math.sin(phi) * Math.cos(theta)),
-        r * Math.cos(phi),
-        r * Math.sin(phi) * Math.sin(theta)
-    );
-  }
-
   // ── Tooltip ───────────────────────────────────────────────────────────────────
 
   var _tooltipEl = null;
@@ -604,7 +596,7 @@ window.ArgusWeatherLayer = (function () {
 
   function _getScene() {
     var AG = window.ArgusGlobe;
-    return AG ? AG.scene : null;
+    return AG ? AG.weatherSpriteGroup : null;
   }
 
   function _buildUserData(alert) {
@@ -628,9 +620,12 @@ window.ArgusWeatherLayer = (function () {
     var scene = _getScene();
     if (!scene) return;
 
+    var AG     = window.ArgusGlobe;
+    if (!AG || !AG.latLonToVector) return;
+
     var mType  = alert._wMarkerType;
     var sev    = alert._wSeverity;
-    var pos    = latLonToVec3(alert.lat, alert.lon, _altR);
+    var pos    = AG.latLonToVector(alert.lat, alert.lon, _altR);
     var marker;
     var ud     = _buildUserData(alert);
 

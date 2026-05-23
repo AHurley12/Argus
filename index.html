@@ -1018,6 +1018,14 @@ document.addEventListener('DOMContentLoaded', function() {
     window._pulseRings.push(ring);
   });
   dataGroup.add(eventMarkerGroup);
+
+  // Weather sprite group — animated NOAA pulse + cyclone sprites (argusWeatherLayer).
+  // Must be a child of dataGroup so it shares the same coordinate space as all other
+  // globe markers. Adding directly to scene (scene root) causes position errors because
+  // the latLonToVector formula produces coords in dataGroup's local space, not scene root.
+  var weatherSpriteGroup = new THREE.Group();
+  dataGroup.add(weatherSpriteGroup);
+
   // Hide hardcoded event markers, pulse rings, and weather markers on first load
   window.eventMarkers.forEach(function(m) { m.visible = false; });
   window.weatherMarkers.forEach(function(m) { m.visible = false; });
@@ -1901,7 +1909,7 @@ document.addEventListener('DOMContentLoaded', function() {
   });
 
   // Expose for external access
-  window.ArgusGlobe = { scene: scene, camera: camera, renderer: renderer, globe: Globe, globeGroup: globeGroup, dataGroup: dataGroup, eventMarkerGroup: eventMarkerGroup, latLonToVector: latLonToVector, R: R, clearHover: clearHoverTooltip };
+  window.ArgusGlobe = { scene: scene, camera: camera, renderer: renderer, globe: Globe, globeGroup: globeGroup, dataGroup: dataGroup, eventMarkerGroup: eventMarkerGroup, weatherSpriteGroup: weatherSpriteGroup, latLonToVector: latLonToVector, R: R, clearHover: clearHoverTooltip };
 
   // ── Read-only debug interface — diagnostics only, no mutation surface ─────────
   window.ArgusDebug = Object.freeze({

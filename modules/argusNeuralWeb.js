@@ -2505,6 +2505,12 @@ function renderPortMacro() {
 
 // ── Main analytics panel renderer ─────────────────────────────────────────────
 function renderAnalytics() {
+  // ArgusAnalytics owns this pane when present — delegate and exit.
+  if (window.ArgusAnalytics) {
+    window.ArgusAnalytics.init();
+    return;
+  }
+
   var body = document.getElementById('nw-analytics-body');
   if (!body) return;
 

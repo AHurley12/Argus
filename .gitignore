@@ -44,3 +44,6 @@ vendor/vendor.js.
 supabase/.env
 supabase/.temp
 
+
+# Local Netlify folder
+.netlify

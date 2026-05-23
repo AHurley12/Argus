@@ -3576,6 +3576,14 @@ return {
   exportGraph:      exportGraph,
   getState:         function(){ return state; },
   getStore:         function(){ return store; },
+  // Analytics bridge — exposes IIFE-scoped functions for ArgusAnalytics
+  getAnalyticsData: function() {
+    return {
+      snap:        collectTrackingSnapshot(),
+      cpAnalytics: computeAllChokepointAnalytics(),
+    };
+  },
+  getPortAnalytics: buildPortAnalytics,
   appendNote: function(text) {
     open();
     var ta = document.getElementById('nw-notes-input');

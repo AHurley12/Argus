@@ -49,9 +49,6 @@ window.ArgusAnalytics = (function () {
 
   var _timers = {};
 
-  // Sort state for full port intelligence table
-  var _portSort = 'calls';
-
   // ── Fetch (shared request cache when available) ───────────────────────────────
   function _fetch(url) {
     var rc = window._argusReqCache;
@@ -343,14 +340,16 @@ window.ArgusAnalytics = (function () {
     var G = pa.global;
 
     // Top 8 ports globally (flatten from regions)
-    var flatTop = [];
+    var allPorts = [];
     if (pa.topPortsByRegion) {
       Object.keys(pa.topPortsByRegion).forEach(function (r) {
-        (pa.topPortsByRegion[r] || []).forEach(function (p) { flatTop.push(p); });
+        (pa.topPortsByRegion[r] || []).forEach(function (p) {
+          allPorts.push(p);
+        });
       });
     }
-    flatTop.sort(function (a, b) { return b.calls - a.calls; });
-    var topPorts = flatTop.slice(0, 7).map(function (p) {
+    allPorts.sort(function (a, b) { return b.calls - a.calls; });
+    var topPorts = allPorts.slice(0, 7).map(function (p) {
       return {
         k: p.name + (p.country ? ' · ' + p.country : ''),
         v: p.calls,
@@ -367,37 +366,6 @@ window.ArgusAnalytics = (function () {
       };
     });
 
-    // ── Full port list — all active ports from live _portWatchState ────────────
-    var fullPorts = [];
-    var pw = window._portWatchState;
-    if (pw && pw.ports && pw.ports.size > 0) {
-      var maxCalls = 0;
-      pw.ports.forEach(function (p) { if (p.total_calls > maxCalls) maxCalls = p.total_calls; });
-      pw.ports.forEach(function (p) {
-        // Skip all-zero ports
-        if (p.total_calls === 0 && p.imports_total === 0 && p.exports_total === 0) return;
-        var flow     = (p.imports_total + p.exports_total) || 1;
-        var contFlow = (p.categories.import_container || 0) + (p.categories.export_container || 0);
-        var tankFlow = (p.categories.import_tanker    || 0) + (p.categories.export_tanker    || 0);
-        var imbalance = Math.round(Math.abs(p.imports_total - p.exports_total) / flow * 100);
-        fullPorts.push({
-          name:        p.port    || p.id || '—',
-          country:     p.country || '—',
-          calls:       p.total_calls,
-          imports:     p.imports_total,
-          exports:     p.exports_total,
-          ieRatio:     p.exports_total > 0
-                         ? Math.round(p.imports_total / p.exports_total * 100) / 100
-                         : null,
-          contPct:     Math.round(contFlow / flow * 100),
-          tankPct:     Math.round(tankFlow / flow * 100),
-          imbalance:   imbalance,
-          trafficPct:  maxCalls > 0 ? Math.round(p.total_calls / maxCalls * 100) : 0,
-          chokepointId: p.chokepointId || null,
-        });
-      });
-    }
-
     return {
       portCount:  pa.portCount,
       calls:      G.totalCalls,
@@ -410,7 +378,6 @@ window.ArgusAnalytics = (function () {
       period:     pa.period,
       topPorts:   topPorts,
       topRegions: topRegions,
-      fullPorts:  fullPorts,
     };
   }
 
@@ -545,112 +512,6 @@ window.ArgusAnalytics = (function () {
     return out;
   }
 
-  // ── Port intelligence detail table ───────────────────────────────────────────
-  var _PX_SORTS = [
-    { k: 'calls',     l: 'CALLS'   },
-    { k: 'imports',   l: 'IMPORTS' },
-    { k: 'exports',   l: 'EXPORTS' },
-    { k: 'ieRatio',   l: 'I/E'     },
-    { k: 'tankPct',   l: 'TANKER'  },
-    { k: 'imbalance', l: 'ΔTRADE'  },
-  ];
-
-  function _portStressColor(calls) {
-    if (calls >= 300) return '#ff4400';
-    if (calls >= 150) return '#ff8800';
-    if (calls >=  50) return '#4488ff';
-    return '#1a5a7a';
-  }
-
-  function _renderPortsDetail(fullPorts) {
-    if (!fullPorts || !fullPorts.length) return '';
-
-    var sorted = fullPorts.slice();
-    sorted.sort(function (a, b) {
-      var va = a[_portSort] == null ? -1 : a[_portSort];
-      var vb = b[_portSort] == null ? -1 : b[_portSort];
-      return vb - va;
-    });
-
-    // Sort control row
-    var sortHtml = '<div style="display:flex;gap:3px;flex-wrap:wrap;margin-bottom:8px;align-items:center;">' +
-      '<span style="font-size:6.5px;letter-spacing:1.5px;color:#0e3050;margin-right:3px;flex-shrink:0;">SORT</span>';
-    for (var s = 0; s < _PX_SORTS.length; s++) {
-      var srt    = _PX_SORTS[s];
-      var isOn   = _portSort === srt.k;
-      sortHtml +=
-        '<button data-pxsort="' + srt.k + '" style="' +
-          'background:' + (isOn ? 'rgba(0,204,255,0.1)' : 'rgba(3,9,22,0.5)') + ';' +
-          'border:1px solid ' + (isOn ? 'rgba(0,204,255,0.35)' : 'rgba(8,28,56,0.5)') + ';' +
-          'color:' + (isOn ? '#00ccff' : '#1a567a') + ';' +
-          'font-size:6.5px;letter-spacing:1px;padding:2px 5px;cursor:pointer;' +
-          'font-family:inherit;font-weight:700;outline:none;' +
-          (isOn ? 'text-shadow:0 0 6px rgba(0,204,255,0.4);' : '') +
-        '">' + srt.l + '</button>';
-    }
-    sortHtml += '</div>';
-
-    // Port rows
-    var rowsHtml = '';
-    for (var i = 0; i < sorted.length; i++) {
-      var p     = sorted[i];
-      var sc    = _portStressColor(p.calls);
-      var ieCol = p.ieRatio
-        ? (p.ieRatio > 1.3 ? '#00cc77' : p.ieRatio < 0.77 ? '#ff9933' : '#4a8aaa')
-        : '#2a5a7a';
-      var cpMark = p.chokepointId
-        ? '<span style="color:#ffcc00;font-size:6.5px;margin-left:3px;flex-shrink:0;" title="Chokepoint adjacent">⬡</span>'
-        : '';
-      var tankTag = p.tankPct >= 30
-        ? '<span style="font-size:6px;color:#ff9933;letter-spacing:.8px;flex-shrink:0;">TANK</span>'
-        : '';
-      var contTag = p.contPct >= 50 && p.tankPct < 30
-        ? '<span style="font-size:6px;color:#4488ff;letter-spacing:.8px;flex-shrink:0;">CONT</span>'
-        : '';
-      var rank = i + 1;
-      var rankColor = rank <= 3 ? '#00ccff' : '#1a4a62';
-
-      rowsHtml +=
-        '<div style="display:flex;align-items:stretch;margin-bottom:1px;' +
-          'background:rgba(3,9,22,' + (i % 2 === 0 ? '0.7' : '0.5') + ');">' +
-          // Rank badge
-          '<div style="width:18px;display:flex;align-items:center;justify-content:center;' +
-            'flex-shrink:0;border-left:2px solid ' + sc + ';">' +
-            '<span style="font-size:6.5px;color:' + rankColor + ';font-weight:700;">' + rank + '</span>' +
-          '</div>' +
-          // Main content
-          '<div style="flex:1;padding:4px 7px;min-width:0;">' +
-            '<div style="display:flex;align-items:center;gap:4px;margin-bottom:2px;">' +
-              '<span style="font-size:8px;color:#3a7a9a;white-space:nowrap;overflow:hidden;' +
-                'text-overflow:ellipsis;flex:1;min-width:0;">' + _esc(p.name) + '</span>' +
-              cpMark +
-              tankTag + contTag +
-              '<span style="font-size:6.5px;color:#1a4060;flex-shrink:0;white-space:nowrap;">' +
-                _esc(p.country) + '</span>' +
-            '</div>' +
-            '<div style="display:flex;align-items:center;gap:6px;">' +
-              '<div style="flex:1;height:1.5px;background:rgba(8,28,56,0.6);">' +
-                '<div style="height:1.5px;width:' + p.trafficPct + '%;background:' + sc + ';opacity:0.7;"></div>' +
-              '</div>' +
-              '<span style="font-size:7px;color:#1a4a6a;white-space:nowrap;font-variant-numeric:tabular-nums;">' +
-                p.calls + ' calls</span>' +
-              '<span style="font-size:7px;color:' + ieCol + ';white-space:nowrap;font-variant-numeric:tabular-nums;">' +
-                (p.ieRatio ? p.ieRatio.toFixed(2) + ':1' : '—') + '</span>' +
-            '</div>' +
-          '</div>' +
-        '</div>';
-    }
-
-    return sortHtml +
-      '<div style="border:1px solid rgba(8,28,56,0.6);overflow:hidden;">' +
-        rowsHtml +
-      '</div>' +
-      '<div style="font-size:6.5px;color:#0a2030;letter-spacing:.8px;margin-top:4px;text-align:right;">' +
-        sorted.length + ' PORTS · IMF PORTWATCH · ' +
-        '<span style="color:#0d3050;">⬡ CHOKEPOINT ADJACENT · TANK ≥30% TANKER · CONT ≥50% CONTAINER</span>' +
-      '</div>';
-  }
-
   // ── Port Watch render ─────────────────────────────────────────────────────────
   function _renderPorts() {
     var s   = _state.ports;
@@ -705,16 +566,11 @@ window.ArgusAnalytics = (function () {
     }
     if (d.topPorts && d.topPorts.length) {
       out += _box(
-        _lbl('TOP STRATEGIC PORTS') +
+        _lbl('TOP PORTS BY CALLS') +
         '<div style="font-size:7px;color:#0d2a40;margin-bottom:6px;">⬡ = CHOKEPOINT ADJACENT</div>' +
-        _bars(d.topPorts, d.calls, '#00ccff')
+        _bars(d.topPorts, d.calls, '#00ccff'),
+        0
       );
-    }
-
-    // ── Full global port intelligence ──────────────────────────────────────────
-    if (d.fullPorts && d.fullPorts.length) {
-      out += _divider('GLOBAL PORT INTELLIGENCE · ' + d.fullPorts.length + ' TRACKED', '#1a5a7a');
-      out += _renderPortsDetail(d.fullPorts);
     }
 
     return out;
@@ -848,10 +704,7 @@ window.ArgusAnalytics = (function () {
 
       // Panel expand mode — width transition on #nw-intel-panel
       '#nw-intel-panel{transition:width 180ms cubic-bezier(0.4,0,0.2,1);}' +
-      '#nw-intel-panel.ax-expanded{width:500px;}' +
-
-      // Port sort button hover
-      '[data-pxsort]:hover{color:#00ccff !important;border-color:rgba(0,204,255,0.25) !important;}';
+      '#nw-intel-panel.ax-expanded{width:500px;}';
 
     document.head.appendChild(el);
   }
@@ -904,19 +757,6 @@ window.ArgusAnalytics = (function () {
     var expBtn = document.getElementById('ax-expand');
     if (expBtn) {
       expBtn.addEventListener('click', _toggleExpand);
-    }
-
-    // Port sort button delegation — handles dynamic sort buttons in detail table
-    var portsPane = document.getElementById('ax-pane-ports');
-    if (portsPane) {
-      portsPane.addEventListener('click', function (e) {
-        var btn = e.target;
-        var sortKey = btn && typeof btn.getAttribute === 'function' && btn.getAttribute('data-pxsort');
-        if (sortKey) {
-          _portSort = sortKey;
-          _repaint('ports');
-        }
-      });
     }
 
     _mounted = true;
@@ -1002,38 +842,15 @@ window.ArgusAnalytics = (function () {
   }
 
   // ── Data refresh — Port Watch (live state, no fetch) ─────────────────────────
-  // Self-retrying: if _portWatchState is empty (PortWatch fetch in-flight),
-  // schedule short-interval retries until data arrives — avoids relying on the
-  // one-shot argus:portwatch:ready event which fires before init() runs.
-  var _portsRetryTimer = null;
-  var _portsRetryCount = 0;
-
   function _refreshPorts() {
-    clearTimeout(_portsRetryTimer);
-
     var pa = null;
     var nw = window.ArgusNeuralWeb;
     if (nw && typeof nw.getPortAnalytics === 'function') {
-      try { pa = nw.getPortAnalytics(); } catch (e) {}
+      pa = nw.getPortAnalytics();
     }
-
-    var data = null;
-    if (pa) {
-      try { data = _normalizePort(pa); } catch (e) {}
-    }
-
-    _state.ports.data = data;
+    _state.ports.data = pa ? _normalizePort(pa) : null;
     _state.ports.ts   = Date.now();
     _repaint('ports');
-
-    // If no data yet, retry at increasing intervals until PortWatch populates
-    if (!data && _portsRetryCount < 10) {
-      _portsRetryCount++;
-      var delay = _portsRetryCount <= 4 ? 3000 : 8000;  // fast then slow
-      _portsRetryTimer = setTimeout(_refreshPorts, delay);
-    } else if (data) {
-      _portsRetryCount = 0;  // reset for next manual refresh
-    }
   }
 
   // ── Data fetch — NOAA ─────────────────────────────────────────────────────────
@@ -1100,6 +917,12 @@ window.ArgusAnalytics = (function () {
     setTimeout(_refreshPorts, 2000);
     setTimeout(_pollNoaa,  5000);
     setTimeout(_pollIntel, 9000);
+
+    // React to PortWatch ready event — fires when initial IMF fetch completes.
+    // Catches the race where _refreshPorts runs before PortWatch has ingested data.
+    window.addEventListener('argus:portwatch:ready', function () {
+      _refreshPorts();
+    });
 
     // Periodic refresh timers
     _timers.ais   = setInterval(_refreshAIS,   REFRESH_AIS_MS);

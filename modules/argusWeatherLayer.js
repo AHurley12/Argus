@@ -30,14 +30,24 @@ window.ArgusWeatherLayer = (function () {
   // ── Config ───────────────────────────────────────────────────────────────────
 
   var POLL_MS    = 60 * 1000;
-  var PULSE_SIZE = 72;
-  var CYCO_SIZE  = 88;
+  var PULSE_SIZE = 56;   // canvas px — smaller texture = less GPU upload bandwidth
+  var CYCO_SIZE  = 68;   // canvas px — abstract glow is resolution-insensitive
 
-  var SCALE_PULSE   = 3.0;
-  var SCALE_CYCLONE = 3.6;
+  var SCALE_PULSE   = 4.8;   // 3.0 × 1.6
+  var SCALE_CYCLONE = 5.76;  // 3.6 × 1.6
 
   // LOD: skip canvas redraws for markers this far from camera
   var LOD_SKIP_DIST = 350;
+
+  // Frame-skip by severity — reduces canvas redraws + GPU texture uploads.
+  // Lower severity alerts animate slowly enough that skipping frames is invisible.
+  // extreme=1 (every frame), severe=2 (~30fps), moderate=3 (~20fps), minor=4 (~15fps)
+  var SEV_FRAME_SKIP = {
+    extreme:  1,
+    severe:   2,
+    moderate: 3,
+    minor:    4,
+  };
 
   // ── Severity animation params ─────────────────────────────────────────────────
 
@@ -163,18 +173,22 @@ window.ArgusWeatherLayer = (function () {
 
   function WeatherPulseTexture(severity) {
     var c = makeCanvas(PULSE_SIZE);
-    this.canvas   = c.canvas;
-    this.ctx      = c.ctx;
-    this.severity = severity || 'minor';
-    this.params   = SEV_PARAMS[this.severity] || SEV_PARAMS.minor;
-    this.t        = 0;
-    this.texture  = new THREE.CanvasTexture(this.canvas);
+    this.canvas     = c.canvas;
+    this.ctx        = c.ctx;
+    this.severity   = severity || 'minor';
+    this.params     = SEV_PARAMS[this.severity] || SEV_PARAMS.minor;
+    this.t          = 0;
+    this._tickCount = 0;
+    this._frameSkip = SEV_FRAME_SKIP[this.severity] || 4;
+    this.texture    = new THREE.CanvasTexture(this.canvas);
     this._draw();
     this.texture.needsUpdate = true;
   }
 
   WeatherPulseTexture.prototype.tick = function (dt) {
-    this.t += dt * 60;
+    this._tickCount++;
+    if (this._tickCount % this._frameSkip !== 0) return;
+    this.t += dt * 60 * this._frameSkip;  // advance time to match skipped frames
     this._draw();
     this.texture.needsUpdate = true;
   };
@@ -255,6 +269,8 @@ window.ArgusWeatherLayer = (function () {
     this.t           = 0;
     this._outerAngle = 0;
     this._innerAngle = 0;
+    this._tickCount  = 0;
+    this._frameSkip  = SEV_FRAME_SKIP[severity] || 4;
     this.group       = new THREE.Group();
 
     var armC   = makeCanvas(CYCO_SIZE);
@@ -302,16 +318,26 @@ window.ArgusWeatherLayer = (function () {
   }
 
   CycloneMarker.prototype.tick = function (dt) {
-    this.t += dt * 60;
+    this._tickCount++;
+    var skip   = this._frameSkip;
     var severe = this.severity === 'severe' || this.severity === 'extreme';
-    this._outerAngle += severe ? 0.022 : 0.014;
-    this._innerAngle -= severe ? 0.016 : 0.010;
 
-    this._drawArms(this._outerAngle, severe);
-    this._drawEye(this._innerAngle, severe);
-    this._drawPulseRing(severe);
+    // Arms + eye: update at severity frame-skip rate
+    if (this._tickCount % skip === 0) {
+      var dtScaled = dt * 60 * skip;
+      this.t           += dtScaled;
+      this._outerAngle += (severe ? 0.022 : 0.014) * skip;
+      this._innerAngle -= (severe ? 0.016 : 0.010) * skip;
+      this._drawArms(this._outerAngle, severe);
+      this._drawEye(this._innerAngle, severe);
+      this.armTex.needsUpdate = this.eyeTex.needsUpdate = true;
+    }
 
-    this.armTex.needsUpdate = this.eyeTex.needsUpdate = this.pulseTex.needsUpdate = true;
+    // Pulse ring: very slow oscillation — update at 3× frame-skip (max ~10fps for extreme)
+    if (this._tickCount % (skip * 3) === 0) {
+      this._drawPulseRing(severe);
+      this.pulseTex.needsUpdate = true;
+    }
   };
 
   CycloneMarker.prototype._drawArms = function (outerAngle, severe) {

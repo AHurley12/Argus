@@ -30,6 +30,14 @@ const ENABLE_GEM                 = (process.env.ENABLE_GEM || 'false').toLowerCa
 const GEM_DATASET_URL            = process.env.GEM_DATASET_URL || '';
 const GEM_REFRESH_INTERVAL_HOURS = parseInt(process.env.GEM_REFRESH_INTERVAL_HOURS || '24');
 
+// Optional fuel-type filter — comma-separated keywords, case-insensitive.
+// E.g. GEM_FUEL_FILTER=lng,liquefied keeps only LNG-related records.
+// Leave unset to ingest all records from the dataset.
+const GEM_FUEL_FILTER = (process.env.GEM_FUEL_FILTER || '')
+  .split(',')
+  .map(s => s.trim().toLowerCase())
+  .filter(Boolean);
+
 const CACHE_KEY    = 'gem_infrastructure_v1';
 const CACHE_TTL_MS = GEM_REFRESH_INTERVAL_HOURS * 60 * 60 * 1000;
 
@@ -48,38 +56,52 @@ function normalizeInfra(raw, index) {
   const lat = parseFloat(
     raw.lat || raw.latitude || raw.Lat || raw.Latitude || raw.LATITUDE || ''
   );
+  // GEM gas-plant CSV uses field name "lng" for longitude — handle alongside all other conventions
   const lon = parseFloat(
-    raw.lon || raw.longitude || raw.Long || raw.Longitude || raw.LONGITUDE || ''
+    raw.lon || raw.lng || raw.longitude || raw.Long || raw.Longitude || raw.LONGITUDE || ''
   );
 
   if (!isFinite(lat) || !isFinite(lon)) return null;
   if (lat < -90 || lat > 90 || lon < -180 || lon > 180) return null;
 
   const name = (
-    raw.name || raw.Name || raw.Project || raw.project_name ||
+    raw.name || raw.Name || raw.project || raw.Project || raw.project_name ||
     raw.ProjectName || raw.PLANT_NAME || ''
   ).slice(0, 100);
 
-  // Stable ID: use available identifier fields, fall back to name+index
-  const rawId = raw.id || raw.Wiki || raw.ProjectID || raw.PLANT_ID ||
-                raw.GEM_ID || raw['GEM location ID'] || null;
+  // Stable ID: prefer GEM location ID, then unit ID, then constructed fallback
+  const rawId = raw.id || raw['GEM location ID'] || raw['GEM unit/phase ID'] ||
+                raw.Wiki || raw.ProjectID || raw.PLANT_ID || raw.GEM_ID || null;
   const id = rawId ? String(rawId) : (name + '_' + index);
+
+  const fuel = (raw.fuel || raw.Fuel || raw.FuelType || raw['Fuel type'] ||
+                raw.fuel_type || null);
 
   return {
     id:       id,
     lat:      lat,
     lon:      lon,
-    type:     (raw.type || raw.Type || raw.tracker || raw.Tracker ||
-               raw.Status_type || 'infrastructure').slice(0, 60),
+    // Prefer technology type (e.g. "CC", "FSRU") then tracker/type fields
+    type:     (raw.technology || raw.Technology || raw.type || raw.Type ||
+               raw.tracker || raw.Tracker || 'infrastructure').slice(0, 60),
     name:     name,
     country:  (raw.country || raw.Country || raw.COUNTRY || raw.nation || null),
+    region:   (raw.region   || raw.Region   || raw.Subregion || null),
     capacity: raw.capacity || raw.Capacity || raw.CapacityMW || raw['Capacity (MW)'] ||
               raw['Capacity (MTPA)'] || null,
     status:   raw.status || raw.Status || raw.STATUS || null,
     unit:     raw.unit || raw.Unit || null,
-    fuel:     raw.fuel || raw.Fuel || raw.FuelType || raw['Fuel type'] ||
-              raw.fuel_type || null,
+    fuel:     fuel,
+    owner:    (raw.owner || raw.Owner || raw.parent || raw.Parent || null),
+    startYear: raw.start_year || raw['Start year'] || raw.StartYear || null,
   };
+}
+
+// Returns true if the record passes the GEM_FUEL_FILTER (or if no filter is set).
+function passesFuelFilter(norm) {
+  if (!GEM_FUEL_FILTER.length) return true;
+  const fuelLower = (norm.fuel || '').toLowerCase();
+  return GEM_FUEL_FILTER.some(kw => fuelLower.includes(kw));
 }
 
 // ── Minimal CSV parser ─────────────────────────────────────────────────────────
@@ -216,15 +238,19 @@ exports.handler = async function(event) {
   for (let i = 0; i < records.length && infrastructure.length < MAX_INFRA; i++) {
     const norm = normalizeInfra(records[i], i);
     if (!norm) continue;
+    if (!passesFuelFilter(norm)) continue;
     if (seen.has(norm.id)) continue;
     seen.add(norm.id);
     infrastructure.push(norm);
   }
 
+  const fuelFilterApplied = GEM_FUEL_FILTER.length ? GEM_FUEL_FILTER.join(',') : null;
+
   const payload = {
     infrastructure,
-    source: 'gem',
-    ts:     Date.now(),
+    source:      'gem',
+    fuelFilter:  fuelFilterApplied,
+    ts:          Date.now(),
     count:  infrastructure.length,
   };
 

@@ -456,28 +456,49 @@ window.ArgusAnalytics = (function () {
   // ── GEM normalization ─────────────────────────────────────────────────────────
   function _normalizeGem(raw) {
     if (!raw || !Array.isArray(raw.infrastructure)) return null;
+    if (raw.disabled) return null;            // feature-gated on server
     var items = raw.infrastructure;
-    var byFuel = {}, byStatus = {}, byType = {}, byCountry = {};
-    var operational = 0, construction = 0;
+    if (!items.length) return null;           // empty dataset — not yet configured
+
+    var byFuel = {}, byStatus = {}, byType = {}, byCountry = {}, byRegion = {};
+    var operational = 0, construction = 0, announced = 0;
+    var totalCapacity = 0, capCount = 0;
+
     for (var i = 0; i < items.length; i++) {
-      var it = items[i];
+      var it      = items[i];
       var fuel    = it.fuel    || 'Unknown';
-      var status  = it.status  || 'Unknown';
+      var status  = (it.status || 'unknown').toLowerCase();
       var type    = it.type    || 'Unknown';
       var country = it.country || 'Unknown';
+      var region  = it.region  || 'Unknown';
+
       byFuel[fuel]       = (byFuel[fuel]       || 0) + 1;
       byStatus[status]   = (byStatus[status]   || 0) + 1;
       byType[type]       = (byType[type]       || 0) + 1;
       byCountry[country] = (byCountry[country] || 0) + 1;
-      if (status === 'Operational') operational++;
-      if (status && status.indexOf('Construction') >= 0) construction++;
+      byRegion[region]   = (byRegion[region]   || 0) + 1;
+
+      if (status === 'operating'    || status === 'operational') operational++;
+      if (status === 'construction' || status === 'under construction') construction++;
+      if (status === 'announced'    || status === 'pre-construction')   announced++;
+
+      var cap = parseFloat(it.capacity);
+      if (!isNaN(cap) && cap > 0) { totalCapacity += cap; capCount++; }
     }
+
     return {
-      total: items.length, operational: operational, construction: construction,
-      countries: Object.keys(byCountry).length,
-      byFuel:   _sortDesc(byFuel,   6),
-      byType:   _sortDesc(byType,   6),
-      byStatus: _sortDesc(byStatus, 5),
+      total:         items.length,
+      operational:   operational,
+      construction:  construction,
+      announced:     announced,
+      countries:     Object.keys(byCountry).length,
+      totalCapacity: capCount > 0 ? Math.round(totalCapacity) : null,
+      fuelFilter:    raw.fuelFilter || null,
+      byFuel:        _sortDesc(byFuel,    6),
+      byType:        _sortDesc(byType,    6),
+      byStatus:      _sortDesc(byStatus,  6),
+      byCountry:     _sortDesc(byCountry, 8),
+      byRegion:      _sortDesc(byRegion,  6),
     };
   }
 
@@ -651,17 +672,29 @@ window.ArgusAnalytics = (function () {
 
     // ── GEM section ────────────────────────────────────────────────────────────
     if (s.gem) {
-      out += _divider('ENERGY INFRASTRUCTURE', '#1a5a7a');
-      var gm = s.gem;
-      var opPct = gm.total ? Math.round(gm.operational / gm.total * 100) : 0;
+      var gm       = s.gem;
+      var gemLabel = gm.fuelFilter
+        ? 'LNG INFRASTRUCTURE · GEM'
+        : 'ENERGY INFRASTRUCTURE · GEM';
+      out += _divider(gemLabel, '#1a5a7a');
+
+      var opPct   = gm.total ? Math.round(gm.operational  / gm.total * 100) : 0;
+      var conPct  = gm.total ? Math.round(gm.construction / gm.total * 100) : 0;
+      var capSub  = gm.totalCapacity ? _fmtN(gm.totalCapacity) + ' MW fleet' : 'see breakdown';
+
       out += _metricGrid([
-        { label: 'FACILITIES',   value: _fmtN(gm.total),        accent: '#4fc3ff', sub: 'tracked globally' },
-        { label: 'OPERATIONAL',  value: _fmtN(gm.operational),  accent: '#00cc77', sub: opPct + '% of total' },
-        { label: 'UNDER CONSTR.',value: _fmtN(gm.construction), accent: '#ffaa00', sub: 'pipeline' },
-        { label: 'NATIONS',      value: _fmtN(gm.countries),    accent: '#72eeff', sub: 'footprint' },
+        { label: 'FACILITIES',    value: _fmtN(gm.total),        accent: '#4fc3ff', sub: gm.fuelFilter ? 'LNG · ' + gm.countries + ' nations' : gm.countries + ' nations' },
+        { label: 'OPERATING',     value: _fmtN(gm.operational),  accent: '#00cc77', sub: opPct + '% of tracked' },
+        { label: 'CONSTRUCTION',  value: _fmtN(gm.construction), accent: '#ffaa00', sub: conPct + '% pipeline' },
+        { label: 'ANNOUNCED',     value: _fmtN(gm.announced),    accent: '#cc99ff', sub: 'pre-construction' },
       ]);
-      out += _box(_lbl('FUEL TYPE MATRIX')   + _bars(gm.byFuel,   gm.total, '#4fc3ff'));
-      out += _box(_lbl('FACILITY TYPES')     + _bars(gm.byType,   gm.total, '#2299cc'), 0);
+
+      if (gm.byRegion && gm.byRegion.length) {
+        out += _box(_lbl('REGIONAL DISTRIBUTION') + _bars(gm.byRegion,   gm.total, '#4fc3ff'));
+      }
+      out += _box(_lbl('STATUS BREAKDOWN')       + _bars(gm.byStatus,   gm.total, '#72eeff'));
+      out += _box(_lbl('TECHNOLOGY TYPES')       + _bars(gm.byType,     gm.total, '#2299cc'));
+      out += _box(_lbl('TOP NATIONS')            + _bars(gm.byCountry,  gm.total, '#4fc3ff'), 0);
     }
 
     return out;

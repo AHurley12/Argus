@@ -100,7 +100,13 @@
       "Read(//c/Users/aidan/.netlify/**)",
       "Read(//c/Users/aidan/AppData/Roaming/netlify/**)",
       "Bash(sed:*)",
-      "Bash(netlify deploy:*)"
+      "Bash(netlify deploy:*)",
+      "Bash(curl -s https://argusintel.live/modules/argusAnalytics.js)",
+      "Bash(curl -s https://argusintel.live/modules/argusNeuralWeb.js)",
+      "Bash(curl -s https://argusintel.live)",
+      "Bash(curl -s https://argusintel.live/modules/argusPortWatch.js)",
+      "Bash(curl -s https://argusintel.live/netlify/functions/fetch-portwatch)",
+      "Bash(curl -s \"https://argusintel.live/.netlify/functions/fetch-portwatch\")"
     ]
   }
 }

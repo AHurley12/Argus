@@ -122,7 +122,23 @@
       "Bash(curl -v -s \"https://argusintel.live/.netlify/functions/fetch-acled\")",
       "Bash(curl -s \"https://argusintel.live/.netlify/functions/fetch-acled\" -w \"\\\\ntime=%{time_total}s http=%{http_code}\")",
       "Bash(curl -s \"https://argusintel.live/.netlify/functions/fetch-gem\" -w \"\\\\ntime=%{time_total}s http=%{http_code}\")",
-      "Bash(wait)"
+      "Bash(wait)",
+      "Bash(curl -s -o gem_response.json \"https://argusintel.live/.netlify/functions/fetch-gem\")",
+      "Bash(curl -s -o acled_response.json \"https://argusintel.live/.netlify/functions/fetch-acled\")",
+      "Bash(del gem_response.json acled_response.json)",
+      "Bash(curl -s -w \"\\\\n%{http_code}\" \"https://argusintel.live/.netlify/functions/fetch-acled\")",
+      "Bash(curl -s -w \"\\\\n%{http_code}\" -o portwatch_response.json \"https://argusintel.live/.netlify/functions/fetch-portwatch\")",
+      "Bash(del portwatch_response.json)",
+      "Bash(curl -s -w \"\\\\n%{http_code}\" -o noaa_response.json \"https://argusintel.live/.netlify/functions/fetch-noaa\")",
+      "Bash(del noaa_response.json)",
+      "Bash(curl -s -w \"\\\\n%{http_code}\" -o ais_response.json \"https://argusintel.live/.netlify/functions/ais-vessels\")",
+      "Bash(del ais_response.json)",
+      "Bash(curl -s -o ais_response.json \"https://argusintel.live/.netlify/functions/ais-vessels\")",
+      "Bash(curl -s \"https://argusintel.live/.netlify/functions/ais-config\")",
+      "Bash(curl -s -o ais_resp.json \"https://argusintel.live/.netlify/functions/ais-vessels\")",
+      "Bash(del ais_resp.json)",
+      "Bash(curl -s \"https://argusintel.live/core/runtime/argusSelection.js\")",
+      "Bash(curl -s \"https://argusintel.live/modules/argusWeatherLayer.js\")"
     ]
   }
 }

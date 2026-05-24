@@ -655,8 +655,15 @@ window.ArgusWeatherLayer = (function () {
     var marker;
     var ud     = _buildUserData(alert);
 
+    // Stagger _tickCount by marker creation index so all markers don't redraw
+    // on the same rAF frame. Without staggering, N markers with identical frame-skip
+    // fire together → burst of N canvas draws + N GPU texture uploads per cycle.
+    // Staggering distributes the cost across frameSkip consecutive frames.
+    var _stagger = Object.keys(_markers).length;
+
     if (mType === 'cyclone') {
       marker = new CycloneMarker(scene, pos, sev);
+      marker._tickCount = _stagger % marker._frameSkip;
       marker.group.userData = ud;
       marker.armSprite.userData   = ud;
       marker.eyeSprite.userData   = ud;
@@ -666,6 +673,7 @@ window.ArgusWeatherLayer = (function () {
       _spriteIndex.push({ obj: marker.pulseSprite, id: alert.id });
     } else {
       marker = new PulseMarker(scene, pos, sev);
+      marker.texture._tickCount = _stagger % marker.texture._frameSkip;
       marker.sprite.userData = ud;
       _spriteIndex.push({ obj: marker.sprite, id: alert.id });
     }
@@ -784,6 +792,9 @@ window.ArgusWeatherLayer = (function () {
   var _raycaster  = null;
   var _mouseVec2  = null;
   var _hovTicker  = 0;       // only raycast every N ticks (performance)
+  // Last NDC coords that were raycasted — skip when mouse hasn't moved.
+  var _lastHovNX  = null;
+  var _lastHovNY  = null;
 
   function _onMouseMove(e) {
     _mouseX = e.clientX;
@@ -803,6 +814,13 @@ window.ArgusWeatherLayer = (function () {
   function _checkHover() {
     if (!_enabled) return;
     if (!_spriteIndex.length) return;
+
+    // Skip raycast entirely when mouse hasn't moved since last check.
+    // _removeMarker() sets _hoveredId=null when an active alert expires, so
+    // tooltip teardown is handled by the data pipeline — not the hover poll.
+    if (_mouseNX === _lastHovNX && _mouseNY === _lastHovNY) return;
+    _lastHovNX = _mouseNX;
+    _lastHovNY = _mouseNY;
 
     var AG = window.ArgusGlobe;
     if (!AG || !AG.camera) return;

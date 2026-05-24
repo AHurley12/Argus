@@ -81,7 +81,9 @@ window.ArgusSelection = (function () {
 
   function _cacheStale(cam, markers, W, H) {
     if (!_pCache) return true;
-    if (markers.length !== _pEntityN) return true;
+    // Entity-count check removed: AIS batches every 300ms mutate count and caused
+    // O(2750+) projection rebuilds on every mouse move. The 250ms TTL covers freshness —
+    // newly added vessels are projected within the next TTL window (≤250ms).
     if (W !== _pCache.w || H !== _pCache.h) return true;
     if (performance.now() - _pCacheTs > _PCACHE_TTL) return true;
     if (Math.abs(cam.position.x  - _pCamPX) > _CAM_EPS) return true;

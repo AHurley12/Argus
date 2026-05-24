@@ -108,7 +108,21 @@
       "Bash(curl -s https://argusintel.live/netlify/functions/fetch-portwatch)",
       "Bash(curl -s \"https://argusintel.live/.netlify/functions/fetch-portwatch\")",
       "Bash(curl -s \"https://argusintel.live/modules/argusAnalytics.js\")",
-      "Bash(curl -s \"https://argusintel.live/modules/argusPortWatch.js\")"
+      "Bash(curl -s \"https://argusintel.live/modules/argusPortWatch.js\")",
+      "Bash(curl -s \"https://argusintel.live/modules/argusAnalytics.js\" -o /tmp/ax.js)",
+      "Bash(curl -s \"https://argusintel.live/.netlify/functions/fetch-gem\")",
+      "WebFetch(domain:globalenergymonitor.org)",
+      "WebFetch(domain:github.com)",
+      "Bash(curl -s \"https://globalenergymonitor.org/projects/global-lng-terminal-tracker/\")",
+      "Bash(curl -s \"https://api.github.com/orgs/GlobalEnergyMonitor/repos\")",
+      "Bash(curl -s \"https://api.github.com/repos/GlobalEnergyMonitor/GOIT-GGIT-qc/git/trees/main?recursive=1\")",
+      "Bash(curl -s \"https://raw.githubusercontent.com/GlobalEnergyMonitor/Tracker-maps/main/trackers/integrated/data.csv\")",
+      "Bash(curl -s \"https://raw.githubusercontent.com/GlobalEnergyMonitor/Tracker-maps/main/trackers/gas-plant/data.csv\")",
+      "Bash(curl -s \"https://argusintel.live/.netlify/functions/fetch-acled\")",
+      "Bash(curl -v -s \"https://argusintel.live/.netlify/functions/fetch-acled\")",
+      "Bash(curl -s \"https://argusintel.live/.netlify/functions/fetch-acled\" -w \"\\\\ntime=%{time_total}s http=%{http_code}\")",
+      "Bash(curl -s \"https://argusintel.live/.netlify/functions/fetch-gem\" -w \"\\\\ntime=%{time_total}s http=%{http_code}\")",
+      "Bash(wait)"
     ]
   }
 }

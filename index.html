@@ -1174,9 +1174,16 @@ document.addEventListener('DOMContentLoaded', function() {
     var title = (m.userData.title || '') + ' ' + (m.userData.type || '');
     return (m.userData.type === 'DISASTER' || m.userData.isNOAA) && _WEATHER_COUNT_RE.test(title);
   }
+  // LNG infrastructure markers (GEM) are static reference data, not live events —
+  // excluded from event count but kept on globe and in ingest/render pipeline.
+  function _isLNGMarker(m) {
+    if (!m.userData.isGEM) return false;
+    var t = (m.userData.type || '').toLowerCase();
+    return t.includes('lng') || t.includes('liquefied');
+  }
   window.updateNodeCounts = function() {
     var nodes    = window.eventMarkers
-      .filter(function(m) { return !m.userData.isAircraft && !m.userData.isShip && !_isFloodMarker(m); });
+      .filter(function(m) { return !m.userData.isAircraft && !m.userData.isShip && !_isFloodMarker(m) && !_isLNGMarker(m); });
     var critical = nodes.filter(function(m) {
       return (m.userData.severity || m.userData.risk) === 'CRITICAL';
     }).length;
@@ -3454,7 +3461,7 @@ function renderEvents(events, isLive) {
     evList.appendChild(div);
   });
   window.updateNodeCounts();
-  document.getElementById('ev-feed-count').textContent = window.eventMarkers.filter(function(m) { return !m.userData.isAircraft && !m.userData.isShip && !_isFloodMarker(m); }).length;
+  document.getElementById('ev-feed-count').textContent = window.eventMarkers.filter(function(m) { return !m.userData.isAircraft && !m.userData.isShip && !_isFloodMarker(m) && !_isLNGMarker(m); }).length;
 }
 // Wrap renderEvents to cache the current event list for cross-module access
 window.renderEvents = function(events, isLive) {

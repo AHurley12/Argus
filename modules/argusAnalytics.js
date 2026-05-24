@@ -915,9 +915,10 @@ window.ArgusAnalytics = (function () {
         s.ts    = Date.now();
         _repaint('intel');
       })
-      .catch(function (err) {
-        s.error = (err && err.message) || 'ACLED OFFLINE';
-        _repaint('intel');
+      .catch(function () {
+        // ACLED offline — suppress error repaint so GEM renders unobstructed.
+        // Re-enable by restoring: s.error = msg; _repaint('intel');
+        s.acled = null;
       });
 
     // GEM staggered by 3s to avoid burst

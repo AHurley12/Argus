@@ -875,6 +875,8 @@ document.addEventListener('DOMContentLoaded', function() {
       if (_emg) _emg.children.forEach(function(obj) {
         if (obj.userData && obj.userData.isPulseRing && !obj.userData._noaaMarker) obj.visible = evOn;
       });
+      // ACLED InstancedMesh visual layer — ghost meshes above handle raycasting
+      if (window.ArgusACLED && window.ArgusACLED.setVisible) window.ArgusACLED.setVisible(evOn);
       if (!evOn) clearHoverTooltip();
     }
     if (e.key.toLowerCase() === 'w') {
@@ -5826,6 +5828,7 @@ window.ArgusEvents = (function() {
     var wOn  = !window.ArgusLayerState || window.ArgusLayerState.weather;
     if (window.eventMarkers)  window.eventMarkers.forEach(function(m)  { m.visible = evOn; });
     if (window.weatherMarkers) window.weatherMarkers.forEach(function(m) { m.visible = wOn; });
+    if (window.ArgusACLED && window.ArgusACLED.setVisible) window.ArgusACLED.setVisible(evOn);
   }
 
   // ── Community Intel: Supabase helpers ────────────────────────────────────────
@@ -6831,6 +6834,7 @@ window.ArgusAnalyst = (function() {
     var wOn  = !window.ArgusLayerState || window.ArgusLayerState.weather;
     if (window.eventMarkers)  window.eventMarkers.forEach(function(m)  { m.visible = evOn; });
     if (window.weatherMarkers) window.weatherMarkers.forEach(function(m) { m.visible = wOn; });
+    if (window.ArgusACLED && window.ArgusACLED.setVisible) window.ArgusACLED.setVisible(evOn);
   }
 
   function showModalMsg(text, isError) {

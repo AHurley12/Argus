@@ -41,6 +41,14 @@ window.ArgusACLED = (function () {
   // Track which eventIds are currently in the scene for diff-based updates.
   var _placedIds = new Set();
 
+  // ── Instanced visual mesh ────────────────────────────────────────────────────
+  // Ghost meshes (material.visible=false) stay in eventMarkerGroup for raycasting.
+  // A single InstancedMesh handles all visual rendering — 873 draw calls → 1.
+  var _imesh   = null;
+  var _iDummy  = new THREE.Object3D();
+  var _iColor  = new THREE.Color();
+  var _IMAX    = 2000;  // pre-allocated instance capacity
+
   // ── Audit ────────────────────────────────────────────────────────────────────
   var _audit = { polls: 0, placed: 0, removed: 0, lastPollMs: 0, lastError: null };
 
@@ -103,9 +111,11 @@ window.ArgusACLED = (function () {
       var col = _eventColor(ev.eventType);
       var pos = AG.latLonToVector(ev.lat, ev.lon, altR);
 
+      // Ghost mesh: material.visible=false → zero draw calls, still raycasted for hover/click.
+      // Visual rendering is handled by _imesh (InstancedMesh) below.
       var mesh = new THREE.Mesh(
         new THREE.SphereGeometry(1.4, 8, 8),
-        new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.75 })
+        new THREE.MeshBasicMaterial({ color: col, visible: false })
       );
       mesh.position.copy(pos);
       mesh.visible = visible;
@@ -137,6 +147,66 @@ window.ArgusACLED = (function () {
     if (added > 0 || removed > 0) {
       if (typeof window.updateNodeCounts === 'function') window.updateNodeCounts();
     }
+
+    // Rebuild InstancedMesh whenever the event set changes (or on first render).
+    // Ghost meshes above handle raycasting; _imesh handles all visual draw calls (873→1).
+    _rebuildInstanced(AG, altR, visible);
+  }
+
+  // ── InstancedMesh rebuild ─────────────────────────────────────────────────────
+  // Called after every _renderEvents(). Builds one InstancedMesh for all ACLED events,
+  // using per-instance color. Ghost meshes are kept invisible for raycasting only.
+  function _rebuildInstanced(AG, altR, visible) {
+    if (!AG || !AG.eventMarkerGroup) return;
+
+    // Create InstancedMesh once; reuse across rebuilds.
+    if (!_imesh) {
+      var geo = new THREE.SphereGeometry(1.4, 8, 8);
+      var mat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.75 });
+      _imesh = new THREE.InstancedMesh(geo, mat, _IMAX);
+      _imesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+      _imesh.name          = 'ArgusACLEDInstanced';
+      _imesh.frustumCulled = false;
+      _imesh.count         = 0;
+      _imesh.visible       = false;  // hidden until first rebuild sets it
+
+      // Pre-allocate instanceColor buffer
+      var cols = new Float32Array(_IMAX * 3);
+      for (var ci = 0; ci < _IMAX * 3; ci++) cols[ci] = 1.0;
+      _imesh.instanceColor = new THREE.InstancedBufferAttribute(cols, 3);
+
+      AG.eventMarkerGroup.add(_imesh);
+    }
+
+    // Zero-scale dummy for slots beyond the active count
+    _iDummy.scale.set(0, 0, 0);
+    _iDummy.position.set(0, 0, 0);
+    _iDummy.rotation.set(0, 0, 0);
+    _iDummy.updateMatrix();
+
+    var n = 0;
+    acledEventCache.forEach(function (ev) {
+      if (n >= _IMAX) return;
+      var pos = AG.latLonToVector(ev.lat, ev.lon, altR);
+      _iDummy.position.copy(pos);
+      _iDummy.scale.set(1, 1, 1);
+      _iDummy.updateMatrix();
+      _imesh.setMatrixAt(n, _iDummy.matrix);
+
+      _iColor.setHex(_eventColor(ev.eventType));
+      var off = n * 3;
+      _imesh.instanceColor.array[off]     = _iColor.r;
+      _imesh.instanceColor.array[off + 1] = _iColor.g;
+      _imesh.instanceColor.array[off + 2] = _iColor.b;
+      n++;
+    });
+
+    _imesh.count = n;
+    _imesh.instanceMatrix.needsUpdate = true;
+    _imesh.instanceColor.needsUpdate  = true;
+    _imesh.visible = !!(visible);
+
+    console.log('[ArgusACLED] instanced mesh rebuilt —', n, 'events in 1 draw call');
   }
 
   // ── Load API response into cache (diff-aware) ─────────────────────────────────
@@ -231,12 +301,19 @@ window.ArgusACLED = (function () {
         return !(m.userData && m.userData._acledMarker);
       });
     }
+    if (_imesh) _imesh.visible = false;
     acledEventCache.clear();
     _placedIds.clear();
   }
 
   function refresh() {
     _poll();
+  }
+
+  // Called by index.html event layer toggles (E key, modal close) to show/hide
+  // the InstancedMesh. Ghost meshes are managed via window.eventMarkers.forEach().
+  function setVisible(v) {
+    if (_imesh) _imesh.visible = !!v;
   }
 
   function status() {
@@ -265,6 +342,6 @@ window.ArgusACLED = (function () {
 
   if (window.ArgusModuleAudit) window.ArgusModuleAudit.register('ArgusACLED');
 
-  return { start: start, stop: stop, refresh: refresh, status: status };
+  return { start: start, stop: stop, refresh: refresh, status: status, setVisible: setVisible };
 
 }());

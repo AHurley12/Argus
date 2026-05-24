@@ -91,7 +91,7 @@ async function fetchRegion(region, username) {
   const payload = await res.json();
   // AISHub wraps in array: [{ERROR, DATA: [...vessels]}]
   const root = Array.isArray(payload) ? payload[0] : payload;
-  if (root.ERROR) throw new Error(`AISHub error: ${root.LAST_ERROR}`);
+  if (root.ERROR) throw new Error(`AISHub error: ${root.ERROR_MESSAGE}`);
 
   return Array.isArray(root.DATA) ? root.DATA : [];
 }

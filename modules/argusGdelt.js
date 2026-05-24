@@ -438,7 +438,7 @@ setInterval(function () { if (!document.hidden) fetchAll(); }, TTL);
 
 // ── DISASTER tab — NOAA severe weather fetch ──────────────────────────────────
 (function loadNOAA() {
-  var URL      = 'https://api.weather.gov/alerts/active?status=actual&message_type=alert&limit=50';
+  var URL      = 'https://api.weather.gov/alerts/active?status=actual&limit=50';
   var CACHE_K  = 'argus_noaa_v2';
   var CACHE_T  = 'argus_noaa_ts_v2';
   var TTL_MS   = 30 * 60 * 1000; // 30 min — weather events stable enough for strategic view

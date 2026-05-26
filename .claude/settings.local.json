@@ -138,7 +138,8 @@
       "Bash(curl -s -o ais_resp.json \"https://argusintel.live/.netlify/functions/ais-vessels\")",
       "Bash(del ais_resp.json)",
       "Bash(curl -s \"https://argusintel.live/core/runtime/argusSelection.js\")",
-      "Bash(curl -s \"https://argusintel.live/modules/argusWeatherLayer.js\")"
+      "Bash(curl -s \"https://argusintel.live/modules/argusWeatherLayer.js\")",
+      "mcp__claude_ai_Supabase__get_logs"
     ]
   }
 }

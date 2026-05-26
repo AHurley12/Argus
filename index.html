@@ -17,8 +17,8 @@
        To rebuild: cd apps/web && npm install && npm run build:vendor
        Source:     apps/web/src/vendor-globals.js
        Config:     apps/web/vite.vendor.config.js                          -->
-  <script src="/vendor/vendor.js?v=perf-fix-4"></script>
-  <script src="/data/static-data.js?v=perf-fix-4"></script>
+  <script src="/vendor/vendor.js?v=perf-fix-5"></script>
+  <script src="/data/static-data.js?v=perf-fix-5"></script>
 
   <link rel="stylesheet" href="/index.css">
 </head>
@@ -670,10 +670,10 @@
      All globe-local variables are inside DOMContentLoaded.
      Shared state is exposed on window.ArgusGlobe.*
 ══════════════════════════════════════════════════════════════════════════════ -->
-<script src="/core/runtime/perf.js?v=perf-fix-4"></script>
-<script src="/core/runtime/cache.js?v=perf-fix-4"></script>
+<script src="/core/runtime/perf.js?v=perf-fix-5"></script>
+<script src="/core/runtime/cache.js?v=perf-fix-5"></script>
 <!-- Module audit — must load before other modules to capture all register() calls -->
-<script src="/core/runtime/argusModuleAudit.js?v=perf-fix-4"></script>
+<script src="/core/runtime/argusModuleAudit.js?v=perf-fix-5"></script>
 <script>
 (function() {
 'use strict';
@@ -778,34 +778,52 @@ document.addEventListener('DOMContentLoaded', function() {
       // so they can be merged into 2 draw calls with zero visual change.
       // Ghost meshes stay in Globe's scene graph for onPolygonHover raycasting;
       // only their materials are hidden.
-      var _BGU = THREE.BufferGeometryUtils;
+      // BufferGeometryUtils is exposed differently depending on three-globe bundle version.
+      // Try THREE.BufferGeometryUtils first, then window global, then bare global.
+      var _BGU = THREE.BufferGeometryUtils ||
+                 window.BufferGeometryUtils ||
+                 (typeof BufferGeometryUtils !== 'undefined' ? BufferGeometryUtils : null);
+
       var _mergePolygons = function() {
+        if (!_BGU) {
+          console.warn('[Argus] polygon merge: BufferGeometryUtils unavailable — skip');
+          return true;  // bail permanently — won't appear later
+        }
+
         var capGeos  = [], lineGeos = [];
         var capMat   = null, lineMat = null;
         var hidden   = 0;
-        var _logged  = 0;  // diagnostic: log first 3 mesh findings
+        var _total   = 0, _excl = 0, _logged = 0;
 
-        // Pure exclusion strategy: everything in Globe's subtree that is a Mesh
-        // and is NOT the globe sphere (has .map/.bumpMap) or atmosphere (ShaderMaterial)
-        // must be a polygon cap or side. Merge all into one draw call.
-        // Lines already-hidden from perf-fix-2 are skipped.
+        // Exclusion strategy (perf-fix-5):
+        //   ShaderMaterial  → atmosphere (skip)
+        //   bumpMap present → globe sphere texture (skip; globe sphere has BOTH map+bumpMap)
+        //   color=black, opacity=1, transparent=false, no map → inner background sphere (skip)
+        //   Everything else that is a Mesh → polygon cap or side (merge)
+        //   Lines not already hidden → polygon strokes (merge)
         Globe.traverse(function(obj) {
           if (!obj.material) return;
           var mat = obj.material;
-          if (mat.type === 'ShaderMaterial') return;  // atmosphere
-          if (mat.map || mat.bumpMap) return;          // globe sphere (Earth texture)
+
+          if (mat.type === 'ShaderMaterial') { _excl++; return; }  // atmosphere
+          if (mat.bumpMap) { _excl++; return; }                     // globe sphere (map+bumpMap)
+
+          // Inner background sphere: pure black, fully opaque, no canvas map
+          if (!mat.map && mat.color &&
+              mat.color.r === 0 && mat.color.g === 0 && mat.color.b === 0 &&
+              !mat.transparent && mat.opacity === 1) { _excl++; return; }
 
           if (obj instanceof THREE.Mesh) {
+            _total++;
             var geo = obj.geometry;
             if (!geo || !geo.attributes || !geo.attributes.position ||
                 !geo.attributes.position.count) return;
 
-            // Diagnostic: log first 3 meshes to reveal actual material properties
-            if (_logged < 3) {
+            if (_logged < 5) {
               var col = mat.color;
               console.log('[Argus] poly mesh #' + _logged + ': opacity=' + mat.opacity +
                 ' transparent=' + mat.transparent +
-                ' vertexColors=' + mat.vertexColors +
+                ' hasMap=' + !!mat.map +
                 ' color=' + (col ? col.getHexString() : 'none') +
                 ' verts=' + geo.attributes.position.count +
                 ' matType=' + mat.type);
@@ -814,10 +832,15 @@ document.addEventListener('DOMContentLoaded', function() {
 
             capGeos.push(geo);
             if (!capMat) {
-              capMat = mat.clone();
-              capMat.transparent = true;
-              capMat.opacity     = 0.48;
-              capMat.depthWrite  = false;
+              // Build a solid-color material — canvas textures per-polygon are all the same
+              // rgba(100,150,200,0.48) cap color. Strip the map; use uniform color instead.
+              capMat = new THREE.MeshBasicMaterial({
+                color:       new THREE.Color(100/255, 150/255, 200/255),
+                transparent: true,
+                opacity:     0.48,
+                depthWrite:  false,
+                side:        THREE.DoubleSide,
+              });
             }
             mat.visible = false;
             hidden++;
@@ -831,35 +854,37 @@ document.addEventListener('DOMContentLoaded', function() {
           }
         });
 
-        if (!capGeos.length) {
-          console.warn('[Argus] polygon merge: no meshes found in Globe subtree, retrying…');
+        console.log('[Argus] polygon merge scan: total=' + _total +
+          ' excluded=' + _excl + ' capGeos=' + capGeos.length + ' lineGeos=' + lineGeos.length);
+
+        if (!capGeos.length && !lineGeos.length) {
+          console.warn('[Argus] polygon merge: nothing found — retrying…');
           return false;  // signal not ready
         }
 
         var merge = _BGU.mergeGeometries || _BGU.mergeBufferGeometries;
+        if (typeof merge !== 'function') {
+          console.warn('[Argus] polygon merge: mergeGeometries not a function on _BGU');
+          return true;  // bail permanently
+        }
 
-        var merge = _BGU.mergeGeometries || _BGU.mergeBufferGeometries;
-
-        // Merge all polygon meshes (caps + sides combined) into one draw call.
-        // capMat is cloned from the first polygon mesh encountered and forced transparent.
+        // Merge all polygon cap + side meshes → 1 draw call
         if (capGeos.length && capMat) {
           try {
             var polyMerged = merge.call(_BGU, capGeos, false);
             if (polyMerged) {
-              capMat.visible = true;
               var cm = new THREE.Mesh(polyMerged, capMat);
               cm.name = 'ArgusPolygonsMerged';
               cm.frustumCulled = false;
               globeGroup.add(cm);
               console.log('[Argus] polygon merge OK: ' + capGeos.length + ' meshes → 1 draw call');
             } else {
-              console.warn('[Argus] polygon merge returned null — trying batched merge');
-              // Fallback: merge in chunks of 500 to avoid attribute-mismatch issues
+              // Fallback: merge in chunks of 500
+              console.warn('[Argus] polygon merge returned null — trying chunked merge');
               var chunks = [], chunkSize = 500;
               for (var ci = 0; ci < capGeos.length; ci += chunkSize) {
-                var chunk = capGeos.slice(ci, ci + chunkSize);
                 try {
-                  var chunkMerged = merge.call(_BGU, chunk, false);
+                  var chunkMerged = merge.call(_BGU, capGeos.slice(ci, ci + chunkSize), false);
                   if (chunkMerged) chunks.push(chunkMerged);
                 } catch(ce) { /* skip bad chunk */ }
               }
@@ -890,7 +915,7 @@ document.addEventListener('DOMContentLoaded', function() {
           } catch(e) { console.warn('[Argus] line merge error:', e.message); }
         }
 
-        console.log('[Argus] Globe polygon merge complete: ' + hidden + ' objects hidden → ≤2 draw calls');
+        console.log('[Argus] polygon merge complete: ' + hidden + ' objects hidden → ≤2 draw calls');
         return true;
       };
 
@@ -6288,7 +6313,7 @@ ArgusMarket.init();
      Self-contained module: touches event feed tab, globe colors, AI context.
      Fails silently. No dependency on ArgusData render functions.
 ══════════════════════════════════════════════════════════════════════════════ -->
-<script src="/modules/argusGdelt.js?v=perf-fix-4"></script>
+<script src="/modules/argusGdelt.js?v=perf-fix-5"></script>
 
 <!-- ══════════════════════════════════════════════════════════════════════════════
      SCRIPT 4 — UN Humanitarian Data (GDACS + UNHCR)
@@ -6302,7 +6327,7 @@ ArgusMarket.init();
        Option 3 — Wait for ReliefWeb appname approval
        Option 4 — Remove Script 4, GDELT covers conflict signal already
 ══════════════════════════════════════════════════════════════════════════════ -->
-<script src="/modules/argusGdacs.js?v=perf-fix-4"></script>
+<script src="/modules/argusGdacs.js?v=perf-fix-5"></script>
 
 <!-- ══════════════════════════════════════════════════════════════════════════════
      SCRIPT 5 — Intelligence Layer Overlays
@@ -6315,10 +6340,10 @@ ArgusMarket.init();
 
      These are NOT realtime telemetry streams. DO NOT mix with aircraft/vessel pipelines.
 ══════════════════════════════════════════════════════════════════════════════ -->
-<script src="/modules/argusAcled.js?v=perf-fix-4"></script>
-<script src="/modules/argusNoaa.js?v=perf-fix-4"></script>
-<script src="/modules/argusWeatherLayer.js?v=perf-fix-4"></script>
-<script src="/modules/argusGem.js?v=perf-fix-4"></script>
+<script src="/modules/argusAcled.js?v=perf-fix-5"></script>
+<script src="/modules/argusNoaa.js?v=perf-fix-5"></script>
+<script src="/modules/argusWeatherLayer.js?v=perf-fix-5"></script>
+<script src="/modules/argusGem.js?v=perf-fix-5"></script>
 
   <!-- ── Global Exchanges Popup ─────────────────────────────────────────────── -->
 
@@ -10640,34 +10665,34 @@ if (document.readyState === 'loading') {
 
 
 <!-- Resource tracker — must load before all modules that create GPU resources -->
-<script src="/core/memory/argusResourceTracker.js?v=perf-fix-4"></script>
+<script src="/core/memory/argusResourceTracker.js?v=perf-fix-5"></script>
 
 <!-- Entity registry — must load before argusTracking.js and argusAIS.js -->
-<script src="/core/registry/argusEntityRegistry.js?v=perf-fix-4"></script>
+<script src="/core/registry/argusEntityRegistry.js?v=perf-fix-5"></script>
 
 <!-- Aircraft visual layer — must load before argusTracking.js -->
-<script src="/core/globe/instancedAircraft.js?v=perf-fix-4"></script>
+<script src="/core/globe/instancedAircraft.js?v=perf-fix-5"></script>
 
 <!-- Ship visual layer — must load before argusTracking.js -->
-<script src="/core/globe/instancedShips.js?v=perf-fix-4"></script>
+<script src="/core/globe/instancedShips.js?v=perf-fix-5"></script>
 
 <!-- Capital city visual layer — must load before globe DOMContentLoaded block -->
-<script src="/core/globe/instancedCapitals.js?v=perf-fix-4"></script>
+<script src="/core/globe/instancedCapitals.js?v=perf-fix-5"></script>
 
 <!-- Country marker visual layer — must load before globe DOMContentLoaded block -->
-<script src="/core/globe/instancedCountries.js?v=perf-fix-4"></script>
+<script src="/core/globe/instancedCountries.js?v=perf-fix-5"></script>
 
 <!-- SCRIPT 4 — ArgusTracking: Aircraft + Ships + patchShTex shim -->
-<script src="/modules/argusTracking.js?v=perf-fix-4"></script>
+<script src="/modules/argusTracking.js?v=perf-fix-5"></script>
 
 
 
 <!-- AIS visual layer — must load before argusAIS.js -->
-<script src="/core/globe/materials.js?v=perf-fix-4"></script>
-<script src="/core/globe/instancedAIS.js?v=perf-fix-4"></script>
+<script src="/core/globe/materials.js?v=perf-fix-5"></script>
+<script src="/core/globe/instancedAIS.js?v=perf-fix-5"></script>
 
 <!-- SCRIPT 4b — ArgusAIS: AISstream Realtime Layer -->
-<script src="/modules/argusAIS.js?v=perf-fix-4"></script>
+<script src="/modules/argusAIS.js?v=perf-fix-5"></script>
 
 
 
@@ -10678,10 +10703,10 @@ if (document.readyState === 'loading') {
      Populates: window._portWatchState, window._portData (legacy hook),
                 window._portWatchSignals (analytics signals for AI context).
 ══════════════════════════════════════════════════════════════════════════════ -->
-<script src="/modules/argusPortWatch.js?v=perf-fix-4"></script>
+<script src="/modules/argusPortWatch.js?v=perf-fix-5"></script>
 
 <!-- Visibility API module — extracted to separate file for background parsing -->
-<script src="/core/runtime/argusVisibility.js?v=perf-fix-4"></script>
+<script src="/core/runtime/argusVisibility.js?v=perf-fix-5"></script>
 
 <!-- ══════════════════════════════════════════════════════════════════════════════
      NEURAL WEB — HTML
@@ -10837,22 +10862,22 @@ if (document.readyState === 'loading') {
      SCRIPT 6 — ArgusNeuralWeb: Country-Centric Intelligence Graph
      3-layer architecture: Data → State → View. Non-destructive.
 ══════════════════════════════════════════════════════════════════════════════ -->
-<script src="/modules/argusNeuralWeb.js?v=perf-fix-4"></script>
+<script src="/modules/argusNeuralWeb.js?v=perf-fix-5"></script>
 
 <!-- Dynamic risk scoring — extracted to separate file for background parsing -->
-<script src="/core/runtime/argusDynamicRisk.js?v=perf-fix-4"></script>
+<script src="/core/runtime/argusDynamicRisk.js?v=perf-fix-5"></script>
 
 <!-- ArgusDataAge — extracted to separate file for background parsing -->
-<script src="/core/runtime/argusDataAge.js?v=perf-fix-4"></script>
+<script src="/core/runtime/argusDataAge.js?v=perf-fix-5"></script>
 
 <!-- ArgusSelection — extracted to separate file for background parsing -->
-<script src="/core/runtime/argusSelection.js?v=perf-fix-4"></script>
+<script src="/core/runtime/argusSelection.js?v=perf-fix-5"></script>
 
 <!-- ArgusDiagnostics — unified observability framework + debug overlay (Ctrl+Shift+D) -->
-<script src="/core/runtime/argusDiagnostics.js?v=perf-fix-4"></script>
+<script src="/core/runtime/argusDiagnostics.js?v=perf-fix-5"></script>
 
 <!-- ArgusProviderCache — OpenSky supplemental aircraft provider (additive, cache-aware) -->
-<script src="/core/providers/argusProviderCache.js?v=perf-fix-4"></script>
+<script src="/core/providers/argusProviderCache.js?v=perf-fix-5"></script>
 
 <!-- ArgusAnalytics — multi-source intelligence analytics panel (GEM / NOAA / ACLED) -->
 <script src="/modules/argusAnalytics.js?v=analytics-v1"></script>

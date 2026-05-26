@@ -447,7 +447,7 @@ setInterval(function () { if (!document.hidden) fetchAll(); }, TTL);
     var ts     = parseInt(localStorage.getItem(CACHE_T) || '0');
     if (cached && Date.now() - ts < TTL_MS) { window._noaaEvents = JSON.parse(cached); return; }
   } catch(e) {}
-  fetch(URL, { headers: { 'Accept': 'application/geo+json' } })
+  fetch(URL, { headers: { 'Accept': 'application/geo+json', 'User-Agent': 'ArgusIntelligence/1.0 (contact@argus.app)' } })
   .then(function(r) { return r.ok ? r.json() : null; })
   .then(function(data) {
     if (!data || !data.features) return;

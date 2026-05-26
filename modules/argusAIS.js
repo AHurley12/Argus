@@ -381,9 +381,6 @@ function upsertAISMarker(mmsi, name, lat, lon, heading, velocity, shipType, navS
     var sprite = new THREE.Sprite(mat);
     sprite.position.copy(pos);
     sprite.scale.set(0.89, 0.89, 1);
-    // Detached from scene — InstancedMesh renders visually.
-    // updateWorldMatrix ensures matrixWorld is valid for raycaster.intersectObjects().
-    sprite.updateWorldMatrix(false, false);
     sprite.userData = {
       isShip:       true,       // enables canInteract(), click routing, ArgusSelection
       isAISVessel:  true,       // source tag — keeps AIS identity without breaking anything
@@ -398,7 +395,14 @@ function upsertAISMarker(mmsi, name, lat, lon, heading, velocity, shipType, navS
       velocity:     velocity,
       navStatus:    navStatus,
     };
-    // NOT added to aisGroup — proxy for raycasting/ArgusSelection only.
+    // Add to aisGroup so the sprite lives inside globeGroup's coordinate frame.
+    // getWorldPosition() then correctly applies globeGroup.rotation.y (PI/2) when
+    // ArgusSelection projects to screen — orphaned sprites (parent=null) returned
+    // globe-local coords which were -90° off from world space, breaking all hover/click.
+    // material.visible=false: no draw call (InstancedMesh handles all visual rendering).
+    mat.visible = false;
+    aisGroup.add(sprite);
+    sprite.updateWorldMatrix(false, false);  // sync matrixWorld immediately for this tick's raycasts
     aisMarkers.set(mmsi, { sprite: sprite, updatedAt: now });
     if (window.ArgusEntityRegistry) window.ArgusEntityRegistry.register(mmsi, 'ais_vessel', sprite, sprite.userData);
     if (window.ArgusAISInstanced) {
@@ -460,7 +464,7 @@ function evictOldest() {
 
     if (window.ArgusAISInstanced) window.ArgusAISInstanced.remove(oldest);
     if (window.ArgusEntityRegistry) window.ArgusEntityRegistry.remove(oldest);
-    // _evSprite was never added to aisGroup — no group.remove() needed.
+    if (aisGroup) aisGroup.remove(_evSprite);
     // Dispose the SpriteMaterial to free the GPU program allocation.
     // The shared texture (_shTex / shTex) is NOT disposed — it is owned by argusTracking.js.
     if (window.ArgusResourceTracker) window.ArgusResourceTracker.safeDisposeSprite(_evSprite, 'ais_sprite');

@@ -1046,10 +1046,9 @@ document.addEventListener('DOMContentLoaded', function() {
       if (_emg) _emg.children.forEach(function(obj) {
         if (obj.userData && obj.userData.isPulseRing && !obj.userData._noaaMarker) obj.visible = evOn;
       });
-      // ACLED + GEM + GDACS InstancedMesh visual layers — ghost meshes above handle raycasting
+      // ACLED + GEM InstancedMesh visual layers — ghost meshes above handle raycasting
       if (window.ArgusACLED  && window.ArgusACLED.setVisible)  window.ArgusACLED.setVisible(evOn);
       if (window.ArgusGEM    && window.ArgusGEM.setVisible)    window.ArgusGEM.setVisible(evOn);
-      if (window.ArgusGDACS  && window.ArgusGDACS.setVisible)  window.ArgusGDACS.setVisible(evOn);
       if (!evOn) clearHoverTooltip();
     }
     if (e.key.toLowerCase() === 'w') {
@@ -1071,8 +1070,10 @@ document.addEventListener('DOMContentLoaded', function() {
     if (window.ArgusLayerState) window.ArgusLayerState.weather = wOn;
     // NOAA static markers (argusNoaa.js)
     (window.weatherMarkers || []).forEach(function(m) { m.visible = wOn; });
-    // ArgusWeatherLayer animated sprites
+    // ArgusWeatherLayer animated sprites (NOAA alerts)
     if (window.ArgusWeatherLayer) window.ArgusWeatherLayer.setVisible(wOn);
+    // GDACS — same toggle as NOAA: both are environmental survey layers
+    if (window.ArgusGDACS && window.ArgusGDACS.setVisible) window.ArgusGDACS.setVisible(wOn);
     // Sync button active state
     var btn = document.getElementById('btn-track-weather');
     if (btn) btn.classList.toggle('is-active', wOn);
@@ -6012,7 +6013,7 @@ window.ArgusEvents = (function() {
     if (window.weatherMarkers) window.weatherMarkers.forEach(function(m) { m.visible = wOn; });
     if (window.ArgusACLED  && window.ArgusACLED.setVisible)  window.ArgusACLED.setVisible(evOn);
     if (window.ArgusGEM    && window.ArgusGEM.setVisible)    window.ArgusGEM.setVisible(evOn);
-    if (window.ArgusGDACS  && window.ArgusGDACS.setVisible)  window.ArgusGDACS.setVisible(evOn);
+    if (window.ArgusGDACS  && window.ArgusGDACS.setVisible)  window.ArgusGDACS.setVisible(wOn);
   }
 
   // ── Community Intel: Supabase helpers ────────────────────────────────────────
@@ -7019,7 +7020,7 @@ window.ArgusAnalyst = (function() {
     if (window.weatherMarkers) window.weatherMarkers.forEach(function(m) { m.visible = wOn; });
     if (window.ArgusACLED  && window.ArgusACLED.setVisible)  window.ArgusACLED.setVisible(evOn);
     if (window.ArgusGEM    && window.ArgusGEM.setVisible)    window.ArgusGEM.setVisible(evOn);
-    if (window.ArgusGDACS  && window.ArgusGDACS.setVisible)  window.ArgusGDACS.setVisible(evOn);
+    if (window.ArgusGDACS  && window.ArgusGDACS.setVisible)  window.ArgusGDACS.setVisible(wOn);
   }
 
   function showModalMsg(text, isError) {

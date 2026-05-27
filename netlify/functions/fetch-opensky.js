@@ -58,7 +58,7 @@ async function getAccessToken() {
     method:  'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body:    body.toString(),
-    signal:  AbortSignal.timeout ? AbortSignal.timeout(10000) : undefined,
+    signal:  AbortSignal.timeout ? AbortSignal.timeout(6000) : undefined,
   });
 
   if (!resp.ok) {
@@ -139,6 +139,19 @@ const CORS_HEADERS = {
 };
 
 exports.handler = async function (event) {
+  try {
+    return await _handler(event);
+  } catch (err) {
+    console.error('[fetch-opensky] unhandled exception:', err && err.message, err && err.stack);
+    return {
+      statusCode: 502,
+      headers: CORS_HEADERS,
+      body: JSON.stringify({ error: 'fetch-opensky unhandled: ' + (err && err.message), aircraft: [] }),
+    };
+  }
+};
+
+async function _handler(event) {
   if (event.httpMethod === 'OPTIONS') {
     return { statusCode: 204, headers: CORS_HEADERS, body: '' };
   }

@@ -62,7 +62,10 @@ async function getAccessToken() {
   });
 
   if (!resp.ok) {
-    throw new Error(`OpenSky token exchange failed: HTTP ${resp.status}`);
+    let detail = '';
+    try { detail = await resp.text(); } catch (_) {}
+    console.error('[fetch-opensky] token exchange HTTP', resp.status, '— body:', detail.slice(0, 300));
+    throw new Error(`OpenSky token exchange failed: HTTP ${resp.status} — ${detail.slice(0, 200)}`);
   }
 
   const json = await resp.json();

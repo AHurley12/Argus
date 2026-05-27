@@ -13,6 +13,9 @@
 [functions."*"]
   timeout = 26
 
+[functions."fetch-traffic"]
+  timeout = 26
+
 [functions."fetch-firms"]
   timeout = 26
 

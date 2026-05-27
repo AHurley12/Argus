@@ -25,7 +25,7 @@ const SUPABASE_URL  = process.env.SUPABASE_URL;
 const SUPABASE_KEY  = process.env.SUPABASE_SERVICE_KEY;
 
 const CACHE_KEY     = 'air_traffic_v4';
-const REGION_TTL_MS = 60 * 1000;   // 60 s per-region freshness
+const REGION_TTL_MS = 5 * 60 * 1000;  // 5 min per-region freshness (reduces full-refresh frequency)
 const GLOBAL_CAP    = 750;          // hard ceiling on returned aircraft
 const MIN_PER_CELL  = 2;            // guaranteed minimum per active 5° grid cell
 const GRID_DEG      = 5;            // grid resolution in degrees
@@ -140,18 +140,11 @@ async function fetchRegion(region) {
     });
 }
 
-// Stagger fetches 2 at a time with 400 ms between batches — same as v3
+// Fetch all regions in parallel — fits within Netlify's 26s timeout.
+// Serial batching (old approach) took up to 50s for 10 regions × 10s timeout,
+// reliably exceeding the function limit on cold cache calls.
 async function fetchRegionsThrottled(regions) {
-  const results = [];
-  const batchSize = 2, delayMs = 400;
-  for (let i = 0; i < regions.length; i += batchSize) {
-    const batch   = regions.slice(i, i + batchSize);
-    const settled = await Promise.allSettled(batch.map(fetchRegion));
-    results.push(...settled);
-    if (i + batchSize < regions.length)
-      await new Promise(r => setTimeout(r, delayMs));
-  }
-  return results;
+  return Promise.allSettled(regions.map(fetchRegion));
 }
 
 // ── Grid-stratified sampler ────────────────────────────────────────────────────

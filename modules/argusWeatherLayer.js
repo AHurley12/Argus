@@ -76,6 +76,16 @@ window.ArgusWeatherLayer = (function () {
     extreme:  { pulseSpeed: 0.052, ringThick: 1.7, glowAlpha: 0.92, flareCount: 6, ringCount: 2 },
   };
 
+  // ── Flood severity animation params ───────────────────────────────────────────
+  // Slower than NOAA weather, calmer than wildfire — floods rise and spread
+  // deliberately. Single smooth ring for minor/moderate; echo ring at severe+.
+  var FLOOD_SEV_PARAMS = {
+    minor:    { pulseSpeed: 0.012, ringThick: 0.9,  glowAlpha: 0.55, echo: false },
+    moderate: { pulseSpeed: 0.018, ringThick: 1.1,  glowAlpha: 0.65, echo: false },
+    severe:   { pulseSpeed: 0.024, ringThick: 1.3,  glowAlpha: 0.78, echo: true  },
+    extreme:  { pulseSpeed: 0.032, ringThick: 1.6,  glowAlpha: 0.90, echo: true  },
+  };
+
   // ── Colors ───────────────────────────────────────────────────────────────────
 
   var C_NUCLEUS = '#72eeff';
@@ -91,6 +101,11 @@ window.ArgusWeatherLayer = (function () {
   var W_ORANGE = '#ff6600';  // fire orange — base wildfire color
   var W_EMBER  = '#cc3300';  // deep ember red
   var W_HOT    = '#ffaa00';  // hot yellow (flare tips and core)
+
+  // ── Flood palette ─────────────────────────────────────────────────────────────
+  var F_CORE = '#66ccee';   // soft aqua nucleus — calm, hydrological
+  var F_AQUA = '#44aadd';   // deep cyan primary ring
+  var F_CYAN = '#2277bb';   // muted blue echo ring (severe+)
 
   var TOOLTIP_SEV_COLORS = {
     minor:    '#0ea5e9',
@@ -112,11 +127,15 @@ window.ArgusWeatherLayer = (function () {
     'Tropical Cyclone': 1, 'Extratropical Cyclone': 1,
   };
 
-  var PULSE_TYPES = {
+  // Flood event types — routed to FloodMarker (same icon for NOAA and GDACS floods).
+  var FLOOD_TYPES = {
     'Flood Warning': 1, 'Flood Watch': 1, 'Flood Advisory': 1,
     'Flash Flood Warning': 1, 'Flash Flood Watch': 1, 'Flash Flood Statement': 1,
     'Coastal Flood Warning': 1, 'Coastal Flood Watch': 1, 'Coastal Flood Advisory': 1,
     'Lakeshore Flood Warning': 1, 'River Flood Warning': 1, 'Areal Flood Warning': 1,
+  };
+
+  var PULSE_TYPES = {
     'Special Weather Statement': 1, 'Severe Thunderstorm Warning': 1,
     'Severe Thunderstorm Watch': 1, 'Tornado Warning': 1, 'Tornado Watch': 1,
     'Dense Fog Advisory': 1, 'High Wind Warning': 1, 'High Wind Watch': 1,
@@ -127,10 +146,12 @@ window.ArgusWeatherLayer = (function () {
   function classify(eventType) {
     if (!eventType) return 'pulse';
     if (CYCLONE_TYPES[eventType]) return 'cyclone';
+    if (FLOOD_TYPES[eventType])   return 'flood';
     if (PULSE_TYPES[eventType])   return 'pulse';
     var low = eventType.toLowerCase();
     if (low.indexOf('hurricane') >= 0 || low.indexOf('typhoon') >= 0 ||
         low.indexOf('cyclone') >= 0   || low.indexOf('tropical') >= 0) return 'cyclone';
+    if (low.indexOf('flood') >= 0) return 'flood';
     return 'pulse';
   }
 
@@ -815,6 +836,128 @@ window.ArgusWeatherLayer = (function () {
     if (this.sprite.parent) this.sprite.parent.remove(this.sprite);
   };
 
+  // ── FloodPulseTexture ─────────────────────────────────────────────────────────
+  //
+  // Unified animated canvas texture for ALL flood events — NOAA NWS flood alerts
+  // AND GDACS flood events share this exact same icon, palette, and animation language.
+  //
+  // Design: single smooth expanding ring (graceful Power-2.2 falloff), no turbulence
+  // streaks, no angular noise. At severe+ an echo ring trails 50% behind the primary.
+  // Nucleus breathes on a slow ~8-second cycle. Hydrological palette (deep cyan,
+  // muted aqua) signals rising water rather than acute burst events.
+
+  function FloodPulseTexture(severity) {
+    var c = makeCanvas(PULSE_SIZE);
+    this.canvas     = c.canvas;
+    this.ctx        = c.ctx;
+    this.severity   = severity || 'minor';
+    this.params     = FLOOD_SEV_PARAMS[this.severity] || FLOOD_SEV_PARAMS.minor;
+    this.t          = 0;
+    this._tickCount = 0;
+    this._frameSkip = SEV_FRAME_SKIP[this.severity] || 4;
+    this.texture    = new THREE.CanvasTexture(this.canvas);
+    this._draw();
+    this.texture.needsUpdate = true;
+  }
+
+  FloodPulseTexture.prototype.tick = function (dt) {
+    this._tickCount++;
+    if (this._tickCount % this._frameSkip !== 0) return;
+    this.t += dt * 60 * this._frameSkip;
+    this._draw();
+    this.texture.needsUpdate = true;
+  };
+
+  FloodPulseTexture.prototype._draw = function () {
+    var ctx    = this.ctx;
+    var size   = PULSE_SIZE;
+    var cx     = size / 2;
+    var cy     = size / 2;
+    var p      = this.params;
+    var t      = this.t;
+    var severe = this.severity === 'severe' || this.severity === 'extreme';
+
+    ctx.clearRect(0, 0, size, size);
+    ctx.save();
+    ctx.globalCompositeOperation = 'screen';
+
+    // ── Primary ring: single smooth expansion, very graceful falloff ──────────
+    var maxR  = severe ? 24 : 20;
+    var phase = (t * p.pulseSpeed) % 1;
+    var r     = 5 + phase * maxR;
+    var alpha = p.glowAlpha * Math.pow(1 - phase, 2.2);  // gentlest falloff in the set
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.strokeStyle = hexAlpha(F_AQUA, alpha);
+    ctx.lineWidth   = p.ringThick;
+    ctx.stroke();
+
+    // ── Echo ring (severe+): trailing 50% behind — depth and inundation feel ──
+    if (p.echo) {
+      var phase2 = (phase + 0.50) % 1;
+      var r2     = 5 + phase2 * maxR;
+      var alpha2 = p.glowAlpha * 0.45 * Math.pow(1 - phase2, 2.6);
+      ctx.beginPath();
+      ctx.arc(cx, cy, r2, 0, Math.PI * 2);
+      ctx.strokeStyle = hexAlpha(F_CYAN, alpha2);
+      ctx.lineWidth   = p.ringThick * 0.60;
+      ctx.stroke();
+    }
+
+    // ── Nucleus: soft aqua, slow 8-second breathing cycle ────────────────────
+    var breathe = 1 + Math.sin(t * 0.013) * 0.12;  // ~8s cycle, 12% amplitude
+    ctx.beginPath();
+    ctx.arc(cx, cy, 2.6 * breathe, 0, Math.PI * 2);
+    ctx.fillStyle = hexAlpha(F_CORE, severe ? 0.85 : 0.62);
+    ctx.fill();
+
+    // ── Core anchor dot ───────────────────────────────────────────────────────
+    ctx.beginPath();
+    ctx.arc(cx, cy, 1.1, 0, Math.PI * 2);
+    ctx.fillStyle = F_CORE;
+    ctx.fill();
+
+    ctx.restore();
+  };
+
+  FloodPulseTexture.prototype.dispose = function () {
+    this.texture.dispose();
+  };
+
+  // ── FloodMarker (sprite wrapper) ──────────────────────────────────────────────
+  //
+  // Unified flood marker — used for NOAA NWS flood alerts AND GDACS flood events.
+  // Deep cyan tint (0x44aadd) matches the hydrological palette.
+  // Exported via ArgusWeatherLayer so argusGdacs.js can create instances directly.
+
+  function FloodMarker(scene, position, severity) {
+    this.severity = severity || 'minor';
+    this.texture  = new FloodPulseTexture(this.severity);
+    this.material = new THREE.SpriteMaterial({
+      map: this.texture.texture, transparent: true,
+      blending: THREE.AdditiveBlending, depthWrite: false,
+      color: 0x44aadd,
+    });
+    this.sprite = new THREE.Sprite(this.material);
+    this.sprite.scale.setScalar(SCALE_PULSE);
+    this.sprite.position.copy(position);
+    scene.add(this.sprite);
+  }
+
+  FloodMarker.prototype.tick = function (dt) {
+    this.texture.tick(dt);
+  };
+
+  FloodMarker.prototype.setVisible = function (v) {
+    this.sprite.visible = !!v;
+  };
+
+  FloodMarker.prototype.dispose = function () {
+    this.texture.dispose();
+    this.material.dispose();
+    if (this.sprite.parent) this.sprite.parent.remove(this.sprite);
+  };
+
   // ── Tooltip ───────────────────────────────────────────────────────────────────
 
   var _tooltipEl = null;
@@ -992,6 +1135,11 @@ window.ArgusWeatherLayer = (function () {
       _spriteIndex.push({ obj: marker.armSprite,   id: alert.id });
       _spriteIndex.push({ obj: marker.eyeSprite,   id: alert.id });
       _spriteIndex.push({ obj: marker.pulseSprite, id: alert.id });
+    } else if (mType === 'flood') {
+      marker = new FloodMarker(scene, pos, sev);
+      marker.texture._tickCount = _stagger % marker.texture._frameSkip;
+      marker.sprite.userData = ud;
+      _spriteIndex.push({ obj: marker.sprite, id: alert.id });
     } else {
       marker = new PulseMarker(scene, pos, sev);
       marker.texture._tickCount = _stagger % marker.texture._frameSkip;
@@ -1278,6 +1426,7 @@ window.ArgusWeatherLayer = (function () {
     status:         status,
     DroughtMarker:  DroughtMarker,
     WildfireMarker: WildfireMarker,
+    FloodMarker:    FloodMarker,
   };
 
 }());

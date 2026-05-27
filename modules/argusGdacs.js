@@ -59,9 +59,9 @@ window.ArgusGDACS = (function () {
   var _iColor = new THREE.Color();
   var _IMAX   = 150;  // pre-allocated capacity (GDACS limit is 100 per fetch)
 
-  // ── Hazard sprites (drought / wildfire animated canvas markers) ──────────────
+  // ── Hazard sprites (drought / wildfire / flood animated canvas markers) ─────
   // Managed independently of InstancedMesh. Ticked via ArgusGDACS.tick() each frame.
-  var _hazardSprites = {};   // eventId → DroughtMarker | WildfireMarker
+  var _hazardSprites = {};   // eventId → DroughtMarker | WildfireMarker | FloodMarker
   var _lastHazardT   = null; // for delta-time computation in tick()
 
   // ── Audit ────────────────────────────────────────────────────────────────────
@@ -169,8 +169,8 @@ window.ArgusGDACS = (function () {
     var n = 0;
     gdacsEventCache.forEach(function (ev) {
       if (n >= _IMAX) return;
-      // Drought + wildfire have dedicated animated sprite markers — skip instanced sphere
-      if (ev.category === 'drought' || ev.category === 'wildfire') return;
+      // Drought, wildfire, and flood have dedicated animated sprite markers — skip instanced sphere
+      if (ev.category === 'drought' || ev.category === 'wildfire' || ev.category === 'flood') return;
       var pos = AG.latLonToVector(ev.lat, ev.lon, altR);
       _iDummy.position.copy(pos);
       _iDummy.scale.set(1, 1, 1);
@@ -270,10 +270,10 @@ window.ArgusGDACS = (function () {
       added++;
     });
 
-    // ── Hazard sprites (drought/wildfire) — separate loop, not gated by _placedIds ──
+    // ── Hazard sprites (drought/wildfire/flood) — separate loop, not gated by _placedIds ──
     // Checked every render cycle so late ArgusWeatherLayer init is handled gracefully.
     gdacsEventCache.forEach(function (ev) {
-      var isHazard = ev.category === 'drought' || ev.category === 'wildfire';
+      var isHazard = ev.category === 'drought' || ev.category === 'wildfire' || ev.category === 'flood';
       if (!isHazard || _hazardSprites[ev.eventId]) return;
       if (!AG.weatherSpriteGroup) return;
       if (!window.ArgusWeatherLayer || !window.ArgusWeatherLayer.DroughtMarker) return;
@@ -281,7 +281,9 @@ window.ArgusGDACS = (function () {
       var hpos  = AG.latLonToVector(ev.lat, ev.lon, altR + 0.5);
       var hmark = ev.category === 'drought'
         ? new window.ArgusWeatherLayer.DroughtMarker(AG.weatherSpriteGroup, hpos, hsev)
-        : new window.ArgusWeatherLayer.WildfireMarker(AG.weatherSpriteGroup, hpos, hsev);
+        : ev.category === 'wildfire'
+        ? new window.ArgusWeatherLayer.WildfireMarker(AG.weatherSpriteGroup, hpos, hsev)
+        : new window.ArgusWeatherLayer.FloodMarker(AG.weatherSpriteGroup, hpos, hsev);
       hmark.setVisible(visible);
       _hazardSprites[ev.eventId] = hmark;
     });

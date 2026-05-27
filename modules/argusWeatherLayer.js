@@ -49,6 +49,10 @@ window.ArgusWeatherLayer = (function () {
     minor:    4,
   };
 
+  // Severity-based sprite scale — visual hierarchy: extreme events are larger.
+  // Applied only to GDACS hazard sprites (NOAA keeps flat SCALE_PULSE).
+  var _HAZARD_SCALE = { minor: 3.8, moderate: 4.8, severe: 5.8, extreme: 7.0 };
+
   // ── Severity animation params ─────────────────────────────────────────────────
 
   // Matches flood icon speed — slow, deliberate, readable.
@@ -233,6 +237,86 @@ window.ArgusWeatherLayer = (function () {
     cv.width = cv.height = size;
     return { canvas: cv, ctx: cv.getContext('2d') };
   }
+
+  // ── HazardTexturePool ──────────────────────────────────────────────────────────
+  //
+  // Scalability core. All markers of the same (category, severity) share ONE
+  // canvas texture. N hazard sprites → max 20 GPU texture uploads per frame cycle
+  // (5 types × 4 severities) regardless of event count.
+  //
+  // Contract:
+  //   get(category, severity)              → THREE.CanvasTexture (shared, ref-counted)
+  //   release(category, severity)          → decrements ref; disposes texture at zero
+  //   register(category, severity, sprite) → registers sprite for LOD checks
+  //   unregister(category, severity, sprite)
+  //   tick(dt, camPos)                     → redraws active textures (LOD-gated)
+  //
+  // LOD: a texture is only redrawn when ≥1 registered sprite is within LOD_SKIP_DIST
+  // of the camera. Sprites beyond range are frozen — not visible at that distance.
+  //
+  // Disposal: markers call release() in dispose(). When refs reach 0, the texture
+  // object (and its GPU memory) is freed. Pool entry is removed cleanly.
+
+  var _poolEntries = {};  // key: "cat:sev" → { tex: XxxPulseTexture, refs: Number, sprites: Array }
+
+  var HazardTexturePool = {
+
+    get: function (category, severity) {
+      var k = category + ':' + severity;
+      if (!_poolEntries[k]) {
+        var tex;
+        if      (category === 'earthquake') tex = new EarthquakePulseTexture(severity);
+        else if (category === 'drought')    tex = new DroughtPulseTexture(severity);
+        else if (category === 'wildfire')   tex = new WildfirePulseTexture(severity);
+        else if (category === 'flood')      tex = new FloodPulseTexture(severity);
+        else                                tex = new WeatherPulseTexture(severity);
+        _poolEntries[k] = { tex: tex, refs: 0, sprites: [] };
+      }
+      _poolEntries[k].refs++;
+      return _poolEntries[k].tex.texture;  // THREE.CanvasTexture
+    },
+
+    release: function (category, severity) {
+      var k = category + ':' + severity;
+      var e = _poolEntries[k];
+      if (!e) return;
+      e.refs--;
+      if (e.refs <= 0) {
+        e.tex.dispose();
+        delete _poolEntries[k];
+      }
+    },
+
+    register: function (category, severity, sprite) {
+      var k = category + ':' + severity;
+      if (_poolEntries[k]) _poolEntries[k].sprites.push(sprite);
+    },
+
+    unregister: function (category, severity, sprite) {
+      var k = category + ':' + severity;
+      var e = _poolEntries[k];
+      if (!e) return;
+      var idx = e.sprites.indexOf(sprite);
+      if (idx >= 0) e.sprites.splice(idx, 1);
+    },
+
+    tick: function (dt, camPos) {
+      for (var k in _poolEntries) {
+        var e       = _poolEntries[k];
+        var sprites = e.sprites;
+        if (!sprites.length) continue;
+        // LOD: skip redraw when all sprites of this type are beyond camera range
+        if (camPos) {
+          var near = false;
+          for (var i = 0; i < sprites.length; i++) {
+            if (sprites[i].position.distanceTo(camPos) <= LOD_SKIP_DIST) { near = true; break; }
+          }
+          if (!near) continue;
+        }
+        e.tex.tick(dt);
+      }
+    },
+  };
 
   // ── WeatherPulseTexture ────────────────────────────────────────────────────────
   //
@@ -527,32 +611,34 @@ window.ArgusWeatherLayer = (function () {
   };
 
   // ── PulseMarker (sprite wrapper) ─────────────────────────────────────────────
+  // Uses HazardTexturePool — all NOAA pulse alerts of the same severity share one
+  // canvas texture. tick() is a no-op; pool drives redraws from ArgusWeatherLayer.tick().
 
   function PulseMarker(scene, position, severity) {
-    this.severity = severity || 'minor';
-    this.texture  = new WeatherPulseTexture(this.severity);
-    this.material = new THREE.SpriteMaterial({
-      map: this.texture.texture, transparent: true,
+    this._category = 'pulse';
+    this.severity  = severity || 'minor';
+    this.material  = new THREE.SpriteMaterial({
+      map: HazardTexturePool.get('pulse', this.severity), transparent: true,
       blending: THREE.AdditiveBlending, depthWrite: false,
-      color: 0x72eeff,
+      color: 0xffffff,  // no tint: canvas draws intended colors directly
     });
     this.sprite = new THREE.Sprite(this.material);
     this.sprite.scale.setScalar(SCALE_PULSE);
     this.sprite.position.copy(position);
     scene.add(this.sprite);
+    HazardTexturePool.register('pulse', this.severity, this.sprite);
   }
 
-  PulseMarker.prototype.tick = function (dt) {
-    this.texture.tick(dt);
-  };
+  PulseMarker.prototype.tick = function (dt) { /* no-op: HazardTexturePool.tick() drives this */ };
 
   PulseMarker.prototype.setVisible = function (v) {
     this.sprite.visible = v;
   };
 
   PulseMarker.prototype.dispose = function () {
-    this.texture.dispose();
-    this.material.dispose();
+    HazardTexturePool.unregister('pulse', this.severity, this.sprite);
+    HazardTexturePool.release('pulse', this.severity);
+    this.material.dispose();  // material is per-marker; texture is pool-owned
     if (this.sprite.parent) this.sprite.parent.remove(this.sprite);
   };
 
@@ -782,69 +868,60 @@ window.ArgusWeatherLayer = (function () {
   };
 
   // ── DroughtMarker (sprite wrapper) ────────────────────────────────────────────
-  //
-  // Thin wrapper for DroughtPulseTexture, identical in structure to PulseMarker.
-  // Amber color tint (0xcc8800) in SpriteMaterial matches GDACS drought category color.
-  // Exported via ArgusWeatherLayer so argusGdacs.js can create instances directly.
+  // Pool-based: all drought sprites of the same severity share one canvas texture.
+  // Severity-aware scale via _HAZARD_SCALE. No tint (0xffffff) — canvas colors accurate.
 
   function DroughtMarker(scene, position, severity) {
-    this.severity = severity || 'minor';
-    this.texture  = new DroughtPulseTexture(this.severity);
-    this.material = new THREE.SpriteMaterial({
-      map: this.texture.texture, transparent: true,
+    this._category = 'drought';
+    this.severity  = severity || 'minor';
+    this.material  = new THREE.SpriteMaterial({
+      map: HazardTexturePool.get('drought', this.severity), transparent: true,
       blending: THREE.AdditiveBlending, depthWrite: false,
-      color: 0xcc8800,
+      color: 0xffffff,
     });
     this.sprite = new THREE.Sprite(this.material);
-    this.sprite.scale.setScalar(SCALE_PULSE);
+    this.sprite.scale.setScalar(_HAZARD_SCALE[this.severity] || SCALE_PULSE);
     this.sprite.position.copy(position);
     scene.add(this.sprite);
+    HazardTexturePool.register('drought', this.severity, this.sprite);
   }
 
-  DroughtMarker.prototype.tick = function (dt) {
-    this.texture.tick(dt);
-  };
+  DroughtMarker.prototype.tick = function (dt) { /* no-op: HazardTexturePool.tick() drives this */ };
 
-  DroughtMarker.prototype.setVisible = function (v) {
-    this.sprite.visible = !!v;
-  };
+  DroughtMarker.prototype.setVisible = function (v) { this.sprite.visible = !!v; };
 
   DroughtMarker.prototype.dispose = function () {
-    this.texture.dispose();
+    HazardTexturePool.unregister('drought', this.severity, this.sprite);
+    HazardTexturePool.release('drought', this.severity);
     this.material.dispose();
     if (this.sprite.parent) this.sprite.parent.remove(this.sprite);
   };
 
   // ── WildfireMarker (sprite wrapper) ───────────────────────────────────────────
-  //
-  // Thin wrapper for WildfirePulseTexture, identical in structure to PulseMarker.
-  // Fire orange tint (0xff6600) in SpriteMaterial matches GDACS wildfire category color.
-  // Exported via ArgusWeatherLayer so argusGdacs.js can create instances directly.
+  // Pool-based: all wildfire sprites of the same severity share one canvas texture.
 
   function WildfireMarker(scene, position, severity) {
-    this.severity = severity || 'minor';
-    this.texture  = new WildfirePulseTexture(this.severity);
-    this.material = new THREE.SpriteMaterial({
-      map: this.texture.texture, transparent: true,
+    this._category = 'wildfire';
+    this.severity  = severity || 'minor';
+    this.material  = new THREE.SpriteMaterial({
+      map: HazardTexturePool.get('wildfire', this.severity), transparent: true,
       blending: THREE.AdditiveBlending, depthWrite: false,
-      color: 0xff6600,
+      color: 0xffffff,
     });
     this.sprite = new THREE.Sprite(this.material);
-    this.sprite.scale.setScalar(SCALE_PULSE);
+    this.sprite.scale.setScalar(_HAZARD_SCALE[this.severity] || SCALE_PULSE);
     this.sprite.position.copy(position);
     scene.add(this.sprite);
+    HazardTexturePool.register('wildfire', this.severity, this.sprite);
   }
 
-  WildfireMarker.prototype.tick = function (dt) {
-    this.texture.tick(dt);
-  };
+  WildfireMarker.prototype.tick = function (dt) { /* no-op: HazardTexturePool.tick() drives this */ };
 
-  WildfireMarker.prototype.setVisible = function (v) {
-    this.sprite.visible = !!v;
-  };
+  WildfireMarker.prototype.setVisible = function (v) { this.sprite.visible = !!v; };
 
   WildfireMarker.prototype.dispose = function () {
-    this.texture.dispose();
+    HazardTexturePool.unregister('wildfire', this.severity, this.sprite);
+    HazardTexturePool.release('wildfire', this.severity);
     this.material.dispose();
     if (this.sprite.parent) this.sprite.parent.remove(this.sprite);
   };
@@ -938,35 +1015,31 @@ window.ArgusWeatherLayer = (function () {
   };
 
   // ── FloodMarker (sprite wrapper) ──────────────────────────────────────────────
-  //
-  // Unified flood marker — used for NOAA NWS flood alerts AND GDACS flood events.
-  // Deep cyan tint (0x44aadd) matches the hydrological palette.
-  // Exported via ArgusWeatherLayer so argusGdacs.js can create instances directly.
+  // Pool-based: NOAA flood alerts + GDACS flood events share one texture per severity.
+  // GDACS instances use _HAZARD_SCALE; NOAA uses flat SCALE_PULSE (see isGdacs flag).
 
-  function FloodMarker(scene, position, severity) {
-    this.severity = severity || 'minor';
-    this.texture  = new FloodPulseTexture(this.severity);
-    this.material = new THREE.SpriteMaterial({
-      map: this.texture.texture, transparent: true,
+  function FloodMarker(scene, position, severity, isGdacs) {
+    this._category = 'flood';
+    this.severity  = severity || 'minor';
+    this.material  = new THREE.SpriteMaterial({
+      map: HazardTexturePool.get('flood', this.severity), transparent: true,
       blending: THREE.AdditiveBlending, depthWrite: false,
-      color: 0x44aadd,
+      color: 0xffffff,
     });
     this.sprite = new THREE.Sprite(this.material);
-    this.sprite.scale.setScalar(SCALE_PULSE);
+    this.sprite.scale.setScalar(isGdacs ? (_HAZARD_SCALE[this.severity] || SCALE_PULSE) : SCALE_PULSE);
     this.sprite.position.copy(position);
     scene.add(this.sprite);
+    HazardTexturePool.register('flood', this.severity, this.sprite);
   }
 
-  FloodMarker.prototype.tick = function (dt) {
-    this.texture.tick(dt);
-  };
+  FloodMarker.prototype.tick = function (dt) { /* no-op: HazardTexturePool.tick() drives this */ };
 
-  FloodMarker.prototype.setVisible = function (v) {
-    this.sprite.visible = !!v;
-  };
+  FloodMarker.prototype.setVisible = function (v) { this.sprite.visible = !!v; };
 
   FloodMarker.prototype.dispose = function () {
-    this.texture.dispose();
+    HazardTexturePool.unregister('flood', this.severity, this.sprite);
+    HazardTexturePool.release('flood', this.severity);
     this.material.dispose();
     if (this.sprite.parent) this.sprite.parent.remove(this.sprite);
   };
@@ -1107,30 +1180,31 @@ window.ArgusWeatherLayer = (function () {
   // SpriteMaterial — multiplied with canvas colors for additive blend coherence.
   // Exported via ArgusWeatherLayer so argusGdacs.js can create instances directly.
 
+  // ── EarthquakeMarker (sprite wrapper) ─────────────────────────────────────────
+  // Pool-based: all earthquake sprites of the same severity share one canvas texture.
+
   function EarthquakeMarker(scene, position, severity) {
-    this.severity = severity || 'minor';
-    this.texture  = new EarthquakePulseTexture(this.severity);
-    this.material = new THREE.SpriteMaterial({
-      map: this.texture.texture, transparent: true,
+    this._category = 'earthquake';
+    this.severity  = severity || 'minor';
+    this.material  = new THREE.SpriteMaterial({
+      map: HazardTexturePool.get('earthquake', this.severity), transparent: true,
       blending: THREE.AdditiveBlending, depthWrite: false,
-      color: 0xdd7700,
+      color: 0xffffff,  // no tint: white seismic core renders as designed
     });
     this.sprite = new THREE.Sprite(this.material);
-    this.sprite.scale.setScalar(SCALE_PULSE);
+    this.sprite.scale.setScalar(_HAZARD_SCALE[this.severity] || SCALE_PULSE);
     this.sprite.position.copy(position);
     scene.add(this.sprite);
+    HazardTexturePool.register('earthquake', this.severity, this.sprite);
   }
 
-  EarthquakeMarker.prototype.tick = function (dt) {
-    this.texture.tick(dt);
-  };
+  EarthquakeMarker.prototype.tick = function (dt) { /* no-op: HazardTexturePool.tick() drives this */ };
 
-  EarthquakeMarker.prototype.setVisible = function (v) {
-    this.sprite.visible = !!v;
-  };
+  EarthquakeMarker.prototype.setVisible = function (v) { this.sprite.visible = !!v; };
 
   EarthquakeMarker.prototype.dispose = function () {
-    this.texture.dispose();
+    HazardTexturePool.unregister('earthquake', this.severity, this.sprite);
+    HazardTexturePool.release('earthquake', this.severity);
     this.material.dispose();
     if (this.sprite.parent) this.sprite.parent.remove(this.sprite);
   };
@@ -1313,13 +1387,13 @@ window.ArgusWeatherLayer = (function () {
       _spriteIndex.push({ obj: marker.eyeSprite,   id: alert.id });
       _spriteIndex.push({ obj: marker.pulseSprite, id: alert.id });
     } else if (mType === 'flood') {
-      marker = new FloodMarker(scene, pos, sev);
-      marker.texture._tickCount = _stagger % marker.texture._frameSkip;
+      marker = new FloodMarker(scene, pos, sev, false);  // NOAA flood: flat scale
+      // No stagger: pool texture has its own _tickCount; stagger not applicable
       marker.sprite.userData = ud;
       _spriteIndex.push({ obj: marker.sprite, id: alert.id });
     } else {
       marker = new PulseMarker(scene, pos, sev);
-      marker.texture._tickCount = _stagger % marker.texture._frameSkip;
+      // No stagger: pool texture has its own _tickCount
       marker.sprite.userData = ud;
       _spriteIndex.push({ obj: marker.sprite, id: alert.id });
     }
@@ -1517,20 +1591,20 @@ window.ArgusWeatherLayer = (function () {
     var AG     = window.ArgusGlobe;
     var camPos = AG && AG.camera ? AG.camera.position : null;
 
+    // CycloneMarker still uses per-instance textures — tick individually with LOD guard.
+    // Pool-based markers (PulseMarker, FloodMarker) have no-op tick() calls here.
     for (var id in _markers) {
-      var entry    = _markers[id];
-      var marker   = entry.marker;
-
-      // LOD — skip canvas redraws for far-away markers
-      if (camPos) {
-        var mPos = marker.sprite
-          ? marker.sprite.position
-          : (marker.group ? marker.group.position : null);
-        if (mPos && mPos.distanceTo(camPos) > LOD_SKIP_DIST) continue;
+      var entry  = _markers[id];
+      var marker = entry.marker;
+      if (camPos && marker.group) {
+        if (marker.group.position.distanceTo(camPos) > LOD_SKIP_DIST) continue;
       }
-
       marker.tick(dt);
     }
+
+    // Central pool tick — redraws all shared hazard textures (NOAA + GDACS).
+    // Max ~20 canvas redraws + GPU uploads per frame cycle regardless of event count.
+    HazardTexturePool.tick(dt, camPos);
 
     // Check hover every 3 frames — raycasting is non-trivial
     _hovTicker++;
@@ -1605,6 +1679,7 @@ window.ArgusWeatherLayer = (function () {
     WildfireMarker:   WildfireMarker,
     FloodMarker:      FloodMarker,
     EarthquakeMarker: EarthquakeMarker,
+    HazardTexturePool: HazardTexturePool,
   };
 
 }());

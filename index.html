@@ -1039,8 +1039,13 @@ document.addEventListener('DOMContentLoaded', function() {
     if (e.key.toLowerCase() === 'e') {
       var evOn = !(window.ArgusLayerState.events);
       window.ArgusLayerState.events = evOn;
-      // eventMarkers: ACLED, GDACS, GEM, GDELT, manual pins — NOT NOAA weather
-      window.eventMarkers.forEach(function(m) { m.visible = evOn; });
+      // eventMarkers: ACLED, GEM, GDACS non-hazard — NOT NOAA weather, NOT GDACS hazards.
+      // Hazard events (earthquake/flood/drought/wildfire) are on W key via ArgusGDACS.setVisible().
+      var _eHazardCats = { earthquake: 1, flood: 1, drought: 1, wildfire: 1 };
+      window.eventMarkers.forEach(function(m) {
+        if (m.userData && m.userData.isGDACS && _eHazardCats[m.userData.type]) return;
+        m.visible = evOn;
+      });
       // Also toggle pulse rings that belong to non-weather events
       var _emg = window.ArgusGlobe && window.ArgusGlobe.eventMarkerGroup;
       if (_emg) _emg.children.forEach(function(obj) {
@@ -6009,7 +6014,11 @@ window.ArgusEvents = (function() {
     // Restore layer visibility to whatever the layer state says
     var evOn = !window.ArgusLayerState || window.ArgusLayerState.events;
     var wOn  = !window.ArgusLayerState || window.ArgusLayerState.weather;
-    if (window.eventMarkers)  window.eventMarkers.forEach(function(m)  { m.visible = evOn; });
+    var _mHazardCats = { earthquake: 1, flood: 1, drought: 1, wildfire: 1 };
+    if (window.eventMarkers)   window.eventMarkers.forEach(function(m) {
+      if (m.userData && m.userData.isGDACS && _mHazardCats[m.userData.type]) return;
+      m.visible = evOn;
+    });
     if (window.weatherMarkers) window.weatherMarkers.forEach(function(m) { m.visible = wOn; });
     if (window.ArgusACLED  && window.ArgusACLED.setVisible)  window.ArgusACLED.setVisible(evOn);
     if (window.ArgusGEM    && window.ArgusGEM.setVisible)    window.ArgusGEM.setVisible(evOn);
@@ -6346,7 +6355,7 @@ ArgusMarket.init();
      Render  : ghost mesh + InstancedMesh (N events → 1 draw call)
      Poll    : 30 minutes (matches backend cache TTL)
 ══════════════════════════════════════════════════════════════════════════════ -->
-<script src="/modules/argusGdacs.js?v=hazard-v3"></script>
+<script src="/modules/argusGdacs.js?v=stable-v1"></script>
 
 <!-- ══════════════════════════════════════════════════════════════════════════════
      SCRIPT 5 — Intelligence Layer Overlays
@@ -6361,7 +6370,7 @@ ArgusMarket.init();
 ══════════════════════════════════════════════════════════════════════════════ -->
 <script src="/modules/argusAcled.js?v=perf-fix-8"></script>
 <script src="/modules/argusNoaa.js?v=perf-fix-8"></script>
-<script src="/modules/argusWeatherLayer.js?v=hazard-v3"></script>
+<script src="/modules/argusWeatherLayer.js?v=stable-v1"></script>
 <script src="/modules/argusGem.js?v=perf-fix-8"></script>
 
   <!-- ── Global Exchanges Popup ─────────────────────────────────────────────── -->
@@ -7016,7 +7025,11 @@ window.ArgusAnalyst = (function() {
     // Restore layer visibility to whatever the layer state says
     var evOn = !window.ArgusLayerState || window.ArgusLayerState.events;
     var wOn  = !window.ArgusLayerState || window.ArgusLayerState.weather;
-    if (window.eventMarkers)  window.eventMarkers.forEach(function(m)  { m.visible = evOn; });
+    var _m2HazardCats = { earthquake: 1, flood: 1, drought: 1, wildfire: 1 };
+    if (window.eventMarkers)   window.eventMarkers.forEach(function(m) {
+      if (m.userData && m.userData.isGDACS && _m2HazardCats[m.userData.type]) return;
+      m.visible = evOn;
+    });
     if (window.weatherMarkers) window.weatherMarkers.forEach(function(m) { m.visible = wOn; });
     if (window.ArgusACLED  && window.ArgusACLED.setVisible)  window.ArgusACLED.setVisible(evOn);
     if (window.ArgusGEM    && window.ArgusGEM.setVisible)    window.ArgusGEM.setVisible(evOn);

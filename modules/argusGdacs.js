@@ -10,9 +10,14 @@
 //   No animation loops. No continuous rerenders.
 //
 // Rendering:
-//   Ghost meshes (material.visible=false) in eventMarkerGroup for raycasting/hover/click.
-//   Single InstancedMesh handles all visual draw calls — up to 150 events in 1 draw call.
-//   Color-coded by disaster category. Visibility tied to window.ArgusLayerState.events.
+//   Two rendering tiers:
+//   1. Non-hazard events (volcano, tsunami, tropical_cyclone): ghost mesh + InstancedMesh sphere.
+//      Visibility tied to ArgusLayerState.events (E key).
+//   2. Hazard events (earthquake, flood, drought, wildfire): ghost mesh + animated canvas sprite.
+//      Sprites created by ArgusWeatherLayer marker classes, animated via HazardTexturePool.
+//      Visibility tied to ArgusLayerState.weather (W key) — same toggle as NOAA weather.
+//   Ghost meshes always live in eventMarkerGroup for raycasting. Hazard ghost mesh visibility
+//   is controlled by ArgusGDACS.setVisible(), not the E key, to stay in sync with sprites.
 //   Diff-based: adds new events, removes evicted ones, never full clear/recreate.
 //
 // Backward compat:
@@ -201,8 +206,10 @@ window.ArgusGDACS = (function () {
     if (!AG || !AG.eventMarkerGroup || !AG.latLonToVector) return;
     if (!gdacsEventCache.size) return;
 
-    var altR    = (AG.R && AG.R.MARKER) || 101;
-    var visible = !!(window.ArgusLayerState && window.ArgusLayerState.events);
+    var altR          = (AG.R && AG.R.MARKER) || 101;
+    var visible       = !!(window.ArgusLayerState && window.ArgusLayerState.events);
+    var hazardVisible = !!(window.ArgusLayerState && window.ArgusLayerState.weather);
+    var _HAZARD_CATS  = { drought: 1, wildfire: 1, flood: 1, earthquake: 1 };
     var added   = 0;
     var removed = 0;
 
@@ -236,7 +243,9 @@ window.ArgusGDACS = (function () {
     }
 
     // ── Add ghost meshes for new events (raycasting only — no draw calls) ───────
-    // material.visible=false → zero draw calls; InstancedMesh handles all rendering.
+    // material.visible=false → zero draw calls; InstancedMesh handles non-hazard rendering.
+    // Hazard events (earthquake/flood/drought/wildfire) get animated sprites instead.
+    // Ghost mesh visibility: hazard events follow W (weather) state; others follow E state.
     gdacsEventCache.forEach(function (ev) {
       if (_placedIds.has(ev.eventId)) return;
 
@@ -247,8 +256,8 @@ window.ArgusGDACS = (function () {
         new THREE.SphereGeometry(1.2, 8, 8),
         new THREE.MeshBasicMaterial({ color: col, visible: false })
       );
-      mesh.position.copy(pos);
-      mesh.visible = visible;  // ghost mesh controls raycasting visibility only
+      // Hazard ghost meshes track W key; non-hazard ghost meshes track E key
+      mesh.visible = _HAZARD_CATS[ev.category] ? hazardVisible : visible;
 
       mesh.userData = {
         _gdacsMarker: true,
@@ -286,8 +295,8 @@ window.ArgusGDACS = (function () {
         ? new window.ArgusWeatherLayer.WildfireMarker(AG.weatherSpriteGroup, hpos, hsev)
         : ev.category === 'earthquake'
         ? new window.ArgusWeatherLayer.EarthquakeMarker(AG.weatherSpriteGroup, hpos, hsev)
-        : new window.ArgusWeatherLayer.FloodMarker(AG.weatherSpriteGroup, hpos, hsev);
-      hmark.setVisible(visible);
+        : new window.ArgusWeatherLayer.FloodMarker(AG.weatherSpriteGroup, hpos, hsev, true);  // isGdacs=true → _HAZARD_SCALE
+      hmark.setVisible(hazardVisible);
       _hazardSprites[ev.eventId] = hmark;
     });
 
@@ -430,27 +439,11 @@ window.ArgusGDACS = (function () {
       });
   }
 
-  // ── Tick: advance hazard sprite canvas animations ─────────────────────────────
-  // Called every frame from the master animate loop in index.html.
-  // Operates independently of ArgusLayerState.weather — drought/wildfire are GDACS
-  // events, not NOAA alerts, and must animate whenever the event layer is visible.
-  function tick() {
-    if (!Object.keys(_hazardSprites).length) return;
-    var now = performance.now();
-    var dt  = _lastHazardT !== null ? Math.min((now - _lastHazardT) / 1000, 0.1) : 0.016;
-    _lastHazardT = now;
-
-    var AG     = window.ArgusGlobe;
-    var camPos = AG && AG.camera ? AG.camera.position : null;
-
-    for (var hid in _hazardSprites) {
-      var hm = _hazardSprites[hid];
-      if (!hm || !hm.sprite || !hm.sprite.parent) continue;
-      // LOD: skip redraws for sprites far from camera (matches weather layer threshold)
-      if (camPos && hm.sprite.position.distanceTo(camPos) > 350) continue;
-      hm.tick(dt);
-    }
-  }
+  // ── Tick ──────────────────────────────────────────────────────────────────────
+  // Hazard sprite texture animation is now driven centrally by ArgusWeatherLayer.tick()
+  // via HazardTexturePool. All per-sprite tick calls are no-ops under the shared texture
+  // pool architecture. This function is retained for API stability only.
+  function tick() { /* no-op: pool is driven by ArgusWeatherLayer.tick() */ }
 
   // ── Start / stop ─────────────────────────────────────────────────────────────
   function start() {
@@ -508,12 +501,21 @@ window.ArgusGDACS = (function () {
     _poll();
   }
 
-  // Called by index.html event layer toggles (E key, modal close) to show/hide
-  // the InstancedMesh. Ghost meshes are managed via window.eventMarkers.forEach().
+  // Called by W-key (_toggleWeatherLayer) to show/hide hazard sprites + their ghost meshes.
+  // Non-hazard InstancedMesh is NOT controlled here — it responds to E key separately.
   function setVisible(v) {
-    if (_imesh) _imesh.visible = !!v;
-    for (var hid in _hazardSprites) {
-      _hazardSprites[hid].setVisible(!!v);
+    var vis = !!v;
+    // Animated hazard sprites (weatherSpriteGroup)
+    for (var hid in _hazardSprites) { _hazardSprites[hid].setVisible(vis); }
+    // Hazard ghost meshes (eventMarkerGroup) — must stay in sync with sprites
+    // so hover/select always matches what the user can see.
+    var hazardCats = { drought: 1, wildfire: 1, flood: 1, earthquake: 1 };
+    if (window.eventMarkers) {
+      window.eventMarkers.forEach(function (m) {
+        if (m.userData && m.userData.isGDACS && hazardCats[m.userData.type]) {
+          m.visible = vis;
+        }
+      });
     }
   }
 

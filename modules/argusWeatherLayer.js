@@ -51,11 +51,13 @@ window.ArgusWeatherLayer = (function () {
 
   // ── Severity animation params ─────────────────────────────────────────────────
 
+  // Matches flood icon speed — slow, deliberate, readable.
+  // Single ring minor/moderate; echo ring at severe+ for added depth.
   var SEV_PARAMS = {
-    minor:    { pulseSpeed: 0.018, ringThick: 0.9,  glowAlpha: 0.55, ringCount: 2 },
-    moderate: { pulseSpeed: 0.025, ringThick: 1.1,  glowAlpha: 0.65, ringCount: 2 },
-    severe:   { pulseSpeed: 0.035, ringThick: 1.4,  glowAlpha: 0.78, ringCount: 3 },
-    extreme:  { pulseSpeed: 0.045, ringThick: 1.7,  glowAlpha: 0.90, ringCount: 3 },
+    minor:    { pulseSpeed: 0.012, ringThick: 0.9,  glowAlpha: 0.55, echo: false },
+    moderate: { pulseSpeed: 0.018, ringThick: 1.1,  glowAlpha: 0.65, echo: false },
+    severe:   { pulseSpeed: 0.024, ringThick: 1.3,  glowAlpha: 0.78, echo: true  },
+    extreme:  { pulseSpeed: 0.032, ringThick: 1.6,  glowAlpha: 0.90, echo: true  },
   };
 
   // ── Drought severity animation params ─────────────────────────────────────────
@@ -86,6 +88,17 @@ window.ArgusWeatherLayer = (function () {
     extreme:  { pulseSpeed: 0.032, ringThick: 1.6,  glowAlpha: 0.90, echo: true  },
   };
 
+  // ── Earthquake severity animation params ──────────────────────────────────────
+  // Slower than NOAA pulse, faster than drought — seismic events are acute but
+  // not continuous. Fractured segmented ring with power-eased fast-burst expansion.
+  // More segments at higher severity = more tectonic fracture detail.
+  var EARTHQUAKE_SEV_PARAMS = {
+    minor:    { pulseSpeed: 0.010, ringThick: 0.9,  glowAlpha: 0.55, segments: 4, ringCount: 1 },
+    moderate: { pulseSpeed: 0.015, ringThick: 1.1,  glowAlpha: 0.68, segments: 4, ringCount: 1 },
+    severe:   { pulseSpeed: 0.022, ringThick: 1.3,  glowAlpha: 0.80, segments: 5, ringCount: 2 },
+    extreme:  { pulseSpeed: 0.030, ringThick: 1.6,  glowAlpha: 0.92, segments: 6, ringCount: 2 },
+  };
+
   // ── Colors ───────────────────────────────────────────────────────────────────
 
   var C_NUCLEUS = '#72eeff';
@@ -106,6 +119,13 @@ window.ArgusWeatherLayer = (function () {
   var F_CORE = '#66ccee';   // soft aqua nucleus — calm, hydrological
   var F_AQUA = '#44aadd';   // deep cyan primary ring
   var F_CYAN = '#2277bb';   // muted blue echo ring (severe+)
+
+  // ── Earthquake palette ────────────────────────────────────────────────────────
+  // Amber → orange → deep red gradient by severity. White seismic core at extreme.
+  var EQ_AMBER  = '#dd7700';  // warm amber — minor
+  var EQ_ORANGE = '#ee5500';  // orange — moderate/severe escalation
+  var EQ_RED    = '#cc2200';  // deep red — severe/extreme
+  var EQ_CORE   = '#ffffff';  // white seismic flash — extreme only
 
   var TOOLTIP_SEV_COLORS = {
     minor:    '#0ea5e9',
@@ -216,9 +236,10 @@ window.ArgusWeatherLayer = (function () {
 
   // ── WeatherPulseTexture ────────────────────────────────────────────────────────
   //
-  // Animated canvas texture for non-cyclone weather alerts.
-  // Three staggered concentric rings expand and fade, plus angular turbulence
-  // streaks and a breathing nucleus point.
+  // Animated canvas texture for non-cyclone, non-flood NOAA weather alerts.
+  // Single smooth expanding ring (Power-2.2 falloff) matching the flood icon's
+  // speed and visual weight. Echo ring at severe+ for added urgency. No turbulence
+  // streaks — clean, readable, institutionally restrained.
 
   function WeatherPulseTexture(severity) {
     var c = makeCanvas(PULSE_SIZE);
@@ -243,59 +264,51 @@ window.ArgusWeatherLayer = (function () {
   };
 
   WeatherPulseTexture.prototype._draw = function () {
-    var ctx      = this.ctx;
-    var size     = PULSE_SIZE;
-    var cx       = size / 2;
-    var cy       = size / 2;
-    var p        = this.params;
-    var t        = this.t;
-    var critical = this.severity === 'severe' || this.severity === 'extreme';
+    var ctx    = this.ctx;
+    var size   = PULSE_SIZE;
+    var cx     = size / 2;
+    var cy     = size / 2;
+    var p      = this.params;
+    var t      = this.t;
+    var severe = this.severity === 'severe' || this.severity === 'extreme';
 
     ctx.clearRect(0, 0, size, size);
     ctx.save();
     ctx.globalCompositeOperation = 'screen';
 
-    // Staggered pulse rings
+    // ── Primary ring: single smooth expansion, graceful Power-2.2 falloff ────────
+    var maxR  = severe ? 24 : 20;
     var phase = (t * p.pulseSpeed) % 1;
-    var maxR  = critical ? 26 : 22;
-    var ringCs = [C_NUCLEUS, C_INNER, C_OUTER];
-    var ringAs = [1.0, 0.7, 0.45];
-
-    for (var i = 0; i < p.ringCount; i++) {
-      var rp    = (phase + i * (1 / p.ringCount)) % 1;
-      var r     = 6 + rp * maxR;
-      var alpha = p.glowAlpha * Math.pow(1 - rp, 2);
-      ctx.beginPath();
-      ctx.arc(cx, cy, r, 0, Math.PI * 2);
-      ctx.strokeStyle = hexAlpha(ringCs[i % 3], alpha * ringAs[i % 3]);
-      ctx.lineWidth   = p.ringThick;
-      ctx.stroke();
-    }
-
-    // Angular turbulence streaks — tactical, not smooth
-    var nStreaks    = critical ? 6 : 4;
-    var streakSpeed = critical ? 0.008 : 0.004;
-    for (var s = 0; s < nStreaks; s++) {
-      var ang = (s / nStreaks) * Math.PI * 2 + t * streakSpeed;
-      var len = 7 + Math.sin(t * 0.03 + s) * 2;
-      ctx.beginPath();
-      ctx.moveTo(cx + Math.cos(ang) * 3,       cy + Math.sin(ang) * 3);
-      ctx.lineTo(cx + Math.cos(ang) * (3+len), cy + Math.sin(ang) * (3+len));
-      ctx.strokeStyle = hexAlpha(C_INNER, critical ? 0.35 : 0.20);
-      ctx.lineWidth   = 0.6;
-      ctx.stroke();
-    }
-
-    // Nucleus — breathing scale
-    var breathe = 1 + Math.sin(t * 0.025) * 0.12;
+    var r     = 5 + phase * maxR;
+    var alpha = p.glowAlpha * Math.pow(1 - phase, 2.2);
     ctx.beginPath();
-    ctx.arc(cx, cy, 3.5 * breathe, 0, Math.PI * 2);
-    ctx.fillStyle = hexAlpha(C_NUCLEUS, critical ? 0.95 : 0.70);
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.strokeStyle = hexAlpha(C_INNER, alpha);
+    ctx.lineWidth   = p.ringThick;
+    ctx.stroke();
+
+    // ── Echo ring (severe+): trailing 50% behind, adds depth without noise ────────
+    if (p.echo) {
+      var phase2 = (phase + 0.50) % 1;
+      var r2     = 5 + phase2 * maxR;
+      var alpha2 = p.glowAlpha * 0.45 * Math.pow(1 - phase2, 2.6);
+      ctx.beginPath();
+      ctx.arc(cx, cy, r2, 0, Math.PI * 2);
+      ctx.strokeStyle = hexAlpha(C_OUTER, alpha2);
+      ctx.lineWidth   = p.ringThick * 0.60;
+      ctx.stroke();
+    }
+
+    // ── Nucleus: slow 8-second breathing cycle ────────────────────────────────────
+    var breathe = 1 + Math.sin(t * 0.013) * 0.12;
+    ctx.beginPath();
+    ctx.arc(cx, cy, 2.6 * breathe, 0, Math.PI * 2);
+    ctx.fillStyle = hexAlpha(C_NUCLEUS, severe ? 0.85 : 0.62);
     ctx.fill();
 
-    // Core point — always full opacity
+    // ── Core anchor ───────────────────────────────────────────────────────────────
     ctx.beginPath();
-    ctx.arc(cx, cy, 1.2, 0, Math.PI * 2);
+    ctx.arc(cx, cy, 1.1, 0, Math.PI * 2);
     ctx.fillStyle = C_NUCLEUS;
     ctx.fill();
 
@@ -958,6 +971,170 @@ window.ArgusWeatherLayer = (function () {
     if (this.sprite.parent) this.sprite.parent.remove(this.sprite);
   };
 
+  // ── EarthquakePulseTexture ────────────────────────────────────────────────────
+  //
+  // Animated canvas texture for GDACS earthquake events.
+  // Visual language: institutional, seismic, structurally destabilizing.
+  //
+  // Ring geometry: N fractured arc segments (22% gap), angularly static with
+  // alternating ±0.04 rad tectonic displacement between adjacent segments.
+  // Ring expansion uses Power-0.65 easing — fast initial seismic wave burst that
+  // decelerates naturally as energy dissipates outward.
+  //
+  // Epicenter geometry: 4 faint radial spokes at ×45° to cardinal directions,
+  // drifting at 0.0006 rad/tick (ultra-slow tectonic drift). Suggests fault-line
+  // intersection without adding visual clutter.
+  //
+  // Nucleus: jolt-pulse in sync with ring expansion (not smooth breathing).
+  // Peaks at ring mid-expansion; falls off sharply — seismic urgency, not drought.
+  //
+  // Palette: amber (minor) → orange (moderate) → red (severe/extreme).
+  // Extreme: white seismic core anchor dot.
+
+  function EarthquakePulseTexture(severity) {
+    var c = makeCanvas(PULSE_SIZE);
+    this.canvas     = c.canvas;
+    this.ctx        = c.ctx;
+    this.severity   = severity || 'minor';
+    this.params     = EARTHQUAKE_SEV_PARAMS[this.severity] || EARTHQUAKE_SEV_PARAMS.minor;
+    this.t          = 0;
+    this._tickCount = 0;
+    this._frameSkip = SEV_FRAME_SKIP[this.severity] || 4;
+    this.texture    = new THREE.CanvasTexture(this.canvas);
+    this._draw();
+    this.texture.needsUpdate = true;
+  }
+
+  EarthquakePulseTexture.prototype.tick = function (dt) {
+    this._tickCount++;
+    if (this._tickCount % this._frameSkip !== 0) return;
+    this.t += dt * 60 * this._frameSkip;
+    this._draw();
+    this.texture.needsUpdate = true;
+  };
+
+  EarthquakePulseTexture.prototype._draw = function () {
+    var ctx     = this.ctx;
+    var size    = PULSE_SIZE;
+    var cx      = size / 2;
+    var cy      = size / 2;
+    var p       = this.params;
+    var t       = this.t;
+    var severe  = this.severity === 'severe' || this.severity === 'extreme';
+    var extreme = this.severity === 'extreme';
+
+    // Severity-graduated colors: amber → orange → red
+    var ringColor = extreme ? EQ_RED    :
+                    severe  ? EQ_ORANGE : EQ_AMBER;
+    var echoColor = extreme ? EQ_ORANGE : EQ_AMBER;
+
+    ctx.clearRect(0, 0, size, size);
+    ctx.save();
+    ctx.globalCompositeOperation = 'screen';
+
+    // ── Fractured seismic ring(s): segmented arcs, power-eased expansion ─────────
+    // Power-0.65: fast initial seismic burst that decelerates as wave propagates.
+    // Segments are angularly STATIC (no rotation) — alternating ±0.04 rad offsets
+    // simulate tectonic plate displacement along fault boundaries.
+    var maxR     = severe ? 25 : 21;
+    var segCount = p.segments;
+    var slotSize = (Math.PI * 2) / segCount;
+    var segArc   = slotSize * 0.78;   // 22% gap — more open fracture than drought
+
+    for (var ri = 0; ri < p.ringCount; ri++) {
+      var phase = ((t * p.pulseSpeed) + ri * (1 / p.ringCount)) % 1;
+      var r     = 5 + Math.pow(phase, 0.65) * maxR;
+      var alpha = p.glowAlpha * Math.pow(1 - phase, 1.5);
+      var col   = ri === 0 ? ringColor : echoColor;
+      var lw    = p.ringThick * (ri === 0 ? 1.0 : 0.65);
+      var al    = alpha * (ri === 0 ? 1.0 : 0.50);
+
+      for (var si = 0; si < segCount; si++) {
+        // Alternating jitter: adjacent segments displaced ±0.04 rad (tectonic offset)
+        var jitter     = (si % 2 === 0) ? 0.04 : -0.04;
+        var startAngle = si * slotSize + jitter;
+        ctx.beginPath();
+        ctx.arc(cx, cy, r, startAngle, startAngle + segArc);
+        ctx.strokeStyle = hexAlpha(col, al);
+        ctx.lineWidth   = lw;
+        ctx.stroke();
+      }
+    }
+
+    // ── Tectonic fault cross: faint epicenter marker, ultra-slow drift ────────────
+    // 4 spokes at ×45° to cardinal — fault-line geometry at the seismic epicenter.
+    // Drift is 0.0006 rad/tick — barely perceptible but alive (no frozen static look).
+    var faultLen   = severe ? 5.5 : 4.0;
+    var faultAlpha = severe ? 0.22 : 0.14;
+    var faultRot   = t * 0.0006;
+    for (var fi = 0; fi < 4; fi++) {
+      var fang = faultRot + (fi / 4) * Math.PI * 2 + Math.PI * 0.25;
+      ctx.beginPath();
+      ctx.moveTo(cx + Math.cos(fang) * 1.6, cy + Math.sin(fang) * 1.6);
+      ctx.lineTo(cx + Math.cos(fang) * faultLen, cy + Math.sin(fang) * faultLen);
+      ctx.strokeStyle = hexAlpha(ringColor, faultAlpha);
+      ctx.lineWidth   = 0.65;
+      ctx.stroke();
+    }
+
+    // ── Seismic nucleus: jolt-pulse tied to ring expansion, not smooth breathing ──
+    // surge = sin²(phase * π) — peaks at ring mid-expansion, sharp falloff.
+    // Distinct from drought (slow breathing) — conveys seismic urgency.
+    var phase0  = (t * p.pulseSpeed) % 1;
+    var surge   = Math.pow(Math.sin(phase0 * Math.PI), 2);
+    var breathe = 1 + surge * 0.24;
+    ctx.beginPath();
+    ctx.arc(cx, cy, 2.8 * breathe, 0, Math.PI * 2);
+    ctx.fillStyle = hexAlpha(extreme ? EQ_RED : ringColor, severe ? 0.88 : 0.65);
+    ctx.fill();
+
+    // ── Core anchor: white seismic flash for extreme, amber/orange otherwise ──────
+    ctx.beginPath();
+    ctx.arc(cx, cy, 1.2, 0, Math.PI * 2);
+    ctx.fillStyle = extreme ? EQ_CORE : ringColor;
+    ctx.fill();
+
+    ctx.restore();
+  };
+
+  EarthquakePulseTexture.prototype.dispose = function () {
+    this.texture.dispose();
+  };
+
+  // ── EarthquakeMarker (sprite wrapper) ─────────────────────────────────────────
+  //
+  // Thin wrapper for EarthquakePulseTexture. Warm amber tint (0xdd7700) on the
+  // SpriteMaterial — multiplied with canvas colors for additive blend coherence.
+  // Exported via ArgusWeatherLayer so argusGdacs.js can create instances directly.
+
+  function EarthquakeMarker(scene, position, severity) {
+    this.severity = severity || 'minor';
+    this.texture  = new EarthquakePulseTexture(this.severity);
+    this.material = new THREE.SpriteMaterial({
+      map: this.texture.texture, transparent: true,
+      blending: THREE.AdditiveBlending, depthWrite: false,
+      color: 0xdd7700,
+    });
+    this.sprite = new THREE.Sprite(this.material);
+    this.sprite.scale.setScalar(SCALE_PULSE);
+    this.sprite.position.copy(position);
+    scene.add(this.sprite);
+  }
+
+  EarthquakeMarker.prototype.tick = function (dt) {
+    this.texture.tick(dt);
+  };
+
+  EarthquakeMarker.prototype.setVisible = function (v) {
+    this.sprite.visible = !!v;
+  };
+
+  EarthquakeMarker.prototype.dispose = function () {
+    this.texture.dispose();
+    this.material.dispose();
+    if (this.sprite.parent) this.sprite.parent.remove(this.sprite);
+  };
+
   // ── Tooltip ───────────────────────────────────────────────────────────────────
 
   var _tooltipEl = null;
@@ -1424,9 +1601,10 @@ window.ArgusWeatherLayer = (function () {
     setVisible:     setVisible,
     refresh:        refresh,
     status:         status,
-    DroughtMarker:  DroughtMarker,
-    WildfireMarker: WildfireMarker,
-    FloodMarker:    FloodMarker,
+    DroughtMarker:    DroughtMarker,
+    WildfireMarker:   WildfireMarker,
+    FloodMarker:      FloodMarker,
+    EarthquakeMarker: EarthquakeMarker,
   };
 
 }());

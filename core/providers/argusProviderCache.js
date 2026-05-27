@@ -58,12 +58,13 @@
   var OPENSKY_FN           = '/.netlify/functions/fetch-opensky';    // unused — Netlify IPs are blocked by OpenSky
   var OPENSKY_TOKEN_FN     = '/.netlify/functions/get-opensky-token'; // unused — auth now handled by CF Worker
   var OPENSKY_POLL         = 3 * 60 * 1000;   // 3 min  — netlify-proxy path (unused)
-  // Cloudflare Worker proxy — handles Basic Auth server-side, returns CORS headers.
-  // Replace the URL below with your deployed Worker URL after deploying cloudflare/opensky-proxy.js.
-  var OPENSKY_DIRECT_BASE  = 'https://opensky-proxy.aidanhurley12.workers.dev';
-  var OPENSKY_BROWSER_POLL = 5 * 60 * 1000;   // 5 min  — via Cloudflare Worker
+  // Browser-direct anonymous — OpenSky blocks all cloud IPs (Netlify, Cloudflare, AWS).
+  // Only residential browser IPs work. No Authorization header = no CORS preflight.
+  // Anonymous rate limit: 1 req/10s, 500 credits/day. Supplemental use only.
+  var OPENSKY_DIRECT_BASE  = 'https://opensky-network.org/api';
+  var OPENSKY_BROWSER_POLL = 10 * 60 * 1000;  // 10 min — conservative to stay within anon rate limits
   var OPENSKY_BOX_PAD      = 30;              // ±30° viewport bounding box half-width (degrees)
-  var ENABLE_BROWSER_OPENSKY = true;          // true = Cloudflare Worker path (Netlify proxy dead, direct CORS blocked)
+  var ENABLE_BROWSER_OPENSKY = true;          // browser residential IP bypasses OpenSky cloud IP blocks
   var MAX_INJECT           = 200;             // hard ceiling: cache never exceeds this count
   var _pollInterval        = ENABLE_BROWSER_OPENSKY ? OPENSKY_BROWSER_POLL : OPENSKY_POLL;
   var STALE_MS             = _pollInterval * 3; // force-evict after 3 missed cycles

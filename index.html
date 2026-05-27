@@ -973,26 +973,39 @@ document.addEventListener('DOMContentLoaded', function() {
   }
 
   // ── Coordinate Grid ─────────────────────────────────────────────────────────
+  // perf-fix-8: 109 individual THREE.Line → 2 THREE.LineSegments (2 draw calls).
+  // LineSegments expects vertex pairs: [p0_start, p0_end, p1_start, p1_end, ...].
+  // Each continuous polyline is decomposed into N-1 pairs before merging.
   var coordinateGrid = (function buildGrid() {
-    var group   = new THREE.Group();
-    var radius = R.GRID;
+    var group    = new THREE.Group();
+    var radius   = R.GRID;
     var matMinor = new THREE.LineBasicMaterial({ color: 0x04131f });  // 0x0f4a7a * 0.25 — opacity baked in
     var matMajor = new THREE.LineBasicMaterial({ color: 0x0a2a3e });  // 0x1a6a9a * 0.40 — opacity baked in
 
-    // Latitude parallels
+    var minorPts = [];
+    var majorPts = [];
+
+    // Latitude parallels — push segment pairs (lon → lon+5) for each 5° step
     for (var lat = -90; lat <= 90; lat += 5) {
-      var pts = [];
-      for (var lon = -180; lon <= 180; lon += 5) { pts.push(latLonToVector(lat, lon, radius)); }
-      var mat = (lat === 0 || lat % 30 === 0) ? matMajor : matMinor;
-      group.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), mat));
+      var isMajorLat = (lat === 0 || lat % 30 === 0);
+      var latBuf = isMajorLat ? majorPts : minorPts;
+      for (var lon = -180; lon < 180; lon += 5) {
+        latBuf.push(latLonToVector(lat, lon,     radius));
+        latBuf.push(latLonToVector(lat, lon + 5, radius));
+      }
     }
-    // Longitude meridians
+    // Longitude meridians — push segment pairs (lat → lat+5) for each 5° step
     for (var lon2 = -180; lon2 < 180; lon2 += 5) {
-      var pts2 = [];
-      for (var lat2 = -90; lat2 <= 90; lat2 += 5) { pts2.push(latLonToVector(lat2, lon2, radius)); }
-      var mat2 = (lon2 === 0 || lon2 === -180 || lon2 % 30 === 0) ? matMajor : matMinor;
-      group.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts2), mat2));
+      var isMajorLon = (lon2 === 0 || lon2 === -180 || lon2 % 30 === 0);
+      var lonBuf = isMajorLon ? majorPts : minorPts;
+      for (var lat2 = -90; lat2 < 90; lat2 += 5) {
+        lonBuf.push(latLonToVector(lat2,     lon2, radius));
+        lonBuf.push(latLonToVector(lat2 + 5, lon2, radius));
+      }
     }
+
+    if (minorPts.length) group.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(minorPts), matMinor));
+    if (majorPts.length) group.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(majorPts), matMajor));
 
     dataGroup.add(group);
     return group;
@@ -1033,8 +1046,9 @@ document.addEventListener('DOMContentLoaded', function() {
       if (_emg) _emg.children.forEach(function(obj) {
         if (obj.userData && obj.userData.isPulseRing && !obj.userData._noaaMarker) obj.visible = evOn;
       });
-      // ACLED InstancedMesh visual layer — ghost meshes above handle raycasting
+      // ACLED + GEM InstancedMesh visual layers — ghost meshes above handle raycasting
       if (window.ArgusACLED && window.ArgusACLED.setVisible) window.ArgusACLED.setVisible(evOn);
+      if (window.ArgusGEM  && window.ArgusGEM.setVisible)  window.ArgusGEM.setVisible(evOn);
       if (!evOn) clearHoverTooltip();
     }
     if (e.key.toLowerCase() === 'w') {
@@ -5992,6 +6006,7 @@ window.ArgusEvents = (function() {
     if (window.eventMarkers)  window.eventMarkers.forEach(function(m)  { m.visible = evOn; });
     if (window.weatherMarkers) window.weatherMarkers.forEach(function(m) { m.visible = wOn; });
     if (window.ArgusACLED && window.ArgusACLED.setVisible) window.ArgusACLED.setVisible(evOn);
+    if (window.ArgusGEM  && window.ArgusGEM.setVisible)  window.ArgusGEM.setVisible(evOn);
   }
 
   // ── Community Intel: Supabase helpers ────────────────────────────────────────
@@ -6998,6 +7013,7 @@ window.ArgusAnalyst = (function() {
     if (window.eventMarkers)  window.eventMarkers.forEach(function(m)  { m.visible = evOn; });
     if (window.weatherMarkers) window.weatherMarkers.forEach(function(m) { m.visible = wOn; });
     if (window.ArgusACLED && window.ArgusACLED.setVisible) window.ArgusACLED.setVisible(evOn);
+    if (window.ArgusGEM  && window.ArgusGEM.setVisible)  window.ArgusGEM.setVisible(evOn);
   }
 
   function showModalMsg(text, isError) {

@@ -42,6 +42,14 @@ window.ArgusGEM = (function () {
   var _placedIds   = new Set();
   var _rendered    = false;  // one-shot render flag
 
+  // ── Instanced visual mesh ─────────────────────────────────────────────────────
+  // Ghost meshes (material.visible=false) stay in eventMarkerGroup for raycasting.
+  // A single InstancedMesh handles all visual rendering — 500 draw calls → 1.
+  var _imesh  = null;
+  var _iDummy = new THREE.Object3D();
+  var _iColor = new THREE.Color();
+  var _IMAX   = 600;  // pre-allocated instance capacity
+
   // ── Audit ────────────────────────────────────────────────────────────────────
   var _audit = { fetches: 0, placed: 0, lastFetchMs: 0, lastError: null };
 
@@ -74,6 +82,61 @@ window.ArgusGEM = (function () {
     return TYPE_COLORS['infrastructure'];
   }
 
+  // ── InstancedMesh rebuild ──────────────────────────────────────────────────────
+  // Called after every _renderInfrastructure(). Builds one InstancedMesh for all
+  // GEM markers, using per-instance color. Ghost meshes handle raycasting only.
+  function _rebuildInstanced(AG, altR, visible) {
+    if (!AG || !AG.eventMarkerGroup) return;
+
+    if (!_imesh) {
+      var geo = new THREE.BoxGeometry(1.2, 1.2, 1.2);
+      var mat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.70 });
+      _imesh = new THREE.InstancedMesh(geo, mat, _IMAX);
+      _imesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+      _imesh.name          = 'ArgusGEMInstanced';
+      _imesh.frustumCulled = false;
+      _imesh.count         = 0;
+      _imesh.visible       = false;
+
+      // Pre-allocate instanceColor buffer
+      var cols = new Float32Array(_IMAX * 3);
+      for (var ci = 0; ci < _IMAX * 3; ci++) cols[ci] = 1.0;
+      _imesh.instanceColor = new THREE.InstancedBufferAttribute(cols, 3);
+
+      AG.eventMarkerGroup.add(_imesh);
+    }
+
+    // Zero-scale dummy for unused slots
+    _iDummy.scale.set(0, 0, 0);
+    _iDummy.position.set(0, 0, 0);
+    _iDummy.rotation.set(0, 0, 0);
+    _iDummy.updateMatrix();
+
+    var n = 0;
+    energyInfrastructureCache.forEach(function (infra) {
+      if (n >= _IMAX) return;
+      var pos = AG.latLonToVector(infra.lat, infra.lon, altR);
+      _iDummy.position.copy(pos);
+      _iDummy.scale.set(1, 1, 1);
+      _iDummy.updateMatrix();
+      _imesh.setMatrixAt(n, _iDummy.matrix);
+
+      _iColor.setHex(_infraColor(infra.type));
+      var off = n * 3;
+      _imesh.instanceColor.array[off]     = _iColor.r;
+      _imesh.instanceColor.array[off + 1] = _iColor.g;
+      _imesh.instanceColor.array[off + 2] = _iColor.b;
+      n++;
+    });
+
+    _imesh.count = n;
+    _imesh.instanceMatrix.needsUpdate = true;
+    _imesh.instanceColor.needsUpdate  = true;
+    _imesh.visible = !!(visible);
+
+    console.log('[ArgusGEM] instanced mesh rebuilt —', n, 'infra markers in 1 draw call');
+  }
+
   // ── Render infrastructure from cache (one-shot, not a loop) ──────────────────
   function _renderInfrastructure() {
     var AG = window.ArgusGlobe;
@@ -104,8 +167,9 @@ window.ArgusGEM = (function () {
       });
     }
 
-    // ── Add new markers (items not yet in scene) ──────────────────────────────
-    // BoxGeometry — visually distinct from event spheres and GDACS octahedra
+    // ── Add ghost meshes for new markers (raycasting only, no draw calls) ─────
+    // BoxGeometry — visually distinct from event spheres and GDACS octahedra.
+    // material.visible=false → zero draw calls; InstancedMesh handles all rendering.
     energyInfrastructureCache.forEach(function (infra) {
       if (_placedIds.has(infra.id)) return;
 
@@ -114,10 +178,10 @@ window.ArgusGEM = (function () {
 
       var mesh = new THREE.Mesh(
         new THREE.BoxGeometry(1.2, 1.2, 1.2),
-        new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.70 })
+        new THREE.MeshBasicMaterial({ color: col, visible: false })
       );
       mesh.position.copy(pos);
-      mesh.visible = visible;
+      mesh.visible = visible;  // ghost mesh controls raycasting visibility only
 
       var capacityStr = infra.capacity
         ? ' · Capacity: ' + infra.capacity + (infra.unit ? ' ' + infra.unit : '')
@@ -145,6 +209,9 @@ window.ArgusGEM = (function () {
 
     _audit.placed += added;
     _rendered = true;
+
+    // Rebuild InstancedMesh whenever the infra set changes (or on first render).
+    _rebuildInstanced(AG, altR, visible);
 
     if (added > 0) {
       if (typeof window.updateNodeCounts === 'function') window.updateNodeCounts();
@@ -252,6 +319,7 @@ window.ArgusGEM = (function () {
         return !(m.userData && m.userData._gemMarker);
       });
     }
+    if (_imesh) _imesh.visible = false;
     energyInfrastructureCache.clear();
     _placedIds.clear();
     _rendered = false;
@@ -259,6 +327,12 @@ window.ArgusGEM = (function () {
 
   function refresh() {
     _fetch();
+  }
+
+  // Called by index.html event layer toggles (E key, modal close) to show/hide
+  // the InstancedMesh. Ghost meshes are managed via window.eventMarkers.forEach().
+  function setVisible(v) {
+    if (_imesh) _imesh.visible = !!v;
   }
 
   function status() {
@@ -286,6 +360,6 @@ window.ArgusGEM = (function () {
 
   if (window.ArgusModuleAudit) window.ArgusModuleAudit.register('ArgusGEM');
 
-  return { start: start, stop: stop, refresh: refresh, status: status };
+  return { start: start, stop: stop, refresh: refresh, status: status, setVisible: setVisible };
 
 }());

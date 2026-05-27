@@ -139,7 +139,8 @@
       "Bash(del ais_resp.json)",
       "Bash(curl -s \"https://argusintel.live/core/runtime/argusSelection.js\")",
       "Bash(curl -s \"https://argusintel.live/modules/argusWeatherLayer.js\")",
-      "mcp__claude_ai_Supabase__get_logs"
+      "mcp__claude_ai_Supabase__get_logs",
+      "Bash(find:*)"
     ]
   }
 }

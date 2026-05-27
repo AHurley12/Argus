@@ -8238,13 +8238,14 @@ window._plotPermanentMarkers = function(classified) {
     var _evText = ((ev.title || '') + ' ' + (ev.type || '')).toLowerCase();
     var _isWeather = (ev.type === 'DISASTER') && /flood|hurricane|typhoon|storm|cyclone|drought|wildfire|tornado|rain|surge/i.test(_evText);
     var col = _isWeather ? 0x2299ee : (SEV_COLORS[ev.severity] || 0xff9900);
-    var pos = AG.latLonToVector(ev.lat, ev.lon, 102);
+    var pos    = AG.latLonToVector(ev.lat, ev.lon, 102);
+    var posLow = AG.latLonToVector(ev.lat, ev.lon, 100.3);
 
     var mesh = new THREE.Mesh(
       new THREE.SphereGeometry(1.68, 16, 16),
       new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.75 })
     );
-    mesh.position.copy(pos);
+    mesh.position.copy(posLow);
     mesh.userData = {
       _permanentPin: true,
       _permId:       ev.id,

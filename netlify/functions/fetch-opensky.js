@@ -42,10 +42,16 @@ async function getAccessToken() {
     return _tokenCache.token;
   }
 
+  // OpenSky standard accounts use Resource Owner Password Credentials grant.
+  // client_credentials is only for registered OAuth2 applications.
+  // OPENSKY_ID = OpenSky username, OPENSKY_SECRET = OpenSky password.
+  // client_id 'opensky-api' is OpenSky's public Keycloak API client.
   const body = new URLSearchParams({
-    grant_type:    'client_credentials',
-    client_id:     OS_CLIENT_ID,
-    client_secret: OS_CLIENT_SEC,
+    grant_type: 'password',
+    username:   OS_CLIENT_ID,
+    password:   OS_CLIENT_SEC,
+    client_id:  'opensky-api',
+    scope:      'openid',
   });
 
   const resp = await fetch(OS_TOKEN_URL, {

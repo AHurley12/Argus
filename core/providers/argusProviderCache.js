@@ -60,7 +60,7 @@
   var OPENSKY_POLL         = 3 * 60 * 1000;   // 3 min  — netlify-proxy path (unused)
   // Cloudflare Worker proxy — handles Basic Auth server-side, returns CORS headers.
   // Replace the URL below with your deployed Worker URL after deploying cloudflare/opensky-proxy.js.
-  var OPENSKY_DIRECT_BASE  = 'https://opensky-proxy.YOUR-SUBDOMAIN.workers.dev';
+  var OPENSKY_DIRECT_BASE  = 'https://opensky-proxy.aidanhurley12.workers.dev';
   var OPENSKY_BROWSER_POLL = 5 * 60 * 1000;   // 5 min  — via Cloudflare Worker
   var OPENSKY_BOX_PAD      = 30;              // ±30° viewport bounding box half-width (degrees)
   var ENABLE_BROWSER_OPENSKY = true;          // true = Cloudflare Worker path (Netlify proxy dead, direct CORS blocked)

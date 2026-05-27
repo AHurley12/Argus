@@ -60,6 +60,12 @@ window.ArgusAircraftInstanced = (function () {
 
   var _syncTimer = null;  // 100ms dim/scale sync interval handle
 
+  // ── Zoom-scale state ──────────────────────────────────────────────────────────
+  // Multiplied inside _buildMatrix so all callers benefit automatically.
+  // _normalSprites / _staleSprites already store per-aircraft lat/lon/heading,
+  // so applyZoomScale() needs no separate position storage.
+  var _zoomScale = 1.0;
+
   // ── Dirty-flag audit counters (exposed via getAudit()) ───────────────────────
   var _audit = { dirtyOpacity: 0, skippedOpacity: 0 };
 
@@ -79,7 +85,7 @@ window.ArgusAircraftInstanced = (function () {
     }
     _dummy.position.copy(pos);
     _dummy.setRotationFromQuaternion(_nQuat);
-    _dummy.scale.set(scale, scale, 1);
+    _dummy.scale.set(scale * _zoomScale, scale * _zoomScale, 1);
     _dummy.updateMatrix();
     return true;
   }
@@ -264,6 +270,35 @@ window.ArgusAircraftInstanced = (function () {
     }
   }
 
+  // ── applyZoomScale — full matrix rebuild on zoom bucket change ───────────────
+  // Iterates both sprite sync arrays (which store per-aircraft lat/lon/heading).
+  // For highlighted aircraft, uses the sprite's actual enlarged scale so selection
+  // highlight is preserved correctly under the new zoom multiplier.
+  function applyZoomScale(s) {
+    if (!_ready || s === _zoomScale) return;
+    _zoomScale = s;
+    var groups = [
+      { arr: _normalSprites, mesh: _meshNormal },
+      { arr: _staleSprites,  mesh: _meshStale  },
+    ];
+    for (var g = 0; g < groups.length; g++) {
+      var grp      = groups[g];
+      var matDirty = false;
+      for (var i = 0; i < grp.arr.length; i++) {
+        var e  = grp.arr[i];
+        // Use actual sprite scale when ArgusSelection has enlarged it; base otherwise
+        var sc = (e.sprite && Math.abs(e.sprite.scale.x - SCALE_AC) > 0.01)
+          ? e.sprite.scale.x
+          : SCALE_AC;
+        if (_buildMatrix(e.lat, e.lon, e.heading, sc)) {
+          grp.mesh.setMatrixAt(e.idx, _dummy.matrix);
+          matDirty = true;
+        }
+      }
+      if (matDirty) grp.mesh.instanceMatrix.needsUpdate = true;
+    }
+  }
+
   // ── Public helpers ────────────────────────────────────────────────────────────
 
   // Mirror group visibility (aircraftGroup.visible already covers this as parent,
@@ -283,8 +318,9 @@ window.ArgusAircraftInstanced = (function () {
     init:       init,
     clear:      clear,
     upsert:     upsert,
-    setVisible: setVisible,
-    getCount:   getCount,
-    getAudit:   getAudit,
+    applyZoomScale: applyZoomScale,
+    setVisible:     setVisible,
+    getCount:       getCount,
+    getAudit:       getAudit,
   };
 }());

@@ -1479,6 +1479,28 @@ document.addEventListener('DOMContentLoaded', function() {
 
   evtMgr.add(renderer.domElement, 'mouseup',    function() { isDragging = false; document.body.classList.remove('is-dragging'); });
   evtMgr.add(renderer.domElement, 'mouseleave', function() { isDragging = false; document.body.classList.remove('is-dragging'); });
+  // ── Zoom-aware entity scaling ─────────────────────────────────────────────────
+  // Derives a shared zoom scalar from camera distance. At ≥ 195 units: full size (1.0).
+  // At ≤ 112 units: minimum size (0.40). Smoothstep interpolation between.
+  // Quantized to 0.05 buckets — only fires InstancedMesh rebuilds on discrete steps,
+  // never per-frame. Draw-call count unchanged; no allocation; O(N) CPU burst on step.
+  var _lastZoomBucket = 1.0;
+  function _deriveZoomScale(camDist) {
+    var FULL = 195, NEAR = 112, MIN_S = 0.40;
+    if (camDist >= FULL) return 1.0;
+    if (camDist <= NEAR) return MIN_S;
+    var t = (camDist - NEAR) / (FULL - NEAR);
+    t = t * t * (3.0 - 2.0 * t);  // smoothstep — eliminates pop and oscillation at endpoints
+    return MIN_S + (1.0 - MIN_S) * t;
+  }
+  function _applyZoomScaleIfChanged(camDist) {
+    var bucket = Math.round(_deriveZoomScale(camDist) * 20) / 20;  // quantize to 0.05 steps
+    if (bucket === _lastZoomBucket) return;
+    _lastZoomBucket = bucket;
+    if (window.ArgusAISInstanced)      ArgusAISInstanced.applyZoomScale(bucket);
+    if (window.ArgusAircraftInstanced) ArgusAircraftInstanced.applyZoomScale(bucket);
+  }
+
   evtMgr.add(renderer.domElement, 'wheel', function(e) {
     e.preventDefault();
     // Scale zoom speed with distance so close-range scrolling stays granular
@@ -1488,6 +1510,7 @@ document.addEventListener('DOMContentLoaded', function() {
     // Globe radius = 100; at z=102 camera is 2 units above surface — no near-plane clipping risk.
     // Coordinate accuracy (latLonToVector) is world-space and unaffected by camera distance.
     camera.position.z = Math.max(102, Math.min(360, camera.position.z + zoomSpeed));
+    _applyZoomScaleIfChanged(camera.position.z);
   }, { passive: false });
 
   // ── Touch Controls — globe rotation on mobile ─────────────────────────────

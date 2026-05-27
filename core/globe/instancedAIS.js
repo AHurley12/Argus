@@ -57,6 +57,15 @@ window.ArgusAISInstanced = (function () {
   // ── Dirty-flag audit counters (exposed via getAudit()) ───────────────────────
   var _audit = { dirtyOpacity: 0, skippedOpacity: 0 };
 
+  // ── Zoom-scale state ──────────────────────────────────────────────────────────
+  // Applied as a multiplier inside _buildMatrix so all callers (upsert, setScale,
+  // applyZoomScale) benefit automatically. Updated only on quantized bucket changes —
+  // never per-frame. Per-vessel position arrays allow full rebuild without external data.
+  var _zoomScale  = 1.0;
+  var _entryLat   = new Float32Array(MAX);  // last-known lat per slot index
+  var _entryLon   = new Float32Array(MAX);  // last-known lon per slot index
+  var _entryHead  = new Float32Array(MAX);  // last-known heading per slot index
+
   // ── Batch-upload flags — set by upsert()/setDimFactor(), flushed by commitBatch() ─
   // Prevents per-vessel GPU buffer uploads; one upload per renderAIS() call instead.
   var _matrixNeedsUpdate = false;
@@ -89,7 +98,7 @@ window.ArgusAISInstanced = (function () {
 
     _dummy.position.copy(pos);
     _dummy.setRotationFromQuaternion(_nQuat);
-    _dummy.scale.set(scale, scale, 1);
+    _dummy.scale.set(scale * _zoomScale, scale * _zoomScale, 1);
     _dummy.updateMatrix();
     return true;
   }
@@ -210,6 +219,11 @@ window.ArgusAISInstanced = (function () {
       if (idx < 0) return; // at cap — argusAIS.js must have already evicted; skip
     }
 
+    // Record position for applyZoomScale() rebuilds (needed when zoom changes but vessel doesn't move)
+    _entryLat[idx]  = lat;
+    _entryLon[idx]  = lon;
+    _entryHead[idx] = (heading != null && !isNaN(heading)) ? heading : 0;
+
     // Update matrix (position + heading)
     if (_buildMatrix(lat, lon, heading, SCALE)) {
       _mesh.setMatrixAt(idx, _dummy.matrix);
@@ -278,6 +292,20 @@ window.ArgusAISInstanced = (function () {
     }
   }
 
+  // Rebuild all active vessel matrices with a new zoom-derived scale multiplier.
+  // Called by index.html's wheel handler when the quantized camera-distance bucket changes.
+  // Cost: O(active vessels) CPU math — fires only on discrete zoom steps, not per-frame.
+  function applyZoomScale(s) {
+    if (!_ready || s === _zoomScale) return;
+    _zoomScale = s;
+    _mmsiToIdx.forEach(function(idx) {
+      if (_buildMatrix(_entryLat[idx], _entryLon[idx], _entryHead[idx], SCALE)) {
+        _mesh.setMatrixAt(idx, _dummy.matrix);
+      }
+    });
+    if (_mmsiToIdx.size > 0) _mesh.instanceMatrix.needsUpdate = true;
+  }
+
   // ── commitBatch — flush pending GPU buffer uploads ────────────────────────────
   // Called once per renderAIS() cycle after all upsert()/setDimFactor() calls complete.
   // Consolidates what were previously per-vessel needsUpdate flag sets into a single
@@ -325,8 +353,9 @@ window.ArgusAISInstanced = (function () {
     remove:       remove,
     setDimFactor: setDimFactor,
     commitBatch:  commitBatch,
-    setScale:     setScale,
-    setVisible:   setVisible,
+    setScale:       setScale,
+    applyZoomScale: applyZoomScale,
+    setVisible:     setVisible,
     getCount:     getCount,
     getMesh:      getMesh,
     getAudit:     getAudit,

@@ -140,7 +140,8 @@
       "Bash(curl -s \"https://argusintel.live/core/runtime/argusSelection.js\")",
       "Bash(curl -s \"https://argusintel.live/modules/argusWeatherLayer.js\")",
       "mcp__claude_ai_Supabase__get_logs",
-      "Bash(find:*)"
+      "Bash(find:*)",
+      "WebFetch(domain:opensky-proxy.aidanhurley12.workers.dev)"
     ]
   }
 }

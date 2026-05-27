@@ -56,12 +56,14 @@
 
   // ── Config ───────────────────────────────────────────────────────────────────
   var OPENSKY_FN           = '/.netlify/functions/fetch-opensky';    // unused — Netlify IPs are blocked by OpenSky
-  var OPENSKY_TOKEN_FN     = '/.netlify/functions/get-opensky-token'; // credential relay
+  var OPENSKY_TOKEN_FN     = '/.netlify/functions/get-opensky-token'; // unused — auth now handled by CF Worker
   var OPENSKY_POLL         = 3 * 60 * 1000;   // 3 min  — netlify-proxy path (unused)
-  var OPENSKY_DIRECT_BASE  = 'https://opensky-network.org/api';
-  var OPENSKY_BROWSER_POLL = 5 * 60 * 1000;   // 5 min  — browser-direct path (bypasses Netlify IP block)
+  // Cloudflare Worker proxy — handles Basic Auth server-side, returns CORS headers.
+  // Replace the URL below with your deployed Worker URL after deploying cloudflare/opensky-proxy.js.
+  var OPENSKY_DIRECT_BASE  = 'https://opensky-proxy.YOUR-SUBDOMAIN.workers.dev';
+  var OPENSKY_BROWSER_POLL = 5 * 60 * 1000;   // 5 min  — via Cloudflare Worker
   var OPENSKY_BOX_PAD      = 30;              // ±30° viewport bounding box half-width (degrees)
-  var ENABLE_BROWSER_OPENSKY = true;          // browser-direct: Netlify/AWS IPs are blocked by OpenSky; must poll from browser
+  var ENABLE_BROWSER_OPENSKY = true;          // true = Cloudflare Worker path (Netlify proxy dead, direct CORS blocked)
   var MAX_INJECT           = 200;             // hard ceiling: cache never exceeds this count
   var _pollInterval        = ENABLE_BROWSER_OPENSKY ? OPENSKY_BROWSER_POLL : OPENSKY_POLL;
   var STALE_MS             = _pollInterval * 3; // force-evict after 3 missed cycles
@@ -81,7 +83,6 @@
   var _openskyTimer      = null;
   var _enabled           = true;
   var _browserPollActive = false; // in-flight guard — prevents overlapping browser requests
-  var _basicAuth         = null;  // base64 'user:pass' fetched once from get-opensky-token
 
   // ── Aircraft staleness check ─────────────────────────────────────────────────
   function _isPrimaryAbsent(icao24) {
@@ -299,18 +300,10 @@
              '&lomax=' + bounds.lomax;
     }
 
+    // No Authorization header needed — the Cloudflare Worker handles Basic Auth
+    // server-side. Sending auth headers from the browser would trigger CORS preflights
+    // that OpenSky rejects. Worker returns Access-Control-Allow-Origin: * so no preflight.
     var opts = { headers: { 'Accept': 'application/json' } };
-
-    // Use pre-fetched Basic Auth token from get-opensky-token Netlify function.
-    // Credentials are stored server-side (env vars) and relayed at runtime —
-    // never hardcoded in client JS. Falls back to window.ARGUS_OPENSKY_CREDS
-    // if set manually (console override / local dev).
-    var manualCreds = window.ARGUS_OPENSKY_CREDS;
-    if (_basicAuth) {
-      opts.headers['Authorization'] = 'Basic ' + _basicAuth;
-    } else if (manualCreds && manualCreds.user && manualCreds.pass) {
-      opts.headers['Authorization'] = 'Basic ' + btoa(manualCreds.user + ':' + manualCreds.pass);
-    }
 
     var controller = new AbortController();
     var timeoutId  = setTimeout(function () { controller.abort(); }, 20000);
@@ -350,35 +343,13 @@
   window._argusCurrentIcao24s   = new Set();          // populated by renderAircraft() on each pass
   window.aircraftLiveCache      = aircraftLiveCache;  // canonical alias
 
-  // ── Credential relay ─────────────────────────────────────────────────────────
-  // Fetches the pre-encoded Basic Auth string from the get-opensky-token Netlify
-  // function. Called once at startup — credentials rarely change so a 1-hour
-  // browser cache is intentional. Sets _basicAuth for all subsequent polls.
-  function _fetchAuth() {
-    fetch(OPENSKY_TOKEN_FN)
-      .then(function (resp) { return resp.ok ? resp.json() : null; })
-      .then(function (data) {
-        if (data && data.auth) {
-          _basicAuth = data.auth;
-          console.log('[ArgusProviderCache] OpenSky Basic Auth token loaded');
-        } else {
-          console.warn('[ArgusProviderCache] get-opensky-token returned no auth — polling anonymously');
-        }
-      })
-      .catch(function (err) {
-        console.warn('[ArgusProviderCache] credential fetch failed:', err.message);
-      });
-  }
-
   // ── Start / stop ─────────────────────────────────────────────────────────────
   function start() {
     if (_openskyTimer) return; // already running
 
     if (ENABLE_BROWSER_OPENSKY) {
-      // Fetch credentials first — first poll is 20s away, well within fetch RTT.
-      _fetchAuth();
-      // Browser-direct path — initial poll after 20s (lets primary pipeline render first),
-      // then every OPENSKY_BROWSER_POLL ms. Does not require window._argusReqCache.
+      // Cloudflare Worker path — Worker handles Basic Auth server-side.
+      // No credential fetch needed; browser sends plain GET to Worker URL.
       setTimeout(_pollOpenSkyBrowser, 20 * 1000);
       _openskyTimer = setInterval(_pollOpenSkyBrowser, OPENSKY_BROWSER_POLL);
       console.log('[ArgusProviderCache] started — OpenSky browser-direct every',

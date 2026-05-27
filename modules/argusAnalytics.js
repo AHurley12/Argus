@@ -1,11 +1,11 @@
 'use strict';
 // modules/argusAnalytics.js
-// Unified intelligence analytics workspace — AIS | PORT WATCH | NOAA | INTEL
+// Unified intelligence analytics workspace — AIS | PORT WATCH | NOAA | INTEL | GDACS
 //
 // Architecture:
-//   Four isolated analytics modules inside the Neural Web Analytics tab.
+//   Five isolated analytics modules inside the Neural Web Analytics tab.
 //   AIS + PORT WATCH read live global state (no network fetch).
-//   NOAA + INTEL (ACLED/GEM) fetch from Netlify functions on independent timers.
+//   NOAA + INTEL (ACLED/GEM) + GDACS fetch from Netlify functions on independent timers.
 //   Expand mode transitions #nw-intel-panel width: 272→500px (180ms).
 //
 // Data bridges:
@@ -14,6 +14,7 @@
 //   NOAA   — /.netlify/functions/fetch-noaa
 //   ACLED  — /.netlify/functions/fetch-acled
 //   GEM    — /.netlify/functions/fetch-gem
+//   GDACS  — window.gdacsEventCache (live) or /.netlify/functions/fetch-gdacs
 //
 // Globals:
 //   window.ArgusAnalytics — { init, refresh, status }
@@ -27,10 +28,12 @@ window.ArgusAnalytics = (function () {
   var NOAA_FN  = '/.netlify/functions/fetch-noaa';
   var ACLED_FN = '/.netlify/functions/fetch-acled';
   var GEM_FN   = '/.netlify/functions/fetch-gem';
+  var GDACS_FN = '/.netlify/functions/fetch-gdacs';
 
   var POLL_NOAA  = 15 * 60 * 1000;
   var POLL_ACLED = 30 * 60 * 1000;
   var POLL_GEM   = 30 * 60 * 1000;
+  var POLL_GDACS = 30 * 60 * 1000;
   var REFRESH_AIS_MS   =  30 * 1000;   // reads live state, no fetch
   var REFRESH_PORTS_MS =  60 * 1000;
 
@@ -45,6 +48,7 @@ window.ArgusAnalytics = (function () {
     ports: { data: null, ts: null },
     noaa:  { metrics: null, ts: null, loading: false, error: null },
     intel: { gem: null, acled: null, ts: null, loading: false, error: null },
+    gdacs: { metrics: null, ts: null, loading: false, error: null },
   };
 
   var _timers = {};
@@ -453,6 +457,80 @@ window.ArgusAnalytics = (function () {
     };
   }
 
+  // ── GDACS normalization ───────────────────────────────────────────────────────
+  var _GDACS_CAT_COLORS = {
+    earthquake:       '#ff5500',
+    tropical_cyclone: '#cc44ff',
+    flood:            '#2299ee',
+    volcano:          '#ff2200',
+    drought:          '#cc8800',
+    wildfire:         '#ff4400',
+    tsunami:          '#00ccff',
+  };
+
+  function _normalizeGdacs(json) {
+    var events = [];
+
+    // Prefer live cache (populated by argusGdacs.js); fallback to fetch payload
+    var cache = window.gdacsEventCache;
+    if (cache && typeof cache.forEach === 'function' && cache.size > 0) {
+      cache.forEach(function (ev) { events.push(ev); });
+    } else if (json && Array.isArray(json.events)) {
+      events = json.events;
+    }
+    if (!events.length) return null;
+
+    var byCategory = {};
+    var bySeverity = { red: 0, orange: 0, green: 0 };
+    var byRegion   = {};
+    var redAlerts  = [];
+    var escalationScore = 0;
+
+    for (var i = 0; i < events.length; i++) {
+      var ev  = events[i];
+      var cat = ev.category || 'unknown';
+      var sev = ev.severity || 'green';
+      var score = typeof ev.alertScore === 'number' ? ev.alertScore : 0;
+
+      byCategory[cat] = (byCategory[cat] || 0) + 1;
+
+      if (bySeverity.hasOwnProperty(sev)) bySeverity[sev]++;
+      else bySeverity.green++;
+
+      // Collect named regions (skip 3-char ISO codes)
+      (ev.affectedRegions || []).forEach(function (r) {
+        if (!r || r.length <= 3) return;
+        byRegion[r] = (byRegion[r] || 0) + 1;
+      });
+
+      escalationScore += (sev === 'red' ? 3 : sev === 'orange' ? 1.5 : 0.5) * (1 + score / 100);
+
+      if (sev === 'red') {
+        redAlerts.push({ title: ev.title || '—', category: cat });
+      }
+    }
+
+    var escalationIndex = Math.min(100, Math.round(
+      escalationScore / Math.max(1, events.length) * 20
+    ));
+
+    return {
+      total:          events.length,
+      redCount:       bySeverity.red,
+      orangeCount:    bySeverity.orange,
+      greenCount:     bySeverity.green,
+      escalationIndex: escalationIndex,
+      bySeverity: [
+        { k: 'RED — EXTREME',   v: bySeverity.red,    c: '#ff3300' },
+        { k: 'ORANGE — SEVERE', v: bySeverity.orange, c: '#ff8800' },
+        { k: 'GREEN — WATCH',   v: bySeverity.green,  c: '#33cc77' },
+      ],
+      byCategory: _sortDesc(byCategory, 7),
+      topRegions: _sortDesc(byRegion,   6),
+      redAlerts:  redAlerts.slice(0, 5),
+    };
+  }
+
   // ── GEM normalization ─────────────────────────────────────────────────────────
   function _normalizeGem(raw) {
     if (!raw || !Array.isArray(raw.infrastructure)) return null;
@@ -700,6 +778,87 @@ window.ArgusAnalytics = (function () {
     return out;
   }
 
+  // ── GDACS render ─────────────────────────────────────────────────────────────
+  function _renderGdacs() {
+    var s   = _state.gdacs;
+    var ts  = _fmtTs(s.ts);
+    var out = _tabHeader('GLOBAL DISASTER INTEL', ts, '#ff6633');
+
+    if (!s.metrics) {
+      return out + (s.error ? _errState(s.error) : _skeleton());
+    }
+    var m = s.metrics;
+
+    out += _metricGrid([
+      { label: 'ACTIVE DISASTERS', value: m.total,       accent: '#ff6633', sub: 'GDACS · EU JRC' },
+      { label: 'EXTREME ALERTS',   value: m.redCount,    accent: m.redCount > 0 ? '#ff3300' : '#ff6633', sub: 'red alert' },
+      { label: 'SEVERE EVENTS',    value: m.orangeCount, accent: '#ff8800', sub: 'orange alert' },
+      { label: 'WATCH EVENTS',     value: m.greenCount,  accent: '#33cc77', sub: 'green alert' },
+    ]);
+
+    out += _meter(m.escalationIndex, 'GLOBAL HAZARD INDEX', '#ff6633');
+
+    // Severity distribution bars
+    var sevHtml = _lbl('ALERT SEVERITY DISTRIBUTION');
+    for (var i = 0; i < m.bySeverity.length; i++) {
+      var sv = m.bySeverity[i];
+      if (!sv.v) continue;
+      var pct = Math.round(sv.v / Math.max(1, m.total) * 100);
+      sevHtml +=
+        '<div style="margin-bottom:5px;">' +
+          '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:2px;">' +
+            '<span style="font-size:8px;color:' + sv.c + ';letter-spacing:1px;">' + _esc(sv.k) + '</span>' +
+            '<span style="font-size:7.5px;color:#1a567a;">' + sv.v + ' · ' + pct + '%</span>' +
+          '</div>' +
+          '<div style="height:2px;background:rgba(8,28,56,0.7);">' +
+            '<div style="height:2px;width:' + pct + '%;background:' + sv.c + ';opacity:0.85;"></div>' +
+          '</div>' +
+        '</div>';
+    }
+    out += _box(sevHtml);
+
+    // Event type breakdown
+    if (m.byCategory && m.byCategory.length) {
+      var catPairs = m.byCategory.map(function (p) {
+        return {
+          k: p.k.replace(/_/g, ' ').toUpperCase(),
+          v: p.v,
+          c: _GDACS_CAT_COLORS[p.k] || '#ff6633',
+        };
+      });
+      out += _box(_lbl('EVENT TYPE BREAKDOWN') + _bars(catPairs, m.total, '#ff6633'));
+    }
+
+    // Top affected regions
+    if (m.topRegions && m.topRegions.length) {
+      out += _box(_lbl('TOP AFFECTED REGIONS') + _bars(m.topRegions, null, '#ff8844'));
+    }
+
+    // Extreme alert escalation list
+    if (m.redAlerts && m.redAlerts.length) {
+      var rHtml = _lbl('EXTREME ALERT EVENTS');
+      for (var j = 0; j < m.redAlerts.length; j++) {
+        var ra = m.redAlerts[j];
+        rHtml +=
+          '<div style="display:flex;align-items:flex-start;gap:6px;margin-bottom:5px;' +
+            'padding:5px 6px;background:rgba(255,40,0,0.06);border-left:2px solid #ff3300;">' +
+            '<span style="display:inline-block;width:6px;height:6px;min-width:6px;' +
+              'background:#ff3300;transform:rotate(45deg);margin-top:2px;flex-shrink:0;' +
+              'box-shadow:0 0 4px #ff3300;animation:ax-diamond-pulse 1.8s ease-in-out infinite;"></span>' +
+            '<span style="font-size:8px;color:#cc5533;line-height:1.5;word-break:break-word;">' +
+              _esc(ra.title) + '<br>' +
+              '<span style="color:#7a2a10;font-size:7px;letter-spacing:.8px;">' +
+                _esc(ra.category.replace(/_/g, ' ').toUpperCase()) +
+              '</span>' +
+            '</span>' +
+          '</div>';
+      }
+      out += _box(rHtml, 0);
+    }
+
+    return out;
+  }
+
   // ── CSS injection ─────────────────────────────────────────────────────────────
   function _injectStyles() {
     if (document.getElementById('ax-css')) return;
@@ -723,6 +882,8 @@ window.ArgusAnalytics = (function () {
       '.ax-tab-ports.ax-on{color:#00ccff;border-bottom-color:#00ccff;text-shadow:0 0 8px rgba(0,204,255,0.5);}' +
       '.ax-tab-noaa.ax-on{color:#72eeff;border-bottom-color:#72eeff;text-shadow:0 0 8px rgba(114,238,255,0.5);}' +
       '.ax-tab-intel.ax-on{color:#cc99ff;border-bottom-color:#cc99ff;text-shadow:0 0 8px rgba(204,153,255,0.4);}' +
+      '.ax-tab-gdacs.ax-on{color:#ff6633;border-bottom-color:#ff6633;text-shadow:0 0 8px rgba(255,102,51,0.5);}' +
+      '@keyframes ax-diamond-pulse{0%,100%{opacity:1;box-shadow:0 0 4px #ff3300}50%{opacity:0.35;box-shadow:0 0 9px #ff3300}}' +
 
       // Expand button
       '#ax-expand{background:none;border:none;border-left:1px solid rgba(8,28,56,0.6);' +
@@ -751,6 +912,7 @@ window.ArgusAnalytics = (function () {
           '<button class="ax-tab ax-tab-ports"       data-ax="ports">PORTS</button>' +
           '<button class="ax-tab ax-tab-noaa"        data-ax="noaa">NOAA</button>'  +
           '<button class="ax-tab ax-tab-intel"       data-ax="intel">INTEL</button>' +
+          '<button class="ax-tab ax-tab-gdacs"       data-ax="gdacs">GDACS</button>' +
         '</div>' +
         '<button id="ax-expand" title="Expand analytics workspace">⊲</button>' +
       '</div>' +
@@ -758,6 +920,7 @@ window.ArgusAnalytics = (function () {
       '<div id="ax-pane-ports" class="ax-pane"></div>' +
       '<div id="ax-pane-noaa"  class="ax-pane"></div>' +
       '<div id="ax-pane-intel" class="ax-pane"></div>' +
+      '<div id="ax-pane-gdacs" class="ax-pane"></div>' +
     '</div>';
   }
 
@@ -805,7 +968,7 @@ window.ArgusAnalytics = (function () {
     var active = document.querySelector('#ax-tabbar [data-ax="' + tab + '"]');
     if (active) active.classList.add('ax-on');
 
-    var allTabs = ['ais', 'ports', 'noaa', 'intel'];
+    var allTabs = ['ais', 'ports', 'noaa', 'intel', 'gdacs'];
     for (var j = 0; j < allTabs.length; j++) {
       var pane = document.getElementById('ax-pane-' + allTabs[j]);
       if (!pane) continue;
@@ -818,6 +981,7 @@ window.ArgusAnalytics = (function () {
     if (tab === 'ports' && !_state.ports.data)               _refreshPorts();
     if (tab === 'noaa'  && !_state.noaa.metrics  && !_state.noaa.loading)  _pollNoaa();
     if (tab === 'intel' && !_state.intel.acled   && !_state.intel.loading) _pollIntel();
+    if (tab === 'gdacs' && !_state.gdacs.metrics && !_state.gdacs.loading) _pollGdacs();
   }
 
   // ── Expand mode ───────────────────────────────────────────────────────────────
@@ -837,9 +1001,10 @@ window.ArgusAnalytics = (function () {
   function _repaint(tab) {
     var pane = document.getElementById('ax-pane-' + tab);
     if (!pane) return;
-    var html = tab === 'ais'   ? _renderAIS()   :
-               tab === 'ports' ? _renderPorts() :
-               tab === 'noaa'  ? _renderNoaa()  : _renderIntel();
+    var html = tab === 'ais'   ? _renderAIS()    :
+               tab === 'ports' ? _renderPorts()  :
+               tab === 'noaa'  ? _renderNoaa()   :
+               tab === 'gdacs' ? _renderGdacs()  : _renderIntel();
     pane.innerHTML = html;
   }
 
@@ -934,6 +1099,33 @@ window.ArgusAnalytics = (function () {
     }, 3000);
   }
 
+  // ── Data fetch — GDACS ────────────────────────────────────────────────────────
+  function _pollGdacs() {
+    var s = _state.gdacs;
+    s.loading = true;
+    if (!s.metrics) _repaint('gdacs');
+
+    // Prefer live cache populated by argusGdacs.js module
+    var cache = window.gdacsEventCache;
+    if (cache && typeof cache.size === 'number' && cache.size > 0) {
+      s.loading = false; s.ts = Date.now(); s.error = null;
+      s.metrics = _normalizeGdacs(null);
+      _repaint('gdacs');
+      return;
+    }
+
+    _fetch(GDACS_FN)
+      .then(function (json) {
+        s.loading = false; s.ts = Date.now(); s.error = null;
+        s.metrics = _normalizeGdacs(json);
+        _repaint('gdacs');
+      })
+      .catch(function (err) {
+        s.loading = false; s.error = (err && err.message) || 'FETCH ERROR';
+        _repaint('gdacs');
+      });
+  }
+
   // ── Init & lifecycle ──────────────────────────────────────────────────────────
   function init() {
     if (_initialized) return;
@@ -949,8 +1141,9 @@ window.ArgusAnalytics = (function () {
     // Load active tab immediately, others staggered
     _refreshAIS();
     setTimeout(_refreshPorts, 2000);
-    setTimeout(_pollNoaa,  5000);
-    setTimeout(_pollIntel, 9000);
+    setTimeout(_pollNoaa,   5000);
+    setTimeout(_pollIntel,  9000);
+    setTimeout(_pollGdacs, 12000);
 
     // React to PortWatch ready event — fires when initial IMF fetch completes.
     // Catches the race where _refreshPorts runs before PortWatch has ingested data.
@@ -963,6 +1156,7 @@ window.ArgusAnalytics = (function () {
     _timers.ports = setInterval(_refreshPorts, REFRESH_PORTS_MS);
     _timers.noaa  = setInterval(_pollNoaa,     POLL_NOAA);
     _timers.intel = setInterval(_pollIntel,    POLL_ACLED);
+    _timers.gdacs = setInterval(_pollGdacs,    POLL_GDACS);
   }
 
   function refresh() {
@@ -970,6 +1164,7 @@ window.ArgusAnalytics = (function () {
     _refreshPorts();
     _pollNoaa();
     _pollIntel();
+    _pollGdacs();
   }
 
   function status() {
@@ -982,6 +1177,7 @@ window.ArgusAnalytics = (function () {
       ports: { hasData: !!_state.ports.data,  ts: _state.ports.ts  },
       noaa:  { hasData: !!_state.noaa.metrics, ts: _state.noaa.ts  },
       intel: { hasData: !!(_state.intel.acled || _state.intel.gem), ts: _state.intel.ts },
+      gdacs: { hasData: !!_state.gdacs.metrics, ts: _state.gdacs.ts },
     };
   }
 

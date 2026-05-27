@@ -60,7 +60,7 @@
   var OPENSKY_DIRECT_BASE  = 'https://opensky-network.org/api';
   var OPENSKY_BROWSER_POLL = 5 * 60 * 1000;   // 5 min  — browser-direct path (conservative for anon tier)
   var OPENSKY_BOX_PAD      = 30;              // ±30° viewport bounding box half-width (degrees)
-  var ENABLE_BROWSER_OPENSKY = true;          // browser-direct mode (bypasses blocked Netlify/AWS IPs)
+  var ENABLE_BROWSER_OPENSKY = false;         // browser-direct mode disabled: OpenSky REST now requires OAuth2; use Netlify-proxy path
   var MAX_INJECT           = 200;             // hard ceiling: cache never exceeds this count
   var _pollInterval        = ENABLE_BROWSER_OPENSKY ? OPENSKY_BROWSER_POLL : OPENSKY_POLL;
   var STALE_MS             = _pollInterval * 3; // force-evict after 3 missed cycles

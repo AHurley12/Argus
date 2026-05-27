@@ -1,10 +1,15 @@
 // cloudflare/opensky-proxy.js
-// Cloudflare Worker — OpenSky Network authenticated proxy.
+// Cloudflare Worker — adsb.fi open data proxy.
 //
-// Deploy: paste into Cloudflare Workers editor (Service Worker format), save & deploy.
-// Secrets: Workers → Settings → Variables → OPENSKY_ID, OPENSKY_SECRET (both Encrypted)
+// Backend: https://opendata.adsb.fi/api (v3, compatible with ADSBexchange v2 format)
+// No API key required. Rate limit: 1 req/s.
+//
+// Browser → this Worker (CORS: *) → opendata.adsb.fi (server-side, no CORS restriction)
+//
+// Query params accepted: lat, lon, dist (nautical miles, max 250)
+// Response: adsb.fi JSON passed through with Access-Control-Allow-Origin: *
 
-const OPENSKY_BASE = 'https://opensky-network.org/api';
+const ADSB_BASE = 'https://opendata.adsb.fi/api';
 
 const CORS = {
   'Access-Control-Allow-Origin':  '*',
@@ -20,59 +25,46 @@ async function handleRequest(request) {
   if (request.method === 'OPTIONS') {
     return new Response(null, { status: 204, headers: CORS });
   }
-
   if (request.method !== 'GET') {
     return new Response('Method not allowed', { status: 405, headers: CORS });
   }
 
-  // Forward query string (lamin/lamax/lomin/lomax) to OpenSky
   var incoming = new URL(request.url);
-  var target   = new URL(OPENSKY_BASE + '/states/all');
-  incoming.searchParams.forEach(function(val, key) {
-    target.searchParams.set(key, val);
-  });
+  var lat  = incoming.searchParams.get('lat')  || '0';
+  var lon  = incoming.searchParams.get('lon')  || '0';
+  var dist = incoming.searchParams.get('dist') || '250';
 
-  // Credentials live in Worker environment variables — never in client JS
-  var user = typeof OPENSKY_ID     !== 'undefined' ? OPENSKY_ID     : '';
-  var pass = typeof OPENSKY_SECRET !== 'undefined' ? OPENSKY_SECRET : '';
+  // Cap dist at 250 NM (adsb.fi hard limit)
+  dist = String(Math.min(250, Math.max(1, parseInt(dist) || 250)));
 
-  var headers = { 'Accept': 'application/json' };
-  if (user && pass) {
-    headers['Authorization'] = 'Basic ' + btoa(user + ':' + pass);
-  }
+  var target = ADSB_BASE + '/v3/lat/' + lat + '/lon/' + lon + '/dist/' + dist;
 
   var upstream;
   try {
-    upstream = await fetch(target.toString(), { headers: headers });
+    upstream = await fetch(target, {
+      headers: { 'Accept': 'application/json', 'User-Agent': 'ArgusIntel/1.0' },
+    });
   } catch (err) {
     return new Response(
-      JSON.stringify({ error: 'Worker fetch failed: ' + err.message, states: null }),
+      JSON.stringify({ error: 'Worker fetch failed: ' + err.message, ac: [] }),
       { status: 502, headers: Object.assign({ 'Content-Type': 'application/json' }, CORS) }
     );
   }
 
-  if (upstream.status === 401) {
-    return new Response(
-      JSON.stringify({ error: 'OpenSky 401 — check OPENSKY_ID / OPENSKY_SECRET secrets', states: null }),
-      { status: 502, headers: Object.assign({ 'Content-Type': 'application/json' }, CORS) }
-    );
-  }
-  if (upstream.status === 429) {
-    return new Response(
-      JSON.stringify({ error: 'OpenSky rate limited (429)', states: null }),
-      { status: 429, headers: Object.assign({ 'Content-Type': 'application/json' }, CORS) }
-    );
-  }
   if (!upstream.ok) {
+    var errBody = await upstream.text().catch(function() { return ''; });
     return new Response(
-      JSON.stringify({ error: 'OpenSky HTTP ' + upstream.status, states: null }),
-      { status: 502, headers: Object.assign({ 'Content-Type': 'application/json' }, CORS) }
+      JSON.stringify({ error: 'adsb.fi HTTP ' + upstream.status, detail: errBody.slice(0, 200), ac: [] }),
+      { status: upstream.status, headers: Object.assign({ 'Content-Type': 'application/json' }, CORS) }
     );
   }
 
   var body = await upstream.text();
   return new Response(body, {
     status: 200,
-    headers: Object.assign({ 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=60' }, CORS),
+    headers: Object.assign({
+      'Content-Type':  'application/json',
+      'Cache-Control': 'public, max-age=30',
+    }, CORS),
   });
 }

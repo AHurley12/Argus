@@ -56,15 +56,15 @@
 
   // ── Config ───────────────────────────────────────────────────────────────────
   var OPENSKY_FN           = '/.netlify/functions/fetch-opensky';    // unused — Netlify IPs are blocked by OpenSky
-  var OPENSKY_TOKEN_FN     = '/.netlify/functions/get-opensky-token'; // unused — auth now handled by CF Worker
   var OPENSKY_POLL         = 3 * 60 * 1000;   // 3 min  — netlify-proxy path (unused)
-  // Browser-direct anonymous — OpenSky blocks all cloud IPs (Netlify, Cloudflare, AWS).
-  // Only residential browser IPs work. No Authorization header = no CORS preflight.
-  // Anonymous rate limit: 1 req/10s, 500 credits/day. Supplemental use only.
-  var OPENSKY_DIRECT_BASE  = 'https://opensky-network.org/api';
-  var OPENSKY_BROWSER_POLL = 10 * 60 * 1000;  // 10 min — conservative to stay within anon rate limits
-  var OPENSKY_BOX_PAD      = 30;              // ±30° viewport bounding box half-width (degrees)
-  var ENABLE_BROWSER_OPENSKY = true;          // browser residential IP bypasses OpenSky cloud IP blocks
+  // adsb.fi open data via Cloudflare Worker proxy (adds CORS headers).
+  // Worker URL: opensky-proxy.aidanhurley12.workers.dev
+  // Backend: opendata.adsb.fi — community ADS-B, no key, 1 req/s rate limit.
+  var ADSB_WORKER_BASE     = 'https://opensky-proxy.aidanhurley12.workers.dev';
+  var ADSB_DIST_NM         = 250;             // max radius supported by adsb.fi
+  var OPENSKY_BROWSER_POLL = 5 * 60 * 1000;   // 5 min — well within adsb.fi rate limits
+  var OPENSKY_BOX_PAD      = 30;              // used only by _getViewportCenter for lat/lon
+  var ENABLE_BROWSER_OPENSKY = true;          // Cloudflare Worker path (no CORS/IP issues)
   var MAX_INJECT           = 200;             // hard ceiling: cache never exceeds this count
   var _pollInterval        = ENABLE_BROWSER_OPENSKY ? OPENSKY_BROWSER_POLL : OPENSKY_POLL;
   var STALE_MS             = _pollInterval * 3; // force-evict after 3 missed cycles
@@ -92,13 +92,10 @@
     return !primary.has(icao24);
   }
 
-  // ── State vector normalization (browser-direct path) ─────────────────────────
-  // Mirrors fetch-opensky.js normalization — identical field indices and logic.
-  // Field indices per OpenSky Network API v1 docs:
-  //   0  icao24   1  callsign   2  origin_country   3  time_position   4  last_contact
-  //   5  longitude  6  latitude  7  baro_altitude(m)  8  on_ground(bool)
-  //   9  velocity(m/s)  10  true_track(deg)  11  vertical_rate  12  sensors
-  //  13  geo_altitude(m)  14  squawk
+  // ── adsb.fi record normalization ──────────────────────────────────────────────
+  // adsb.fi returns ADSBexchange v2 format objects (not OpenSky array format).
+  // Key fields: hex (icao24), flight (callsign), lat, lon, alt_baro (ft),
+  //             gs (knots), track (deg), on_ground (bool).
   var _CARGO_PFX = ['FDX', 'UPS', 'CLX', 'GTI', 'ABX'];
   var _MIL_PFX   = ['RCH', 'BAF', 'RAF', 'AMC', 'NAV'];
   var _COMM_PFX  = ['DAL', 'UAL', 'AAL', 'SWA', 'BAW', 'AFR', 'KLM'];
@@ -112,80 +109,57 @@
     return 'unknown';
   }
 
-  function _normalizeSv(sv) {
-    if (!Array.isArray(sv) || sv.length < 11) return null;
-    var icao24 = String(sv[0] || '').trim();
+  function _normalizeAdsbFi(ac) {
+    if (!ac || typeof ac !== 'object') return null;
+    var icao24 = String(ac.hex || '').trim().toLowerCase();
     if (!icao24) return null;
-    if (sv[8] === true) return null; // on ground — skip
-    var lon = sv[5];
-    var lat = sv[6];
+    if (ac.on_ground) return null;           // skip ground traffic
+    var lat = ac.lat;
+    var lon = ac.lon;
     if (lat == null || lon == null || !isFinite(lat) || !isFinite(lon)) return null;
     if (lat < -90 || lat > 90 || lon < -180 || lon > 180) return null;
-    var callsign = (sv[1] || '').trim();
-    var altM     = sv[7] != null ? sv[7] : sv[13];
-    var altFt    = altM != null ? Math.round(altM * 3.28084) : null;
-    var velMs    = sv[9];
-    var gs       = velMs != null ? Math.round(velMs * 1.94384) : null;
-    var track    = sv[10] != null ? sv[10] : null;
+    var callsign = (ac.flight || '').trim() || null;
+    // alt_baro is already in feet; fall back to alt_geom
+    var altFt = ac.alt_baro != null ? ac.alt_baro : (ac.alt_geom != null ? ac.alt_geom : null);
+    if (typeof altFt === 'string') altFt = null; // 'ground' string sentinel
+    var gs    = ac.gs    != null ? Math.round(ac.gs)    : null;
+    var track = ac.track != null ? ac.track             : null;
     return {
       icao24:     icao24,
-      callsign:   callsign || null,
+      callsign:   callsign,
       lat:        lat,
       lon:        lon,
       track:      track,
       gs:         gs,
-      alt:        altFt,
+      alt:        altFt != null ? Math.round(altFt) : null,
       flightType: _classifyFlight(callsign, altFt),
       stale:      false,
-      source:     'opensky',
+      source:     'adsb.fi',
     };
   }
 
-  // ── Viewport bounds ───────────────────────────────────────────────────────────
-  // Derives a ±OPENSKY_BOX_PAD degree bounding box centered on the globe region
-  // currently facing the camera. Uses the globe group's Euler rotation to invert
-  // the latLonToVector transform and find the on-screen center lat/lon.
-  //
-  // Math: camera sits at world (0,0,z). The globe point facing the camera in globe
-  // local space is found by applying the inverse rotation M^-1 to (0,0,1):
-  //   M = Rx(rx) * Ry(ry)   [Three.js XYZ Euler, rz=0]
-  //   M^-1 * (0,0,1) = Ry(-ry) * Rx(-rx) * (0,0,1) = (-sin(ry)cos(rx), sin(rx), cos(ry)cos(rx))
-  // Then invert latLonToVector (phi=arccos(y), theta=atan2(z,-x)) to recover lat/lon.
-  function _getViewportBounds() {
+  // ── Viewport center ───────────────────────────────────────────────────────────
+  // Returns { lat, lon } of the globe point currently facing the camera.
+  // Math: camera sits at world (0,0,z). Apply inverse globe rotation to (0,0,1):
+  //   M^-1*(0,0,1) = (-sin(ry)cos(rx), sin(rx), cos(ry)cos(rx))
+  // Then lat = 90 - arccos(y)*r2d, lon from atan2(z,-x)*r2d - 180.
+  function _getViewportCenter() {
     var ag = window.ArgusGlobe;
     if (!ag || !ag.globeGroup) return null;
     var rx = ag.globeGroup.rotation.x;
     var ry = ag.globeGroup.rotation.y;
-
-    // Local-space unit vector from globe center toward camera
     var lx = -Math.sin(ry) * Math.cos(rx);
     var ly =  Math.sin(rx);
     var lz =  Math.cos(ry) * Math.cos(rx);
-
-    // phi = arccos(ly), lat = 90 - phi*r2d
     var phi = Math.acos(Math.max(-1, Math.min(1, ly)));
     var lat = 90 - phi * 180 / Math.PI;
-
-    // theta = atan2(lz, -lx), lon = theta*r2d - 180
     var lon = 0;
     if (Math.abs(Math.sin(phi)) > 1e-6) {
-      var theta = Math.atan2(lz, -lx);
-      lon = theta * 180 / Math.PI - 180;
+      lon = Math.atan2(lz, -lx) * 180 / Math.PI - 180;
       if (lon < -180) lon += 360;
       if (lon >  180) lon -= 360;
     }
-
-    var lamin = Math.max(-85, lat - OPENSKY_BOX_PAD);
-    var lamax = Math.min( 85, lat + OPENSKY_BOX_PAD);
-    var lomin = Math.max(-180, lon - OPENSKY_BOX_PAD);
-    var lomax = Math.min( 180, lon + OPENSKY_BOX_PAD);
-
-    return {
-      lamin: lamin.toFixed(2),
-      lamax: lamax.toFixed(2),
-      lomin: lomin.toFixed(2),
-      lomax: lomax.toFixed(2),
-    };
+    return { lat: lat, lon: lon };
   }
 
   // ── Shared ingestion core ─────────────────────────────────────────────────────
@@ -281,51 +255,38 @@
       });
   }
 
-  // ── Browser-direct poll ───────────────────────────────────────────────────────
-  // Polls OpenSky REST API directly from the browser (bypasses Netlify/AWS IP block).
+  // ── adsb.fi poll via Cloudflare Worker ───────────────────────────────────────
+  // Worker proxies opendata.adsb.fi, adds CORS headers. No auth needed (open API).
   // Single in-flight guard prevents overlapping requests.
-  // Geographic bounds derived from current viewport — constrains payload and API pressure.
-  // Auth: anonymous by default. Set window.ARGUS_OPENSKY_CREDS = { user, pass } externally
-  //       for higher rate limits. Never hardcode credentials in this file.
   function _pollOpenSkyBrowser() {
     if (!_enabled || _browserPollActive) return;
     _browserPollActive = true;
     _audit.polls++;
 
-    var bounds = _getViewportBounds();
-    var url    = OPENSKY_DIRECT_BASE + '/states/all';
-    if (bounds) {
-      url += '?lamin=' + bounds.lamin +
-             '&lamax=' + bounds.lamax +
-             '&lomin=' + bounds.lomin +
-             '&lomax=' + bounds.lomax;
-    }
-
-    // No Authorization header needed — the Cloudflare Worker handles Basic Auth
-    // server-side. Sending auth headers from the browser would trigger CORS preflights
-    // that OpenSky rejects. Worker returns Access-Control-Allow-Origin: * so no preflight.
-    var opts = { headers: { 'Accept': 'application/json' } };
+    var center = _getViewportCenter();
+    var lat    = center ? center.lat.toFixed(2) : '0';
+    var lon    = center ? center.lon.toFixed(2) : '0';
+    var url    = ADSB_WORKER_BASE + '?lat=' + lat + '&lon=' + lon + '&dist=' + ADSB_DIST_NM;
 
     var controller = new AbortController();
     var timeoutId  = setTimeout(function () { controller.abort(); }, 20000);
-    opts.signal    = controller.signal;
 
-    fetch(url, opts)
+    fetch(url, { headers: { 'Accept': 'application/json' }, signal: controller.signal })
       .then(function (resp) {
         clearTimeout(timeoutId);
-        if (resp.status === 429) throw new Error('OpenSky rate limit (429)');
-        if (resp.status === 401) throw new Error('OpenSky auth rejected (401)');
-        if (!resp.ok) throw new Error('OpenSky HTTP ' + resp.status);
+        if (resp.status === 429) throw new Error('adsb.fi rate limit (429)');
+        if (!resp.ok) throw new Error('adsb.fi HTTP ' + resp.status);
         return resp.json();
       })
       .then(function (json) {
         _browserPollActive = false;
-        var svs      = (json && Array.isArray(json.states)) ? json.states : [];
+        var records  = (json && Array.isArray(json.ac)) ? json.ac : [];
         var aircraft = [];
-        for (var i = 0; i < svs.length; i++) {
-          var norm = _normalizeSv(svs[i]);
+        for (var i = 0; i < records.length; i++) {
+          var norm = _normalizeAdsbFi(records[i]);
           if (norm) { aircraft.push(norm); } else { _audit.skipped++; }
         }
+        console.log('[ArgusProviderCache] adsb.fi raw:', records.length, '→ normalised:', aircraft.length);
         _ingestAircraftArray(aircraft);
       })
       .catch(function (err) {
@@ -373,7 +334,7 @@
   function status() {
     return {
       enabled:     _enabled,
-      mode:        ENABLE_BROWSER_OPENSKY ? 'browser-direct' : 'netlify-proxy',
+      mode:        ENABLE_BROWSER_OPENSKY ? 'adsb.fi-worker' : 'netlify-proxy',
       cacheSize:   aircraftLiveCache.size,
       polls:       _audit.polls,
       injected:    _audit.injected,

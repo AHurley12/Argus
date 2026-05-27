@@ -58,11 +58,39 @@ window.ArgusWeatherLayer = (function () {
     extreme:  { pulseSpeed: 0.045, ringThick: 1.7,  glowAlpha: 0.90, ringCount: 3 },
   };
 
+  // ── Drought severity animation params ─────────────────────────────────────────
+  // ~half the pulse speed of NOAA weather — drought is slow, persistent, creeping.
+  var DROUGHT_SEV_PARAMS = {
+    minor:    { pulseSpeed: 0.008, ringThick: 0.8, glowAlpha: 0.45, segments: 3, ringCount: 1 },
+    moderate: { pulseSpeed: 0.012, ringThick: 1.0, glowAlpha: 0.58, segments: 4, ringCount: 1 },
+    severe:   { pulseSpeed: 0.016, ringThick: 1.2, glowAlpha: 0.70, segments: 4, ringCount: 2 },
+    extreme:  { pulseSpeed: 0.020, ringThick: 1.5, glowAlpha: 0.85, segments: 5, ringCount: 2 },
+  };
+
+  // ── Wildfire severity animation params ────────────────────────────────────────
+  // Slightly faster than NOAA weather — wildfires are kinetic, rapid, high-urgency.
+  var WILDFIRE_SEV_PARAMS = {
+    minor:    { pulseSpeed: 0.022, ringThick: 0.9, glowAlpha: 0.50, flareCount: 4, ringCount: 1 },
+    moderate: { pulseSpeed: 0.030, ringThick: 1.1, glowAlpha: 0.65, flareCount: 5, ringCount: 1 },
+    severe:   { pulseSpeed: 0.040, ringThick: 1.4, glowAlpha: 0.80, flareCount: 6, ringCount: 2 },
+    extreme:  { pulseSpeed: 0.052, ringThick: 1.7, glowAlpha: 0.92, flareCount: 6, ringCount: 2 },
+  };
+
   // ── Colors ───────────────────────────────────────────────────────────────────
 
   var C_NUCLEUS = '#72eeff';
   var C_INNER   = '#4fc3ff';
   var C_OUTER   = '#0ea5e9';
+
+  // ── Drought palette ───────────────────────────────────────────────────────────
+  var D_AMBER = '#cc8800';   // base amber — matches GDACS drought category color
+  var D_DRY   = '#ff9900';   // dry orange
+  var D_HOT   = '#aa5500';   // muted red-orange (extreme escalation)
+
+  // ── Wildfire palette ──────────────────────────────────────────────────────────
+  var W_ORANGE = '#ff6600';  // fire orange — base wildfire color
+  var W_EMBER  = '#cc3300';  // deep ember red
+  var W_HOT    = '#ffaa00';  // hot yellow (flare tips and core)
 
   var TOOLTIP_SEV_COLORS = {
     minor:    '#0ea5e9',
@@ -489,6 +517,299 @@ window.ArgusWeatherLayer = (function () {
   };
 
   PulseMarker.prototype.dispose = function () {
+    this.texture.dispose();
+    this.material.dispose();
+    if (this.sprite.parent) this.sprite.parent.remove(this.sprite);
+  };
+
+  // ── DroughtPulseTexture ────────────────────────────────────────────────────────
+  //
+  // Animated canvas texture for GDACS drought events.
+  // Fractured arc ring (N segments with gaps) expands slowly outward — like cracked
+  // earth radiating heat. Faint radial tick marks from the nucleus suggest heat
+  // shimmer. Nucleus breathes on a long ~10-second cycle. Total animation speed is
+  // roughly half that of NOAA weather — drought is a creeping, geographically
+  // expansive threat, not an acute burst event.
+
+  function DroughtPulseTexture(severity) {
+    var c = makeCanvas(PULSE_SIZE);
+    this.canvas     = c.canvas;
+    this.ctx        = c.ctx;
+    this.severity   = severity || 'minor';
+    this.params     = DROUGHT_SEV_PARAMS[this.severity] || DROUGHT_SEV_PARAMS.minor;
+    this.t          = 0;
+    this._tickCount = 0;
+    this._frameSkip = SEV_FRAME_SKIP[this.severity] || 4;
+    this.texture    = new THREE.CanvasTexture(this.canvas);
+    this._draw();
+    this.texture.needsUpdate = true;
+  }
+
+  DroughtPulseTexture.prototype.tick = function (dt) {
+    this._tickCount++;
+    if (this._tickCount % this._frameSkip !== 0) return;
+    this.t += dt * 60 * this._frameSkip;
+    this._draw();
+    this.texture.needsUpdate = true;
+  };
+
+  DroughtPulseTexture.prototype._draw = function () {
+    var ctx     = this.ctx;
+    var size    = PULSE_SIZE;
+    var cx      = size / 2;
+    var cy      = size / 2;
+    var p       = this.params;
+    var t       = this.t;
+    var severe  = this.severity === 'severe' || this.severity === 'extreme';
+    var extreme = this.severity === 'extreme';
+
+    ctx.clearRect(0, 0, size, size);
+    ctx.save();
+    ctx.globalCompositeOperation = 'screen';
+
+    // ── Fractured ring(s): segmented arcs, very slow outward expansion ─────────
+    var maxR     = severe ? 24 : 20;
+    var segCount = p.segments;
+    var slotSize = (Math.PI * 2) / segCount;
+    var segArc   = slotSize * 0.82;  // 18% gap between each segment
+
+    for (var ri = 0; ri < p.ringCount; ri++) {
+      var phase   = ((t * p.pulseSpeed) + ri * (1 / p.ringCount)) % 1;
+      var r       = 5 + phase * maxR;
+      var alpha   = p.glowAlpha * Math.pow(1 - phase, 1.8);
+      var baseRot = t * 0.0015 + ri * 0.5;  // very slow rotation — creeping spread
+
+      for (var si = 0; si < segCount; si++) {
+        var startAngle = baseRot + si * slotSize;
+        ctx.beginPath();
+        ctx.arc(cx, cy, r, startAngle, startAngle + segArc);
+        ctx.strokeStyle = hexAlpha(extreme ? D_HOT : D_AMBER, alpha);
+        ctx.lineWidth   = p.ringThick;
+        ctx.stroke();
+      }
+    }
+
+    // ── Heat shimmer: faint radial tick marks from nucleus ────────────────────
+    var nTicks    = severe ? 8 : 6;
+    var tickAlpha = severe ? 0.22 : 0.12;
+    for (var ti = 0; ti < nTicks; ti++) {
+      var ang   = (ti / nTicks) * Math.PI * 2 + t * 0.0008;
+      var inner = 2.5;
+      var outer = 4.5 + Math.sin(t * 0.018 + ti * 0.9) * 0.7;
+      ctx.beginPath();
+      ctx.moveTo(cx + Math.cos(ang) * inner, cy + Math.sin(ang) * inner);
+      ctx.lineTo(cx + Math.cos(ang) * outer, cy + Math.sin(ang) * outer);
+      ctx.strokeStyle = hexAlpha(D_DRY, tickAlpha);
+      ctx.lineWidth   = 0.5;
+      ctx.stroke();
+    }
+
+    // ── Nucleus: slow amber breathing disc (~10-second cycle) ─────────────────
+    var breathe = 1 + Math.sin(t * 0.010) * 0.15;
+    ctx.beginPath();
+    ctx.arc(cx, cy, 3.0 * breathe, 0, Math.PI * 2);
+    ctx.fillStyle = hexAlpha(D_AMBER, severe ? 0.88 : 0.62);
+    ctx.fill();
+
+    // ── Core dot: always visible anchor point ─────────────────────────────────
+    ctx.beginPath();
+    ctx.arc(cx, cy, 1.2, 0, Math.PI * 2);
+    ctx.fillStyle = D_AMBER;
+    ctx.fill();
+
+    ctx.restore();
+  };
+
+  DroughtPulseTexture.prototype.dispose = function () {
+    this.texture.dispose();
+  };
+
+  // ── WildfirePulseTexture ───────────────────────────────────────────────────────
+  //
+  // Animated canvas texture for GDACS wildfire events.
+  // Expanding thermal ring with sharp falloff — faster and more kinetic than drought
+  // or NOAA pulse. Angular flare spikes radiate at even intervals with chevron tips,
+  // suggesting directional spread. Ember nucleus surges in sync with ring pulse.
+  // Operationally restrained — distinct urgency without arcade noise.
+
+  function WildfirePulseTexture(severity) {
+    var c = makeCanvas(PULSE_SIZE);
+    this.canvas     = c.canvas;
+    this.ctx        = c.ctx;
+    this.severity   = severity || 'minor';
+    this.params     = WILDFIRE_SEV_PARAMS[this.severity] || WILDFIRE_SEV_PARAMS.minor;
+    this.t          = 0;
+    this._tickCount = 0;
+    this._frameSkip = SEV_FRAME_SKIP[this.severity] || 4;
+    this.texture    = new THREE.CanvasTexture(this.canvas);
+    this._draw();
+    this.texture.needsUpdate = true;
+  }
+
+  WildfirePulseTexture.prototype.tick = function (dt) {
+    this._tickCount++;
+    if (this._tickCount % this._frameSkip !== 0) return;
+    this.t += dt * 60 * this._frameSkip;
+    this._draw();
+    this.texture.needsUpdate = true;
+  };
+
+  WildfirePulseTexture.prototype._draw = function () {
+    var ctx    = this.ctx;
+    var size   = PULSE_SIZE;
+    var cx     = size / 2;
+    var cy     = size / 2;
+    var p      = this.params;
+    var t      = this.t;
+    var severe = this.severity === 'severe' || this.severity === 'extreme';
+
+    ctx.clearRect(0, 0, size, size);
+    ctx.save();
+    ctx.globalCompositeOperation = 'screen';
+
+    // ── Expanding thermal ring — sharper falloff than drought ──────────────────
+    var maxR  = severe ? 25 : 21;
+    var phase = (t * p.pulseSpeed) % 1;
+    var r     = 5 + phase * maxR;
+    var alpha = p.glowAlpha * Math.pow(1 - phase, 1.2);  // sharper than drought (1.8)
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.strokeStyle = hexAlpha(W_ORANGE, alpha);
+    ctx.lineWidth   = p.ringThick;
+    ctx.stroke();
+
+    // Trailing ember ring (severe+) — lagged 48% behind primary
+    if (p.ringCount > 1) {
+      var phase2 = (phase + 0.48) % 1;
+      var r2     = 5 + phase2 * maxR;
+      var alpha2 = p.glowAlpha * 0.50 * Math.pow(1 - phase2, 1.6);
+      ctx.beginPath();
+      ctx.arc(cx, cy, r2, 0, Math.PI * 2);
+      ctx.strokeStyle = hexAlpha(W_EMBER, alpha2);
+      ctx.lineWidth   = p.ringThick * 0.65;
+      ctx.stroke();
+    }
+
+    // ── Angular flare spikes — N radial spikes with chevron tips ──────────────
+    var nFlares  = p.flareCount;
+    var rotSpeed = severe ? 0.006 : 0.003;  // slow rotation for operational readability
+    var baseLen  = severe ? 7 : 5;
+    for (var fi = 0; fi < nFlares; fi++) {
+      var baseAng  = (fi / nFlares) * Math.PI * 2 + t * rotSpeed;
+      var flutter  = Math.sin(t * 0.040 + fi * 1.1) * 1.8;  // length flicker
+      var flareLen = Math.max(2, baseLen + flutter);
+
+      // Spike line
+      ctx.beginPath();
+      ctx.moveTo(cx + Math.cos(baseAng) * 2.5,      cy + Math.sin(baseAng) * 2.5);
+      ctx.lineTo(cx + Math.cos(baseAng) * flareLen, cy + Math.sin(baseAng) * flareLen);
+      ctx.strokeStyle = hexAlpha(W_HOT, severe ? 0.50 : 0.32);
+      ctx.lineWidth   = severe ? 0.85 : 0.65;
+      ctx.stroke();
+
+      // Chevron at spike tip — two angled micro-lines
+      var tipX = cx + Math.cos(baseAng) * flareLen;
+      var tipY = cy + Math.sin(baseAng) * flareLen;
+      ctx.beginPath();
+      ctx.moveTo(tipX, tipY);
+      ctx.lineTo(
+        tipX + Math.cos(baseAng + Math.PI * 0.75) * 1.4,
+        tipY + Math.sin(baseAng + Math.PI * 0.75) * 1.4
+      );
+      ctx.moveTo(tipX, tipY);
+      ctx.lineTo(
+        tipX + Math.cos(baseAng - Math.PI * 0.75) * 1.4,
+        tipY + Math.sin(baseAng - Math.PI * 0.75) * 1.4
+      );
+      ctx.strokeStyle = hexAlpha(W_ORANGE, severe ? 0.30 : 0.18);
+      ctx.lineWidth   = 0.5;
+      ctx.stroke();
+    }
+
+    // ── Ember nucleus: surges in sync with the primary thermal ring ───────────
+    var surge   = Math.pow(Math.sin(phase * Math.PI), 2);  // peaks at ring midpoint
+    var breathe = 1 + surge * 0.28;
+    ctx.beginPath();
+    ctx.arc(cx, cy, 3.2 * breathe, 0, Math.PI * 2);
+    ctx.fillStyle = hexAlpha(W_ORANGE, severe ? 0.88 : 0.68);
+    ctx.fill();
+
+    // Core ember dot
+    ctx.beginPath();
+    ctx.arc(cx, cy, 1.4, 0, Math.PI * 2);
+    ctx.fillStyle = W_HOT;
+    ctx.fill();
+
+    ctx.restore();
+  };
+
+  WildfirePulseTexture.prototype.dispose = function () {
+    this.texture.dispose();
+  };
+
+  // ── DroughtMarker (sprite wrapper) ────────────────────────────────────────────
+  //
+  // Thin wrapper for DroughtPulseTexture, identical in structure to PulseMarker.
+  // Amber color tint (0xcc8800) in SpriteMaterial matches GDACS drought category color.
+  // Exported via ArgusWeatherLayer so argusGdacs.js can create instances directly.
+
+  function DroughtMarker(scene, position, severity) {
+    this.severity = severity || 'minor';
+    this.texture  = new DroughtPulseTexture(this.severity);
+    this.material = new THREE.SpriteMaterial({
+      map: this.texture.texture, transparent: true,
+      blending: THREE.AdditiveBlending, depthWrite: false,
+      color: 0xcc8800,
+    });
+    this.sprite = new THREE.Sprite(this.material);
+    this.sprite.scale.setScalar(SCALE_PULSE);
+    this.sprite.position.copy(position);
+    scene.add(this.sprite);
+  }
+
+  DroughtMarker.prototype.tick = function (dt) {
+    this.texture.tick(dt);
+  };
+
+  DroughtMarker.prototype.setVisible = function (v) {
+    this.sprite.visible = !!v;
+  };
+
+  DroughtMarker.prototype.dispose = function () {
+    this.texture.dispose();
+    this.material.dispose();
+    if (this.sprite.parent) this.sprite.parent.remove(this.sprite);
+  };
+
+  // ── WildfireMarker (sprite wrapper) ───────────────────────────────────────────
+  //
+  // Thin wrapper for WildfirePulseTexture, identical in structure to PulseMarker.
+  // Fire orange tint (0xff6600) in SpriteMaterial matches GDACS wildfire category color.
+  // Exported via ArgusWeatherLayer so argusGdacs.js can create instances directly.
+
+  function WildfireMarker(scene, position, severity) {
+    this.severity = severity || 'minor';
+    this.texture  = new WildfirePulseTexture(this.severity);
+    this.material = new THREE.SpriteMaterial({
+      map: this.texture.texture, transparent: true,
+      blending: THREE.AdditiveBlending, depthWrite: false,
+      color: 0xff6600,
+    });
+    this.sprite = new THREE.Sprite(this.material);
+    this.sprite.scale.setScalar(SCALE_PULSE);
+    this.sprite.position.copy(position);
+    scene.add(this.sprite);
+  }
+
+  WildfireMarker.prototype.tick = function (dt) {
+    this.texture.tick(dt);
+  };
+
+  WildfireMarker.prototype.setVisible = function (v) {
+    this.sprite.visible = !!v;
+  };
+
+  WildfireMarker.prototype.dispose = function () {
     this.texture.dispose();
     this.material.dispose();
     if (this.sprite.parent) this.sprite.parent.remove(this.sprite);
@@ -948,13 +1269,15 @@ window.ArgusWeatherLayer = (function () {
   if (window.ArgusModuleAudit) window.ArgusModuleAudit.register('ArgusWeatherLayer');
 
   return {
-    tick:       tick,
-    start:      start,
-    stop:       stop,
-    toggle:     toggle,
-    setVisible: setVisible,
-    refresh:    refresh,
-    status:     status,
+    tick:           tick,
+    start:          start,
+    stop:           stop,
+    toggle:         toggle,
+    setVisible:     setVisible,
+    refresh:        refresh,
+    status:         status,
+    DroughtMarker:  DroughtMarker,
+    WildfireMarker: WildfireMarker,
   };
 
 }());

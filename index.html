@@ -1943,6 +1943,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     if (window.ArgusSelection)    ArgusSelection.tick();
     if (window.ArgusWeatherLayer) ArgusWeatherLayer.tick();
+    if (window.ArgusGDACS && ArgusGDACS.tick) ArgusGDACS.tick();
     renderer.render(scene, camera);
 
     // ── ArgusRenderAudit — updated every frame, removable ────────────────────────
@@ -6344,7 +6345,7 @@ ArgusMarket.init();
      Render  : ghost mesh + InstancedMesh (N events → 1 draw call)
      Poll    : 30 minutes (matches backend cache TTL)
 ══════════════════════════════════════════════════════════════════════════════ -->
-<script src="/modules/argusGdacs.js?v=perf-fix-8"></script>
+<script src="/modules/argusGdacs.js?v=hazard-v1"></script>
 
 <!-- ══════════════════════════════════════════════════════════════════════════════
      SCRIPT 5 — Intelligence Layer Overlays
@@ -6359,7 +6360,7 @@ ArgusMarket.init();
 ══════════════════════════════════════════════════════════════════════════════ -->
 <script src="/modules/argusAcled.js?v=perf-fix-8"></script>
 <script src="/modules/argusNoaa.js?v=perf-fix-8"></script>
-<script src="/modules/argusWeatherLayer.js?v=perf-fix-8"></script>
+<script src="/modules/argusWeatherLayer.js?v=hazard-v1"></script>
 <script src="/modules/argusGem.js?v=perf-fix-8"></script>
 
   <!-- ── Global Exchanges Popup ─────────────────────────────────────────────── -->

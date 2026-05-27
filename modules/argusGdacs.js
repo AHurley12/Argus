@@ -59,6 +59,11 @@ window.ArgusGDACS = (function () {
   var _iColor = new THREE.Color();
   var _IMAX   = 150;  // pre-allocated capacity (GDACS limit is 100 per fetch)
 
+  // ── Hazard sprites (drought / wildfire animated canvas markers) ──────────────
+  // Managed independently of InstancedMesh. Ticked via ArgusGDACS.tick() each frame.
+  var _hazardSprites = {};   // eventId → DroughtMarker | WildfireMarker
+  var _lastHazardT   = null; // for delta-time computation in tick()
+
   // ── Audit ────────────────────────────────────────────────────────────────────
   var _audit = { polls: 0, placed: 0, removed: 0, lastPollMs: 0, lastError: null };
 
@@ -86,6 +91,14 @@ window.ArgusGDACS = (function () {
     if (severity === 'red')    return 'CRITICAL';
     if (severity === 'orange') return 'WARNING';
     return 'WATCH';
+  }
+
+  // ── GDACS severity → weather-layer severity (for DroughtMarker / WildfireMarker) ──
+  function _mapHazardSeverity(gdacsSeverity) {
+    if (gdacsSeverity === 'red')    return 'extreme';
+    if (gdacsSeverity === 'orange') return 'severe';
+    if (gdacsSeverity === 'green')  return 'moderate';
+    return 'minor';
   }
 
   // ── Impact text builder ───────────────────────────────────────────────────────
@@ -156,6 +169,8 @@ window.ArgusGDACS = (function () {
     var n = 0;
     gdacsEventCache.forEach(function (ev) {
       if (n >= _IMAX) return;
+      // Drought + wildfire have dedicated animated sprite markers — skip instanced sphere
+      if (ev.category === 'drought' || ev.category === 'wildfire') return;
       var pos = AG.latLonToVector(ev.lat, ev.lon, altR);
       _iDummy.position.copy(pos);
       _iDummy.scale.set(1, 1, 1);
@@ -209,6 +224,15 @@ window.ArgusGDACS = (function () {
       window.eventMarkers = (window.eventMarkers || []).filter(function (m) {
         return !(m.userData && m.userData._gdacsMarker && !gdacsEventCache.has(m.userData._gdacsId));
       });
+      // Evict hazard sprites for events no longer in cache
+      var hazardEvict = [];
+      for (var hid in _hazardSprites) {
+        if (!gdacsEventCache.has(hid)) hazardEvict.push(hid);
+      }
+      for (var he = 0; he < hazardEvict.length; he++) {
+        _hazardSprites[hazardEvict[he]].dispose();
+        delete _hazardSprites[hazardEvict[he]];
+      }
     }
 
     // ── Add ghost meshes for new events (raycasting only — no draw calls) ───────
@@ -244,6 +268,22 @@ window.ArgusGDACS = (function () {
       if (window.eventMarkers) window.eventMarkers.push(mesh);
       _placedIds.add(ev.eventId);
       added++;
+    });
+
+    // ── Hazard sprites (drought/wildfire) — separate loop, not gated by _placedIds ──
+    // Checked every render cycle so late ArgusWeatherLayer init is handled gracefully.
+    gdacsEventCache.forEach(function (ev) {
+      var isHazard = ev.category === 'drought' || ev.category === 'wildfire';
+      if (!isHazard || _hazardSprites[ev.eventId]) return;
+      if (!AG.weatherSpriteGroup) return;
+      if (!window.ArgusWeatherLayer || !window.ArgusWeatherLayer.DroughtMarker) return;
+      var hsev  = _mapHazardSeverity(ev.severity);
+      var hpos  = AG.latLonToVector(ev.lat, ev.lon, altR + 0.5);
+      var hmark = ev.category === 'drought'
+        ? new window.ArgusWeatherLayer.DroughtMarker(AG.weatherSpriteGroup, hpos, hsev)
+        : new window.ArgusWeatherLayer.WildfireMarker(AG.weatherSpriteGroup, hpos, hsev);
+      hmark.setVisible(visible);
+      _hazardSprites[ev.eventId] = hmark;
     });
 
     _audit.placed  += added;
@@ -385,6 +425,28 @@ window.ArgusGDACS = (function () {
       });
   }
 
+  // ── Tick: advance hazard sprite canvas animations ─────────────────────────────
+  // Called every frame from the master animate loop in index.html.
+  // Operates independently of ArgusLayerState.weather — drought/wildfire are GDACS
+  // events, not NOAA alerts, and must animate whenever the event layer is visible.
+  function tick() {
+    if (!Object.keys(_hazardSprites).length) return;
+    var now = performance.now();
+    var dt  = _lastHazardT !== null ? Math.min((now - _lastHazardT) / 1000, 0.1) : 0.016;
+    _lastHazardT = now;
+
+    var AG     = window.ArgusGlobe;
+    var camPos = AG && AG.camera ? AG.camera.position : null;
+
+    for (var hid in _hazardSprites) {
+      var hm = _hazardSprites[hid];
+      if (!hm || !hm.sprite || !hm.sprite.parent) continue;
+      // LOD: skip redraws for sprites far from camera (matches weather layer threshold)
+      if (camPos && hm.sprite.position.distanceTo(camPos) > 350) continue;
+      hm.tick(dt);
+    }
+  }
+
   // ── Start / stop ─────────────────────────────────────────────────────────────
   function start() {
     if (_pollTimer) return;
@@ -431,6 +493,8 @@ window.ArgusGDACS = (function () {
     }
 
     if (_imesh) _imesh.visible = false;
+    for (var hid in _hazardSprites) { _hazardSprites[hid].dispose(); }
+    _hazardSprites = {};
     gdacsEventCache.clear();
     _placedIds.clear();
   }
@@ -443,6 +507,9 @@ window.ArgusGDACS = (function () {
   // the InstancedMesh. Ghost meshes are managed via window.eventMarkers.forEach().
   function setVisible(v) {
     if (_imesh) _imesh.visible = !!v;
+    for (var hid in _hazardSprites) {
+      _hazardSprites[hid].setVisible(!!v);
+    }
   }
 
   function status() {
@@ -478,6 +545,6 @@ window.ArgusGDACS = (function () {
 
   if (window.ArgusModuleAudit) window.ArgusModuleAudit.register('ArgusGDACS');
 
-  return { start: start, stop: stop, refresh: refresh, status: status, setVisible: setVisible };
+  return { start: start, stop: stop, refresh: refresh, status: status, setVisible: setVisible, tick: tick };
 
 }());

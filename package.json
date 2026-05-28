@@ -7,7 +7,9 @@
     "doc": "docs"
   },
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "deploy": "wrangler deploy",
+    "preview": "wrangler dev"
   },
   "repository": {
     "type": "git",
@@ -25,5 +27,8 @@
     "@supabase/supabase-js": "^2.100.1",
     "stripe": "^16.0.0",
     "yahoo-finance2": "^3.14.0"
+  },
+  "devDependencies": {
+    "wrangler": "^4.95.0"
   }
 }

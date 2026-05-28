@@ -84,6 +84,9 @@
   var _openSkyActive   = false;
   var _suppActive      = false;
   var _enabled         = true;
+  var _openSkyErrorType = null; // last typed error code from Worker response
+  var _openSkyWorkerV   = null; // X-Worker-Version from last response
+  var _firstPoll        = true; // log full URL on first poll only
 
   // ── Primary-absent check ──────────────────────────────────────────────────────
   function _isPrimaryAbsent(icao24) {
@@ -223,43 +226,89 @@
                '&lomin=' + bbox.lomin +
                '&lomax=' + bbox.lomax;
 
+    // Log full URL on first poll — confirms Worker URL and bbox in console.
+    if (_firstPoll) {
+      console.log('[ArgusProviderCache:opensky] first poll →', url);
+      _firstPoll = false;
+    }
+
     fetch(url)
       .then(function (resp) {
-        if (!resp.ok) throw new Error('Worker HTTP ' + resp.status);
+        // Capture Worker version from response header (confirms which deploy is live).
+        var workerV = resp.headers && resp.headers.get('X-Worker-Version');
+        if (workerV && workerV !== _openSkyWorkerV) {
+          _openSkyWorkerV = workerV;
+          console.log('[ArgusProviderCache:opensky] Worker version:', workerV);
+        }
+
+        // New Worker (v2+) always returns HTTP 200 with error field in body.
+        // Old Worker passes through upstream status verbatim (may be 403).
+        // Handle both safely — never throw on non-ok, just log and fall through.
+        if (!resp.ok) {
+          console.warn('[ArgusProviderCache:opensky] Worker returned HTTP', resp.status,
+            '— old Worker still deployed? Run: wrangler deploy');
+          _openSkyActive = false;
+          _audit.openskyErrors++;
+          _audit.openskyConsecutiveEmpty++;
+          _audit.lastError = 'Worker HTTP ' + resp.status + ' (redeploy needed)';
+          _openSkyErrorType = 'worker_http_' + resp.status;
+          return null;
+        }
+
         return resp.json();
       })
       .then(function (json) {
-        _openSkyActive          = false;
-        _audit.lastOpenSkyMs    = Date.now();
+        if (!json) return; // non-ok path already handled above
+        _openSkyActive       = false;
+        _audit.lastOpenSkyMs = Date.now();
 
-        if (!json || !Array.isArray(json.aircraft)) return;
+        if (!Array.isArray(json.aircraft)) return;
 
-        // Surface error field — logged but does NOT suppress; fallback loop handles coverage.
+        // Typed error from Worker — log and track, fallback loop covers coverage.
         if (json.error) {
-          console.warn('[ArgusProviderCache:opensky] upstream error:', json.error);
+          _openSkyErrorType = json.error;
           _audit.openskyErrors++;
           _audit.openskyConsecutiveEmpty++;
+          _audit.lastError = 'opensky: ' + json.error;
+
+          // Distinguish known error types for operator awareness
+          if (json.error === 'opensky_ip_blocked_403') {
+            console.warn('[ArgusProviderCache:opensky] CF IP blocked by OpenSky. ' +
+              'Supplemental loop (adsb.lol) will provide coverage. ' +
+              'Run /?mode=probe to confirm.');
+          } else if (json.error === 'opensky_auth_failed_401') {
+            console.warn('[ArgusProviderCache:opensky] Auth failed — check OPENSKY_USERNAME ' +
+              'and OPENSKY_PASSWORD secrets. Run: wrangler secret put OPENSKY_USERNAME');
+          } else if (json.error === 'opensky_rate_limited_429') {
+            console.warn('[ArgusProviderCache:opensky] Rate limited — daily quota may be exhausted.');
+          } else {
+            console.warn('[ArgusProviderCache:opensky] upstream error:', json.error);
+          }
           return;
         }
 
         if (!json.aircraft.length) {
+          _openSkyErrorType = null;
           _audit.openskyConsecutiveEmpty++;
           return;
         }
 
+        _openSkyErrorType              = null;
         _audit.openskyConsecutiveEmpty = 0;
         var n = _ingestAircraftArray(json.aircraft, 'opensky');
         _audit.openskyIngested += n;
-        console.log('[ArgusProviderCache:opensky] bbox fetch ok —',
-          json.count, 'aircraft, ingested:', n,
-          json.cached ? '(cf-cache-hit)' : '');
+        console.log('[ArgusProviderCache:opensky] ok —',
+          json.count, 'aircraft | ingested:', n,
+          json.cached ? '| cf-cache-hit' : '| cf-cache-miss',
+          '| workerV:', json.workerV || '?');
       })
       .catch(function (err) {
         _openSkyActive = false;
         _audit.openskyErrors++;
         _audit.openskyConsecutiveEmpty++;
-        _audit.lastError = 'opensky: ' + (err && err.message ? err.message : String(err));
-        console.warn('[ArgusProviderCache:opensky] fetch failed:', _audit.lastError);
+        _openSkyErrorType = 'network_error';
+        _audit.lastError  = 'opensky: ' + (err && err.message ? err.message : String(err));
+        console.warn('[ArgusProviderCache:opensky] network error:', _audit.lastError);
       });
   }
 
@@ -341,6 +390,9 @@
         consecutiveEmpty: _audit.openskyConsecutiveEmpty,
         lastPollMs:       _audit.lastOpenSkyMs,
         inFlight:         _openSkyActive,
+        lastErrorType:    _openSkyErrorType,
+        workerVersion:    _openSkyWorkerV,
+        workerUrl:        OPENSKY_WORKER,
       },
       supplemental: {
         polls:      _audit.suppPolls,

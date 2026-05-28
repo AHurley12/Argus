@@ -1,0 +1,14 @@
+# Cloudflare Worker — OpenSky proxy
+# Deploy: wrangler deploy
+# Secrets: wrangler secret put OPENSKY_USERNAME
+#          wrangler secret put OPENSKY_PASSWORD
+
+name              = "opensky-proxy"
+main              = "worker.js"
+compatibility_date = "2024-09-23"
+
+# workers.dev route: https://opensky-proxy.<account>.workers.dev
+# No [[routes]] needed for workers.dev subdomain — automatic.
+
+[observability]
+  enabled = true

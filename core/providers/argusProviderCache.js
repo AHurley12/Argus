@@ -1,36 +1,45 @@
 'use strict';
 // core/providers/argusProviderCache.js
-// Supplemental aircraft telemetry provider — adsb.lol via Netlify proxy.
+// Aircraft supplemental ingestion — OpenSky (primary) + adsb.lol (fallback).
 //
 // Architecture:
-//   PURELY ADDITIVE. Injects aircraft absent from the primary fetch-traffic snapshot.
-//   Never alters, overrides, or replaces primary data.
+//   Two independent polling loops write to a single live Map (aircraftLiveCache).
+//   Both loops call _ingestAircraftArray() — dedup, diff-upsert, stale eviction.
 //
-// Pipeline:
-//   ArgusProviderCache.start()
-//     → 20 s delay (primary renderAircraft() populates _argusCurrentIcao24s first)
-//     → _pollSupplemental() every 5 min
-//         → _argusReqCache.fetch(fetch-supplemental?lat=X&lon=X&dist=250)
-//         → server normalizes adsb.lol → Argus schema (cs, lat, lon, alt, gs, track, phase)
-//         → _ingestAircraftArray(json.aircraft)
-//             → dedup against _argusCurrentIcao24s
-//             → diff-upsert into aircraftLiveCache
-//   renderAircraft() reads window._argusProviderAircraft (live Map reference)
-//     → appends absent ICAO24s to states before placeAircraft() loop
+//   Loop A — OpenSky via Cloudflare Worker (primary):
+//     _pollOpenSky() every OPENSKY_POLL (30s)
+//     → CF Worker (CORS proxy) → opensky-network.org/api/states/all?bbox
+//     → normalized Argus schema delivered by Worker
+//     → _openSkyConsecutiveEmpty tracks consecutive zero-aircraft responses
+//       (used by status() for health observability, does not suppress fallback)
 //
-// Staleness model:
-//   STALE_MS = 3 × SUPPLEMENTAL_POLL (15 min). Aircraft not seen in 3 consecutive
-//   polls are evicted from aircraftLiveCache by _ingestAircraftArray().
-//   window._argusCurrentIcao24s (Set, populated by renderAircraft()) is checked
-//   per-record — primary aircraft are never duplicated by supplemental.
+//   Loop B — adsb.lol via Netlify (fallback / enrichment):
+//     _pollSupplemental() every SUPPLEMENTAL_POLL (5 min)
+//     → /.netlify/functions/fetch-supplemental?lat=X&lon=X&dist=250
+//     → server normalizes adsb.lol → Argus schema
+//     → always runs — provides coverage when OpenSky is rate-limited or IP-blocked
 //
-// Cache:
-//   aircraftLiveCache  Map<icao24, normalizedRecord>  mutated in place each cycle.
-//   renderAircraft() holds a live reference — zero allocation on cache hit.
+// Bbox derivation (Loop A):
+//   _getViewportCenter() → globe rotation → lat/lon of camera-facing point
+//   _getBbox(center, BBOX_DEG) → lamin/lamax/lomin/lomax clamped to valid ranges
+//   BBOX_DEG = 25 ≈ 1500 NM radius — wide enough for a regional viewport
+//
+// Ingestion core (_ingestAircraftArray):
+//   PURELY ADDITIVE — never clears or replaces primary fetch-traffic aircraft.
+//   1. Build capped, deduplicated incoming set (skip primary ICAO24s)
+//   2. Explicit stale eviction (STALE_MS = max(loops) × 3)
+//   3. Diff upsert — created vs updated counted separately
+//   4. Hard cap (MAX_INJECT)
+//   5. Cycle diagnostic log
+//
+// Globals published:
+//   window._argusProviderAircraft  Map<icao24, record>  (live ref — renderAircraft reads)
+//   window._argusCurrentIcao24s    Set<icao24>          (populated by renderAircraft each pass)
+//   window.aircraftLiveCache       alias for _argusProviderAircraft
 //
 // Dependencies:
-//   window._argusReqCache  — deduped fetch (coalesces concurrent calls to same URL)
-//   window.ArgusGlobe      — globe rotation for viewport center derivation
+//   window._argusReqCache   — request coalescing (fetch-supplemental path only)
+//   window.ArgusGlobe       — globe rotation for viewport center
 //   window.ArgusModuleAudit — optional
 //
 // Load order: after argusAIS.js and argusTracking.js (last in body).
@@ -38,49 +47,64 @@
 (function () {
   'use strict';
 
-  // ── Config ───────────────────────────────────────────────────────────────────
+  // ── Config ────────────────────────────────────────────────────────────────────
+  var OPENSKY_WORKER    = 'https://opensky-proxy.aidanhurley12.workers.dev';
   var SUPPLEMENTAL_FN   = '/.netlify/functions/fetch-supplemental';
-  var SUPPLEMENTAL_POLL = 5 * 60 * 1000;  // 5 min — supplemental cadence
-  var ADSB_DIST_NM      = 250;             // viewport radius (NM) — adsb.lol max
-  var _pollInterval     = SUPPLEMENTAL_POLL;
-  var STALE_MS          = _pollInterval * 3; // 15 min — evict after 3 missed cycles
-  var MAX_INJECT        = 200;             // hard ceiling on supplemental cache size
 
-  // ── Live aircraft cache ──────────────────────────────────────────────────────
+  var OPENSKY_POLL      = 30 * 1000;           // 30s — safe for authenticated OpenSky (5 req/10s)
+  var SUPPLEMENTAL_POLL = 5  * 60 * 1000;      // 5 min — adsb.lol fallback cadence
+  var BBOX_DEG          = 25;                  // ±25° from viewport center ≈ 1500 NM radius
+  var ADSB_DIST_NM      = 250;                 // supplemental viewport radius (NM)
+
+  var MAX_INJECT        = 250;                 // hard ceiling on supplemental cache size
+  var STALE_MS          = SUPPLEMENTAL_POLL * 3; // 15 min — evict after 3 missed supplemental cycles
+
+  // ── Live aircraft cache ───────────────────────────────────────────────────────
   var aircraftLiveCache = new Map(); // icao24 → normalized Argus record
 
-  // ── Audit ────────────────────────────────────────────────────────────────────
+  // ── Audit ─────────────────────────────────────────────────────────────────────
   var _audit = {
-    polls: 0, injected: 0, skipped: 0, expired: 0, lastPollMs: 0, lastError: null,
+    openskyPolls:   0,
+    openskyIngested: 0,
+    openskyErrors:  0,
+    openskyConsecutiveEmpty: 0,
+    suppPolls:      0,
+    suppIngested:   0,
+    suppErrors:     0,
+    skipped:        0,
+    expired:        0,
+    lastOpenSkyMs:  0,
+    lastSuppMs:     0,
+    lastError:      null,
   };
 
-  // ── State ────────────────────────────────────────────────────────────────────
-  var _supplementalTimer = null;
-  var _enabled           = true;
-  var _pollActive        = false; // in-flight guard
+  // ── State ─────────────────────────────────────────────────────────────────────
+  var _openSkyTimer    = null;
+  var _suppTimer       = null;
+  var _openSkyActive   = false;
+  var _suppActive      = false;
+  var _enabled         = true;
 
   // ── Primary-absent check ──────────────────────────────────────────────────────
-  // Returns true if icao24 is not in the current primary snapshot.
-  // Prevents supplemental from duplicating aircraft already rendered by fetch-traffic.
   function _isPrimaryAbsent(icao24) {
     var primary = window._argusCurrentIcao24s;
-    if (!primary || !primary.size) return true; // primary not yet populated — inject conservatively
+    if (!primary || !primary.size) return true;
     return !primary.has(icao24);
   }
 
   // ── Viewport center ───────────────────────────────────────────────────────────
-  // Returns { lat, lon } of the globe point currently facing the camera.
+  // Returns { lat, lon } of the globe point facing the camera.
   // Math: camera at world (0,0,z). Inverse globe rotation M^-1 applied to (0,0,1):
   //   M^-1*(0,0,1) = (-sin(ry)cos(rx), sin(rx), cos(ry)cos(rx))
   // Then lat = 90 - arccos(y)*r2d; lon from atan2(z,-x)*r2d - 180.
   function _getViewportCenter() {
     var ag = window.ArgusGlobe;
     if (!ag || !ag.globeGroup) return null;
-    var rx = ag.globeGroup.rotation.x;
-    var ry = ag.globeGroup.rotation.y;
-    var lx = -Math.sin(ry) * Math.cos(rx);
-    var ly =  Math.sin(rx);
-    var lz =  Math.cos(ry) * Math.cos(rx);
+    var rx  = ag.globeGroup.rotation.x;
+    var ry  = ag.globeGroup.rotation.y;
+    var lx  = -Math.sin(ry) * Math.cos(rx);
+    var ly  =  Math.sin(rx);
+    var lz  =  Math.cos(ry) * Math.cos(rx);
     var phi = Math.acos(Math.max(-1, Math.min(1, ly)));
     var lat = 90 - phi * 180 / Math.PI;
     var lon = 0;
@@ -92,22 +116,38 @@
     return { lat: lat, lon: lon };
   }
 
+  // ── Bounding box from viewport center ─────────────────────────────────────────
+  // Expands lon range at high latitudes (cos-scaling). Clamps to valid ranges.
+  function _getBbox(center, radiusDeg) {
+    var lat    = center.lat;
+    var lon    = center.lon;
+    var cosLat = Math.max(0.1, Math.cos(lat * Math.PI / 180));
+    var lonDeg = Math.min(90, radiusDeg / cosLat); // cap to avoid wrapping
+
+    return {
+      lamin: parseFloat(Math.max(-90,  lat - radiusDeg).toFixed(4)),
+      lamax: parseFloat(Math.min( 90,  lat + radiusDeg).toFixed(4)),
+      lomin: parseFloat(Math.max(-180, lon - lonDeg).toFixed(4)),
+      lomax: parseFloat(Math.min( 180, lon + lonDeg).toFixed(4)),
+    };
+  }
+
   // ── Ingestion core ────────────────────────────────────────────────────────────
-  // Diff-based — never blind-clears the cache. Called each poll cycle.
-  // aircraft: array of normalized Argus records from fetch-supplemental.
-  function _ingestAircraftArray(aircraft) {
-    if (!Array.isArray(aircraft)) return;
+  // Diff-based — never blind-clears the cache. Called by both poll loops.
+  function _ingestAircraftArray(aircraft, sourceLabel) {
+    if (!Array.isArray(aircraft) || !aircraft.length) return 0;
     var nowMs       = Date.now();
     var sizeAtStart = aircraftLiveCache.size;
+    var label       = sourceLabel || 'unknown';
 
-    // ── Emergency guard: corrupt cache detection ─────────────────────────────
+    // ── Emergency guard ──────────────────────────────────────────────────────
     if (aircraftLiveCache.size > MAX_INJECT * 2) {
       console.warn('[ArgusProviderCache] Cache inflated to', aircraftLiveCache.size,
-        'entries — clearing. Investigate external writes to window.aircraftLiveCache.');
+        '— clearing. Check for external writes to window.aircraftLiveCache.');
       aircraftLiveCache.clear();
     }
 
-    // ── Step 1: Build capped, deduplicated incoming set ──────────────────────
+    // ── Step 1: Build capped, deduplicated incoming set ───────────────────
     var incomingIds = new Set();
     var incoming    = [];
     for (var i = 0; i < aircraft.length; i++) {
@@ -120,7 +160,7 @@
       incoming.push(ac);
     }
 
-    // ── Step 2: Explicit stale expiration ────────────────────────────────────
+    // ── Step 2: Stale eviction ────────────────────────────────────────────
     var expired = 0;
     aircraftLiveCache.forEach(function (entry, id) {
       var tooOld = (entry._cachedAt != null) && (nowMs - entry._cachedAt) > STALE_MS;
@@ -130,7 +170,7 @@
       }
     });
 
-    // ── Step 3: Diff upsert ──────────────────────────────────────────────────
+    // ── Step 3: Diff upsert ───────────────────────────────────────────────
     var created = 0;
     var updated = 0;
     for (var j = 0; j < incoming.length; j++) {
@@ -141,7 +181,7 @@
       if (exists) { updated++; } else { created++; }
     }
 
-    // ── Step 4: Hard cap ─────────────────────────────────────────────────────
+    // ── Step 4: Hard cap ──────────────────────────────────────────────────
     if (aircraftLiveCache.size > MAX_INJECT) {
       var iter = aircraftLiveCache.keys();
       var trim = aircraftLiveCache.size - MAX_INJECT;
@@ -149,32 +189,86 @@
       console.warn('[ArgusProviderCache] HARD CAP — trimmed', trim, 'entries.');
     }
 
-    // ── Step 5: Cycle diagnostic ─────────────────────────────────────────────
+    // ── Step 5: Cycle diagnostic ──────────────────────────────────────────
     var delta = aircraftLiveCache.size - sizeAtStart;
     console.log(
-      '[Supplemental Cycle]',
+      '[ArgusProviderCache:' + label + ']',
       'created:', created,
       '| updated:', updated,
       '| expired:', expired,
       '| cacheSize:', aircraftLiveCache.size,
-      '| growthDelta:', (delta >= 0 ? '+' : '') + delta
+      '| Δ:', (delta >= 0 ? '+' : '') + delta
     );
 
-    _audit.injected  += created + updated;
-    _audit.expired   += expired;
-    _audit.lastPollMs = nowMs;
-    _audit.lastError  = null;
+    _audit.expired += expired;
+    return created + updated;
   }
 
-  // ── Supplemental poll ─────────────────────────────────────────────────────────
-  // Calls fetch-supplemental Netlify function with current viewport center.
-  // Uses _argusReqCache for request coalescing (multiple tabs, rapid calls).
-  // fetch-supplemental normalizes adsb.lol → Argus schema server-side.
+  // ── Loop A: OpenSky via Cloudflare Worker ─────────────────────────────────────
+  function _pollOpenSky() {
+    if (!_enabled || _openSkyActive) return;
+    _openSkyActive = true;
+    _audit.openskyPolls++;
+
+    var center = _getViewportCenter();
+    if (!center) {
+      _openSkyActive = false;
+      return;
+    }
+
+    var bbox = _getBbox(center, BBOX_DEG);
+    var url  = OPENSKY_WORKER +
+               '?lamin=' + bbox.lamin +
+               '&lamax=' + bbox.lamax +
+               '&lomin=' + bbox.lomin +
+               '&lomax=' + bbox.lomax;
+
+    fetch(url)
+      .then(function (resp) {
+        if (!resp.ok) throw new Error('Worker HTTP ' + resp.status);
+        return resp.json();
+      })
+      .then(function (json) {
+        _openSkyActive          = false;
+        _audit.lastOpenSkyMs    = Date.now();
+
+        if (!json || !Array.isArray(json.aircraft)) return;
+
+        // Surface error field — logged but does NOT suppress; fallback loop handles coverage.
+        if (json.error) {
+          console.warn('[ArgusProviderCache:opensky] upstream error:', json.error);
+          _audit.openskyErrors++;
+          _audit.openskyConsecutiveEmpty++;
+          return;
+        }
+
+        if (!json.aircraft.length) {
+          _audit.openskyConsecutiveEmpty++;
+          return;
+        }
+
+        _audit.openskyConsecutiveEmpty = 0;
+        var n = _ingestAircraftArray(json.aircraft, 'opensky');
+        _audit.openskyIngested += n;
+        console.log('[ArgusProviderCache:opensky] bbox fetch ok —',
+          json.count, 'aircraft, ingested:', n,
+          json.cached ? '(cf-cache-hit)' : '');
+      })
+      .catch(function (err) {
+        _openSkyActive = false;
+        _audit.openskyErrors++;
+        _audit.openskyConsecutiveEmpty++;
+        _audit.lastError = 'opensky: ' + (err && err.message ? err.message : String(err));
+        console.warn('[ArgusProviderCache:opensky] fetch failed:', _audit.lastError);
+      });
+  }
+
+  // ── Loop B: adsb.lol via Netlify (fallback / enrichment) ─────────────────────
   function _pollSupplemental() {
-    if (!_enabled || _pollActive) return;
-    if (!window._argusReqCache) return; // not yet available — will retry on next interval
-    _pollActive = true;
-    _audit.polls++;
+    if (!_enabled || _suppActive) return;
+    if (!window._argusReqCache) return;
+    _suppActive = true;
+    _audit.suppPolls++;
 
     var center = _getViewportCenter();
     var lat    = center ? center.lat.toFixed(2) : '0';
@@ -183,66 +277,89 @@
 
     window._argusReqCache.fetch(url)
       .then(function (json) {
-        _pollActive = false;
+        _suppActive        = false;
+        _audit.lastSuppMs  = Date.now();
         if (!json || !Array.isArray(json.aircraft)) return;
-        console.log('[ArgusProviderCache] supplemental raw:', json.aircraft.length, 'aircraft');
-        _ingestAircraftArray(json.aircraft);
+        console.log('[ArgusProviderCache:supplemental] raw:', json.aircraft.length, 'aircraft');
+        var n = _ingestAircraftArray(json.aircraft, 'supplemental');
+        _audit.suppIngested += n;
       })
       .catch(function (err) {
-        _pollActive      = false;
-        _audit.lastError = err && err.message ? err.message : String(err);
-        // Silent failure — primary aircraft pipeline (fetch-traffic) continues unaffected.
+        _suppActive = false;
+        _audit.suppErrors++;
+        _audit.lastError = 'supp: ' + (err && err.message ? err.message : String(err));
       });
   }
 
-  // ── Publish globals ──────────────────────────────────────────────────────────
-  window._argusProviderAircraft = aircraftLiveCache;  // live Map ref — renderAircraft() reads this
-  window._argusCurrentIcao24s   = new Set();          // populated by renderAircraft() each pass
-  window.aircraftLiveCache      = aircraftLiveCache;  // public alias
+  // ── Publish globals ───────────────────────────────────────────────────────────
+  window._argusProviderAircraft = aircraftLiveCache;
+  window._argusCurrentIcao24s   = new Set();
+  window.aircraftLiveCache      = aircraftLiveCache;
 
   // ── Lifecycle ─────────────────────────────────────────────────────────────────
   function start() {
-    if (_supplementalTimer) return; // already running
-    // 20 s delay: primary renderAircraft() must populate _argusCurrentIcao24s before
-    // first supplemental poll so we don't inject duplicates.
-    setTimeout(_pollSupplemental, 20 * 1000);
-    _supplementalTimer = setInterval(_pollSupplemental, SUPPLEMENTAL_POLL);
-    console.log('[ArgusProviderCache] started — supplemental every',
-      Math.round(SUPPLEMENTAL_POLL / 60000), 'min via fetch-supplemental');
+    if (_openSkyTimer && _suppTimer) return; // already running
+
+    // OpenSky: first poll after 20s (let primary renderAircraft() populate
+    // _argusCurrentIcao24s first so we don't duplicate primary aircraft).
+    if (!_openSkyTimer) {
+      setTimeout(_pollOpenSky, 20 * 1000);
+      _openSkyTimer = setInterval(_pollOpenSky, OPENSKY_POLL);
+      console.log('[ArgusProviderCache] OpenSky loop started — every',
+        Math.round(OPENSKY_POLL / 1000), 's via CF Worker');
+    }
+
+    // Supplemental: first poll after 30s (slight stagger from OpenSky).
+    if (!_suppTimer) {
+      setTimeout(function () {
+        if (window._argusReqCache) {
+          _pollSupplemental();
+          _suppTimer = setInterval(_pollSupplemental, SUPPLEMENTAL_POLL);
+          console.log('[ArgusProviderCache] Supplemental loop started — every',
+            Math.round(SUPPLEMENTAL_POLL / 60000), 'min via fetch-supplemental');
+        }
+      }, 30 * 1000);
+    }
   }
 
   function stop() {
-    if (_supplementalTimer) { clearInterval(_supplementalTimer); _supplementalTimer = null; }
+    if (_openSkyTimer) { clearInterval(_openSkyTimer); _openSkyTimer = null; }
+    if (_suppTimer)    { clearInterval(_suppTimer);    _suppTimer    = null; }
     aircraftLiveCache.clear();
     _enabled = false;
   }
 
   function status() {
+    var openskyHealthy = _audit.openskyConsecutiveEmpty < 3;
     return {
-      enabled:    _enabled,
-      mode:       'netlify-supplemental',
+      enabled:          _enabled,
+      opensky: {
+        healthy:          openskyHealthy,
+        polls:            _audit.openskyPolls,
+        ingested:         _audit.openskyIngested,
+        errors:           _audit.openskyErrors,
+        consecutiveEmpty: _audit.openskyConsecutiveEmpty,
+        lastPollMs:       _audit.lastOpenSkyMs,
+        inFlight:         _openSkyActive,
+      },
+      supplemental: {
+        polls:      _audit.suppPolls,
+        ingested:   _audit.suppIngested,
+        errors:     _audit.suppErrors,
+        lastPollMs: _audit.lastSuppMs,
+        inFlight:   _suppActive,
+      },
       cacheSize:  aircraftLiveCache.size,
-      polls:      _audit.polls,
-      injected:   _audit.injected,
       skipped:    _audit.skipped,
       expired:    _audit.expired,
-      lastPollMs: _audit.lastPollMs,
       lastError:  _audit.lastError,
-      inFlight:   _pollActive,
     };
   }
 
   window.ArgusProviderCache = { start: start, stop: stop, status: status };
 
   // ── Auto-start ────────────────────────────────────────────────────────────────
-  // Requires _argusReqCache. Retry once after 3 s if not yet available.
-  setTimeout(function () {
-    if (window._argusReqCache) {
-      start();
-    } else {
-      setTimeout(function () { if (window._argusReqCache) start(); }, 3000);
-    }
-  }, 0);
+  setTimeout(start, 0);
 
   if (window.ArgusModuleAudit) window.ArgusModuleAudit.register('ArgusProviderCache');
 

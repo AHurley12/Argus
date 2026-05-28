@@ -1,5 +1,7 @@
-'use strict';
-// core/providers/argusProviderCache.js
+const lamin = 37;
+const lamax = 39;
+const lomin = -78;
+const lomax = -76;// core/providers/argusProviderCache.js
 // Aircraft supplemental ingestion — OpenSky (primary) + adsb.lol (fallback).
 //
 // Architecture:

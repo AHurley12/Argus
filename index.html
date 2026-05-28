@@ -4757,7 +4757,12 @@ setInterval(function () { if (!document.hidden) loadLiveEvents(); }, FEED_TTL);
 // ReliefWeb Active Crises — free, no key, UN OCHA
 // ════════════════════════════════════════════════════════════════════════════
 (function loadReliefWeb() {
-  var RW_URL    = 'https://api.reliefweb.int/v1/disasters?appname=argus-intel&filter[field]=status&filter[value]=current&limit=20&fields[include][]=name&fields[include][]=country&fields[include][]=type&fields[include][]=date&fields[include][]=status';
+  var RW_BASE   = 'https://api.reliefweb.int/v1/disasters?appname=argus-intel';
+  var RW_BODY   = JSON.stringify({
+    filter: { field: 'status', value: 'current' },
+    fields: { include: ['name', 'country', 'type', 'date', 'status'] },
+    limit: 20
+  });
   var CACHE_KEY = 'argus_rw_v1';
   var CACHE_TS  = 'argus_rw_ts_v1';
   var TTL       = 60 * 60 * 1000; // 1 hr
@@ -4770,13 +4775,13 @@ setInterval(function () { if (!document.hidden) loadLiveEvents(); }, FEED_TTL);
     }
   } catch(e) {}
 
-  // Try direct first (ReliefWeb has CORS headers); fall back to allorigins proxy
-  fetch(RW_URL)
-  .then(function(r) { return r.ok ? r.json() : Promise.reject('HTTP ' + r.status); })
-  .catch(function() {
-    return fetch('https://api.allorigins.win/raw?url=' + encodeURIComponent(RW_URL))
-      .then(function(r) { return r.ok ? r.json() : null; });
+  // ReliefWeb v1 POST API — GET filter query params removed (410 Gone)
+  fetch(RW_BASE, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: RW_BODY
   })
+  .then(function(r) { return r.ok ? r.json() : Promise.reject('HTTP ' + r.status); })
   .then(function(data) {
     if (!data) { console.warn('ReliefWeb: no data'); return; }
     var items = (data.data || []);

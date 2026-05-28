@@ -1,15 +1,15 @@
 // cloudflare/opensky-proxy.js
-// Cloudflare Worker — adsb.fi open data proxy.
+// Cloudflare Worker — adsb.lol supplemental aircraft proxy.
 //
-// Backend: https://opendata.adsb.fi/api (v3, compatible with ADSBexchange v2 format)
-// No API key required. Rate limit: 1 req/s.
+// Backend: https://api.adsb.lol/v2 (ADSBexchange v2 format, same source as fetch-traffic)
+// No API key required. adsb.lol does not block Cloudflare IP ranges.
 //
-// Browser → this Worker (CORS: *) → opendata.adsb.fi (server-side, no CORS restriction)
+// Browser → this Worker (CORS: *) → api.adsb.lol (server-side, no CORS restriction)
 //
-// Query params accepted: lat, lon, dist (nautical miles, max 250)
-// Response: adsb.fi JSON passed through with Access-Control-Allow-Origin: *
+// Query params accepted: lat, lon, dist (nautical miles)
+// Response: adsb.lol JSON passed through with Access-Control-Allow-Origin: *
 
-const ADSB_BASE = 'https://opendata.adsb.fi/api';
+const ADSB_BASE = 'https://api.adsb.lol/v2';
 
 const CORS = {
   'Access-Control-Allow-Origin':  '*',
@@ -37,7 +37,7 @@ async function handleRequest(request) {
   // Cap dist at 250 NM (adsb.fi hard limit)
   dist = String(Math.min(250, Math.max(1, parseInt(dist) || 250)));
 
-  var target = ADSB_BASE + '/v3/lat/' + lat + '/lon/' + lon + '/dist/' + dist;
+  var target = ADSB_BASE + '/lat/' + lat + '/lon/' + lon + '/dist/' + dist;
 
   var upstream;
   try {
@@ -54,7 +54,7 @@ async function handleRequest(request) {
   if (!upstream.ok) {
     var errBody = await upstream.text().catch(function() { return ''; });
     return new Response(
-      JSON.stringify({ error: 'adsb.fi HTTP ' + upstream.status, detail: errBody.slice(0, 200), ac: [] }),
+      JSON.stringify({ error: 'adsb.lol HTTP ' + upstream.status, detail: errBody.slice(0, 200), ac: [] }),
       { status: upstream.status, headers: Object.assign({ 'Content-Type': 'application/json' }, CORS) }
     );
   }

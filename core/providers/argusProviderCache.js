@@ -57,9 +57,9 @@
   // ── Config ───────────────────────────────────────────────────────────────────
   var OPENSKY_FN           = '/.netlify/functions/fetch-opensky';    // unused — Netlify IPs are blocked by OpenSky
   var OPENSKY_POLL         = 3 * 60 * 1000;   // 3 min  — netlify-proxy path (unused)
-  // adsb.fi open data via Cloudflare Worker proxy (adds CORS headers).
+  // adsb.lol via Cloudflare Worker proxy (adds CORS headers).
   // Worker URL: opensky-proxy.aidanhurley12.workers.dev
-  // Backend: opendata.adsb.fi — community ADS-B, no key, 1 req/s rate limit.
+  // Backend: api.adsb.lol — same source as fetch-traffic, no key required.
   var ADSB_WORKER_BASE     = 'https://opensky-proxy.aidanhurley12.workers.dev';
   var ADSB_DIST_NM         = 250;             // max radius supported by adsb.fi
   var OPENSKY_BROWSER_POLL = 5 * 60 * 1000;   // 5 min — well within adsb.fi rate limits
@@ -92,8 +92,8 @@
     return !primary.has(icao24);
   }
 
-  // ── adsb.fi record normalization ──────────────────────────────────────────────
-  // adsb.fi returns ADSBexchange v2 format objects (not OpenSky array format).
+  // ── adsb.lol record normalization ─────────────────────────────────────────────
+  // adsb.lol returns ADSBexchange v2 format objects (not OpenSky array format).
   // Key fields: hex (icao24), flight (callsign), lat, lon, alt_baro (ft),
   //             gs (knots), track (deg), on_ground (bool).
   var _CARGO_PFX = ['FDX', 'UPS', 'CLX', 'GTI', 'ABX'];
@@ -109,7 +109,7 @@
     return 'unknown';
   }
 
-  function _normalizeAdsbFi(ac) {
+  function _normalizeAdsbLol(ac) {
     if (!ac || typeof ac !== 'object') return null;
     var icao24 = String(ac.hex || '').trim().toLowerCase();
     if (!icao24) return null;
@@ -134,7 +134,7 @@
       alt:        altFt != null ? Math.round(altFt) : null,
       flightType: _classifyFlight(callsign, altFt),
       stale:      false,
-      source:     'adsb.fi',
+      source:     'adsb.lol',
     };
   }
 
@@ -255,8 +255,8 @@
       });
   }
 
-  // ── adsb.fi poll via Cloudflare Worker ───────────────────────────────────────
-  // Worker proxies opendata.adsb.fi, adds CORS headers. No auth needed (open API).
+  // ── adsb.lol poll via Cloudflare Worker ──────────────────────────────────────
+  // Worker proxies api.adsb.lol, adds CORS headers. No auth needed (open API).
   // Single in-flight guard prevents overlapping requests.
   function _pollOpenSkyBrowser() {
     if (!_enabled || _browserPollActive) return;
@@ -283,10 +283,10 @@
         var records  = (json && Array.isArray(json.ac)) ? json.ac : [];
         var aircraft = [];
         for (var i = 0; i < records.length; i++) {
-          var norm = _normalizeAdsbFi(records[i]);
+          var norm = _normalizeAdsbLol(records[i]);
           if (norm) { aircraft.push(norm); } else { _audit.skipped++; }
         }
-        console.log('[ArgusProviderCache] adsb.fi raw:', records.length, '→ normalised:', aircraft.length);
+        console.log('[ArgusProviderCache] adsb.lol raw:', records.length, '→ normalised:', aircraft.length);
         _ingestAircraftArray(aircraft);
       })
       .catch(function (err) {

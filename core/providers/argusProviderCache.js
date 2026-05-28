@@ -160,7 +160,8 @@ const lomax = -76;// core/providers/argusProviderCache.js
       var ac = aircraft[i];
       if (!ac || !ac.icao24 || ac.lat == null || ac.lon == null) continue;
       if (incomingIds.has(ac.icao24)) continue;
-      if (!_isPrimaryAbsent(ac.icao24)) { _audit.skipped++; continue; }
+      // TEMP DEBUG: allow overlap to verify ingestion
+      // if (!_isPrimaryAbsent(ac.icao24)) { _audit.skipped++; continue; }
       incomingIds.add(ac.icao24);
       incoming.push(ac);
     }
@@ -221,96 +222,83 @@ const lomax = -76;// core/providers/argusProviderCache.js
       return;
     }
 
-    var bbox = _getBbox(center, BBOX_DEG);
+    // ── TEMP DEBUG FIX: stable bbox (removes globe instability) ──
+    var bbox = {
+      lamin: 37,
+      lamax: 39,
+      lomin: -78,
+      lomax: -76
+    };
+
     var url  = OPENSKY_WORKER +
                '?lamin=' + bbox.lamin +
                '&lamax=' + bbox.lamax +
                '&lomin=' + bbox.lomin +
                '&lomax=' + bbox.lomax;
 
-    // Log full URL on first poll — confirms Worker URL and bbox in console.
-    if (_firstPoll) {
-      console.log('[ArgusProviderCache:opensky] first poll →', url);
-      _firstPoll = false;
-    }
-
     fetch(url)
       .then(function (resp) {
-        // Capture Worker version from response header (confirms which deploy is live).
         var workerV = resp.headers && resp.headers.get('X-Worker-Version');
         if (workerV && workerV !== _openSkyWorkerV) {
           _openSkyWorkerV = workerV;
           console.log('[ArgusProviderCache:opensky] Worker version:', workerV);
         }
 
-        // New Worker (v2+) always returns HTTP 200 with error field in body.
-        // Old Worker passes through upstream status verbatim (may be 403).
-        // Handle both safely — never throw on non-ok, just log and fall through.
         if (!resp.ok) {
-          console.warn('[ArgusProviderCache:opensky] Worker returned HTTP', resp.status,
-            '— old Worker still deployed? Run: wrangler deploy');
+          console.warn('[ArgusProviderCache:opensky] Worker HTTP', resp.status);
           _openSkyActive = false;
           _audit.openskyErrors++;
           _audit.openskyConsecutiveEmpty++;
-          _audit.lastError = 'Worker HTTP ' + resp.status + ' (redeploy needed)';
-          _openSkyErrorType = 'worker_http_' + resp.status;
+          _audit.lastError = 'Worker HTTP ' + resp.status;
           return null;
         }
 
         return resp.json();
       })
       .then(function (json) {
-        if (!json) return; // non-ok path already handled above
+        if (!json) return;
+
         _openSkyActive       = false;
         _audit.lastOpenSkyMs = Date.now();
 
-        if (!Array.isArray(json.aircraft)) return;
+        // ── DEBUG LOG (CRITICAL) ──
+        console.log('[OpenSky RAW RESPONSE]', json);
+        console.log('[OpenSky SHAPE CHECK]', {
+          keys:        Object.keys(json || {}),
+          hasAircraft: Array.isArray(json.aircraft),
+          hasStates:   Array.isArray(json.states),
+        });
 
-        // Typed error from Worker — log and track, fallback loop covers coverage.
-        if (json.error) {
-          _openSkyErrorType = json.error;
-          _audit.openskyErrors++;
-          _audit.openskyConsecutiveEmpty++;
-          _audit.lastError = 'opensky: ' + json.error;
+        // ── NORMALIZE INPUT SHAPE SAFELY ──
+        var aircraftArray = json.aircraft || json.states;
 
-          // Distinguish known error types for operator awareness
-          if (json.error === 'opensky_ip_blocked_403') {
-            console.warn('[ArgusProviderCache:opensky] CF IP blocked by OpenSky. ' +
-              'Supplemental loop (adsb.lol) will provide coverage. ' +
-              'Run /?mode=probe to confirm.');
-          } else if (json.error === 'opensky_auth_failed_401') {
-            console.warn('[ArgusProviderCache:opensky] Auth failed — check OPENSKY_USERNAME ' +
-              'and OPENSKY_PASSWORD secrets. Run: wrangler secret put OPENSKY_USERNAME');
-          } else if (json.error === 'opensky_rate_limited_429') {
-            console.warn('[ArgusProviderCache:opensky] Rate limited — daily quota may be exhausted.');
-          } else {
-            console.warn('[ArgusProviderCache:opensky] upstream error:', json.error);
-          }
+        if (!Array.isArray(aircraftArray)) {
+          console.warn('[OpenSky] No valid aircraft array');
           return;
         }
 
-        if (!json.aircraft.length) {
+        // ── HANDLE EMPTY ──
+        if (!aircraftArray.length) {
           _openSkyErrorType = null;
           _audit.openskyConsecutiveEmpty++;
           return;
         }
 
+        // ── RESET ERROR STATE ──
         _openSkyErrorType              = null;
         _audit.openskyConsecutiveEmpty = 0;
-        var n = _ingestAircraftArray(json.aircraft, 'opensky');
+
+        // ── INGEST ──
+        var n = _ingestAircraftArray(aircraftArray, 'opensky');
         _audit.openskyIngested += n;
-        console.log('[ArgusProviderCache:opensky] ok —',
-          json.count, 'aircraft | ingested:', n,
-          json.cached ? '| cf-cache-hit' : '| cf-cache-miss',
-          '| workerV:', json.workerV || '?');
+        console.log('[ArgusProviderCache:opensky] ingested:', n);
       })
       .catch(function (err) {
         _openSkyActive = false;
         _audit.openskyErrors++;
         _audit.openskyConsecutiveEmpty++;
-        _openSkyErrorType = 'network_error';
-        _audit.lastError  = 'opensky: ' + (err && err.message ? err.message : String(err));
-        console.warn('[ArgusProviderCache:opensky] network error:', _audit.lastError);
+        _audit.lastError = String(err);
+        console.warn('[ArgusProviderCache:opensky] network error:', err);
       });
   }
 

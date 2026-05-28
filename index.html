@@ -4757,14 +4757,9 @@ setInterval(function () { if (!document.hidden) loadLiveEvents(); }, FEED_TTL);
 // ReliefWeb Active Crises — free, no key, UN OCHA
 // ════════════════════════════════════════════════════════════════════════════
 (function loadReliefWeb() {
-  var RW_BASE   = 'https://api.reliefweb.int/v1/disasters?appname=argus-intel';
-  var RW_BODY   = JSON.stringify({
-    filter: { field: 'status', value: 'current' },
-    fields: { include: ['name', 'country', 'type', 'date', 'status'] },
-    limit: 20
-  });
-  var CACHE_KEY = 'argus_rw_v1';
-  var CACHE_TS  = 'argus_rw_ts_v1';
+  var RW_FN     = '/.netlify/functions/fetch-reliefweb';
+  var CACHE_KEY = 'argus_rw_v2';
+  var CACHE_TS  = 'argus_rw_ts_v2';
   var TTL       = 60 * 60 * 1000; // 1 hr
 
   try {
@@ -4775,12 +4770,7 @@ setInterval(function () { if (!document.hidden) loadLiveEvents(); }, FEED_TTL);
     }
   } catch(e) {}
 
-  // ReliefWeb v1 POST API — GET filter query params removed (410 Gone)
-  fetch(RW_BASE, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: RW_BODY
-  })
+  fetch(RW_FN)
   .then(function(r) { return r.ok ? r.json() : Promise.reject('HTTP ' + r.status); })
   .then(function(data) {
     if (!data) { console.warn('ReliefWeb: no data'); return; }
@@ -6370,7 +6360,7 @@ ArgusMarket.init();
      Self-contained module: touches event feed tab, globe colors, AI context.
      Fails silently. No dependency on ArgusData render functions.
 ══════════════════════════════════════════════════════════════════════════════ -->
-<script src="/modules/argusGdelt.js?v=perf-fix-8"></script>
+<script src="/modules/argusGdelt.js?v=api-fix-1"></script>
 
 <!-- ══════════════════════════════════════════════════════════════════════════════
      SCRIPT 4 — GDACS Global Disaster Intelligence + UNHCR Humanitarian Data

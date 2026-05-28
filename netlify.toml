@@ -19,6 +19,9 @@
 [functions."fetch-supplemental"]
   timeout = 15
 
+[functions."fetch-reliefweb"]
+  timeout = 15
+
 [functions."fetch-firms"]
   timeout = 26
 

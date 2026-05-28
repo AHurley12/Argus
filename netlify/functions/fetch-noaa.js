@@ -157,7 +157,7 @@ async function fetchAllAlerts() {
   };
 
   const [nwsResult, nhcResult] = await Promise.allSettled([
-    fetch(NOAA_BASE_URL + '/alerts/active?status=actual&message_type=alert,update&severity=Extreme,Severe&urgency=Immediate,Expected', {
+    fetch(NOAA_BASE_URL + '/alerts/active?message_type=alert,update&severity=Extreme,Severe&urgency=Immediate,Expected', {
       ...fetchOpts,
       headers: {
         'Accept':     'application/geo+json',

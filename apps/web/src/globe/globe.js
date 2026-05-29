@@ -1,10 +1,10 @@
 import * as THREE from "three";
 import Globe from "three-globe";
 
-// 14 centers × 500ms stagger = 7s spread per cycle = 14 req/min steady state.
+// 16 centers × 500ms stagger = 8s spread per cycle.
+// 120s poll interval = 8 req/min — safely under adsb.fi's ~10-12/min limit.
 // First poll delayed 8s to avoid colliding with the diagnostic harness on load.
-// Poll interval 60s keeps us well under adsb.fi rate limits.
-var POLL_MS          = 60000;
+var POLL_MS          = 120000;
 var INITIAL_DELAY_MS = 8000;
 var STAGGER_MS       = 500;
 
@@ -14,15 +14,17 @@ var CENTERS = [
   { label: 'Europe',      lat: 50,  lon:  10  },
   { label: 'Middle East', lat: 25,  lon:  55  },
   { label: 'East Asia',   lat: 35,  lon:  125 },
-  { label: 'Japan East',  lat: 40,  lon:  142 },  // increment 1: +~60 aircraft
-  { label: 'South US',      lat: 30,  lon:  -85 },  // increment 2: +~35 aircraft
-  { label: 'Northwest US',  lat: 47,  lon: -122 },
+  { label: 'Japan East',   lat: 40,  lon:  142 },
+  { label: 'South US',     lat: 30,  lon:  -85 },
+  { label: 'Northwest US', lat: 47,  lon: -122 },
   { label: 'SE Asia',       lat: 15,  lon:  100 },
-  { label: 'India',         lat: 20,  lon:   80 },
-  { label: 'Australia',     lat: -28, lon:  135 },
-  { label: 'South America', lat: -10, lon:  -55 },
-  { label: 'Moscow',        lat: 55,  lon:   37 },
-  { label: 'Caribbean',     lat: 20,  lon:  -72 },
+  { label: 'India',          lat: 20,  lon:   80 },
+  { label: 'Australia SE',   lat: -34, lon:  151 },  // Sydney — was outback (-28/135)
+  { label: 'Brazil',         lat: -23, lon:  -46 },  // Sao Paulo — was Amazon (-10/-55)
+  { label: 'Moscow',         lat: 55,  lon:   37 },
+  { label: 'Caribbean',      lat: 20,  lon:  -72 },
+  { label: 'Southern Africa',lat: -26, lon:   28 },  // Johannesburg — no Africa coverage before
+  { label: 'East Africa',    lat:   0, lon:   37 },  // Nairobi
 ];
 
 function wait(ms) {

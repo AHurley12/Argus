@@ -1,7 +1,12 @@
 import * as THREE from "three";
 import Globe from "three-globe";
 
-var POLL_MS = 15000;
+// Poll every 60s — keeps total requests well under adsb.fi's rate limit (~10 req/min).
+// First poll is delayed 8s so it doesn't collide with the diagnostic harness on load.
+// Regional requests are staggered 350ms apart to avoid simultaneous burst.
+var POLL_MS          = 60000;
+var INITIAL_DELAY_MS = 8000;
+var STAGGER_MS       = 350;
 
 var CENTERS = [
   { label: 'US East',     lat: 40,  lon: -75  },
@@ -10,6 +15,10 @@ var CENTERS = [
   { label: 'Middle East', lat: 25,  lon:  55  },
   { label: 'East Asia',   lat: 35,  lon:  125 },
 ];
+
+function wait(ms) {
+  return new Promise(function(resolve) { setTimeout(resolve, ms); });
+}
 
 function fetchRegion(center) {
   var url = '/adsb/api/v2/lat/' + center.lat + '/lon/' + center.lon + '/dist/249';
@@ -49,7 +58,12 @@ function fetchRegion(center) {
 }
 
 function fetchAllAircraft() {
-  return Promise.allSettled(CENTERS.map(fetchRegion)).then(function(results) {
+  // Stagger each region by STAGGER_MS to avoid simultaneous burst to adsb.fi
+  var staggered = CENTERS.map(function(center, i) {
+    return wait(i * STAGGER_MS).then(function() { return fetchRegion(center); });
+  });
+
+  return Promise.allSettled(staggered).then(function(results) {
     var seen   = {};
     var merged = [];
     results.forEach(function(r) {
@@ -113,8 +127,12 @@ export function initGlobe(containerId) {
     });
   }
 
-  poll();
-  var pollTimer = setInterval(poll, POLL_MS);
+  // Delay first poll so it does not collide with the diagnostic harness on load
+  var pollTimer = null;
+  setTimeout(function() {
+    poll();
+    pollTimer = setInterval(poll, POLL_MS);
+  }, INITIAL_DELAY_MS);
 
   var animId;
   function animate() {
@@ -126,7 +144,7 @@ export function initGlobe(containerId) {
 
   return function cleanup() {
     cancelAnimationFrame(animId);
-    clearInterval(pollTimer);
+    if (pollTimer) clearInterval(pollTimer);
     window.removeEventListener('resize', onResize);
     renderer.dispose();
     if (container.contains(renderer.domElement)) {

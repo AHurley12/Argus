@@ -154,7 +154,14 @@
       "Bash(curl -s \"https://opensky-proxy.aidanhurley12.workers.dev/?mode=probe\")",
       "Bash(curl -s \"http://localhost:5173/adsb/api/v2/lat/38/lon/-77/dist/250\")",
       "Bash(curl -s \"http://localhost:5173/adsb/api/v2/lat/38/lon/-77/dist/500\")",
-      "Bash(curl -s -o /dev/null -w \"%{http_code}\" \"http://localhost:5173/adsb/api/v2/lat/38/lon/-77/dist/500\")"
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" \"http://localhost:5173/adsb/api/v2/lat/38/lon/-77/dist/500\")",
+      "Bash(curl -s \"https://opendata.adsb.fi/api/v2/lat/38/lon/-77/dist/249\")",
+      "Bash(curl -s \"https://opendata.adsb.fi/api/v2/lat/38/lon/-77/dist/250\")",
+      "Bash(curl -s \"http://localhost:5173/adsb/api/v2/lat/38/lon/-77/dist/250\" -w \"\\\\nHTTP:%{http_code}\")",
+      "Bash(curl -s \"https://opendata.adsb.fi/api/v2/lat/38/lon/-77/dist/250\" -w \"\\\\nHTTP:%{http_code}\")",
+      "Bash(curl -s \"http://localhost:5173/adsb/api/v2/all\" -w \"\\\\nHTTP:%{http_code}\")",
+      "Bash(curl -s \"http://localhost:5173/adsb/api/v2/lat/50/lon/10/dist/249\")",
+      "Bash(curl:*)"
     ]
   }
 }

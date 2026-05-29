@@ -152,7 +152,9 @@
       "Bash(curl -s \"https://opensky-proxy.aidanhurley12.workers.dev/?mode=health\")",
       "Bash(python -m json.tool)",
       "Bash(curl -s \"https://opensky-proxy.aidanhurley12.workers.dev/?mode=probe\")",
-      "Bash(curl -s \"http://localhost:5173/adsb/api/v2/lat/38/lon/-77/dist/250\")"
+      "Bash(curl -s \"http://localhost:5173/adsb/api/v2/lat/38/lon/-77/dist/250\")",
+      "Bash(curl -s \"http://localhost:5173/adsb/api/v2/lat/38/lon/-77/dist/500\")",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" \"http://localhost:5173/adsb/api/v2/lat/38/lon/-77/dist/500\")"
     ]
   }
 }

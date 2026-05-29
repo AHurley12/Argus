@@ -29,8 +29,8 @@
   // ── Config ────────────────────────────────────────────────────────────────────
   var SUPPLEMENTAL_FN   = '/.netlify/functions/fetch-supplemental';
   var SUPPLEMENTAL_POLL = 5 * 60 * 1000;   // 5 min — adsb.lol viewport poll
-  var ADSB_FI_POLL      = 120 * 1000;      // 120 s — adsb.fi global poll
-  var ADSB_FI_STAGGER   = 500;             // ms between region fetches (rate-limit safety)
+  var ADSB_FI_POLL      = 180 * 1000;      // 3 min — adsb.fi global poll
+  var ADSB_FI_STAGGER   = 5000;            // 5 s between region fetches — 16 centers = 75s spread, ~5 req/min avg
   var ADSB_FI_DIST      = 249;             // nm radius per region (adsb.fi max = 249)
   var ADSB_DIST_NM      = 250;             // viewport radius (NM) — adsb.lol max
   var MAX_INJECT        = 500;             // combined cache ceiling (raised from 250)

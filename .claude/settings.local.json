@@ -147,7 +147,11 @@
       "WebFetch(domain:api.adsbexchange.com)",
       "WebFetch(domain:api.airplanes.live)",
       "WebFetch(domain:api.reliefweb.int)",
-      "WebFetch(domain:api.weather.gov)"
+      "WebFetch(domain:api.weather.gov)",
+      "Bash(wrangler deploy:*)",
+      "Bash(curl -s \"https://opensky-proxy.aidanhurley12.workers.dev/?mode=health\")",
+      "Bash(python -m json.tool)",
+      "Bash(curl -s \"https://opensky-proxy.aidanhurley12.workers.dev/?mode=probe\")"
     ]
   }
 }

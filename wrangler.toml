@@ -1,4 +1,0 @@
-﻿name = "opensky-proxy"
-main = "cloudflare/opensky-proxy.js"
-compatibility_date = "2026-05-28"
-workers_dev = true

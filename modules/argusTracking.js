@@ -65,12 +65,6 @@ var SH_POOL_MAX   = 550;  // cap: slightly above SHIP_LIMIT
 // Lifecycle audit counters — exposed via getLifecycleAudit()
 var _lcAudit = { created: 0, reused: 0, staleEvictions: 0 };
 
-// ── [TEMP DIAG] OpenSky pipeline verification ─────────────────────────────────
-// Counts primary vs OpenSky-supplemental aircraft per render cycle.
-// Remove once OpenSky ingestion is confirmed end-to-end.
-var _diagLastPrimary = -1;
-var _diagLastOsky    = -1;
-
 // Acquire a sprite from the aircraft pool (or allocate new if pool is empty).
 // Caller MUST reset material properties and userData before use.
 function _acquireAcSprite() {
@@ -497,8 +491,6 @@ function renderAircraft(json) {
 
   if (!states.length) { updateStatus(); return; }
 
-  var _diagPrimary = states.length;  // [TEMP DIAG] primary count before OpenSky merge
-
   // Build a Set of ICAO24s in this snapshot for dead-reckoning gap fill
   var nowMs      = Date.now();
   var currentIds = new Set();
@@ -522,8 +514,6 @@ function renderAircraft(json) {
       currentIds.add(icao24);
     });
   }
-
-  var _diagOsky = states.length - _diagPrimary;  // [TEMP DIAG] OpenSky-injected count
 
   // Dead-reckon aircraft from previous snapshot absent in current
   // Uses heading + ground speed to extrapolate position over elapsed time
@@ -551,24 +541,7 @@ function renderAircraft(json) {
                   s.alt, s.region, s.icao24, s.gs, s.phase, !!s.stale);
   });
 
-  // [TEMP DIAG] Log OpenSky pipeline participation once per render cycle (fires ~every 90s).
-  // Only logs when counts change to avoid noise on repeated identical cycles.
-  if (_diagOsky !== _diagLastOsky || _diagPrimary !== _diagLastPrimary) {
-    _diagLastPrimary = _diagPrimary;
-    _diagLastOsky    = _diagOsky;
-    var _diagTotal   = aircraftHits.length;
-    var _diagOskyPct = _diagTotal > 0 ? Math.round(_diagOsky / _diagTotal * 100) : 0;
-    console.log(
-      '[OpenSky Pipeline]',
-      'primary:', _diagPrimary,
-      '| opensky supplemental:', _diagOsky,
-      '| total rendered:', _diagTotal,
-      '| opensky share:', _diagOskyPct + '%'
-    );
-    if (_diagOsky === 0) {
-      console.warn('[OpenSky Pipeline] 0 supplemental aircraft — cache empty or poll not yet fired');
-    }
-  }
+
 
   // Update dead-reckoning store with current snapshot
   _prevPositions.clear();

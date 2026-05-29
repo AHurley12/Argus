@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { initGlobe } from "./globe/globe";
+import AdsbPanel from "./AdsbPanel";
 
 function App() {
   const cleanupRef = useRef(null);
@@ -18,10 +19,13 @@ function App() {
   }, []);
 
   return (
-    <div
-      id="globe-container"
-      style={{ width: "100vw", height: "100vh", overflow: "hidden" }}
-    />
+    <>
+      <div
+        id="globe-container"
+        style={{ width: "100vw", height: "100vh", overflow: "hidden" }}
+      />
+      <AdsbPanel />
+    </>
   );
 }
 

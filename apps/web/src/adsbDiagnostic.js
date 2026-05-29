@@ -77,21 +77,21 @@ async function attemptFetch(url, label) {
   console.log(`[adsbDiagnostic] ${label} — RAW RESPONSE:`, raw);
   console.log(`[adsbDiagnostic] ${label} — response keys:`, Object.keys(raw || {}));
 
-  // adsb.fi response shape: { ac: [...], msg: string, now: epoch, total: N, ctime: N, ptime: N }
-  const aircraft = Array.isArray(raw.ac) ? raw.ac : null;
+  // adsb.fi response shape: { aircraft: [...], now: epoch, resultCount: N, ptime: N }
+  const aircraft = Array.isArray(raw.aircraft) ? raw.aircraft : null;
 
   console.log(`[adsbDiagnostic] ${label} — aircraft array exists:`, aircraft !== null);
   console.log(`[adsbDiagnostic] ${label} — aircraft count:`, aircraft ? aircraft.length : 'N/A');
 
   if (!aircraft) {
-    console.warn(`[adsbDiagnostic] ${label} — no .ac array in response. Keys:`, Object.keys(raw || {}));
+    console.warn(`[adsbDiagnostic] ${label} — no .aircraft array in response. Keys:`, Object.keys(raw || {}));
     return {
       url,
       label,
       ok:        true,
       status:    resp.status,
       durationMs,
-      error:     'Response has no .ac aircraft array',
+      error:     'Response has no .aircraft array',
       errorType: 'EMPTY_SCHEMA',
       aircraft:  null,
       rawKeys:   Object.keys(raw || {}),

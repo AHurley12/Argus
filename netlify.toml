@@ -43,6 +43,12 @@
 [functions."stripe-webhook"]
   timeout = 10
 
+[[redirects]]
+  from   = "/adsb/*"
+  to     = "https://opendata.adsb.fi/:splat"
+  status = 200
+  force  = true
+
 [[headers]]
   for = "/*"
   [headers.values]

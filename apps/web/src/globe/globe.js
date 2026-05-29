@@ -4,6 +4,7 @@ import Globe from "three-globe";
 // Poll every 60s — keeps total requests well under adsb.fi's rate limit (~10 req/min).
 // First poll is delayed 8s so it doesn't collide with the diagnostic harness on load.
 // Regional requests are staggered 350ms apart to avoid simultaneous burst.
+// 6 centers × 350ms stagger = 1.75s spread per cycle = 6 req/min steady state.
 var POLL_MS          = 60000;
 var INITIAL_DELAY_MS = 8000;
 var STAGGER_MS       = 350;
@@ -14,6 +15,8 @@ var CENTERS = [
   { label: 'Europe',      lat: 50,  lon:  10  },
   { label: 'Middle East', lat: 25,  lon:  55  },
   { label: 'East Asia',   lat: 35,  lon:  125 },
+  { label: 'Japan East',  lat: 40,  lon:  142 },  // increment 1: +~60 aircraft
+  { label: 'South US',    lat: 30,  lon:  -85 },  // increment 2: +~35 aircraft
 ];
 
 function wait(ms) {

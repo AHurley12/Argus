@@ -1,38 +1,61 @@
 import * as THREE from "three";
 import Globe from "three-globe";
 
-const POLL_MS = 15000;
+var POLL_MS = 15000;
 
-// 5 centers at ~249nm radius cover global high-traffic airspace with minimal overlap
 var CENTERS = [
-  { lat: 40,  lon: -75  },  // US East
-  { lat: 37,  lon: -100 },  // US Central/West
-  { lat: 50,  lon:  10  },  // Europe
-  { lat: 25,  lon:  55  },  // Middle East / South Asia
-  { lat: 35,  lon: 125  },  // East Asia / Pacific
+  { label: 'US East',     lat: 40,  lon: -75  },
+  { label: 'US Central',  lat: 37,  lon: -100 },
+  { label: 'Europe',      lat: 50,  lon:  10  },
+  { label: 'Middle East', lat: 25,  lon:  55  },
+  { label: 'East Asia',   lat: 35,  lon:  125 },
 ];
 
 function fetchRegion(center) {
-  return fetch('/adsb/api/v2/lat/' + center.lat + '/lon/' + center.lon + '/dist/249', {
-    headers: { Accept: 'application/json' },
-  })
+  var url = '/adsb/api/v2/lat/' + center.lat + '/lon/' + center.lon + '/dist/249';
+  console.log('[ADSB FETCH]', center.label, '->', url);
+
+  return fetch(url, { headers: { Accept: 'application/json' } })
     .then(function(resp) {
+      console.log('[ADSB STATUS]', center.label, resp.status);
+
+      var ct = resp.headers.get('content-type') || '';
+
+      if (!ct.includes('application/json')) {
+        return resp.text().then(function(text) {
+          console.error('[ADSB INVALID RESPONSE]', center.label, text.slice(0, 300));
+          return [];
+        });
+      }
+
       if (!resp.ok) return [];
-      return resp.json().then(function(d) {
-        return Array.isArray(d.aircraft) ? d.aircraft : [];
-      });
+
+      return resp.json()
+        .then(function(d) {
+          console.log('[ADSB JSON OK]', center.label);
+          if (!d || !Array.isArray(d.aircraft)) return [];
+          console.log('[ADSB AIRCRAFT COUNT]', center.label, d.aircraft.length);
+          return d.aircraft;
+        })
+        .catch(function(err) {
+          console.error('[ADSB JSON PARSE ERROR]', center.label, err.message);
+          return [];
+        });
     })
-    .catch(function() { return []; });
+    .catch(function(err) {
+      console.error('[ADSB FETCH ERROR]', center.label, err.message);
+      return [];
+    });
 }
 
 function fetchAllAircraft() {
   return Promise.allSettled(CENTERS.map(fetchRegion)).then(function(results) {
-    var seen    = {};
-    var merged  = [];
+    var seen   = {};
+    var merged = [];
     results.forEach(function(r) {
       if (r.status !== 'fulfilled') return;
       r.value.forEach(function(ac) {
-        if (!ac.hex || ac.lat == null || ac.lon == null) return;
+        if (!ac || !ac.hex || ac.lat == null || ac.lon == null) return;
         if (seen[ac.hex]) return;
         seen[ac.hex] = true;
         merged.push(ac);
@@ -86,7 +109,7 @@ export function initGlobe(containerId) {
   function poll() {
     fetchAllAircraft().then(function(aircraft) {
       globe.pointsData(aircraft);
-      console.log('[globe] aircraft rendered:', aircraft.length);
+      console.log('[ADSB TOTAL UNIQUE]', aircraft.length, 'aircraft rendered');
     });
   }
 

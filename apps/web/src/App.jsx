@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { initGlobe } from "./globe/globe";
 import AdsbPanel from "./AdsbPanel";
+import "./debug/testAdsb";
 
 function App() {
   const cleanupRef = useRef(null);

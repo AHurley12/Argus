@@ -6,14 +6,15 @@ export default defineConfig({
   plugins: [react()],
 
   server: {
-    // Phase 2 proxy — activated automatically by adsbDiagnostic.js if direct
-    // fetch fails with a CORS error. Maps /adsb/* → opendata.adsb.fi/*.
+    // Proxy /adsb/* -> https://api.adsb.fi/*
+    // /adsb/api/v2/lat/40/lon/-75/dist/249 -> https://api.adsb.fi/api/v2/lat/40/lon/-75/dist/249
     // Only active during `vite dev`. Has no effect in production builds.
     proxy: {
       '/adsb': {
-        target:      'https://opendata.adsb.fi',
+        target:       'https://opendata.adsb.fi',
         changeOrigin: true,
-        rewrite:     (path) => path.replace(/^\/adsb/, ''),
+        secure:       true,
+        rewrite:      (path) => path.replace(/^\/adsb/, ''),
       },
     },
   },

@@ -2,25 +2,37 @@
 // core/providers/argusProviderCache.js
 // Supplemental aircraft ingestion — two sources, one shared cache.
 //
-// Source A — adsb.lol via /.netlify/functions/fetch-supplemental (viewport-centered, 5 min)
-// Source B — adsb.fi  via /adsb/* Netlify proxy redirect (16 global regions, 120 s)
+// ── Source A: adsb.lol ────────────────────────────────────────────────────────
+//   /.netlify/functions/fetch-supplemental — viewport-centered, every 5 min.
 //
-// Architecture:
-//   PURELY ADDITIVE. Injects aircraft absent from the primary fetch-traffic snapshot.
-//   Never alters, overrides, or replaces primary data.
+// ── Source B: adsb.fi ─────────────────────────────────────────────────────────
+//   /adsb/* Netlify proxy redirect — tick-based rotating regional scheduler.
 //
-// Source isolation:
-//   Each entry is tagged _source = 'supplemental' | 'adsb-fi'.
-//   Stale eviction only removes same-source entries absent from the current incoming
-//   batch — cross-source entries are untouched unless they exceed STALE_MS globally.
+//   Architecture: time-division multiplexing.
+//   One region is polled per TICK_MS (10 s). The region queue rotates through all
+//   ADSB_FI_REGIONS in sequence. Full global cycle = 16 regions × 10 s = 160 s.
+//   Rate: exactly 6 req/min — structurally burst-proof by design.
 //
-// Cache:
-//   aircraftLiveCache  Map<icao24, normalizedRecord>  mutated in place each cycle.
-//   renderAircraft() holds a live reference — zero allocation on cache hit.
+//   Each region has a density tier that determines:
+//     dist  — query radius in nm (smaller in dense regions → fewer aircraft)
+//     cap   — max aircraft accepted from that region per poll
+//   This prevents high-density regions (Europe, CONUS) from monopolizing
+//   the cache while sparse regions (Africa, Oceania) still get representation.
+//
+// ── Source isolation ──────────────────────────────────────────────────────────
+//   adsb.lol entries: _source = 'supplemental'
+//   adsb.fi entries:  _source = 'adsb-fi:<regionLabel>'
+//   Stale eviction is per-source — a region refresh never touches entries from
+//   other regions or from adsb.lol.
+//
+// ── Render budget ─────────────────────────────────────────────────────────────
+//   AIRCRAFT_LIMIT (argusTracking.js) = 750. Primary fetch-traffic fills first.
+//   Supplemental fills remaining slots. MAX_INJECT = 650 gives headroom for
+//   both adsb.lol and adsb.fi without exceeding the render budget.
 //
 // Dependencies:
 //   window._argusReqCache   — deduped fetch (adsb.lol path only)
-//   window.ArgusGlobe       — globe rotation for viewport center derivation
+//   window.ArgusGlobe       — globe rotation for viewport center
 //   window.ArgusModuleAudit — optional
 
 (function () {
@@ -28,32 +40,38 @@
 
   // ── Config ────────────────────────────────────────────────────────────────────
   var SUPPLEMENTAL_FN   = '/.netlify/functions/fetch-supplemental';
-  var SUPPLEMENTAL_POLL = 5 * 60 * 1000;   // 5 min — adsb.lol viewport poll
-  var ADSB_FI_POLL      = 180 * 1000;      // 3 min — adsb.fi global poll
-  var ADSB_FI_STAGGER   = 5000;            // 5 s between region fetches — 16 centers = 75s spread, ~5 req/min avg
-  var ADSB_FI_DIST      = 249;             // nm radius per region (adsb.fi max = 249)
-  var ADSB_DIST_NM      = 250;             // viewport radius (NM) — adsb.lol max
-  var MAX_INJECT        = 500;             // combined cache ceiling (raised from 250)
-  var STALE_MS          = SUPPLEMENTAL_POLL * 3; // 15 min — global stale threshold
+  var SUPPLEMENTAL_POLL = 5 * 60 * 1000;  // 5 min — adsb.lol viewport poll
+  var ADSB_DIST_NM      = 250;            // viewport radius for adsb.lol (nm)
+  var TICK_MS           = 10 * 1000;      // 10 s between adsb.fi region polls — 6 req/min steady state
+  var TICK_INIT_DELAY   = 25 * 1000;      // 25 s before first tick (primary pipeline settles first)
+  var MAX_INJECT        = 650;            // combined cache ceiling
+  var STALE_MS          = 15 * 60 * 1000; // 15 min global stale threshold
 
-  // ── adsb.fi regional centers ──────────────────────────────────────────────────
-  var ADSB_FI_CENTERS = [
-    { label: 'US East',        lat:  40, lon:  -75 },
-    { label: 'US Central',     lat:  37, lon: -100 },
-    { label: 'Europe',         lat:  50, lon:   10 },
-    { label: 'Middle East',    lat:  25, lon:   55 },
-    { label: 'East Asia',      lat:  35, lon:  125 },
-    { label: 'Japan East',     lat:  40, lon:  142 },
-    { label: 'South US',       lat:  30, lon:  -85 },
-    { label: 'Northwest US',   lat:  47, lon: -122 },
-    { label: 'SE Asia',        lat:  15, lon:  100 },
-    { label: 'India',          lat:  20, lon:   80 },
-    { label: 'Australia SE',   lat: -34, lon:  151 },
-    { label: 'Brazil',         lat: -23, lon:  -46 },
-    { label: 'Moscow',         lat:  55, lon:   37 },
-    { label: 'Caribbean',      lat:  20, lon:  -72 },
-    { label: 'Southern Africa',lat: -26, lon:   28 },
-    { label: 'East Africa',    lat:   0, lon:   37 },
+  // ── adsb.fi regional partition table ─────────────────────────────────────────
+  // Three density tiers. Tier 1 (dense): small dist + hard cap prevents regional
+  // monopolization. Tier 3 (sparse): full dist to capture what aircraft exist.
+  // Total max per full cycle: (5×50)+(6×35)+(5×25) = 585 aircraft, geographically
+  // distributed across all populated airspace zones.
+  var ADSB_FI_REGIONS = [
+    // ── Tier 1: Dense airspace — small radius, hard cap ──────────────────────
+    { label: 'Europe',          lat:  50, lon:   10, dist: 120, cap: 50, tier: 1 },
+    { label: 'US East',         lat:  40, lon:  -75, dist: 150, cap: 50, tier: 1 },
+    { label: 'US Central',      lat:  37, lon: -100, dist: 150, cap: 40, tier: 1 },
+    { label: 'East Asia',       lat:  35, lon:  125, dist: 150, cap: 50, tier: 1 },
+    { label: 'India',           lat:  20, lon:   80, dist: 150, cap: 40, tier: 1 },
+    // ── Tier 2: Medium airspace — balanced radius and cap ────────────────────
+    { label: 'Japan',           lat:  36, lon:  140, dist: 200, cap: 35, tier: 2 },
+    { label: 'SE Asia',         lat:  15, lon:  100, dist: 200, cap: 35, tier: 2 },
+    { label: 'Middle East',     lat:  25, lon:   55, dist: 200, cap: 35, tier: 2 },
+    { label: 'Northwest US',    lat:  47, lon: -122, dist: 200, cap: 35, tier: 2 },
+    { label: 'South US',        lat:  30, lon:  -85, dist: 200, cap: 35, tier: 2 },
+    { label: 'Moscow',          lat:  55, lon:   37, dist: 200, cap: 35, tier: 2 },
+    // ── Tier 3: Sparse airspace — max radius, proportional cap ───────────────
+    { label: 'Australia SE',    lat: -34, lon:  151, dist: 249, cap: 25, tier: 3 },
+    { label: 'Brazil',          lat: -23, lon:  -46, dist: 249, cap: 25, tier: 3 },
+    { label: 'Caribbean',       lat:  20, lon:  -72, dist: 249, cap: 25, tier: 3 },
+    { label: 'Southern Africa', lat: -26, lon:   28, dist: 249, cap: 25, tier: 3 },
+    { label: 'East Africa',     lat:   0, lon:   37, dist: 249, cap: 25, tier: 3 },
   ];
 
   // ── Live aircraft cache ───────────────────────────────────────────────────────
@@ -61,23 +79,24 @@
 
   // ── Audit ─────────────────────────────────────────────────────────────────────
   var _audit = {
-    polls:          0,
-    injected:       0,
-    skipped:        0,
-    expired:        0,
-    lastPollMs:     0,
-    lastError:      null,
-    adsbFiPolls:    0,
-    adsbFiLastRaw:  0,
-    adsbFiLastMs:   0,
+    polls:         0,
+    injected:      0,
+    skipped:       0,
+    expired:       0,
+    lastPollMs:    0,
+    lastError:     null,
+    ticks:         0,
+    tickLastRegion: '',
+    tickLastCount:  0,
+    tickLastMs:     0,
   };
 
   // ── State ─────────────────────────────────────────────────────────────────────
-  var _suppTimer    = null;
-  var _suppActive   = false;
-  var _adsbFiTimer  = null;
-  var _adsbFiActive = false;
-  var _enabled      = true;
+  var _suppTimer  = null;
+  var _suppActive = false;
+  var _tickTimer  = null;
+  var _regionQueue = [];
+  var _enabled    = true;
 
   // ── Primary-absent check ──────────────────────────────────────────────────────
   function _isPrimaryAbsent(icao24) {
@@ -107,7 +126,6 @@
   }
 
   // ── adsb.fi schema normalizer ─────────────────────────────────────────────────
-  // Converts raw adsb.fi aircraft record → Argus schema expected by renderAircraft().
   function _normalizeAdsbFi(ac) {
     var altFt = ac.alt_baro;
     var alt   = typeof altFt === 'number' ? altFt : 0;
@@ -127,29 +145,113 @@
       lon:        ac.lon,
       alt:        alt,
       gs:         gs,
-      track:      ac.track || 0,
+      track:      ac.track  || 0,
       phase:      phase,
       flightType: 'unknown',
     };
   }
 
-  // ── Ingestion core ────────────────────────────────────────────────────────────
-  // sourceTag: 'supplemental' | 'adsb-fi'
-  // Stale eviction is source-isolated — a poll from one source never evicts
-  // valid entries contributed by the other source.
+  // ── adsb.fi region fetch ──────────────────────────────────────────────────────
+  // Uses per-region dist from the partition table.
+  function _fetchAdsbFiRegion(region) {
+    var url = '/adsb/api/v2/lat/' + region.lat + '/lon/' + region.lon + '/dist/' + region.dist;
+    return fetch(url, { headers: { Accept: 'application/json' } })
+      .then(function (resp) {
+        var ct = resp.headers.get('content-type') || '';
+        if (!ct.includes('application/json') || !resp.ok) return [];
+        return resp.json().then(function (d) {
+          return Array.isArray(d.aircraft) ? d.aircraft : [];
+        });
+      })
+      .catch(function () { return []; });
+  }
+
+  // ── Per-region ingestion ──────────────────────────────────────────────────────
+  // Source key is 'adsb-fi:<regionLabel>' — eviction is fully isolated to the
+  // region being refreshed. No other region or adsb.lol entries are touched.
+  function _ingestRegion(aircraft, regionLabel) {
+    if (!Array.isArray(aircraft) || !aircraft.length) return;
+    var nowMs  = Date.now();
+    var srcKey = 'adsb-fi:' + regionLabel;
+
+    // Build filtered incoming set (primary-absent check applied here)
+    var incomingIds = new Set();
+    var toInsert    = [];
+    aircraft.forEach(function (ac) {
+      if (!ac || !ac.icao24) return;
+      if (!_isPrimaryAbsent(ac.icao24)) { _audit.skipped++; return; }
+      incomingIds.add(ac.icao24);
+      toInsert.push(ac);
+    });
+
+    // Evict same-region entries absent from this batch or globally stale
+    aircraftLiveCache.forEach(function (entry, id) {
+      if (entry._source !== srcKey) return;
+      var tooOld = (entry._cachedAt != null) && (nowMs - entry._cachedAt) > STALE_MS;
+      if (!incomingIds.has(id) || tooOld) {
+        aircraftLiveCache.delete(id);
+        _audit.expired++;
+      }
+    });
+
+    // Upsert within overall cap
+    var created = 0;
+    var updated = 0;
+    toInsert.forEach(function (ac) {
+      var exists = aircraftLiveCache.has(ac.icao24);
+      if (!exists && aircraftLiveCache.size >= MAX_INJECT) return;
+      ac._cachedAt = nowMs;
+      ac._source   = srcKey;
+      aircraftLiveCache.set(ac.icao24, ac);
+      if (exists) { updated++; } else { created++; }
+    });
+
+    _audit.injected    += created + updated;
+    _audit.tickLastMs   = nowMs;
+    console.log('[adsb.fi tick]', regionLabel,
+      '| in:', toInsert.length,
+      '| created:', created, '| updated:', updated,
+      '| cacheTotal:', aircraftLiveCache.size);
+  }
+
+  // ── adsb.fi tick scheduler ────────────────────────────────────────────────────
+  // Pops one region from the rotating queue, fetches it, ingests it.
+  // One region per TICK_MS = 6 req/min steady state. No burst possible.
+  function _tickAdsbFi() {
+    if (!_enabled) return;
+
+    // Reload queue when exhausted — full global cycle complete
+    if (_regionQueue.length === 0) {
+      _regionQueue = ADSB_FI_REGIONS.slice();
+    }
+
+    var region = _regionQueue.shift();
+    _audit.ticks++;
+    _audit.tickLastRegion = region.label;
+
+    _fetchAdsbFiRegion(region).then(function (rawAc) {
+      if (!rawAc.length) return;
+      // Apply regional density cap before normalization
+      var capped = rawAc.slice(0, region.cap);
+      var normalized = capped
+        .filter(function (ac) { return ac && ac.hex && ac.lat != null && ac.lon != null; })
+        .map(_normalizeAdsbFi);
+      _audit.tickLastCount = normalized.length;
+      _ingestRegion(normalized, region.label);
+    });
+  }
+
+  // ── adsb.lol supplemental poll ────────────────────────────────────────────────
   function _ingestAircraftArray(aircraft, sourceTag) {
     if (!Array.isArray(aircraft)) return;
     var nowMs       = Date.now();
     var sizeAtStart = aircraftLiveCache.size;
 
-    // ── Emergency guard ──────────────────────────────────────────────────────
     if (aircraftLiveCache.size > MAX_INJECT * 2) {
-      console.warn('[ArgusProviderCache] Cache inflated to', aircraftLiveCache.size,
-        '— clearing.');
+      console.warn('[ArgusProviderCache] Cache inflated to', aircraftLiveCache.size, '— clearing.');
       aircraftLiveCache.clear();
     }
 
-    // ── Step 1: Build capped, deduplicated incoming set ──────────────────────
     var incomingIds = new Set();
     var incoming    = [];
     for (var i = 0; i < aircraft.length; i++) {
@@ -162,9 +264,6 @@
       incoming.push(ac);
     }
 
-    // ── Step 2: Source-isolated stale eviction ───────────────────────────────
-    // Same-source entries absent from this batch are evicted immediately.
-    // Cross-source entries are only evicted if they exceed STALE_MS globally.
     var expired = 0;
     aircraftLiveCache.forEach(function (entry, id) {
       var tooOld     = (entry._cachedAt != null) && (nowMs - entry._cachedAt) > STALE_MS;
@@ -175,7 +274,6 @@
       }
     });
 
-    // ── Step 3: Diff upsert ──────────────────────────────────────────────────
     var created = 0;
     var updated = 0;
     for (var j = 0; j < incoming.length; j++) {
@@ -187,24 +285,18 @@
       if (exists) { updated++; } else { created++; }
     }
 
-    // ── Step 4: Hard cap ─────────────────────────────────────────────────────
     if (aircraftLiveCache.size > MAX_INJECT) {
       var iter = aircraftLiveCache.keys();
       var trim = aircraftLiveCache.size - MAX_INJECT;
       for (var k = 0; k < trim; k++) aircraftLiveCache.delete(iter.next().value);
-      console.warn('[ArgusProviderCache] HARD CAP — trimmed', trim, 'entries.');
+      console.warn('[ArgusProviderCache] HARD CAP — trimmed', trim);
     }
 
-    // ── Step 5: Cycle diagnostic ─────────────────────────────────────────────
     var delta = aircraftLiveCache.size - sizeAtStart;
-    console.log(
-      '[Supplemental Cycle]', sourceTag,
-      '| created:', created,
-      '| updated:', updated,
-      '| expired:', expired,
-      '| cacheSize:', aircraftLiveCache.size,
-      '| delta:', (delta >= 0 ? '+' : '') + delta
-    );
+    console.log('[Supplemental Cycle] adsb.lol',
+      '| created:', created, '| updated:', updated,
+      '| expired:', expired, '| cacheSize:', aircraftLiveCache.size,
+      '| delta:', (delta >= 0 ? '+' : '') + delta);
 
     _audit.injected  += created + updated;
     _audit.expired   += expired;
@@ -212,7 +304,6 @@
     _audit.lastError  = null;
   }
 
-  // ── adsb.lol supplemental poll ────────────────────────────────────────────────
   function _pollSupplemental() {
     if (!_enabled || _suppActive) return;
     if (!window._argusReqCache) return;
@@ -228,65 +319,13 @@
       .then(function (json) {
         _suppActive = false;
         if (!json || !Array.isArray(json.aircraft)) return;
-        console.log('[ArgusProviderCache] adsb.lol raw:', json.aircraft.length, 'aircraft');
+        console.log('[ArgusProviderCache] adsb.lol raw:', json.aircraft.length);
         _ingestAircraftArray(json.aircraft, 'supplemental');
       })
       .catch(function (err) {
         _suppActive      = false;
         _audit.lastError = err && err.message ? err.message : String(err);
       });
-  }
-
-  // ── adsb.fi region fetch ──────────────────────────────────────────────────────
-  function _fetchAdsbFiRegion(center) {
-    var url = '/adsb/api/v2/lat/' + center.lat + '/lon/' + center.lon + '/dist/' + ADSB_FI_DIST;
-    return fetch(url, { headers: { Accept: 'application/json' } })
-      .then(function (resp) {
-        var ct = resp.headers.get('content-type') || '';
-        if (!ct.includes('application/json')) return [];
-        if (!resp.ok) return [];
-        return resp.json().then(function (d) {
-          return Array.isArray(d.aircraft) ? d.aircraft : [];
-        });
-      })
-      .catch(function () { return []; });
-  }
-
-  // ── adsb.fi global poll ───────────────────────────────────────────────────────
-  // Fetches all 16 centers with ADSB_FI_STAGGER ms between each to avoid
-  // bursting adsb.fi's rate limit. Deduplicates by hex before ingestion.
-  function _pollAdsbFi() {
-    if (!_enabled || _adsbFiActive) return;
-    _adsbFiActive = true;
-    _audit.adsbFiPolls++;
-
-    var staggered = ADSB_FI_CENTERS.map(function (center, i) {
-      return new Promise(function (resolve) {
-        setTimeout(function () {
-          _fetchAdsbFiRegion(center).then(resolve).catch(function () { resolve([]); });
-        }, i * ADSB_FI_STAGGER);
-      });
-    });
-
-    Promise.allSettled(staggered).then(function (results) {
-      var seen     = {};
-      var aircraft = [];
-      results.forEach(function (r) {
-        if (r.status !== 'fulfilled') return;
-        r.value.forEach(function (ac) {
-          if (!ac || !ac.hex || ac.lat == null || ac.lon == null) return;
-          if (seen[ac.hex]) return;
-          seen[ac.hex] = true;
-          aircraft.push(_normalizeAdsbFi(ac));
-        });
-      });
-
-      _audit.adsbFiLastRaw = aircraft.length;
-      _audit.adsbFiLastMs  = Date.now();
-      console.log('[ArgusProviderCache] adsb.fi raw:', aircraft.length, 'unique aircraft');
-      _ingestAircraftArray(aircraft, 'adsb-fi');
-      _adsbFiActive = false;
-    });
   }
 
   // ── Publish globals ───────────────────────────────────────────────────────────
@@ -298,24 +337,27 @@
   function start() {
     if (_suppTimer) return;
 
-    // adsb.lol: 20s delay then every 5 min
+    // adsb.lol: 20 s then every 5 min
     setTimeout(_pollSupplemental, 20 * 1000);
     _suppTimer = setInterval(_pollSupplemental, SUPPLEMENTAL_POLL);
 
-    // adsb.fi: 25s delay then every 120s
-    // (offset from adsb.lol by 5s so they don't fire simultaneously)
-    setTimeout(_pollAdsbFi, 25 * 1000);
-    _adsbFiTimer = setInterval(_pollAdsbFi, ADSB_FI_POLL);
+    // adsb.fi: 25 s then tick every 10 s
+    // Queue primed at start. One region per tick, rotating.
+    _regionQueue = ADSB_FI_REGIONS.slice();
+    setTimeout(function () {
+      _tickAdsbFi();
+      _tickTimer = setInterval(_tickAdsbFi, TICK_MS);
+    }, TICK_INIT_DELAY);
 
     console.log('[ArgusProviderCache] started',
       '— adsb.lol every', Math.round(SUPPLEMENTAL_POLL / 60000), 'min',
-      '— adsb.fi every', Math.round(ADSB_FI_POLL / 1000), 's across',
-      ADSB_FI_CENTERS.length, 'regions');
+      '— adsb.fi tick every', TICK_MS / 1000, 's across',
+      ADSB_FI_REGIONS.length, 'regions (', Math.round(ADSB_FI_REGIONS.length * TICK_MS / 1000), 's cycle)');
   }
 
   function stop() {
-    if (_suppTimer)   { clearInterval(_suppTimer);   _suppTimer   = null; }
-    if (_adsbFiTimer) { clearInterval(_adsbFiTimer); _adsbFiTimer = null; }
+    if (_suppTimer)  { clearInterval(_suppTimer);  _suppTimer  = null; }
+    if (_tickTimer)  { clearInterval(_tickTimer);  _tickTimer  = null; }
     aircraftLiveCache.clear();
     _enabled = false;
   }
@@ -323,7 +365,7 @@
   function status() {
     return {
       enabled:         _enabled,
-      mode:            'netlify-supplemental + adsb-fi',
+      mode:            'adsb.lol + adsb.fi tick scheduler',
       cacheSize:       aircraftLiveCache.size,
       polls:           _audit.polls,
       injected:        _audit.injected,
@@ -332,10 +374,11 @@
       lastPollMs:      _audit.lastPollMs,
       lastError:       _audit.lastError,
       inFlight:        _suppActive,
-      adsbFiPolls:     _audit.adsbFiPolls,
-      adsbFiLastRaw:   _audit.adsbFiLastRaw,
-      adsbFiLastMs:    _audit.adsbFiLastMs,
-      adsbFiInFlight:  _adsbFiActive,
+      ticks:           _audit.ticks,
+      tickLastRegion:  _audit.tickLastRegion,
+      tickLastCount:   _audit.tickLastCount,
+      tickLastMs:      _audit.tickLastMs,
+      queueRemaining:  _regionQueue.length,
     };
   }
 

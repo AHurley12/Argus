@@ -6,24 +6,40 @@
 //   /.netlify/functions/fetch-supplemental — viewport-centered, every 5 min.
 //
 // ── Source B: adsb.fi ─────────────────────────────────────────────────────────
-//   /adsb/* Netlify proxy redirect — tick-based rotating regional scheduler.
+//   /adsb/* Netlify proxy redirect — adaptive priority regional scheduler.
 //
-//   Architecture: time-division multiplexing.
-//   One region is polled per TICK_MS (10 s). The region queue rotates through all
-//   ADSB_FI_REGIONS in sequence. Full global cycle = 16 regions × 10 s = 160 s.
+//   Architecture: coverage-age-weighted time-division multiplexing.
+//   One tile is polled per TICK_MS (10 s). The tile selected each tick is the
+//   one with the highest overdue score:
+//
+//     score = (nowMs - lastPolledAt) / targetRevisitMs
+//
+//   Tiles that have not been polled in longer than their target window score > 1
+//   and are always preferred over current tiles. Because sparse tiles carry a
+//   shorter targetRevisitMs (300 s) than dense tiles (800 s), their score
+//   accumulates faster — they are picked more frequently even though dense tiles
+//   cover busier airspace. This is intentional: dense airspace is already covered
+//   by the primary fetch-traffic pipeline. The supplemental layer's job is global
+//   geographic representativeness, not maximum aircraft count.
+//
 //   Rate: exactly 6 req/min — structurally burst-proof by design.
 //
-//   Each region has a density tier that determines:
-//     dist  — query radius in nm (smaller in dense regions → fewer aircraft)
-//     cap   — max aircraft accepted from that region per poll
-//   This prevents high-density regions (Europe, CONUS) from monopolizing
-//   the cache while sparse regions (Africa, Oceania) still get representation.
+//   47 globally distributed tiles across 4 density tiers:
+//     dense    (8 tiles)  — cap 45, targetRevisit 800 s
+//     medium   (15 tiles) — cap 35, targetRevisit 500 s
+//     sparse   (19 tiles) — cap 20, targetRevisit 300 s
+//     maritime (5 tiles)  — cap 15, targetRevisit 400 s (transoceanic corridors)
+//
+//   Within-tile anti-clustering: results are grouped by 1° grid cells before
+//   the tile cap is applied. Each cell receives floor(cap / cellCount) slots,
+//   min 2. This prevents a single dense airport from consuming a tile's entire
+//   quota regardless of how many aircraft the API returns for that airport.
 //
 // ── Source isolation ──────────────────────────────────────────────────────────
 //   adsb.lol entries: _source = 'supplemental'
-//   adsb.fi entries:  _source = 'adsb-fi:<regionLabel>'
-//   Stale eviction is per-source — a region refresh never touches entries from
-//   other regions or from adsb.lol.
+//   adsb.fi entries:  _source = 'adsb-fi:<tileLabel>'
+//   Stale eviction is per-source — a tile refresh never touches entries from
+//   other tiles or from adsb.lol.
 //
 // ── Render budget ─────────────────────────────────────────────────────────────
 //   AIRCRAFT_LIMIT (argusTracking.js) = 750. Primary fetch-traffic fills first.
@@ -42,36 +58,81 @@
   var SUPPLEMENTAL_FN   = '/.netlify/functions/fetch-supplemental';
   var SUPPLEMENTAL_POLL = 5 * 60 * 1000;  // 5 min — adsb.lol viewport poll
   var ADSB_DIST_NM      = 250;            // viewport radius for adsb.lol (nm)
-  var TICK_MS           = 10 * 1000;      // 10 s between adsb.fi region polls — 6 req/min steady state
+  var TICK_MS           = 10 * 1000;      // 10 s between adsb.fi tile polls — 6 req/min steady state
   var TICK_INIT_DELAY   = 25 * 1000;      // 25 s before first tick (primary pipeline settles first)
   var MAX_INJECT        = 650;            // combined cache ceiling
   var STALE_MS          = 15 * 60 * 1000; // 15 min global stale threshold
 
-  // ── adsb.fi regional partition table ─────────────────────────────────────────
-  // Three density tiers. Tier 1 (dense): small dist + hard cap prevents regional
-  // monopolization. Tier 3 (sparse): full dist to capture what aircraft exist.
-  // Total max per full cycle: (5×50)+(6×35)+(5×25) = 585 aircraft, geographically
-  // distributed across all populated airspace zones.
-  var ADSB_FI_REGIONS = [
-    // ── Tier 1: Dense airspace — small radius, hard cap ──────────────────────
-    { label: 'Europe',          lat:  50, lon:   10, dist: 120, cap: 50, tier: 1 },
-    { label: 'US East',         lat:  40, lon:  -75, dist: 150, cap: 50, tier: 1 },
-    { label: 'US Central',      lat:  37, lon: -100, dist: 150, cap: 40, tier: 1 },
-    { label: 'East Asia',       lat:  35, lon:  125, dist: 150, cap: 50, tier: 1 },
-    { label: 'India',           lat:  20, lon:   80, dist: 150, cap: 40, tier: 1 },
-    // ── Tier 2: Medium airspace — balanced radius and cap ────────────────────
-    { label: 'Japan',           lat:  36, lon:  140, dist: 200, cap: 35, tier: 2 },
-    { label: 'SE Asia',         lat:  15, lon:  100, dist: 200, cap: 35, tier: 2 },
-    { label: 'Middle East',     lat:  25, lon:   55, dist: 200, cap: 35, tier: 2 },
-    { label: 'Northwest US',    lat:  47, lon: -122, dist: 200, cap: 35, tier: 2 },
-    { label: 'South US',        lat:  30, lon:  -85, dist: 200, cap: 35, tier: 2 },
-    { label: 'Moscow',          lat:  55, lon:   37, dist: 200, cap: 35, tier: 2 },
-    // ── Tier 3: Sparse airspace — max radius, proportional cap ───────────────
-    { label: 'Australia SE',    lat: -34, lon:  151, dist: 249, cap: 25, tier: 3 },
-    { label: 'Brazil',          lat: -23, lon:  -46, dist: 249, cap: 25, tier: 3 },
-    { label: 'Caribbean',       lat:  20, lon:  -72, dist: 249, cap: 25, tier: 3 },
-    { label: 'Southern Africa', lat: -26, lon:   28, dist: 249, cap: 25, tier: 3 },
-    { label: 'East Africa',     lat:   0, lon:   37, dist: 249, cap: 25, tier: 3 },
+  // ── Global tile set ───────────────────────────────────────────────────────────
+  // 47 tiles covering all major airspace, maritime corridors, and polar routes.
+  //
+  // targetRevisitMs — adaptive scheduler target: shorter = picked more often.
+  //   dense tiles    800 s — primary already covers, supplemental fills gaps
+  //   medium tiles   500 s — moderate primary coverage, supplemental adds depth
+  //   sparse tiles   300 s — rare traffic; frequent polls needed to catch any
+  //   maritime tiles 400 s — transoceanic; infrequent but globally significant
+  //
+  // cap — max aircraft accepted per poll after within-tile anti-clustering.
+  // dist — query radius in nm; smaller in dense areas → tighter bound per poll.
+  //
+  // lastPolledAt is mutated in place by the scheduler. Initial value 0 → score
+  // of Infinity on first evaluation → all tiles polled once before rebalancing.
+  var GLOBAL_TILES = [
+    // ── Dense (8 tiles) — targetRevisit=800s, cap=45 ─────────────────────────
+    { label: 'NA_NE',      lat:  42, lon:  -73, dist: 280, cap: 45, tier: 'dense',    targetRevisitMs: 800000, lastPolledAt: 0 },
+    { label: 'NA_MID',     lat:  38, lon:  -77, dist: 260, cap: 45, tier: 'dense',    targetRevisitMs: 800000, lastPolledAt: 0 },
+    { label: 'EU_UK',      lat:  53, lon:   -2, dist: 280, cap: 45, tier: 'dense',    targetRevisitMs: 800000, lastPolledAt: 0 },
+    { label: 'EU_WEST',    lat:  47, lon:    5, dist: 280, cap: 45, tier: 'dense',    targetRevisitMs: 800000, lastPolledAt: 0 },
+    { label: 'EU_CENTRAL', lat:  51, lon:   14, dist: 280, cap: 45, tier: 'dense',    targetRevisitMs: 800000, lastPolledAt: 0 },
+    { label: 'AS_JAPAN',   lat:  35, lon:  137, dist: 300, cap: 45, tier: 'dense',    targetRevisitMs: 800000, lastPolledAt: 0 },
+    { label: 'AS_KOREA',   lat:  37, lon:  128, dist: 270, cap: 45, tier: 'dense',    targetRevisitMs: 800000, lastPolledAt: 0 },
+    { label: 'AS_CHINA_E', lat:  32, lon:  121, dist: 340, cap: 45, tier: 'dense',    targetRevisitMs: 800000, lastPolledAt: 0 },
+    // ── Medium (15 tiles) — targetRevisit=500s, cap=35 ───────────────────────
+    { label: 'NA_SE',      lat:  33, lon:  -84, dist: 300, cap: 35, tier: 'medium',   targetRevisitMs: 500000, lastPolledAt: 0 },
+    { label: 'NA_FL',      lat:  27, lon:  -82, dist: 270, cap: 35, tier: 'medium',   targetRevisitMs: 500000, lastPolledAt: 0 },
+    { label: 'NA_MIDWEST', lat:  41, lon:  -87, dist: 280, cap: 35, tier: 'medium',   targetRevisitMs: 500000, lastPolledAt: 0 },
+    { label: 'NA_NW',      lat:  47, lon: -122, dist: 310, cap: 35, tier: 'medium',   targetRevisitMs: 500000, lastPolledAt: 0 },
+    { label: 'NA_SW',      lat:  35, lon: -117, dist: 300, cap: 35, tier: 'medium',   targetRevisitMs: 500000, lastPolledAt: 0 },
+    { label: 'EU_EAST',    lat:  50, lon:   28, dist: 320, cap: 35, tier: 'medium',   targetRevisitMs: 500000, lastPolledAt: 0 },
+    { label: 'EU_SOUTH',   lat:  40, lon:   15, dist: 360, cap: 35, tier: 'medium',   targetRevisitMs: 500000, lastPolledAt: 0 },
+    { label: 'EU_IBERIA',  lat:  40, lon:   -4, dist: 310, cap: 35, tier: 'medium',   targetRevisitMs: 500000, lastPolledAt: 0 },
+    { label: 'ME_GULF',    lat:  25, lon:   55, dist: 340, cap: 35, tier: 'medium',   targetRevisitMs: 500000, lastPolledAt: 0 },
+    { label: 'ME_TURKEY',  lat:  39, lon:   35, dist: 340, cap: 30, tier: 'medium',   targetRevisitMs: 500000, lastPolledAt: 0 },
+    { label: 'AS_INDIA_N', lat:  28, lon:   77, dist: 350, cap: 35, tier: 'medium',   targetRevisitMs: 500000, lastPolledAt: 0 },
+    { label: 'AS_INDIA_S', lat:  13, lon:   80, dist: 340, cap: 30, tier: 'medium',   targetRevisitMs: 500000, lastPolledAt: 0 },
+    { label: 'AS_SE',      lat:  13, lon:  103, dist: 390, cap: 35, tier: 'medium',   targetRevisitMs: 500000, lastPolledAt: 0 },
+    { label: 'RU_WEST',    lat:  55, lon:   37, dist: 390, cap: 30, tier: 'medium',   targetRevisitMs: 500000, lastPolledAt: 0 },
+    { label: 'OC_AUS_E',   lat: -33, lon:  150, dist: 390, cap: 30, tier: 'medium',   targetRevisitMs: 500000, lastPolledAt: 0 },
+    // ── Sparse (19 tiles) — targetRevisit=300s, cap=20 ───────────────────────
+    // Short targetRevisitMs means these tiles accumulate overdue score faster
+    // and are selected by the scheduler more frequently per unit time. Geographic
+    // representativeness of rarely-queried airspace depends on this.
+    { label: 'ARCTIC_ATL', lat:  72, lon:  -20, dist: 600, cap: 20, tier: 'sparse',   targetRevisitMs: 300000, lastPolledAt: 0 },
+    { label: 'ARCTIC_PAC', lat:  72, lon:  160, dist: 600, cap: 20, tier: 'sparse',   targetRevisitMs: 300000, lastPolledAt: 0 },
+    { label: 'NA_PLAINS',  lat:  40, lon:  -98, dist: 370, cap: 20, tier: 'sparse',   targetRevisitMs: 300000, lastPolledAt: 0 },
+    { label: 'NA_CANADA',  lat:  51, lon:  -95, dist: 440, cap: 20, tier: 'sparse',   targetRevisitMs: 300000, lastPolledAt: 0 },
+    { label: 'NATL_W',     lat:  47, lon:  -40, dist: 600, cap: 20, tier: 'sparse',   targetRevisitMs: 300000, lastPolledAt: 0 },
+    { label: 'NATL_E',     lat:  52, lon:  -20, dist: 490, cap: 20, tier: 'sparse',   targetRevisitMs: 300000, lastPolledAt: 0 },
+    { label: 'EU_NORDIC',  lat:  62, lon:   15, dist: 340, cap: 20, tier: 'sparse',   targetRevisitMs: 300000, lastPolledAt: 0 },
+    { label: 'AS_CHINA_W', lat:  35, lon:  104, dist: 410, cap: 20, tier: 'sparse',   targetRevisitMs: 300000, lastPolledAt: 0 },
+    { label: 'AS_MALAY',   lat:   0, lon:  110, dist: 440, cap: 20, tier: 'sparse',   targetRevisitMs: 300000, lastPolledAt: 0 },
+    { label: 'RU_EAST',    lat:  55, lon:   83, dist: 490, cap: 20, tier: 'sparse',   targetRevisitMs: 300000, lastPolledAt: 0 },
+    { label: 'AF_NORTH',   lat:  25, lon:   15, dist: 540, cap: 20, tier: 'sparse',   targetRevisitMs: 300000, lastPolledAt: 0 },
+    { label: 'AF_WEST',    lat:  10, lon:    0, dist: 490, cap: 20, tier: 'sparse',   targetRevisitMs: 300000, lastPolledAt: 0 },
+    { label: 'AF_EAST',    lat:   0, lon:   38, dist: 490, cap: 20, tier: 'sparse',   targetRevisitMs: 300000, lastPolledAt: 0 },
+    { label: 'AF_SOUTH',   lat: -25, lon:   28, dist: 440, cap: 20, tier: 'sparse',   targetRevisitMs: 300000, lastPolledAt: 0 },
+    { label: 'SA_NORTH',   lat:   5, lon:  -72, dist: 440, cap: 20, tier: 'sparse',   targetRevisitMs: 300000, lastPolledAt: 0 },
+    { label: 'SA_BRAZIL',  lat: -10, lon:  -50, dist: 490, cap: 20, tier: 'sparse',   targetRevisitMs: 300000, lastPolledAt: 0 },
+    { label: 'SA_SOUTH',   lat: -34, lon:  -64, dist: 440, cap: 20, tier: 'sparse',   targetRevisitMs: 300000, lastPolledAt: 0 },
+    { label: 'OC_AUS_W',   lat: -25, lon:  122, dist: 490, cap: 20, tier: 'sparse',   targetRevisitMs: 300000, lastPolledAt: 0 },
+    { label: 'OC_NZ',      lat: -43, lon:  172, dist: 340, cap: 20, tier: 'sparse',   targetRevisitMs: 300000, lastPolledAt: 0 },
+    // ── Maritime / polar corridors (5 tiles) — targetRevisit=400s, cap=15 ─────
+    // Wide dist sweeps full corridor width. Traffic is rare but globally important.
+    { label: 'MAR_NATL',   lat:  38, lon:  -45, dist: 650, cap: 15, tier: 'maritime', targetRevisitMs: 400000, lastPolledAt: 0 },
+    { label: 'MAR_SATL',   lat: -15, lon:  -25, dist: 650, cap: 15, tier: 'maritime', targetRevisitMs: 400000, lastPolledAt: 0 },
+    { label: 'MAR_IND',    lat: -10, lon:   72, dist: 650, cap: 15, tier: 'maritime', targetRevisitMs: 400000, lastPolledAt: 0 },
+    { label: 'MAR_NPAC',   lat:  35, lon:  175, dist: 700, cap: 15, tier: 'maritime', targetRevisitMs: 400000, lastPolledAt: 0 },
+    { label: 'MAR_SPAC',   lat: -30, lon: -140, dist: 740, cap: 15, tier: 'maritime', targetRevisitMs: 400000, lastPolledAt: 0 },
   ];
 
   // ── Live aircraft cache ───────────────────────────────────────────────────────
@@ -79,23 +140,23 @@
 
   // ── Audit ─────────────────────────────────────────────────────────────────────
   var _audit = {
-    polls:         0,
-    injected:      0,
-    skipped:       0,
-    expired:       0,
-    lastPollMs:    0,
-    lastError:     null,
-    ticks:         0,
-    tickLastRegion: '',
+    polls:          0,
+    injected:       0,
+    skipped:        0,
+    expired:        0,
+    lastPollMs:     0,
+    lastError:      null,
+    ticks:          0,
+    tickLastTile:   '',
     tickLastCount:  0,
     tickLastMs:     0,
+    tickLastScore:  0,
   };
 
   // ── State ─────────────────────────────────────────────────────────────────────
   var _suppTimer  = null;
   var _suppActive = false;
   var _tickTimer  = null;
-  var _regionQueue = [];
   var _enabled    = true;
 
   // ── Primary-absent check ──────────────────────────────────────────────────────
@@ -151,8 +212,75 @@
     };
   }
 
-  // ── adsb.fi region fetch ──────────────────────────────────────────────────────
-  // Uses per-region dist from the partition table.
+  // ── Fisher-Yates shuffle (non-mutating) ──────────────────────────────────────
+  function _shuffle(arr) {
+    var a = arr.slice();
+    for (var i = a.length - 1; i > 0; i--) {
+      var j = Math.floor(Math.random() * (i + 1));
+      var t = a[i]; a[i] = a[j]; a[j] = t;
+    }
+    return a;
+  }
+
+  // ── Within-tile anti-clustering sampler ──────────────────────────────────────
+  // Groups raw API results by 1° grid cells before applying the tile's cap.
+  // Per-cell slot allocation: floor(cap / cellCount), clamped to [2, 8].
+  // Cells are shuffled before sampling to remove positional API bias.
+  // Prevents a single busy airport from filling an entire tile's quota.
+  function _sampleTileAircraft(rawAc, tileCap) {
+    var cells = {};
+    var i, ac, key, k, bucket, take;
+    for (i = 0; i < rawAc.length; i++) {
+      ac = rawAc[i];
+      if (!ac || ac.lat == null || ac.lon == null) continue;
+      key = Math.floor(ac.lat) + ':' + Math.floor(ac.lon);
+      if (!cells[key]) cells[key] = [];
+      cells[key].push(ac);
+    }
+    var keys = Object.keys(cells);
+    if (!keys.length) return [];
+
+    // Slots per 1° cell — sparse cells still get a minimum of 2
+    var perCell = Math.max(2, Math.min(8, Math.floor(tileCap / keys.length)));
+    var out = [];
+    for (k = 0; k < keys.length; k++) {
+      bucket = _shuffle(cells[keys[k]]);
+      take   = Math.min(perCell, bucket.length);
+      for (i = 0; i < take; i++) out.push(bucket[i]);
+    }
+
+    // Hard trim if per-cell allocation still exceeds cap (many 2-aircraft cells)
+    if (out.length > tileCap) {
+      out = _shuffle(out).slice(0, tileCap);
+    }
+    return out;
+  }
+
+  // ── Adaptive priority tile picker ─────────────────────────────────────────────
+  // Evaluates all tiles and returns the one with the highest overdue score.
+  // Score = (nowMs - lastPolledAt) / targetRevisitMs.
+  // Never-polled tiles (lastPolledAt = 0) score Infinity and are always first.
+  // Tiles with shorter targetRevisitMs (sparse/maritime) accumulate score faster
+  // and win more ticks than dense tiles — this is the proportional-coverage
+  // mechanism. No tile can starve: score grows monotonically between polls.
+  function _pickNextTile() {
+    var now       = Date.now();
+    var best      = null;
+    var bestScore = -Infinity;
+    var score, age, tile, i;
+    for (i = 0; i < GLOBAL_TILES.length; i++) {
+      tile  = GLOBAL_TILES[i];
+      age   = tile.lastPolledAt === 0 ? Infinity : (now - tile.lastPolledAt);
+      score = age === Infinity ? Infinity : age / tile.targetRevisitMs;
+      if (score > bestScore) {
+        bestScore = score;
+        best      = tile;
+      }
+    }
+    return { tile: best, score: bestScore };
+  }
+
+  // ── adsb.fi tile fetch ────────────────────────────────────────────────────────
   function _fetchAdsbFiRegion(region) {
     var url = '/adsb/api/v2/lat/' + region.lat + '/lon/' + region.lon + '/dist/' + region.dist;
     return fetch(url, { headers: { Accept: 'application/json' } })
@@ -166,15 +294,14 @@
       .catch(function () { return []; });
   }
 
-  // ── Per-region ingestion ──────────────────────────────────────────────────────
-  // Source key is 'adsb-fi:<regionLabel>' — eviction is fully isolated to the
-  // region being refreshed. No other region or adsb.lol entries are touched.
-  function _ingestRegion(aircraft, regionLabel) {
+  // ── Per-tile ingestion ────────────────────────────────────────────────────────
+  // Source key 'adsb-fi:<tileLabel>' scopes all eviction to that tile only.
+  // No other tile or adsb.lol entries are touched during a tile refresh.
+  function _ingestRegion(aircraft, tileLabel) {
     if (!Array.isArray(aircraft) || !aircraft.length) return;
     var nowMs  = Date.now();
-    var srcKey = 'adsb-fi:' + regionLabel;
+    var srcKey = 'adsb-fi:' + tileLabel;
 
-    // Build filtered incoming set (primary-absent check applied here)
     var incomingIds = new Set();
     var toInsert    = [];
     aircraft.forEach(function (ac) {
@@ -184,7 +311,7 @@
       toInsert.push(ac);
     });
 
-    // Evict same-region entries absent from this batch or globally stale
+    // Evict same-tile entries absent from this batch or globally stale
     aircraftLiveCache.forEach(function (entry, id) {
       if (entry._source !== srcKey) return;
       var tooOld = (entry._cachedAt != null) && (nowMs - entry._cachedAt) > STALE_MS;
@@ -206,38 +333,38 @@
       if (exists) { updated++; } else { created++; }
     });
 
-    _audit.injected    += created + updated;
-    _audit.tickLastMs   = nowMs;
-    console.log('[adsb.fi tick]', regionLabel,
+    _audit.injected  += created + updated;
+    _audit.tickLastMs = nowMs;
+    console.log('[adsb.fi tick]', tileLabel,
       '| in:', toInsert.length,
       '| created:', created, '| updated:', updated,
       '| cacheTotal:', aircraftLiveCache.size);
   }
 
-  // ── adsb.fi tick scheduler ────────────────────────────────────────────────────
-  // Pops one region from the rotating queue, fetches it, ingests it.
-  // One region per TICK_MS = 6 req/min steady state. No burst possible.
+  // ── adsb.fi adaptive tick ─────────────────────────────────────────────────────
+  // Picks the most-overdue tile, marks it as polled immediately (prevents
+  // double-pick during async fetch), fetches, applies within-tile sampling,
+  // normalizes, then ingests.
   function _tickAdsbFi() {
     if (!_enabled) return;
 
-    // Reload queue when exhausted — full global cycle complete
-    if (_regionQueue.length === 0) {
-      _regionQueue = ADSB_FI_REGIONS.slice();
-    }
+    var picked = _pickNextTile();
+    var tile   = picked.tile;
+    if (!tile) return;
 
-    var region = _regionQueue.shift();
+    tile.lastPolledAt    = Date.now();
     _audit.ticks++;
-    _audit.tickLastRegion = region.label;
+    _audit.tickLastTile  = tile.label;
+    _audit.tickLastScore = picked.score;
 
-    _fetchAdsbFiRegion(region).then(function (rawAc) {
+    _fetchAdsbFiRegion(tile).then(function (rawAc) {
       if (!rawAc.length) return;
-      // Apply regional density cap before normalization
-      var capped = rawAc.slice(0, region.cap);
-      var normalized = capped
+      var sampled    = _sampleTileAircraft(rawAc, tile.cap);
+      var normalized = sampled
         .filter(function (ac) { return ac && ac.hex && ac.lat != null && ac.lon != null; })
         .map(_normalizeAdsbFi);
       _audit.tickLastCount = normalized.length;
-      _ingestRegion(normalized, region.label);
+      _ingestRegion(normalized, tile.label);
     });
   }
 
@@ -341,18 +468,29 @@
     setTimeout(_pollSupplemental, 20 * 1000);
     _suppTimer = setInterval(_pollSupplemental, SUPPLEMENTAL_POLL);
 
-    // adsb.fi: 25 s then tick every 10 s
-    // Queue primed at start. One region per tick, rotating.
-    _regionQueue = ADSB_FI_REGIONS.slice();
+    // adsb.fi: 25 s then adaptive tick every 10 s.
+    // All lastPolledAt values start at 0 → score Infinity → first 47 ticks cover
+    // every tile once in insertion order (470 s). After that the priority scheduler
+    // takes over, naturally polling sparse/maritime tiles more frequently.
     setTimeout(function () {
       _tickAdsbFi();
       _tickTimer = setInterval(_tickAdsbFi, TICK_MS);
     }, TICK_INIT_DELAY);
 
+    var denseTiles    = GLOBAL_TILES.filter(function (t) { return t.tier === 'dense';    }).length;
+    var mediumTiles   = GLOBAL_TILES.filter(function (t) { return t.tier === 'medium';   }).length;
+    var sparseTiles   = GLOBAL_TILES.filter(function (t) { return t.tier === 'sparse';   }).length;
+    var maritimeTiles = GLOBAL_TILES.filter(function (t) { return t.tier === 'maritime'; }).length;
+
     console.log('[ArgusProviderCache] started',
       '— adsb.lol every', Math.round(SUPPLEMENTAL_POLL / 60000), 'min',
-      '— adsb.fi tick every', TICK_MS / 1000, 's across',
-      ADSB_FI_REGIONS.length, 'regions (', Math.round(ADSB_FI_REGIONS.length * TICK_MS / 1000), 's cycle)');
+      '— adsb.fi adaptive tick every', TICK_MS / 1000, 's',
+      '— tiles: dense=' + denseTiles,
+      'medium=' + mediumTiles,
+      'sparse=' + sparseTiles,
+      'maritime=' + maritimeTiles,
+      'total=' + GLOBAL_TILES.length,
+      '— initial full-coverage sweep:', Math.round(GLOBAL_TILES.length * TICK_MS / 1000), 's');
   }
 
   function stop() {
@@ -363,22 +501,33 @@
   }
 
   function status() {
+    var now = Date.now();
+    var tileStatus = GLOBAL_TILES.map(function (t) {
+      var age = t.lastPolledAt === 0 ? null : Math.round((now - t.lastPolledAt) / 1000);
+      return {
+        label:         t.label,
+        tier:          t.tier,
+        lastPolledAgo: age,
+        overdue:       age !== null ? age > t.targetRevisitMs / 1000 : true,
+      };
+    });
     return {
-      enabled:         _enabled,
-      mode:            'adsb.lol + adsb.fi tick scheduler',
-      cacheSize:       aircraftLiveCache.size,
-      polls:           _audit.polls,
-      injected:        _audit.injected,
-      skipped:         _audit.skipped,
-      expired:         _audit.expired,
-      lastPollMs:      _audit.lastPollMs,
-      lastError:       _audit.lastError,
-      inFlight:        _suppActive,
-      ticks:           _audit.ticks,
-      tickLastRegion:  _audit.tickLastRegion,
-      tickLastCount:   _audit.tickLastCount,
-      tickLastMs:      _audit.tickLastMs,
-      queueRemaining:  _regionQueue.length,
+      enabled:        _enabled,
+      mode:           'adsb.lol + adsb.fi adaptive priority scheduler',
+      cacheSize:      aircraftLiveCache.size,
+      polls:          _audit.polls,
+      injected:       _audit.injected,
+      skipped:        _audit.skipped,
+      expired:        _audit.expired,
+      lastPollMs:     _audit.lastPollMs,
+      lastError:      _audit.lastError,
+      inFlight:       _suppActive,
+      ticks:          _audit.ticks,
+      tickLastTile:   _audit.tickLastTile,
+      tickLastCount:  _audit.tickLastCount,
+      tickLastMs:     _audit.tickLastMs,
+      tickLastScore:  _audit.tickLastScore,
+      tiles:          tileStatus,
     };
   }
 

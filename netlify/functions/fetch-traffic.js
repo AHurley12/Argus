@@ -94,8 +94,10 @@ const REGIONS = [
   { name: 'MIDEAST',   lat:  25,  lon:   52,  dist: 550 },
   { name: 'LATAM',     lat: -10,  lon:  -55,  dist: 750 },
   { name: 'OCEANIA',   lat: -25,  lon:  140,  dist: 750 },
-  { name: 'AFRICA',    lat:   5,  lon:   22,  dist: 750 },  // West/Central/East Africa — previously unqueried
+  { name: 'AFRICA',    lat:   5,  lon:   22,  dist: 750 },  // West/Central/East Africa
   { name: 'RUSSIA',    lat:  60,  lon:   80,  dist: 800 },  // Siberia/Central Russia — gap east of EUROPE
+  { name: 'INDIA',     lat:  22,  lon:   82,  dist: 600 },  // Indian subcontinent — not covered by MIDEAST or SE_ASIA
+  { name: 'CARIB',     lat:  15,  lon:  -80,  dist: 500 },  // Caribbean + Central America — gap between NA_EAST and LATAM
 ];
 
 // ── Fetch one region — full snapshot, no per-fetch aircraft cap ────────────────

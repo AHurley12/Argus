@@ -800,7 +800,7 @@ function filterByType(data, type) {
 return {
   toggleAircraft:      toggleAircraft,
   toggleShips:         toggleShips,
-  renderShips:         renderShips,
+  renderShips:         function () { if (shipGroup) shipGroup.visible = true; renderShips(); },
   refreshAircraft:     function () { lastFetch = 0; fetchAndRenderAircraft(); },
   refreshShips:        function () { lastShipFetch = 0; fetchShipsFromBackend(); },
   filterByType:        filterByType,

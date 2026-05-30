@@ -20,8 +20,8 @@ var AIS_DIM_F    = 0.12 / 0.92;  // ArgusSelection.CFG.DIM_OPACITY / AIS_OPACITY
 var AIS_ALTITUDE = 101.3;  // must match R.AIS defined in globe init — no z-fighting with R.SHIP (101.5)
 // Cap how many unique vessels we keep in memory. Oldest-updated get evicted
 // once this limit is hit so the globe doesn't accumulate stale ghosts.
-// 1500 supports ~1800 total between WebSocket stream + REST supplement.
-var AIS_MAX_MARKERS = 1500;
+// 2500 supports ~22 regions × ~150 vessels average, with headroom for high-density zones.
+var AIS_MAX_MARKERS = 2500;
 // Interval between buffer drain + diff render passes.
 // Ingest (onmessage → buffer.push) is uncapped; only rendering is rate-limited.
 var AIS_RENDER_INTERVAL = 300; // ms — "real-time feel" without flooding the render loop
@@ -606,25 +606,38 @@ function connectAISStream() {
   }
 
   ws.onopen = function () {
-    console.log('[ArgusAIS] AISstream connected — subscribing (10 strategic regions)');
-    // 10 strategic maritime regions instead of global bbox.
-    // Global bbox skews heavily toward European AIS receivers; regional targeting
-    // gives proportional coverage of high-value corridors: Suez, Malacca, Persian
-    // Gulf, South China Sea, Panama — where geopolitical intelligence density is highest.
+    console.log('[ArgusAIS] AISstream connected — subscribing (22 strategic regions)');
+    // 22 strategic maritime regions.
+    // Regional targeting gives proportional global coverage while avoiding the
+    // European AIS receiver density bias that a single global bbox produces.
     // Format: [[minLat, minLon], [maxLat, maxLon]]
     ws.send(JSON.stringify({
       APIKey: AISSTREAM_KEY,
       BoundingBoxes: [
-        [[ 50, -10], [ 70,  30]],  // North Sea & Baltic      (300 est.)
-        [[ 30,  -6], [ 46,  36]],  // Mediterranean           (250)
-        [[ 12,  32], [ 32,  50]],  // Suez Canal & Red Sea    (200) ← chokepoint
-        [[ -2,  95], [  8, 110]],  // Strait of Malacca       (200) ← busiest strait
-        [[  5, -85], [ 25, -60]],  // Panama Canal & Caribbean(150)
-        [[ 23,  48], [ 30,  60]],  // Persian Gulf            (150) ← energy
-        [[  0, 105], [ 25, 125]],  // South China Sea         (150) ← contested
-        [[-12,  35], [ 15,  55]],  // East Africa & Horn      (100) ← piracy
-        [[ 30, -60], [ 60, -10]],  // North Atlantic          (150)
-        [[ 20,-135], [ 50,-115]],  // US West Coast & Pacific (150)
+        // ── Original 10 ──────────────────────────────────────────────────────
+        [[ 50, -10], [ 70,  30]],  // North Sea & Baltic
+        [[ 30,  -6], [ 46,  36]],  // Mediterranean
+        [[ 12,  32], [ 32,  50]],  // Suez Canal & Red Sea       ← chokepoint
+        [[ -2,  95], [  8, 110]],  // Strait of Malacca          ← busiest strait
+        [[  5, -85], [ 25, -60]],  // Panama Canal & Caribbean
+        [[ 23,  48], [ 30,  60]],  // Persian Gulf               ← energy
+        [[  0, 105], [ 25, 125]],  // South China Sea            ← contested
+        [[-12,  35], [ 15,  55]],  // East Africa & Horn         ← piracy zone
+        [[ 30, -60], [ 60, -10]],  // North Atlantic
+        [[ 20,-135], [ 50,-115]],  // US West Coast & Pacific
+        // ── 12 new regions ───────────────────────────────────────────────────
+        [[ 25, -98], [ 45, -65]],  // US East Coast & Gulf of Mexico
+        [[ 10,  55], [ 28,  78]],  // Arabian Sea                ← India-Gulf corridor
+        [[ -5,  65], [ 25,  90]],  // Bay of Bengal & Indian Ocean N
+        [[-35,  15], [-25,  40]],  // Cape of Good Hope          ← diversion route
+        [[-10, 105], [  8, 130]],  // Indonesia / Java / Banda Sea
+        [[ 30, 125], [ 45, 145]],  // Japan & Korea              ← major export hub
+        [[ 40,  27], [ 48,  42]],  // Black Sea                  ← Russia/Ukraine/Turkey
+        [[-10, -18], [ 10,  15]],  // West Africa / Gulf of Guinea ← oil
+        [[-45, 110], [-10, 155]],  // Australia
+        [[-35, -55], [ -5, -30]],  // South Atlantic / Brazil coast
+        [[-60, -70], [-45, -50]],  // Cape Horn / Drake Passage  ← Falklands/Southern Ocean
+        [[-30,  80], [ 10, 110]],  // Indian Ocean (central)     ← long-haul fill
       ],
       FilterMessageTypes: ['PositionReport'],
     }));

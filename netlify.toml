@@ -19,6 +19,12 @@
 [functions."fetch-supplemental"]
   timeout = 15
 
+[functions."fetch-maritime-supplement"]
+  timeout = 20
+
+[functions."ais-vessels"]
+  timeout = 26
+
 [functions."fetch-reliefweb"]
   timeout = 15
 
@@ -44,7 +50,7 @@
   timeout = 10
 
 [[redirects]]
-  from   = "/adsb/*"
+  from   = "/adsb/api/*"
   to     = "https://opendata.adsb.fi/:splat"
   status = 200
   force  = true

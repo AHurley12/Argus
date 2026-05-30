@@ -2128,7 +2128,7 @@ document.addEventListener('DOMContentLoaded', function() {
       var inst = window.ArgusAISInstanced;
       return {
         count:    inst ? inst.getCount() : 0,
-        capacity: 1500,   // AIS_MAX_MARKERS — must match instancedAIS.js MAX
+        capacity: 2500,   // AIS_MAX_MARKERS — must match instancedAIS.js MAX
         mesh:     inst ? inst.getMesh()  : null,
       };
     },
@@ -10748,7 +10748,7 @@ if (document.readyState === 'loading') {
 
 <!-- AIS visual layer — must load before argusAIS.js -->
 <script src="/core/globe/materials.js?v=perf-fix-8"></script>
-<script src="/core/globe/instancedAIS.js?v=perf-fix-8"></script>
+<script src="/core/globe/instancedAIS.js?v=perf-fix-9"></script>
 
 <!-- SCRIPT 4b — ArgusAIS: AISstream Realtime Layer -->
 <script src="/modules/argusAIS.js?v=perf-fix-9"></script>

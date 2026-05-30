@@ -7,7 +7,7 @@
 //   ArgusSelection, hover, click, tooltips all unchanged).
 //   This module owns ONLY the visual rendering layer.
 //
-// Step 2.1 — InstancedMesh with capacity = AIS_MAX_MARKERS (1500)
+// Step 2.1 — InstancedMesh with capacity = AIS_MAX_MARKERS (2500)
 // Step 2.2 — id → instanceIndex map + free-index pool (no unbounded growth)
 // Step 2.3 — setMatrixAt() for position + heading; instanceColor for type tint
 // Step 2.4 — called from argusAIS.js; sprites set material.visible=false (0 draw calls)
@@ -24,7 +24,7 @@ window.ArgusAISInstanced = (function () {
   'use strict';
 
   // Must match AIS_MAX_MARKERS in argusAIS.js
-  var MAX       = 1500;
+  var MAX       = 2500;
   var SCALE     = 0.89;
   var ALTITUDE  = 101.3; // R.AIS from globe init
 

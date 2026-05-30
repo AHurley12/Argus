@@ -477,7 +477,6 @@
       <div class="kbd-row"><span class="kbd-key">E</span><span class="kbd-label">EVENTS</span></div>
       <div class="kbd-row"><span class="kbd-key">W</span><span class="kbd-label">WEATHER</span></div>
       <div class="kbd-row"><span class="kbd-key">A</span><span class="kbd-label">AIRCRAFT</span></div>
-      <div class="kbd-row"><span class="kbd-key">S</span><span class="kbd-label">SHIPS</span></div>
       <div class="kbd-row"><span class="kbd-key">K</span><span class="kbd-label">CHOKEPOINTS</span></div>
       <div class="kbd-row"><span class="kbd-key">N</span><span class="kbd-label">NEURAL WEB</span></div>
 
@@ -534,9 +533,6 @@
     <button id="btn-track-aircraft" class="track-btn"
             onclick="window.ArgusTracking && ArgusTracking.toggleAircraft()"
             title="Toggle live aircraft (OpenSky Network · key A)">✈ AIRCRAFT</button>
-    <button id="btn-track-ships" class="track-btn track-ship"
-            onclick="window.ArgusTracking && ArgusTracking.toggleShips()"
-            title="Toggle live ships (VesselAPI · key S)">⚓ SHIPS</button>
     <button id="btn-track-ais" class="track-btn track-ais is-active"
             onclick="window.ArgusAIS && ArgusAIS.toggle()"
             title="Toggle AISstream live vessels (Supabase Realtime · WebSocket feed)">◈ AIS LIVE</button>

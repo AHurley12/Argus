@@ -640,6 +640,20 @@ function renderShips() {
   clearGroup(shipGroup, shipHits);  // handles _keepAlive InstancedMesh skip; no-op for sprites
   // Spec: limit to SHIP_LIMIT, highest SOG first (moving ships take priority)
   var sorted = shipBuffer.slice().sort(function (a, b) { return (b.sog || 0) - (a.sog || 0); });
+
+  // Merge supplemental maritime vessels (Digitraffic etc.) — primary data wins on MMSI collision
+  var suppMap = window._argusMaritimeSupplemental;
+  if (suppMap && suppMap.size > 0) {
+    var primaryMmsi = new Set();
+    for (var si = 0; si < sorted.length; si++) { if (sorted[si].mmsi) primaryMmsi.add(sorted[si].mmsi); }
+    var norm = window.ArgusNormalizeVessel;
+    suppMap.forEach(function (v) {
+      if (v.mmsi && primaryMmsi.has(v.mmsi)) return;  // primary source takes precedence
+      sorted.push(norm ? norm.toShipBufferEntry(v) : v);
+    });
+    sorted.sort(function (a, b) { return (b.sog || 0) - (a.sog || 0); });
+  }
+
   sorted.slice(0, SHIP_LIMIT).forEach(function (s) {
     placeShip(s.lat, s.lon, s.name, s.sog, s.cog, s.typeCategory, s.mmsi, s.region, s.navStatus, s.destination);
   });

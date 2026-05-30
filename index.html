@@ -10742,6 +10742,12 @@ if (document.readyState === 'loading') {
 <!-- SCRIPT 4 — ArgusTracking: Aircraft + Ships + patchShTex shim -->
 <script src="/modules/argusTracking.js?v=perf-fix-8"></script>
 
+<!-- Maritime supplemental providers — must load after argusTracking.js (renderShips reads _argusMaritimeSupplemental) -->
+<script src="/core/providers/maritime/maritimeDiagnostics.js?v=1"></script>
+<script src="/core/providers/maritime/normalizeVessel.js?v=1"></script>
+<script src="/core/providers/maritime/maritimeProviderRegistry.js?v=1"></script>
+<script src="/core/providers/maritime/maritimeProviderCache.js?v=1"></script>
+
 
 
 <!-- AIS visual layer — must load before argusAIS.js -->

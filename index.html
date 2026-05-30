@@ -718,6 +718,7 @@ window.ArgusLayerState = {
 };
 
 document.addEventListener('DOMContentLoaded', function() {
+  if (window.ArgusPerf) ArgusPerf.mark('DOM_CONTENT_LOADED');
 
   // ── Globe engine event listener registry ────────────────────────────────────
   // All canvas / window listeners created below are registered through evtMgr
@@ -734,11 +735,13 @@ document.addEventListener('DOMContentLoaded', function() {
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.setClearColor(0x020a15, 1);
   container.appendChild(renderer.domElement);
+  if (window.ArgusPerf) ArgusPerf.mark('RENDERER_CREATED');
 
   // ── Scene & Camera ──────────────────────────────────────────────────────────
   const scene  = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(60, W / H, 0.1, 1000);
   camera.position.z = 225;
+  if (window.ArgusPerf) ArgusPerf.mark('SCENE_CAMERA_CREATED');
 
   // ── Raycasters ──────────────────────────────────────────────────────────────
   const raycasterClick = new THREE.Raycaster();
@@ -748,13 +751,16 @@ document.addEventListener('DOMContentLoaded', function() {
 
   // ── Globe ───────────────────────────────────────────────────────────────────
   const Globe = new ThreeGlobe();
+  if (window.ArgusPerf) ArgusPerf.mark('GLOBE_CONSTRUCTED');
 
   // Fetch country polygons (Natural Earth 50m — restored from 110m for full coastline + island fidelity)
   // ne_50m: ~4,400 polygon features, ~500 KB — Caribbean, Indonesian, Mediterranean, Pacific islands included
   // ne_110m was a regression (commit 0e62a0b): ~255 features, coarse coastlines, missing islands
+  if (window.ArgusPerf) ArgusPerf.mark('COUNTRY_GEOJSON_FETCH_START');
   fetch('https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_50m_admin_0_countries.geojson')
     .then(function(r) { return r.json(); })
     .then(function(geo) {
+      if (window.ArgusPerf) ArgusPerf.mark('COUNTRY_GEOJSON_RECEIVED');
       // ThreeGlobe 2.45 — call setters individually (chaining unreliable across versions)
       Globe.polygonsData(geo.features);
       Globe.polygonAltitude(0.008);
@@ -927,9 +933,14 @@ document.addEventListener('DOMContentLoaded', function() {
     })
     .catch(function(e) { console.warn('Country polygon fetch failed:', e); });
 
-  Globe
-    .globeImageUrl('https://unpkg.com/three-globe/example/img/earth-dark.jpg')
-    .bumpImageUrl('https://unpkg.com/three-globe/example/img/earth-topology.png');
+  if (window.ArgusPerf && ArgusPerf.FLAGS.DISABLE_TEXTURES) {
+    console.warn('[ArgusPerf] DISABLE_TEXTURES active — skipping globe texture/bump load');
+  } else {
+    Globe
+      .globeImageUrl('https://unpkg.com/three-globe/example/img/earth-dark.jpg')
+      .bumpImageUrl('https://unpkg.com/three-globe/example/img/earth-topology.png');
+    if (window.ArgusPerf) ArgusPerf.mark('GLOBE_TEXTURES_SET');
+  }
 
   // Globe group — contains ONLY the globe mesh/texture
   const globeGroup = new THREE.Group();
@@ -1887,6 +1898,7 @@ document.addEventListener('DOMContentLoaded', function() {
   var animT        = 0;
   var _frameLast   = 0; // timestamp of previous frame for budget sampling
   var _frameCount  = 0; // frame counter — sample every 60 frames (~1 s at 60 fps)
+  var _firstFrame  = true;
   // FPS rolling average — circular buffer of the last 60 frame deltas (≈ 1 s window)
   var _fpsBuf      = new Float32Array(60);
   var _fpsBufIdx   = 0;
@@ -1894,6 +1906,10 @@ document.addEventListener('DOMContentLoaded', function() {
   var _fpsMin      = 0;
   function animate() {
     requestAnimationFrame(animate);
+    if (_firstFrame) {
+      _firstFrame = false;
+      if (window.ArgusPerf) ArgusPerf.mark('FIRST_ANIMATION_FRAME');
+    }
     animT += 0.016;
 
     // Sample frame budget every 60 frames so we detect sustained render stalls
@@ -1970,6 +1986,10 @@ document.addEventListener('DOMContentLoaded', function() {
     if (window.ArgusWeatherLayer) ArgusWeatherLayer.tick();
     if (window.ArgusGDACS && ArgusGDACS.tick) ArgusGDACS.tick();
     renderer.render(scene, camera);
+    if (window.ArgusPerf && window.ArgusPerf._firstRenderDone !== true) {
+      window.ArgusPerf._firstRenderDone = true;
+      ArgusPerf.mark('FIRST_RENDERER_RENDER');
+    }
 
     // ── ArgusRenderAudit — updated every frame, removable ────────────────────────
     if (window.ArgusRenderAudit) {
@@ -2086,6 +2106,7 @@ document.addEventListener('DOMContentLoaded', function() {
     }).observe({ entryTypes: ['longtask'] });
   } catch (_ltErr) { /* longtask API not supported — audit.longTasks stays 0 */ }
 
+  if (window.ArgusPerf) ArgusPerf.mark('ANIMATE_LOOP_STARTED');
   animate();
 
   // ── Resize Handler ───────────────────────────────────────────────────────────
@@ -2119,6 +2140,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
   // Expose for external access
   window.ArgusGlobe = { scene: scene, camera: camera, renderer: renderer, globe: Globe, globeGroup: globeGroup, dataGroup: dataGroup, eventMarkerGroup: eventMarkerGroup, weatherSpriteGroup: weatherSpriteGroup, latLonToVector: latLonToVector, R: R, clearHover: clearHoverTooltip };
+  if (window.ArgusPerf) ArgusPerf.mark('ARGUS_GLOBE_EXPORTED');
 
   // ── Read-only debug interface — diagnostics only, no mutation surface ─────────
   window.ArgusDebug = Object.freeze({
@@ -10717,6 +10739,9 @@ if (document.readyState === 'loading') {
 </script>
 
 
+<!-- Perf profiler — must load first so marks are captured from DOMContentLoaded onward -->
+<script src="/core/perf/argusPerf.js?v=1"></script>
+
 <!-- Resource tracker — must load before all modules that create GPU resources -->
 <script src="/core/memory/argusResourceTracker.js?v=perf-fix-8"></script>
 
@@ -10736,7 +10761,7 @@ if (document.readyState === 'loading') {
 <script src="/core/globe/instancedCountries.js?v=perf-fix-8"></script>
 
 <!-- SCRIPT 4 — ArgusTracking: Aircraft + Ships + patchShTex shim -->
-<script src="/modules/argusTracking.js?v=perf-fix-9"></script>
+<script src="/modules/argusTracking.js?v=perf-fix-10"></script>
 
 <!-- Maritime supplemental providers — must load after argusTracking.js (renderShips reads _argusMaritimeSupplemental) -->
 <script src="/core/providers/maritime/maritimeDiagnostics.js?v=1"></script>
@@ -10751,7 +10776,7 @@ if (document.readyState === 'loading') {
 <script src="/core/globe/instancedAIS.js?v=perf-fix-9"></script>
 
 <!-- SCRIPT 4b — ArgusAIS: AISstream Realtime Layer -->
-<script src="/modules/argusAIS.js?v=perf-fix-9"></script>
+<script src="/modules/argusAIS.js?v=perf-fix-10"></script>
 
 
 

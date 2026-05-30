@@ -180,6 +180,7 @@ function ensureGeometries() {
 
 // ── Init — attach groups to eventMarkerGroup ──────────────────────────────────
 function init() {
+  if (window.ArgusPerf) ArgusPerf.mark('TRACKING_INIT_START');
   var AG = window.ArgusGlobe;
   if (!AG || !AG.eventMarkerGroup || !AG.latLonToVector) return false;
   ensureGeometries();
@@ -203,6 +204,7 @@ function init() {
     AG.eventMarkerGroup.add(shipGroup);
     if (window.ArgusShipsInstanced) window.ArgusShipsInstanced.init(shipGroup, _shTex);
   }
+  if (window.ArgusPerf) ArgusPerf.mark('TRACKING_INIT_END');
   return true;
 }
 
@@ -396,6 +398,10 @@ function normalizeTracking() {
 
 // ── Aircraft fetch — Netlify function (primary) → community fallbacks ─────────
 function fetchAndRenderAircraft() {
+  if (window.ArgusPerf && ArgusPerf.FLAGS.DISABLE_AIRCRAFT) {
+    console.warn('[ArgusTracking] DISABLE_AIRCRAFT flag active — skipping fetch');
+    return;
+  }
   // Back off 5 min after complete waterfall failure
   var _AC_BACKOFF_MS = 5 * 60 * 1000;
   if (_acFailedAt && (Date.now() - _acFailedAt) < _AC_BACKOFF_MS) return;
@@ -565,6 +571,10 @@ function renderAircraft(json) {
     if (window.ArgusSchedulerAudit) window.ArgusSchedulerAudit.deferredTasks++;
   } else {
     setTimeout(normalizeTracking, 0);
+  }
+  if (window.ArgusPerf && !ArgusPerf._firstAircraftRender) {
+    ArgusPerf._firstAircraftRender = true;
+    ArgusPerf.mark('FIRST_AIRCRAFT_RENDER');
   }
   updateStatus();
 }
@@ -800,7 +810,18 @@ function filterByType(data, type) {
 return {
   toggleAircraft:      toggleAircraft,
   toggleShips:         toggleShips,
-  renderShips:         function () { if (shipGroup) shipGroup.visible = true; renderShips(); },
+  renderShips:         function () {
+    if (window.ArgusPerf && ArgusPerf.FLAGS.DISABLE_VESSELS) {
+      console.warn('[ArgusTracking] DISABLE_VESSELS flag active — skipping renderShips');
+      return;
+    }
+    if (shipGroup) shipGroup.visible = true;
+    if (window.ArgusPerf && !ArgusPerf._firstVesselRender) {
+      ArgusPerf._firstVesselRender = true;
+      ArgusPerf.mark('FIRST_VESSEL_RENDER');
+    }
+    renderShips();
+  },
   refreshAircraft:     function () { lastFetch = 0; fetchAndRenderAircraft(); },
   refreshShips:        function () { lastShipFetch = 0; fetchShipsFromBackend(); },
   filterByType:        filterByType,

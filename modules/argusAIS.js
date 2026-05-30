@@ -514,6 +514,7 @@ function connectAISStream() {
   }
 
   console.log('[ArgusAIS] connecting to AISstream…');
+  if (window.ArgusPerf) ArgusPerf.mark('AIS_WEBSOCKET_CONNECTING');
   var ws = new WebSocket('wss://stream.aisstream.io/v0/stream');
   wsAIS  = ws;
 
@@ -606,6 +607,7 @@ function connectAISStream() {
   }
 
   ws.onopen = function () {
+    if (window.ArgusPerf) ArgusPerf.mark('AIS_WEBSOCKET_OPEN');
     console.log('[ArgusAIS] AISstream connected — subscribing (22 strategic regions)');
     // 22 strategic maritime regions.
     // Regional targeting gives proportional global coverage while avoiding the

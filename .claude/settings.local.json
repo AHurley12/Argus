@@ -162,7 +162,13 @@
       "Bash(curl -s \"http://localhost:5173/adsb/api/v2/all\" -w \"\\\\nHTTP:%{http_code}\")",
       "Bash(curl -s \"http://localhost:5173/adsb/api/v2/lat/50/lon/10/dist/249\")",
       "Bash(curl:*)",
-      "Bash(xargs cat:*)"
+      "Bash(xargs cat:*)",
+      "Bash(git -C \"C:/Users/aidan/Desktop/Argus\" status)",
+      "Bash(git -C \"C:/Users/aidan/Desktop/Argus\" diff)",
+      "Bash(git -C \"C:/Users/aidan/Desktop/Argus\" log --oneline -5)",
+      "Bash(git -C \"C:/Users/aidan/Desktop/Argus\" add index.html netlify/functions/fetch-td-history.js)",
+      "Bash(git -C C:/Users/aidan/Desktop/Argus commit -m ':*)",
+      "Bash(git:*)"
     ]
   }
 }

@@ -2602,13 +2602,13 @@ window.ArgusData = (function() {
 
   // ── Exchange symbol registry — used by selectExchange() for chart lookups ──
   var EXCHANGE_SYMBOLS = [
-    { sym: 'VIX',  tdSym: 'VIXY', avSym: 'VIXY', pgSym: null,  elId: 'idx-vix',    chgId: null,             label: 'VIX'        },
-    { sym: 'FTSE', tdSym: 'EWU',  avSym: 'EWU',  pgSym: null,  elId: 'idx-ftse',   chgId: 'idx-ftse-chg',   label: 'FTSE 100'   },
-    { sym: 'DAX',  tdSym: 'EWG',  avSym: 'EWG',  pgSym: null,  elId: 'idx-dax',    chgId: 'idx-dax-chg',    label: 'DAX'        },
-    { sym: 'N225', tdSym: 'EWJ',  avSym: 'EWJ',  pgSym: null,  elId: 'idx-nikkei', chgId: 'idx-nikkei-chg', label: 'NIKKEI 225' },
-    { sym: 'HSI',  tdSym: 'FXI',  avSym: 'FXI',  pgSym: null,  elId: 'idx-hsi',    chgId: 'idx-hsi-chg',    label: 'HANG SENG'  },
-    { sym: 'KSA',  tdSym: 'KSA',  avSym: 'KSA',  pgSym: 'KSA', elId: 'idx-ksa',    chgId: 'idx-ksa-chg',    label: 'SAUDI/GULF' },
-    { sym: 'NYA',  tdSym: 'SPY',  avSym: 'NYA',  pgSym: 'IYY', elId: 'idx-nyse',   chgId: 'idx-nyse-chg',   label: 'NYSE (SPY)' },
+    { sym: 'VIX',  tdSym: '^VIX',   avSym: 'VIXY', pgSym: null,  elId: 'idx-vix',    chgId: null,             label: 'VIX'        },
+    { sym: 'FTSE', tdSym: '^FTSE',  avSym: 'EWU',  pgSym: null,  elId: 'idx-ftse',   chgId: 'idx-ftse-chg',   label: 'FTSE 100'   },
+    { sym: 'DAX',  tdSym: '^GDAXI', avSym: 'EWG',  pgSym: null,  elId: 'idx-dax',    chgId: 'idx-dax-chg',    label: 'DAX'        },
+    { sym: 'N225', tdSym: '^N225',  avSym: 'EWJ',  pgSym: null,  elId: 'idx-nikkei', chgId: 'idx-nikkei-chg', label: 'NIKKEI 225' },
+    { sym: 'HSI',  tdSym: '^HSI',   avSym: 'FXI',  pgSym: null,  elId: 'idx-hsi',    chgId: 'idx-hsi-chg',    label: 'HANG SENG'  },
+    { sym: 'KSA',  tdSym: 'KSA',    avSym: 'KSA',  pgSym: 'KSA', elId: 'idx-ksa',    chgId: 'idx-ksa-chg',    label: 'SAUDI/GULF' },
+    { sym: 'NYA',  tdSym: '^NYA',   avSym: 'NYA',  pgSym: 'IYY', elId: 'idx-nyse',   chgId: 'idx-nyse-chg',   label: 'NYSE'       },
   ];
 
   function toggleExchanges() {

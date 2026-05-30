@@ -780,16 +780,15 @@ document.addEventListener('DOMContentLoaded', function() {
       // so they can be merged into 2 draw calls with zero visual change.
       // Ghost meshes stay in Globe's scene graph for onPolygonHover raycasting;
       // only their materials are hidden.
-      // BufferGeometryUtils is exposed differently depending on three-globe bundle version.
-      // Try THREE.BufferGeometryUtils first, then window global, then bare global.
-      var _BGU = THREE.BufferGeometryUtils ||
-                 window.BufferGeometryUtils ||
-                 (typeof BufferGeometryUtils !== 'undefined' ? BufferGeometryUtils : null);
-
+      // BufferGeometryUtils is resolved lazily inside each poll so late-loading
+      // shims are picked up. Try THREE global first, then window shim, then bare global.
       var _mergePolygons = function() {
+        var _BGU = THREE.BufferGeometryUtils ||
+                   window.BufferGeometryUtils ||
+                   (typeof BufferGeometryUtils !== 'undefined' ? BufferGeometryUtils : null);
         if (!_BGU) {
-          console.warn('[Argus] polygon merge: BufferGeometryUtils unavailable — skip');
-          return true;  // bail permanently — won't appear later
+          console.warn('[Argus] polygon merge: BufferGeometryUtils not yet available — will retry');
+          return false;  // retry on next poll cycle
         }
 
         var capGeos  = [], lineGeos = [];
@@ -10738,6 +10737,57 @@ if (document.readyState === 'loading') {
 }());
 </script>
 
+
+<!-- BufferGeometryUtils shim ─────────────────────────────────────────────────
+     THREE r152+ removed BufferGeometryUtils from the global THREE namespace.
+     This shim exposes window.BufferGeometryUtils.mergeGeometries using the
+     same window.THREE instance already on the page — no CDN, no cross-instance
+     geometry mismatch. Must load after THREE but before DOMContentLoaded.     -->
+<script>
+(function () {
+  if ((window.THREE && THREE.BufferGeometryUtils) || window.BufferGeometryUtils) return;
+  window.BufferGeometryUtils = {
+    mergeGeometries: function (geometries) {
+      if (!geometries || !geometries.length) return null;
+      var attrNames = Object.keys(geometries[0].attributes);
+      var isIndexed  = !!geometries[0].index;
+      var totalVerts = 0, totalIdx = 0;
+      for (var k = 0; k < geometries.length; k++) {
+        var _pa = geometries[k].attributes.position;
+        if (_pa) totalVerts += _pa.count;
+        if (isIndexed && geometries[k].index) totalIdx += geometries[k].index.count;
+      }
+      var merged = new THREE.BufferGeometry();
+      for (var a = 0; a < attrNames.length; a++) {
+        var aName = attrNames[a];
+        var ref   = geometries[0].attributes[aName];
+        var Arr   = ref.array.constructor;
+        var arr   = new Arr(totalVerts * ref.itemSize);
+        var off   = 0;
+        for (var k = 0; k < geometries.length; k++) {
+          var attr = geometries[k].attributes[aName];
+          if (attr && attr.array) { arr.set(attr.array, off); off += attr.array.length; }
+        }
+        merged.setAttribute(aName, new THREE.BufferAttribute(arr, ref.itemSize, ref.normalized));
+      }
+      if (isIndexed) {
+        var IdxArr = totalVerts > 65535 ? Uint32Array : Uint16Array;
+        var idxArr = new IdxArr(totalIdx);
+        var idxOff = 0, vOff = 0;
+        for (var k = 0; k < geometries.length; k++) {
+          var idx = geometries[k].index;
+          var vc  = geometries[k].attributes.position ? geometries[k].attributes.position.count : 0;
+          if (idx) { for (var j = 0; j < idx.count; j++) idxArr[idxOff++] = idx.getX(j) + vOff; }
+          vOff += vc;
+        }
+        merged.setIndex(new THREE.BufferAttribute(idxArr, 1));
+      }
+      return merged;
+    }
+  };
+  console.log('[Argus] BufferGeometryUtils shim installed (THREE r184 compat)');
+}());
+</script>
 
 <!-- Perf profiler — must load first so marks are captured from DOMContentLoaded onward -->
 <script src="/core/perf/argusPerf.js?v=1"></script>

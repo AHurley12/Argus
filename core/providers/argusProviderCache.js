@@ -281,17 +281,63 @@
   }
 
   // ── adsb.fi tile fetch ────────────────────────────────────────────────────────
+  // adsb.fi hard cap: 250 nm radius. Tiles defined with dist > 250 are clamped
+  // here so the upstream never receives an out-of-range parameter (→ 400).
+  var ADSB_FI_MAX_DIST = 250;
+
   function _fetchAdsbFiRegion(region) {
-    var url = '/adsb/api/v2/lat/' + region.lat + '/lon/' + region.lon + '/dist/' + region.dist;
+    var dist = Math.min(region.dist, ADSB_FI_MAX_DIST);
+    var url  = '/adsb/api/v2/lat/' + region.lat + '/lon/' + region.lon + '/dist/' + dist;
+
     return fetch(url, { headers: { Accept: 'application/json' } })
       .then(function (resp) {
         var ct = resp.headers.get('content-type') || '';
-        if (!ct.includes('application/json') || !resp.ok) return [];
-        return resp.json().then(function (d) {
-          return Array.isArray(d.aircraft) ? d.aircraft : [];
-        });
+
+        // ── [ADSB DEBUG] Step 3 / 5 diagnostics ──────────────────────────────
+        // Logs on non-ok responses only — not spammy on healthy ticks.
+        if (!resp.ok) {
+          // Read body for preview without consuming resp (clone it first).
+          var bodyPreview = '(body unread)';
+          resp.clone().text().then(function (txt) {
+            bodyPreview = txt.slice(0, 500) || '(empty body)';
+            console.group('[ADSB DEBUG] ' + region.label + ' — HTTP ' + resp.status);
+            console.log('endpoint    ', url);
+            console.log('status      ', resp.status, resp.statusText);
+            console.log('content-type', ct || '(none)');
+            console.log('body-preview', bodyPreview);
+            console.log('response-shape', {
+              status:         resp.status,
+              hasJsonCT:      ct.includes('application/json'),
+              bodyEmpty:      !txt || txt.trim() === '',
+              aircraftCount:  null,
+              hasAircraftArray: false,
+              responseType:   ct || '(unknown)',
+            });
+            console.groupEnd();
+          });
+          return [];
+        }
+
+        // ── Step 6: explicit JSON guard — verify ok + content-type before parse ──
+        if (!ct.includes('application/json')) {
+          console.warn('[ADSB DEBUG]', region.label, '— non-JSON content-type:', ct, 'url:', url);
+          return [];
+        }
+
+        return resp.json()
+          .then(function (d) {
+            var count = Array.isArray(d.aircraft) ? d.aircraft.length : 0;
+            return Array.isArray(d.aircraft) ? d.aircraft : [];
+          })
+          .catch(function (parseErr) {
+            console.warn('[ADSB DEBUG]', region.label, '— JSON parse failed:', parseErr.message, 'url:', url);
+            return [];
+          });
       })
-      .catch(function () { return []; });
+      .catch(function (netErr) {
+        console.warn('[ADSB DEBUG]', region.label, '— network error:', (netErr && netErr.message) || netErr, 'url:', url);
+        return [];
+      });
   }
 
   // ── Per-tile ingestion ────────────────────────────────────────────────────────

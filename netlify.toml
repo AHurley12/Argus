@@ -51,7 +51,7 @@
 
 [[redirects]]
   from   = "/adsb/api/*"
-  to     = "https://opendata.adsb.fi/:splat"
+  to     = "https://opendata.adsb.fi/api/:splat"
   status = 200
   force  = true
 

@@ -840,9 +840,9 @@ document.addEventListener('DOMContentLoaded', function() {
               capGeos.push(geo);
               if (!capMat) {
                 capMat = new THREE.MeshBasicMaterial({
-                  color:       new THREE.Color(100/255, 150/255, 200/255),
+                  color:       new THREE.Color(0.58, 0.44, 0.30),  // warm tan — tints land, contrasts against dark ocean
                   transparent: true,
-                  opacity:     0.40,   // slightly below original 0.48 — globe texture shows through
+                  opacity:     0.22,   // low — earth texture land/ocean colours remain dominant
                   depthWrite:  false,
                   depthTest:   true,
                   side:        THREE.FrontSide,  // outward faces only — no interior back-face bleed
@@ -861,8 +861,8 @@ document.addEventListener('DOMContentLoaded', function() {
               // Use a bright border colour. WebGL caps line width at 1px on most GPUs,
               // so colour/opacity is the only lever for border legibility.
               lineMat = new THREE.LineBasicMaterial({
-                color:       new THREE.Color(0.45, 0.75, 1.0),
-                opacity:     0.65,
+                color:       new THREE.Color(0.82, 0.90, 1.0),  // cool white — crisp, professional border
+                opacity:     0.85,
                 transparent: true,
               });
             }
@@ -10811,7 +10811,7 @@ if (document.readyState === 'loading') {
 <script src="/core/globe/instancedCountries.js?v=perf-fix-8"></script>
 
 <!-- SCRIPT 4 — ArgusTracking: Aircraft + Ships + patchShTex shim -->
-<script src="/modules/argusTracking.js?v=perf-fix-10"></script>
+<script src="/modules/argusTracking.js?v=perf-fix-11"></script>
 
 <!-- Maritime supplemental providers — must load after argusTracking.js (renderShips reads _argusMaritimeSupplemental) -->
 <script src="/core/providers/maritime/maritimeDiagnostics.js?v=1"></script>
@@ -10826,7 +10826,7 @@ if (document.readyState === 'loading') {
 <script src="/core/globe/instancedAIS.js?v=perf-fix-9"></script>
 
 <!-- SCRIPT 4b — ArgusAIS: AISstream Realtime Layer -->
-<script src="/modules/argusAIS.js?v=perf-fix-10"></script>
+<script src="/modules/argusAIS.js?v=perf-fix-11"></script>
 
 
 

@@ -815,6 +815,7 @@ document.addEventListener('DOMContentLoaded', function() {
               !mat.transparent && mat.opacity === 1) { _excl++; return; }
 
           if (obj instanceof THREE.Mesh) {
+            if (mat.visible === false) return;  // already processed in a prior pass
             _total++;
             var geo = obj.geometry;
             if (!geo || !geo.attributes || !geo.attributes.position ||
@@ -859,8 +860,8 @@ document.addEventListener('DOMContentLoaded', function() {
           ' excluded=' + _excl + ' capGeos=' + capGeos.length + ' lineGeos=' + lineGeos.length);
 
         if (!capGeos.length && !lineGeos.length) {
-          console.warn('[Argus] polygon merge: nothing found — retrying…');
-          return false;  // signal not ready
+          console.log('[Argus] polygon merge: stable — all meshes processed');
+          return true;  // nothing new to process — done
         }
 
         var merge = _BGU.mergeGeometries || _BGU.mergeBufferGeometries;
@@ -916,17 +917,20 @@ document.addEventListener('DOMContentLoaded', function() {
           } catch(e) { console.warn('[Argus] line merge error:', e.message); }
         }
 
-        console.log('[Argus] polygon merge complete: ' + hidden + ' objects hidden → ≤2 draw calls');
-        return true;
+        console.log('[Argus] polygon merge batch: ' + hidden + ' objects hidden — retrying for late arrivals');
+        return false;  // three-globe may still be adding meshes — retry next cycle
       };
 
       // Three-globe builds polygon meshes asynchronously over several rAF cycles.
       // Poll until meshes appear (up to 15 attempts × 1s = 15s timeout).
+      // Poll runs every 1s until _mergePolygons returns true (zero unprocessed meshes).
+      // three-globe builds polygon meshes over many rAF cycles; each pass hides
+      // newly-visible meshes and merges them into a new batch draw call.
       var _mergeAttempts = 0;
       var _mergePoll = function() {
         _mergeAttempts++;
-        if (_mergePolygons()) return;  // success
-        if (_mergeAttempts < 15) setTimeout(_mergePoll, 1000);
+        if (_mergePolygons()) return;  // true = stable, nothing left to process
+        if (_mergeAttempts < 25) setTimeout(_mergePoll, 1000);
       };
       setTimeout(_mergePoll, 2000);
     })

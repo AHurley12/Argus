@@ -1753,6 +1753,10 @@ document.addEventListener('DOMContentLoaded', function() {
     if (d.isChokepoint)  return ls.chokepoints;
     // NOAA static markers and ArgusWeatherLayer sprites — gated by weather layer, not events
     if (d._noaaMarker || d.isNOAA || d._weatherLayer || d.isWeather) return !!ls.weather;
+    // GDACS hazard events (earthquake/flood/drought/wildfire) are displayed on the W key,
+    // not the E key. Their ghost meshes are in eventMarkers but must be gated by weather.
+    var _gdacsHazard = { earthquake: 1, flood: 1, drought: 1, wildfire: 1 };
+    if (d.isGDACS && _gdacsHazard[d.type]) return !!ls.weather;
     return ls.events;
   }
 
@@ -1841,7 +1845,9 @@ document.addEventListener('DOMContentLoaded', function() {
     // from 1,600 to typically 20-50 objects. Layer gates keep disabled layers
     // out of the candidate list entirely.
     var _candidates = _frustumFilter([
-      (!ls || ls.events)      ? window.eventMarkers            : null,
+      // Include eventMarkers when events OR weather is on: GDACS hazard ghost meshes live in
+      // eventMarkers but are gated by weather. canInteract() re-validates the correct gate per type.
+      (!ls || ls.events || ls.weather) ? window.eventMarkers   : null,
       (!ls || ls.weather)     ? window.weatherMarkers          : null,
       (!ls || ls.chokepoints) ? window.chokepointMarkers       : null,
       (!ls || ls.aircraft)    ? (window._aircraftMarkers || []) : null,
@@ -1909,8 +1915,18 @@ document.addEventListener('DOMContentLoaded', function() {
     // ── Click targets gated by LayerState — mirrors hover assembly pattern.
     // Only layers that are ON enter the raycast; canInteract() re-validates the winner.
     var cls = window.ArgusLayerState;
+    // Diagnostic logging — remove after GDACS interaction is validated
+    if (window._argusGdacsDebug) {
+      var _dbgHazard = { earthquake:1, flood:1, drought:1, wildfire:1 };
+      var _dbgGdacs = (window.eventMarkers||[]).filter(function(m){ return m.userData && m.userData.isGDACS; });
+      console.log('[GDACS INTERACTION REGISTRY]', { count: _dbgGdacs.length });
+      console.log('[GDACS RAYCAST]', { eventsOn: !!(window.ArgusLayerState && window.ArgusLayerState.events), weatherOn: !!(window.ArgusLayerState && window.ArgusLayerState.weather) });
+    }
     var _evTargets = []
-      .concat((!cls || cls.events)      ? window.eventMarkers           : [])
+      // Include eventMarkers when events OR weather is on — GDACS hazard ghost meshes
+      // (earthquake/flood/drought/wildfire) live here but are controlled by the W key.
+      // canInteract() enforces the correct per-type gate so no false positives escape.
+      .concat((!cls || cls.events || cls.weather) ? window.eventMarkers : [])
       .concat((!cls || cls.weather)     ? window.weatherMarkers         : [])
       .concat((!cls || cls.aircraft)    ? window._aircraftMarkers || [] : [])
       .concat((!cls || cls.vessels)     ? window._vesselMarkers   || [] : [])
@@ -1919,6 +1935,10 @@ document.addEventListener('DOMContentLoaded', function() {
       .filter(function(h) { return isFacingCamera(h.object) && canInteract(h.object); });
     if (evHits.length) {
       var _topHit = evHits[0].object;
+      // Diagnostic logging — remove after GDACS interaction is validated
+      if (window._argusGdacsDebug && _topHit.userData && _topHit.userData.isGDACS) {
+        console.log('[GDACS CLICK]', { object: _topHit, id: _topHit.userData._gdacsId, type: _topHit.userData.type, metadata: _topHit.userData });
+      }
       // Vessel/aircraft hits → always route through selection system first.
       // ArgusSelection uses screen-space search which handles dense overlap better
       // than the 3D raycaster's single nearest-in-depth winner.
@@ -6421,13 +6441,6 @@ window.ArgusEvents = (function() {
 
 })(); // end ArgusEvents
 
-
-// ── Data sources panel — show on load, auto-dismiss ──────────────────────────
-setTimeout(function() {
-  var p = document.getElementById('panel-data-sources');
-  p.classList.add('is-visible');
-  setTimeout(function() { p.classList.remove('is-visible'); }, 8000);
-}, 1000);
 
 // ── Boot all data feeds ───────────────────────────────────────────────────────
 ArgusData.init();

@@ -539,6 +539,13 @@
     <button id="btn-track-weather" class="track-btn track-weather"
             onclick="window._toggleWeatherLayer && window._toggleWeatherLayer()"
             title="Toggle NOAA atmospheric intelligence layer — NWS alerts + NHC tropical cyclones (key W)">⊛ WEATHER</button>
+    <span class="zoom-divider"></span>
+    <button class="track-btn zoom-btn" id="btn-zoom-in"
+            onmousedown="window._startZoom(-1)" onmouseup="window._stopZoom()" onmouseleave="window._stopZoom()"
+            title="Zoom in">+</button>
+    <button class="track-btn zoom-btn" id="btn-zoom-out"
+            onmousedown="window._startZoom(1)" onmouseup="window._stopZoom()" onmouseleave="window._stopZoom()"
+            title="Zoom out">−</button>
     <div id="tracking-status"></div>
   </div>
   <!-- AIS render layer — placeholder for JS-driven vessel list; hidden by default.
@@ -1545,6 +1552,25 @@ document.addEventListener('DOMContentLoaded', function() {
     camera.position.z = Math.max(102, Math.min(360, camera.position.z + zoomSpeed));
     _applyZoomScaleIfChanged(camera.position.z);
   }, { passive: false });
+
+  // ── Zoom buttons (+/−) ────────────────────────────────────────────────────
+  // Equivalent to 2× a normal scroll tick (deltaY≈100 → 200).
+  // _startZoom fires immediately then repeats at 80ms for hold-to-zoom.
+  var _zoomBtnInterval = null;
+  function _doZoom(dir) {
+    var t = (camera.position.z - 102) / (360 - 102);
+    t = Math.max(0, Math.min(1, t));
+    var step = 200 * 0.23 * (0.1 + 0.9 * Math.pow(t, 1.8));
+    camera.position.z = Math.max(102, Math.min(360, camera.position.z + dir * step));
+    _applyZoomScaleIfChanged(camera.position.z);
+  }
+  window._startZoom = function(dir) {
+    _doZoom(dir);
+    _zoomBtnInterval = setInterval(function() { _doZoom(dir); }, 80);
+  };
+  window._stopZoom = function() {
+    if (_zoomBtnInterval) { clearInterval(_zoomBtnInterval); _zoomBtnInterval = null; }
+  };
 
   // ── Touch Controls — globe rotation on mobile ─────────────────────────────
   // Maps single-finger drag to the same rotation logic as mouse drag.

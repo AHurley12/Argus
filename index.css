@@ -2418,6 +2418,22 @@
     border-color: #4fc3ff;
     color: #4fc3ff;
   }
+  .zoom-divider {
+    display: block;
+    width: 1px;
+    height: 16px;
+    background: rgba(255,255,255,0.12);
+    margin: 0 2px;
+    align-self: center;
+  }
+  .zoom-btn {
+    width: 28px;
+    padding: 4px 0;
+    text-align: center;
+    font-size: 15px;
+    font-weight: 400;
+    letter-spacing: 0;
+  }
   #tracking-status {
     font-size: 7px;
     letter-spacing: 1px;

@@ -41,7 +41,7 @@ const SUPABASE_URL  = process.env.SUPABASE_URL;
 const SUPABASE_KEY  = process.env.SUPABASE_SERVICE_KEY;
 
 const CACHE_KEY          = 'air_traffic_v4';    // unchanged — shares Supabase row with v4
-const GLOBAL_CAP         = 750;
+const GLOBAL_CAP         = 1500;
 const MIN_PER_CELL       = 2;
 const GRID_DEG           = 5;
 const CORRIDOR_MIN       = 3;

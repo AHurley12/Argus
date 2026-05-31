@@ -42,8 +42,8 @@
 //   other tiles or from adsb.lol.
 //
 // ── Render budget ─────────────────────────────────────────────────────────────
-//   AIRCRAFT_LIMIT (argusTracking.js) = 750. Primary fetch-traffic fills first.
-//   Supplemental fills remaining slots. MAX_INJECT = 650 gives headroom for
+//   AIRCRAFT_LIMIT (argusTracking.js) = 1500. Primary fetch-traffic fills first.
+//   Supplemental fills remaining slots. MAX_INJECT = 1300 gives headroom for
 //   both adsb.lol and adsb.fi without exceeding the render budget.
 //
 // Dependencies:
@@ -60,7 +60,7 @@
   var ADSB_DIST_NM      = 250;            // viewport radius for adsb.lol (nm)
   var TICK_MS           = 10 * 1000;      // 10 s between adsb.fi tile polls — 6 req/min steady state
   var TICK_INIT_DELAY   = 25 * 1000;      // 25 s before first tick (primary pipeline settles first)
-  var MAX_INJECT        = 650;            // combined cache ceiling
+  var MAX_INJECT        = 1300;           // combined cache ceiling
   var STALE_MS          = 15 * 60 * 1000; // 15 min global stale threshold
 
   // ── Global tile set ───────────────────────────────────────────────────────────

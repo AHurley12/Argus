@@ -8,7 +8,7 @@ window.ArgusTracking = (function () {
 'use strict';
 
 // ── Config ────────────────────────────────────────────────────────────────────
-var AIRCRAFT_LIMIT = 750;   // Matches GLOBAL_CAP in fetch-traffic v4
+var AIRCRAFT_LIMIT = 1500;  // Matches GLOBAL_CAP in fetch-traffic v5
 var SHIP_LIMIT     = 500;   // Max ship markers (highest SOG first)
 var AC_CACHE_MS    = 90 * 1000;        // 90 s — matches server 60 s TTL + propagation buffer
 var SHIP_CACHE_MS  = 30 * 60 * 1000;  // 30 min — tanker at 20 knots barely moves in 30 min
@@ -52,14 +52,14 @@ var lastShipFetch = 0;      // timestamp of last successful ship fetch
 window._vesselMap = vesselMap;
 
 // ── Ghost-sprite pools — eliminate allocation churn on refresh cycles ──────────
-// Aircraft: up to 750 new SpriteMaterial + Sprite every 90s without pooling (~8/sec).
+// Aircraft: up to 1500 new SpriteMaterial + Sprite every 90s without pooling (~17/sec).
 // Ships:    up to 500 new SpriteMaterial + Sprite every 30 min without pooling.
 // Ghost sprites are pure JS objects (never added to any scene group). Their
 // SpriteMaterial properties (color, opacity, rotation) are mutable — pool reuses
 // them by overwriting in place, avoiding JS heap churn and GC spikes.
 var _acSpritePool = [];   // available pooled aircraft sprites
 var _shSpritePool = [];   // available pooled ship sprites
-var AC_POOL_MAX   = 850;  // cap: slightly above AIRCRAFT_LIMIT to bound memory use
+var AC_POOL_MAX   = 1600; // cap: slightly above AIRCRAFT_LIMIT to bound memory use
 var SH_POOL_MAX   = 550;  // cap: slightly above SHIP_LIMIT
 
 // Lifecycle audit counters — exposed via getLifecycleAudit()

@@ -169,11 +169,21 @@ window.ArgusSelection = (function () {
         if (!cell) continue;
         for (var j = 0; j < cell.length; j++) {
           var idx = cell[j];
-          // Re-check visibility: layer may have toggled since last cache build
-          if (!sprites[idx].visible) continue;
+          // Layer-state gate: ghost sprites remain visible=true after toggle-off because
+          // they have no scene parent (InstancedMesh owns the visual). Check the current
+          // layer state explicitly so stale cache entries never escape as candidates.
+          var _sp = sprites[idx];
+          var _ud = _sp.userData;
+          var _ls = window.ArgusLayerState;
+          if (_ls && _ud) {
+            if (_ud.isAircraft  && !_ls.aircraft)   continue;
+            if (_ud.isShip      && !_ls.vessels)    continue;
+            if (_ud.isAISVessel && !_ls.aisVessels) continue;
+          }
+          if (!_sp.visible) continue;
           var dx = xs[idx] - mx, dy = ys[idx] - my;
           var d  = Math.sqrt(dx * dx + dy * dy);
-          if (d <= R) out.push({ sprite: sprites[idx], dist: d });
+          if (d <= R) out.push({ sprite: _sp, dist: d });
         }
       }
     }

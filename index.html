@@ -839,10 +839,30 @@ document.addEventListener('DOMContentLoaded', function() {
             if (mat.opacity > 0.35) {
               capGeos.push(geo);
               if (!capMat) {
+                // ── Hash texture (test) ────────────────────────────────────────
+                var _hCv  = document.createElement('canvas');
+                _hCv.width = _hCv.height = 32;
+                var _hCtx = _hCv.getContext('2d');
+                _hCtx.clearRect(0, 0, 32, 32);
+                _hCtx.strokeStyle = 'rgba(255,220,160,0.65)';
+                _hCtx.lineWidth   = 1;
+                // Forward diagonals
+                for (var _hi = -32; _hi < 64; _hi += 8) {
+                  _hCtx.beginPath(); _hCtx.moveTo(_hi, 0); _hCtx.lineTo(_hi + 32, 32); _hCtx.stroke();
+                }
+                // Back diagonals
+                for (var _hj = -32; _hj < 64; _hj += 8) {
+                  _hCtx.beginPath(); _hCtx.moveTo(_hj + 32, 0); _hCtx.lineTo(_hj, 32); _hCtx.stroke();
+                }
+                var _hTex = new THREE.CanvasTexture(_hCv);
+                _hTex.wrapS = _hTex.wrapT = THREE.RepeatWrapping;
+                _hTex.repeat.set(6, 6);
+                // ─────────────────────────────────────────────────────────────
                 capMat = new THREE.MeshBasicMaterial({
+                  map:         _hTex,
                   color:       new THREE.Color(0.58, 0.44, 0.30),  // warm tan — tints land, contrasts against dark ocean
                   transparent: true,
-                  opacity:     0.18,   // low — earth texture land/ocean colours remain dominant
+                  opacity:     0.25,   // +40% from previous 0.18
                   depthWrite:  false,
                   depthTest:   true,
                   side:        THREE.FrontSide,  // outward faces only — no interior back-face bleed

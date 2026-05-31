@@ -1,41 +1,209 @@
 // netlify/functions/fetch-traffic.js
-// Grid-stratified ADS-B ingestion pipeline v4.
+// Adaptive geographic ADS-B ingestion pipeline v5.
 //
-// Pipeline:
-//   1. Fetch FULL snapshots from 8 adsb.lol regional endpoints (no in-fetch cap)
-//   2. Normalise: add ICAO24, velocity vector (track+gs), altitude band, flight phase, 5° cell ID
-//   3. Cross-region ICAO24 deduplication (eliminates boundary ghosts)
-//   4. Grid-stratified sample: guaranteed MIN_PER_CELL from every active cell,
-//      remaining budget weighted inversely to cell density (sparse regions protected)
-//   5. Corridor detection: heading-bucketed cluster centroids per cell (DBSCAN-lite)
-//   6. Temporal carry-forward: cells absent from current snapshot inherit prev data (1 cycle)
-//   7. Persist { regions, prev } + corridors to Supabase; stale regions preserved on failure
+// v5 changes from v4:
+//   - 22 regions (was 12) — eliminates geographic blind spots
+//   - Tiered TTLs: core=5 min, standard=8 min, discovery=12 min
+//   - Per-region priority scoring prevents cold-start burst (MAX_SLOTS_PER_CYCLE=12)
+//   - Adaptive yield EMA + stale-bonus ensures every region eventually gets polled
+//   - Coverage heatmap logged each cycle to Netlify function logs
 //
-// Statistical guarantees:
-//   • Every active 5° cell contributes ≥ MIN_PER_CELL aircraft regardless of global pressure
-//   • Dense hubs receive proportionally fewer extra slots via inverse-√density weighting
-//   • Sparse/remote regions remain visible — never dropped by density cut
-//   • Corridors visible at any density level (minimum 3 co-directional aircraft per cell)
+// Geographic gaps eliminated vs v4:
+//   NA_CENTRAL  — US Midwest/Great Plains (gap between NA_EAST and NA_WEST)
+//   NA_NORTH    — Canada + polar approach corridors
+//   N_AFRICA    — Libya, Tunisia, Algeria, Egypt (was buried under AFRICA center)
+//   S_AFRICA    — Southern Africa, Namibia, Zimbabwe
+//   LATAM_S     — Argentina, Chile, Patagonia southern cone
+//   C_ASIA      — Kazakhstan, Uzbekistan, Turkmenistan corridor
+//   ARCTIC      — Trans-polar routes (Europe–Asia overfly)
+//   INDONESIA   — Eastern Indonesian archipelago (SE_ASIA misses this)
+//   N_ATLANTIC  — NATS transatlantic corridor (Gander–Shanwick)
+//   S_ATLANTIC  — Brazil–Africa air bridge
 //
-// Env: SUPABASE_URL, SUPABASE_SERVICE_KEY
+// Rate analysis (steady state, 90 s Netlify CDN cache per client):
+//   Core     (7 regions,  5-min TTL):  ~2.1 stale regions/invocation
+//   Standard (8 regions,  8-min TTL):  ~1.5 stale regions/invocation
+//   Discovery (7 regions, 12-min TTL): ~0.9 stale regions/invocation
+//   Total avg ~4.5 stale/invocation — comfortably below MAX_SLOTS_PER_CYCLE=12
+//   Cold start: exactly 12 parallel fetches (same as v4)
+//
+// All v4 guarantees preserved:
+//   • MIN_PER_CELL per active 5° grid cell
+//   • Inverse-√density surplus allocation
+//   • Cross-region ICAO24 deduplication
+//   • Temporal carry-forward (stale cells)
+//   • Corridor detection (heading-bucketed centroids)
+//   • Supabase persistence (same cache key)
 
 const { createClient } = require('@supabase/supabase-js');
 
 const SUPABASE_URL  = process.env.SUPABASE_URL;
 const SUPABASE_KEY  = process.env.SUPABASE_SERVICE_KEY;
 
-const CACHE_KEY     = 'air_traffic_v4';
-const REGION_TTL_MS = 5 * 60 * 1000;  // 5 min per-region freshness (reduces full-refresh frequency)
-const GLOBAL_CAP    = 750;          // hard ceiling on returned aircraft
-const MIN_PER_CELL  = 2;            // guaranteed minimum per active 5° grid cell
-const GRID_DEG      = 5;            // grid resolution in degrees
-const CORRIDOR_MIN  = 3;            // minimum co-directional aircraft to form a corridor
-const HEADING_BIN   = 15;           // degrees per heading bucket
+const CACHE_KEY          = 'air_traffic_v4';    // unchanged — shares Supabase row with v4
+const GLOBAL_CAP         = 750;
+const MIN_PER_CELL       = 2;
+const GRID_DEG           = 5;
+const CORRIDOR_MIN       = 3;
+const HEADING_BIN        = 15;
+const MAX_SLOTS_PER_CYCLE = 12;  // max parallel adsb.lol calls per invocation
+
+// Tier TTLs
+const TTL_CORE      = 5  * 60 * 1000;  // 300 s — high-density, polled every cycle
+const TTL_STANDARD  = 8  * 60 * 1000;  // 480 s — moderate value, frequent refresh
+const TTL_DISCOVERY = 12 * 60 * 1000;  // 720 s — blind-spot fill, priority-rotated
 
 const PRIORITY_RE         = /^(FDX|UPS|DHL|PAC|[A-Z]{2}\d)/i;
 const CARGO_PREFIXES      = ['FDX', 'UPS', 'CLX', 'GTI', 'ABX'];
 const MILITARY_PREFIXES   = ['RCH', 'BAF', 'RAF', 'AMC', 'NAV'];
 const COMMERCIAL_PREFIXES = ['DAL', 'UAL', 'AAL', 'SWA', 'BAW', 'AFR', 'KLM'];
+
+// ── Region catalog ─────────────────────────────────────────────────────────────
+//
+// tier:     'core' | 'standard' | 'discovery'
+// geoFloor: base priority score for the tier — core always wins slot competition
+//           unless a lower-tier region has accumulated enough staleBonus
+//
+// Priority formula (per-cycle slot selection when stale count > MAX_SLOTS_PER_CYCLE):
+//   priority = geoFloor + yieldBonus + staleBonus
+//   yieldBonus  = min(0.4, yieldAvg / 600)   — rewards high-aircraft-count regions
+//   staleBonus  = min(0.6, cyclesSkipped × 0.15) — grows each cycle a region loses slot
+//
+// A discovery region starts at geoFloor=0.2. After 3 lost cycles its staleBonus=0.45
+// pushing it to 0.65+, outcompeting many standard regions. After 5 cycles it reaches
+// 0.75+ and outcompetes all but the busiest core regions. This guarantees every region
+// is polled within 5–6 invocation cycles regardless of yield.
+const REGIONS = [
+  // ── Core (7 regions) — polled every ~5 min ────────────────────────────────
+  { name: 'NA_EAST',    lat:  40, lon:  -75, dist: 650, tier: 'core',      geoFloor: 0.7 },
+  { name: 'NA_WEST',    lat:  37, lon: -118, dist: 650, tier: 'core',      geoFloor: 0.7 },
+  { name: 'EUROPE',     lat:  51, lon:   10, dist: 750, tier: 'core',      geoFloor: 0.8 },
+  { name: 'EAST_ASIA',  lat:  35, lon:  127, dist: 700, tier: 'core',      geoFloor: 0.7 },
+  { name: 'SE_ASIA',    lat:   5, lon:  108, dist: 650, tier: 'core',      geoFloor: 0.6 },
+  { name: 'MIDEAST',    lat:  25, lon:   52, dist: 550, tier: 'core',      geoFloor: 0.6 },
+  { name: 'INDIA',      lat:  22, lon:   82, dist: 600, tier: 'core',      geoFloor: 0.6 },
+  // ── Standard (8 regions) — polled every ~8 min ───────────────────────────
+  { name: 'LATAM',      lat: -10, lon:  -55, dist: 750, tier: 'standard',  geoFloor: 0.4 },
+  { name: 'OCEANIA',    lat: -25, lon:  140, dist: 750, tier: 'standard',  geoFloor: 0.4 },
+  { name: 'AFRICA',     lat:   5, lon:   22, dist: 750, tier: 'standard',  geoFloor: 0.4 },
+  { name: 'RUSSIA',     lat:  60, lon:   80, dist: 800, tier: 'standard',  geoFloor: 0.4 },
+  { name: 'CARIB',      lat:  15, lon:  -80, dist: 500, tier: 'standard',  geoFloor: 0.3 },
+  { name: 'NA_CENTRAL', lat:  42, lon:  -95, dist: 650, tier: 'standard',  geoFloor: 0.4 },  // NEW: US Midwest
+  { name: 'N_AFRICA',   lat:  28, lon:   18, dist: 700, tier: 'standard',  geoFloor: 0.3 },  // NEW: Maghreb + Sahara corridors
+  { name: 'INDONESIA',  lat:  -3, lon:  118, dist: 650, tier: 'standard',  geoFloor: 0.3 },  // NEW: Eastern archipelago
+  // ── Discovery (7 regions) — polled every ~12 min, priority-rotated ────────
+  { name: 'NA_NORTH',   lat:  55, lon: -100, dist: 750, tier: 'discovery', geoFloor: 0.2 },  // NEW: Canada / NOPAC approaches
+  { name: 'S_AFRICA',   lat: -27, lon:   25, dist: 650, tier: 'discovery', geoFloor: 0.2 },  // NEW: Southern Africa
+  { name: 'LATAM_S',    lat: -35, lon:  -65, dist: 650, tier: 'discovery', geoFloor: 0.2 },  // NEW: Argentina / Chile
+  { name: 'C_ASIA',     lat:  42, lon:   62, dist: 700, tier: 'discovery', geoFloor: 0.2 },  // NEW: Kazakh / Silk Road corridor
+  { name: 'ARCTIC',     lat:  75, lon:   20, dist: 750, tier: 'discovery', geoFloor: 0.2 },  // NEW: Polar routes
+  { name: 'N_ATLANTIC', lat:  50, lon:  -35, dist: 700, tier: 'discovery', geoFloor: 0.2 },  // NEW: NATS transatlantic
+  { name: 'S_ATLANTIC', lat: -15, lon:  -22, dist: 700, tier: 'discovery', geoFloor: 0.2 },  // NEW: South Atlantic bridge
+];
+
+// ── Zone groupings for coverage heatmap ───────────────────────────────────────
+const HEATMAP_ZONES = {
+  'North America':       ['NA_EAST', 'NA_WEST', 'NA_CENTRAL', 'NA_NORTH', 'CARIB'],
+  'South America':       ['LATAM', 'LATAM_S'],
+  'Europe':              ['EUROPE'],
+  'North Africa':        ['N_AFRICA'],
+  'Sub-Saharan Africa':  ['AFRICA', 'S_AFRICA'],
+  'Middle East':         ['MIDEAST'],
+  'Central Asia':        ['C_ASIA'],
+  'India':               ['INDIA'],
+  'Southeast Asia':      ['SE_ASIA', 'INDONESIA'],
+  'East Asia':           ['EAST_ASIA'],
+  'Russia / Siberia':    ['RUSSIA'],
+  'Arctic':              ['ARCTIC'],
+  'Oceania':             ['OCEANIA'],
+  'North Atlantic':      ['N_ATLANTIC'],
+  'South Atlantic':      ['S_ATLANTIC'],
+};
+
+// ── TTL by tier ────────────────────────────────────────────────────────────────
+function regionTtl(region) {
+  if (region.tier === 'core')     return TTL_CORE;
+  if (region.tier === 'standard') return TTL_STANDARD;
+  return TTL_DISCOVERY;
+}
+
+// ── Per-region priority ────────────────────────────────────────────────────────
+function regionPriority(region, scores) {
+  const s          = (scores && scores[region.name]) || { yieldAvg: 0, cyclesSkipped: 0 };
+  const yieldBonus = Math.min(0.4, (s.yieldAvg || 0) / 600);
+  const staleBonus = Math.min(0.6, (s.cyclesSkipped || 0) * 0.15);
+  return region.geoFloor + yieldBonus + staleBonus;
+}
+
+// ── Slot selection ────────────────────────────────────────────────────────────
+// Returns { selected, skippedStale } where selected is the fetch list for this
+// cycle (≤ MAX_SLOTS_PER_CYCLE), skippedStale are regions that were due but lost
+// the priority contest (their cyclesSkipped will be incremented).
+function selectRegions(regionCache, scores, now) {
+  const stale = REGIONS.filter(r => {
+    const c = regionCache[r.name];
+    return !c || (now - c.ts) >= regionTtl(r);
+  });
+
+  if (stale.length <= MAX_SLOTS_PER_CYCLE) {
+    return { selected: stale, skippedStale: [] };
+  }
+
+  const ranked  = stale.slice().sort((a, b) => regionPriority(b, scores) - regionPriority(a, scores));
+  const selected = ranked.slice(0, MAX_SLOTS_PER_CYCLE);
+  const skippedStale = ranked.slice(MAX_SLOTS_PER_CYCLE);
+  return { selected, skippedStale };
+}
+
+// ── Score update after each cycle ─────────────────────────────────────────────
+function updateScores(scores, fetched, skippedStale, regionCache) {
+  const next = Object.assign({}, scores);
+
+  for (const region of fetched) {
+    const count = (regionCache[region.name] && regionCache[region.name].aircraft
+      ? regionCache[region.name].aircraft.length : 0);
+    const prev  = next[region.name] || { yieldAvg: 0, cyclesSkipped: 0 };
+    // EMA α=0.3 — recent results weighted more but history preserved
+    next[region.name] = {
+      yieldAvg:      Math.round((prev.yieldAvg || 0) * 0.7 + count * 0.3),
+      cyclesSkipped: 0,
+    };
+  }
+
+  for (const region of skippedStale) {
+    const prev = next[region.name] || { yieldAvg: 0, cyclesSkipped: 0 };
+    next[region.name] = {
+      yieldAvg:      prev.yieldAvg || 0,
+      cyclesSkipped: (prev.cyclesSkipped || 0) + 1,
+    };
+  }
+
+  return next;
+}
+
+// ── Coverage heatmap ───────────────────────────────────────────────────────────
+function logCoverageHeatmap(aircraft) {
+  const regionToZone = {};
+  for (const [zone, regions] of Object.entries(HEATMAP_ZONES)) {
+    for (const r of regions) regionToZone[r] = zone;
+  }
+
+  const zoneCounts = {};
+  for (const a of aircraft) {
+    const zone = regionToZone[a.region] || 'Other';
+    zoneCounts[zone] = (zoneCounts[zone] || 0) + 1;
+  }
+
+  const sorted = Object.entries(zoneCounts).sort((a, b) => b[1] - a[1]);
+
+  console.log('\n[ArgusAircraftCoverage] ─── Coverage Heatmap ───────────────────');
+  for (const [zone, count] of sorted) {
+    const bar = '█'.repeat(Math.min(30, Math.round(count / 8)));
+    console.log(`  ${zone.padEnd(22)} ${String(count).padStart(4)}  ${bar}`);
+  }
+  console.log(`  ${'TOTAL'.padEnd(22)} ${String(aircraft.length).padStart(4)}`);
+  console.log('[ArgusAircraftCoverage] ─────────────────────────────────────────\n');
+}
 
 // ── Flight classification ──────────────────────────────────────────────────────
 function classifyFlight(callsign, alt) {
@@ -47,7 +215,7 @@ function classifyFlight(callsign, alt) {
   return 'unknown';
 }
 
-// ── 5° grid cell ID (row:col) ──────────────────────────────────────────────────
+// ── 5° grid cell ID ────────────────────────────────────────────────────────────
 function cellId(lat, lon) {
   const row = Math.floor((lat  + 90)  / GRID_DEG);
   const col = Math.floor((lon  + 180) / GRID_DEG);
@@ -57,13 +225,13 @@ function cellId(lat, lon) {
 // ── Altitude band ──────────────────────────────────────────────────────────────
 function altBand(alt) {
   if (alt == null || isNaN(alt)) return 'unknown';
-  if (alt < 10000)  return 'low';     // approach / departure / VFR
-  if (alt < 25000)  return 'mid';     // transition
-  if (alt < 40000)  return 'cruise';  // standard en-route
-  return 'high';                      // above standard cruise / special
+  if (alt < 10000)  return 'low';
+  if (alt < 25000)  return 'mid';
+  if (alt < 40000)  return 'cruise';
+  return 'high';
 }
 
-// ── Flight phase from vertical rate (ft/min) ───────────────────────────────────
+// ── Flight phase ───────────────────────────────────────────────────────────────
 function flightPhase(vs) {
   if (vs == null || isNaN(vs)) return 'cruise';
   if (vs >  500) return 'climb';
@@ -71,7 +239,7 @@ function flightPhase(vs) {
   return 'cruise';
 }
 
-// ── Fisher-Yates partial shuffle (in-place, returns first n items randomly) ───
+// ── Fisher-Yates partial shuffle ───────────────────────────────────────────────
 function partialShuffle(arr, n) {
   const pool = arr.slice();
   const take = Math.min(n, pool.length);
@@ -82,25 +250,7 @@ function partialShuffle(arr, n) {
   return pool.slice(0, take);
 }
 
-// ── Region definitions — centers + radii for adsb.lol /v2/lat/lon/dist ────────
-// Weights removed: density suppression now handled entirely by grid-stratified
-// sampling rather than per-region fixed multipliers.
-const REGIONS = [
-  { name: 'NA_EAST',   lat:  40,  lon:  -75,  dist: 650 },
-  { name: 'NA_WEST',   lat:  37,  lon: -118,  dist: 650 },
-  { name: 'EUROPE',    lat:  51,  lon:   10,  dist: 750 },
-  { name: 'EAST_ASIA', lat:  35,  lon:  127,  dist: 700 },
-  { name: 'SE_ASIA',   lat:   5,  lon:  108,  dist: 650 },
-  { name: 'MIDEAST',   lat:  25,  lon:   52,  dist: 550 },
-  { name: 'LATAM',     lat: -10,  lon:  -55,  dist: 750 },
-  { name: 'OCEANIA',   lat: -25,  lon:  140,  dist: 750 },
-  { name: 'AFRICA',    lat:   5,  lon:   22,  dist: 750 },  // West/Central/East Africa
-  { name: 'RUSSIA',    lat:  60,  lon:   80,  dist: 800 },  // Siberia/Central Russia — gap east of EUROPE
-  { name: 'INDIA',     lat:  22,  lon:   82,  dist: 600 },  // Indian subcontinent — not covered by MIDEAST or SE_ASIA
-  { name: 'CARIB',     lat:  15,  lon:  -80,  dist: 500 },  // Caribbean + Central America — gap between NA_EAST and LATAM
-];
-
-// ── Fetch one region — full snapshot, no per-fetch aircraft cap ────────────────
+// ── Region fetch ───────────────────────────────────────────────────────────────
 async function fetchRegion(region) {
   const url = `https://api.adsb.lol/v2/lat/${region.lat}/lon/${region.lon}/dist/${region.dist}`;
   const res  = await fetch(url, {
@@ -121,49 +271,45 @@ async function fetchRegion(region) {
     .map(s => {
       const cs  = (s.flight || '').trim();
       const alt = s.alt_baro  ?? null;
-      const vs  = s.baro_rate ?? null;       // vertical rate ft/min
-      const gs  = s.gs        ?? null;       // ground speed knots
+      const vs  = s.baro_rate ?? null;
+      const gs  = s.gs        ?? null;
       return {
-        icao24:     (s.hex || '').toLowerCase().trim(),   // unique aircraft ID
+        icao24:     (s.hex || '').toLowerCase().trim(),
         region:     region.name,
         cs,
         lat:        s.lat,
         lon:        s.lon,
-        track:      s.track ?? null,          // true heading 0-360
-        gs,                                   // ground speed knots
+        track:      s.track ?? null,
+        gs,
         alt,
         vs,
         altBand:    altBand(alt),
         phase:      flightPhase(vs),
         flightType: classifyFlight(cs, alt),
         cellId:     cellId(s.lat, s.lon),
-        seenAt:     Date.now(),               // per-aircraft timestamp ms
+        seenAt:     Date.now(),
       };
     });
 }
 
-// Fetch all regions in parallel — fits within Netlify's 26s timeout.
-// Serial batching (old approach) took up to 50s for 10 regions × 10s timeout,
-// reliably exceeding the function limit on cold cache calls.
+// Parallel fetch — fits within Netlify's 26 s timeout.
 async function fetchRegionsThrottled(regions) {
   return Promise.allSettled(regions.map(fetchRegion));
 }
 
 // ── Grid-stratified sampler ────────────────────────────────────────────────────
-// Phase 1: guaranteed MIN_PER_CELL from every populated 5° cell (priority callsigns first).
-// Phase 2: remaining budget distributed by inverse-√density weights so sparse cells
+// Phase 1: guaranteed MIN_PER_CELL from every populated 5° cell.
+// Phase 2: remaining budget distributed by inverse-√density so sparse cells
 //          receive proportionally more of the surplus than dense hubs.
 function gridStratifiedSample(allAircraft, budget) {
-  // Build cell map
   const cellMap = new Map();
   for (const a of allAircraft) {
     if (!cellMap.has(a.cellId)) cellMap.set(a.cellId, []);
     cellMap.get(a.cellId).push(a);
   }
 
-  // Phase 1 — guaranteed minimum; priority aircraft always taken first
   const selected = [];
-  const overflow = new Map();  // residual per cell after minimum taken
+  const overflow = new Map();
 
   for (const [id, ac] of cellMap) {
     const priority = ac.filter(a => PRIORITY_RE.test(a.cs));
@@ -174,14 +320,12 @@ function gridStratifiedSample(allAircraft, budget) {
     if (pool.length > minTake) overflow.set(id, pool.slice(minTake));
   }
 
-  // Phase 2 — inverse-√density allocation of remaining budget
   let remaining = budget - selected.length;
   if (remaining <= 0 || overflow.size === 0) return selected.slice(0, budget);
 
   let totalW = 0;
   const weights = new Map();
   for (const [id] of overflow) {
-    // Sparse cell (small cellMap size) → higher weight; hub → lower weight
     const w = 1 / Math.sqrt(cellMap.get(id).length);
     weights.set(id, w);
     totalW += w;
@@ -195,10 +339,7 @@ function gridStratifiedSample(allAircraft, budget) {
   return selected.slice(0, budget);
 }
 
-// ── Corridor detection — heading-bucketed centroids per grid cell ──────────────
-// For each (cellId × headingBucket) pair with ≥ CORRIDOR_MIN aircraft, emits a
-// corridor centroid: { lat, lon, heading, count, cellId }.
-// Represents directional flow without full DBSCAN cost.
+// ── Corridor detection ─────────────────────────────────────────────────────────
 function detectCorridors(aircraft) {
   const clusters = new Map();
 
@@ -226,14 +367,10 @@ function detectCorridors(aircraft) {
     });
   }
 
-  // Return top 80 corridors by aircraft count (most active routes first)
   return corridors.sort((a, b) => b.count - a.count).slice(0, 80);
 }
 
 // ── Temporal carry-forward ─────────────────────────────────────────────────────
-// Cells present in prevAircraft but absent from current snapshot are carried
-// forward for one cycle (marked stale:true). Prevents single-cycle region gaps
-// caused by momentary API miss or sparse sampling edge cases.
 function applyCarryForward(current, prevAircraft) {
   if (!prevAircraft || !prevAircraft.length) return current;
 
@@ -254,14 +391,12 @@ function applyCarryForward(current, prevAircraft) {
   return [...current, ...carried];
 }
 
-// ── Merge all regions, cross-region ICAO24 dedup ──────────────────────────────
-// Aircraft near region boundaries appear in multiple regional fetches.
-// ICAO24-based dedup ensures each physical aircraft counts once.
+// ── Cross-region ICAO24 dedup ──────────────────────────────────────────────────
 function aggregateRegions(regionCache) {
   const seen = new Set();
   const all  = [];
   for (const region of REGIONS) {
-    for (const a of (regionCache[region.name]?.aircraft || [])) {
+    for (const a of ((regionCache[region.name] && regionCache[region.name].aircraft) || [])) {
       if (a.icao24 && seen.has(a.icao24)) continue;
       if (a.icao24) seen.add(a.icao24);
       all.push(a);
@@ -283,46 +418,52 @@ exports.handler = async function(event) {
   const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
   const now      = Date.now();
 
-  // ── Load cache ───────────────────────────────────────────────────────────────
+  // ── Load cache + scores ──────────────────────────────────────────────────────
   let regionCache  = {};
   let prevAircraft = [];
+  let scores       = {};
   try {
     const { data } = await supabase
       .from('global_events')
       .select('payload')
       .eq('key', CACHE_KEY)
       .single();
-    if (data?.payload) {
+    if (data && data.payload) {
       regionCache  = data.payload.regions || {};
       prevAircraft = data.payload.prev    || [];
+      scores       = data.payload.scores  || {};
     }
   } catch (_) {}
 
-  // ── Determine stale regions ──────────────────────────────────────────────────
-  const stale  = REGIONS.filter(r => {
-    const c = regionCache[r.name];
-    return !c || (now - c.ts) >= REGION_TTL_MS;
-  });
+  // ── Select regions to fetch this cycle ──────────────────────────────────────
+  const { selected, skippedStale } = selectRegions(regionCache, scores, now);
+
+  const cachedNames  = REGIONS.filter(r => !selected.includes(r) && !skippedStale.includes(r)).map(r => r.name);
+  const selectedNames = selected.map(r => r.name);
 
   console.log(
-    `Stale: [${stale.map(r => r.name).join(', ')}]`,
-    `| Cached: [${REGIONS.filter(r => !stale.includes(r)).map(r => r.name).join(', ')}]`
+    `[v5] Fetching [${selectedNames.join(', ')}]`,
+    `| Cached: [${cachedNames.join(', ')}]`,
+    skippedStale.length ? `| Deferred (slot cap): [${skippedStale.map(r => r.name).join(', ')}]` : ''
   );
 
-  // ── Fetch stale regions (full snapshot — no per-fetch cap) ───────────────────
-  if (stale.length) {
-    const results = await fetchRegionsThrottled(stale);
-    stale.forEach((region, i) => {
+  // ── Fetch selected regions ───────────────────────────────────────────────────
+  if (selected.length) {
+    const results = await fetchRegionsThrottled(selected);
+    selected.forEach((region, i) => {
       const res = results[i];
       if (res.status === 'fulfilled') {
-        console.log(`[${region.name}] raw: ${res.value.length}`);
+        console.log(`[${region.name}] tier=${region.tier} raw=${res.value.length}`);
         regionCache[region.name] = { aircraft: res.value, ts: now };
       } else {
-        console.error(`[${region.name}] FAILED: ${results[i].reason?.message}`);
+        console.error(`[${region.name}] FAILED: ${results[i].reason && results[i].reason.message}`);
         // Preserve stale cache on failure — never evict
       }
     });
   }
+
+  // ── Update priority scores ───────────────────────────────────────────────────
+  scores = updateScores(scores, selected, skippedStale, regionCache);
 
   // ── Merge → dedup → grid-stratified sample ───────────────────────────────────
   const merged  = aggregateRegions(regionCache);
@@ -331,15 +472,18 @@ exports.handler = async function(event) {
   // ── Temporal carry-forward ───────────────────────────────────────────────────
   const withCarryForward = applyCarryForward(sampled, prevAircraft);
 
-  // ── Corridor detection (on non-stale aircraft only) ──────────────────────────
+  // ── Corridor detection ───────────────────────────────────────────────────────
   const corridors = detectCorridors(withCarryForward.filter(a => !a.stale));
 
-  // ── Persist: store fresh sampled set as next cycle's prev ─────────────────────
-  if (stale.length) {
+  // ── Coverage heatmap ─────────────────────────────────────────────────────────
+  logCoverageHeatmap(withCarryForward);
+
+  // ── Persist ──────────────────────────────────────────────────────────────────
+  if (selected.length) {
     try {
       await supabase.from('global_events').upsert({
         key:        CACHE_KEY,
-        payload:    { regions: regionCache, prev: sampled },
+        payload:    { regions: regionCache, prev: sampled, scores },
         updated_at: new Date().toISOString(),
       }, { onConflict: 'key' });
     } catch (err) {
@@ -347,12 +491,19 @@ exports.handler = async function(event) {
     }
   }
 
-  // ── Region status + cell diagnostics ─────────────────────────────────────────
+  // ── Region status ─────────────────────────────────────────────────────────────
   const regionStatus = {};
   REGIONS.forEach(r => {
     const c = regionCache[r.name];
+    const s = scores[r.name] || {};
     regionStatus[r.name] = c
-      ? { count: c.aircraft.length, age_s: Math.round((now - c.ts) / 1000) }
+      ? {
+          count:       c.aircraft.length,
+          age_s:       Math.round((now - c.ts) / 1000),
+          tier:        r.tier,
+          yieldAvg:    s.yieldAvg || 0,
+          cyclesSkipped: s.cyclesSkipped || 0,
+        }
       : 'no-data';
   });
 
@@ -363,13 +514,10 @@ exports.handler = async function(event) {
     statusCode: 200,
     headers: {
       ...headers,
-      // Netlify CDN caches this response for 90 s — all users within that window
-      // share one response, zero additional upstream adsb.lol calls.
-      // stale-while-revalidate: serve stale for 30 s extra while CDN revalidates in bg.
       'Cache-Control': 'public, s-maxage=90, stale-while-revalidate=30',
     },
     body: JSON.stringify({
-      source:      stale.length ? 'live' : 'cache',
+      source:      selected.length ? 'live' : 'cache',
       regions:     regionStatus,
       total:       withCarryForward.length,
       activeCells,

@@ -341,6 +341,55 @@
       '| cacheTotal:', aircraftLiveCache.size);
   }
 
+  // ── Coverage heatmap ──────────────────────────────────────────────────────────
+  // Groups aircraftLiveCache entries by geographic zone and logs counts.
+  // Called after each full sweep of all 47 tiles (every TOTAL_TILES × TICK_MS ≈ 470 s).
+  // Also callable manually: ArgusProviderCache.logHeatmap()
+  var _TILE_ZONES = {
+    'North America':  ['NA_NE','NA_MID','NA_SE','NA_FL','NA_MIDWEST','NA_NW','NA_SW','NA_PLAINS','NA_CANADA'],
+    'Europe':         ['EU_UK','EU_WEST','EU_CENTRAL','EU_EAST','EU_SOUTH','EU_IBERIA','EU_NORDIC'],
+    'Middle East':    ['ME_GULF','ME_TURKEY'],
+    'South Asia':     ['AS_INDIA_N','AS_INDIA_S','AS_SE'],
+    'East Asia':      ['AS_JAPAN','AS_KOREA','AS_CHINA_E','AS_CHINA_W'],
+    'Southeast Asia': ['AS_MALAY'],
+    'Russia':         ['RU_WEST','RU_EAST'],
+    'Africa':         ['AF_NORTH','AF_WEST','AF_EAST','AF_SOUTH'],
+    'South America':  ['SA_NORTH','SA_BRAZIL','SA_SOUTH'],
+    'Oceania':        ['OC_AUS_E','OC_AUS_W','OC_NZ'],
+    'Arctic':         ['ARCTIC_ATL','ARCTIC_PAC'],
+    'N. Atlantic':    ['NATL_W','NATL_E','MAR_NATL'],
+    'S. Atlantic':    ['MAR_SATL'],
+    'Indian Ocean':   ['MAR_IND'],
+    'Pacific':        ['MAR_NPAC','MAR_SPAC'],
+  };
+
+  function _logCoverageHeatmap() {
+    // Build label → zone lookup
+    var labelToZone = {};
+    Object.keys(_TILE_ZONES).forEach(function (zone) {
+      _TILE_ZONES[zone].forEach(function (label) { labelToZone[label] = zone; });
+    });
+
+    var zoneCounts = {};
+    aircraftLiveCache.forEach(function (ac) {
+      var src   = ac._source || '';                   // 'adsb-fi:<label>' or 'supplemental'
+      var label = src.indexOf('adsb-fi:') === 0 ? src.slice(8) : 'supplemental';
+      var zone  = labelToZone[label] || 'Other';
+      zoneCounts[zone] = (zoneCounts[zone] || 0) + 1;
+    });
+
+    var rows = Object.keys(zoneCounts).map(function (z) { return [z, zoneCounts[z]]; });
+    rows.sort(function (a, b) { return b[1] - a[1]; });
+
+    console.group('[ArgusProviderCache] Coverage heatmap — supplemental layer (' + aircraftLiveCache.size + ' aircraft)');
+    rows.forEach(function (row) {
+      var bar = '';
+      for (var i = 0; i < Math.min(20, Math.round(row[1] / 3)); i++) bar += '█';
+      console.log('  ' + row[0].padEnd(16) + ' ' + String(row[1]).padStart(4) + '  ' + bar);
+    });
+    console.groupEnd();
+  }
+
   // ── adsb.fi adaptive tick ─────────────────────────────────────────────────────
   // Picks the most-overdue tile, marks it as polled immediately (prevents
   // double-pick during async fetch), fetches, applies within-tile sampling,
@@ -365,6 +414,9 @@
         .map(_normalizeAdsbFi);
       _audit.tickLastCount = normalized.length;
       _ingestRegion(normalized, tile.label);
+
+      // Log coverage heatmap after every full sweep (every 47 ticks)
+      if (_audit.ticks % GLOBAL_TILES.length === 0) _logCoverageHeatmap();
     });
   }
 
@@ -531,7 +583,7 @@
     };
   }
 
-  window.ArgusProviderCache = { start: start, stop: stop, status: status };
+  window.ArgusProviderCache = { start: start, stop: stop, status: status, logHeatmap: _logCoverageHeatmap };
 
   // ── Auto-start ────────────────────────────────────────────────────────────────
   setTimeout(function () {

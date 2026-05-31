@@ -1331,8 +1331,8 @@ window.ArgusWeatherLayer = (function () {
 
   function _getAlt() {
     var AG = window.ArgusGlobe;
-    if (AG && AG.R && AG.R.DISASTER) return AG.R.DISASTER + 0.5;
-    return 104.0;
+    if (AG && AG.R && AG.R.MARKER) return AG.R.MARKER + 0.5;  // 101.5 — matches GDACS hazard sprite altitude
+    return 101.5;
   }
 
   function _getScene() {

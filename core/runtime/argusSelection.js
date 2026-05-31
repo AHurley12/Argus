@@ -73,17 +73,31 @@ window.ArgusSelection = (function () {
   var _pCamQX = 0, _pCamQY = 0, _pCamQW = 0;      // camera quaternion snapshot (3 of 4 components)
   var _pEntityN  = -1;                              // entity count at last build
   var _pCacheTs  = 0;                              // performance.now() at last build
+  var _pLayerHash = -1;                             // layer on/off bitmask at last build
   var _PCACHE_TTL = 250;  // ms — max age before forced rebuild (catches AIS position updates)
   var _CAM_EPS   = 1e-3;  // camera movement threshold before cache is invalidated
   // 1e-3 tolerates OrbitControls damping residuals (~0.001/frame during deceleration)
   // while still detecting intentional pans (~0.01+/frame). 1e-4 was too tight and
   // caused constant cache misses during the ~1-2s deceleration tail after any pan.
 
+  // 3-bit hash of the three traffic layer on/off states.
+  // Changes only when a toggle button/key fires — never from AIS count churn.
+  // Used to immediately invalidate the position cache on layer toggle so ghost
+  // sprites from a toggled-off layer do not linger in candidate results.
+  function _layerHash() {
+    var ls = window.ArgusLayerState;
+    return (!ls || ls.aircraft   ? 1 : 0)
+         | (!ls || ls.vessels    ? 2 : 0)
+         | (!ls || ls.aisVessels ? 4 : 0);
+  }
+
   function _cacheStale(cam, markers, W, H) {
     if (!_pCache) return true;
-    // Entity-count check removed: AIS batches every 300ms mutate count and caused
-    // O(2750+) projection rebuilds on every mouse move. The 250ms TTL covers freshness —
-    // newly added vessels are projected within the next TTL window (≤250ms).
+    // Layer-toggle check: immediately invalidates if any traffic layer was turned on/off.
+    // Deliberately separate from entity-count (which was removed to avoid AIS-churn
+    // rebuilds) — layer hash changes only on explicit toggles, so zero extra rebuilds
+    // during normal AIS streaming.
+    if (_layerHash() !== _pLayerHash) return true;
     if (W !== _pCache.w || H !== _pCache.h) return true;
     if (performance.now() - _pCacheTs > _PCACHE_TTL) return true;
     if (Math.abs(cam.position.x  - _pCamPX) > _CAM_EPS) return true;
@@ -127,8 +141,9 @@ window.ArgusSelection = (function () {
     _pCache = { xs: xs, ys: ys, zs: zs, sprites: markers, buckets: buckets, w: W, h: H };
     _pCamPX = cam.position.x; _pCamPY = cam.position.y; _pCamPZ = cam.position.z;
     _pCamQX = cam.quaternion.x; _pCamQY = cam.quaternion.y; _pCamQW = cam.quaternion.w;
-    _pEntityN = n;
-    _pCacheTs = performance.now();
+    _pEntityN  = n;
+    _pLayerHash = _layerHash();
+    _pCacheTs  = performance.now();
   }
 
   // ── Bucket-grid candidate query ────────────────────────────────────────────

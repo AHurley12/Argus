@@ -2366,12 +2366,13 @@
   #tracking-controls {
     position: absolute;
     bottom: 18px;
-    right: 18px;
+    left: 50%;
+    transform: translateX(-50%);
     z-index: var(--z-panels);
     display: flex;
-    flex-direction: column;
+    flex-direction: row;
     gap: 4px;
-    align-items: flex-end;
+    align-items: center;
   }
   .track-btn {
     background: rgba(5, 15, 30, 0.82);

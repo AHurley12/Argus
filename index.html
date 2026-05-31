@@ -1507,12 +1507,14 @@ document.addEventListener('DOMContentLoaded', function() {
   evtMgr.add(renderer.domElement, 'mouseleave', function() { isDragging = false; document.body.classList.remove('is-dragging'); });
   // ── Zoom-aware entity scaling ─────────────────────────────────────────────────
   // Derives a shared zoom scalar from camera distance. At ≥ 195 units: full size (1.0).
-  // At ≤ 112 units: minimum size (0.40). Smoothstep interpolation between.
+  // At ≤ 102 units: minimum size (0.20). Smoothstep interpolation between.
   // Quantized to 0.05 buckets — only fires InstancedMesh rebuilds on discrete steps,
   // never per-frame. Draw-call count unchanged; no allocation; O(N) CPU burst on step.
+  // MIN_S reduced from 0.40 → 0.20 and NEAR lowered to camera floor (102) so sprites
+  // continue shrinking across the full close-range zoom band, improving traffic separation.
   var _lastZoomBucket = 1.0;
   function _deriveZoomScale(camDist) {
-    var FULL = 195, NEAR = 112, MIN_S = 0.40;
+    var FULL = 195, NEAR = 102, MIN_S = 0.20;
     if (camDist >= FULL) return 1.0;
     if (camDist <= NEAR) return MIN_S;
     var t = (camDist - NEAR) / (FULL - NEAR);
@@ -1525,16 +1527,21 @@ document.addEventListener('DOMContentLoaded', function() {
     _lastZoomBucket = bucket;
     if (window.ArgusAISInstanced)      ArgusAISInstanced.applyZoomScale(bucket);
     if (window.ArgusAircraftInstanced) ArgusAircraftInstanced.applyZoomScale(bucket);
+    if (window.ArgusShipsInstanced)    ArgusShipsInstanced.applyZoomScale(bucket);
   }
 
   evtMgr.add(renderer.domElement, 'wheel', function(e) {
     e.preventDefault();
-    // Scale zoom speed with distance so close-range scrolling stays granular
-    // and far-range scrolling covers ground quickly
-    var zoomSpeed = e.deltaY * 0.14375 * (camera.position.z / 225);
-    // Zoom range scaled 10% closer across the board (initial 250→225, min 113→102, max 400→360).
+    // Non-linear zoom sensitivity: speed scales as a power curve of normalised distance.
+    // t=0 at minimum (z=102), t=1 at maximum (z=360). Power 1.8 gives:
+    //   z=360 → 100% speed   z=250 → ~42%   z=150 → ~14%   z=120 → ~11%
+    // Base speed (0.23) preserves the original far-range feel (previously 0.14375×360/225).
+    // Close-range scrolling is substantially finer without slowing global navigation.
+    var _zoomT = (camera.position.z - 102) / (360 - 102);
+    _zoomT = Math.max(0, Math.min(1, _zoomT));
+    var zoomSpeed = e.deltaY * 0.23 * (0.1 + 0.9 * Math.pow(_zoomT, 1.8));
+    // Zoom range: min 102 (2 units above globe surface), max 360.
     // Globe radius = 100; at z=102 camera is 2 units above surface — no near-plane clipping risk.
-    // Coordinate accuracy (latLonToVector) is world-space and unaffected by camera distance.
     camera.position.z = Math.max(102, Math.min(360, camera.position.z + zoomSpeed));
     _applyZoomScaleIfChanged(camera.position.z);
   }, { passive: false });

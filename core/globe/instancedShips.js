@@ -40,8 +40,9 @@ window.ArgusShipsInstanced = (function () {
   var _tmpCol = new THREE.Color();
 
   // ── State ─────────────────────────────────────────────────────────────────────
-  var _mesh  = null;
-  var _ready = false;
+  var _mesh      = null;
+  var _ready     = false;
+  var _zoomScale = 1.0;  // mirrors _lastZoomBucket from index.html; updated via applyZoomScale()
 
   // Sequential counter — reset on each clear() call (no free-pool needed)
   var _idx = 0;
@@ -74,7 +75,7 @@ window.ArgusShipsInstanced = (function () {
     }
     _dummy.position.copy(pos);
     _dummy.setRotationFromQuaternion(_nQuat);
-    _dummy.scale.set(scale, scale, 1);
+    _dummy.scale.set(scale * _zoomScale, scale * _zoomScale, 1);
     _dummy.updateMatrix();
     return true;
   }
@@ -232,6 +233,27 @@ window.ArgusShipsInstanced = (function () {
     if (matrixDirty) _mesh.instanceMatrix.needsUpdate = true;
   }
 
+  // ── applyZoomScale — called by index.html _applyZoomScaleIfChanged() ──────────
+  // Rebuilds all instanced matrices with the new zoom multiplier.
+  // Mirrors the same pattern used in instancedAircraft.js / instancedAIS.js.
+  // Uses sprite.scale.x when ArgusSelection has enlarged the entity; base otherwise.
+  function applyZoomScale(s) {
+    if (!_ready || s === _zoomScale) return;
+    _zoomScale = s;
+    var matrixDirty = false;
+    for (var i = 0; i < _sprites.length; i++) {
+      var e  = _sprites[i];
+      var sc = (e.sprite && Math.abs(e.sprite.scale.x - SCALE_SH) > 0.01)
+        ? e.sprite.scale.x
+        : SCALE_SH;
+      if (_buildMatrix(e.lat, e.lon, e.heading, sc)) {
+        _mesh.setMatrixAt(e.idx, _dummy.matrix);
+        matrixDirty = true;
+      }
+    }
+    if (matrixDirty) _mesh.instanceMatrix.needsUpdate = true;
+  }
+
   // ── Public helpers ────────────────────────────────────────────────────────────
 
   function setVisible(v) {
@@ -243,12 +265,13 @@ window.ArgusShipsInstanced = (function () {
   function getAudit() { return { dirtyOpacity: _audit.dirtyOpacity, skippedOpacity: _audit.skippedOpacity }; }
 
   return {
-    init:       init,
-    clear:      clear,
-    upsert:     upsert,
-    setVisible: setVisible,
-    getCount:   getCount,
-    getMesh:    getMesh,
-    getAudit:   getAudit,
+    init:           init,
+    clear:          clear,
+    upsert:         upsert,
+    applyZoomScale: applyZoomScale,
+    setVisible:     setVisible,
+    getCount:       getCount,
+    getMesh:        getMesh,
+    getAudit:       getAudit,
   };
 }());

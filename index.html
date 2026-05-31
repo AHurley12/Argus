@@ -1513,23 +1513,34 @@ document.addEventListener('DOMContentLoaded', function() {
   evtMgr.add(renderer.domElement, 'mouseup',    function() { isDragging = false; document.body.classList.remove('is-dragging'); });
   evtMgr.add(renderer.domElement, 'mouseleave', function() { isDragging = false; document.body.classList.remove('is-dragging'); });
   // ── Zoom-aware entity scaling ─────────────────────────────────────────────────
-  // Derives a shared zoom scalar from camera distance. At ≥ 195 units: full size (1.0).
-  // At ≤ 102 units: minimum size (0.20). Smoothstep interpolation between.
-  // Quantized to 0.05 buckets — only fires InstancedMesh rebuilds on discrete steps,
-  // never per-frame. Draw-call count unchanged; no allocation; O(N) CPU burst on step.
-  // MIN_S reduced from 0.40 → 0.20 and NEAR lowered to camera floor (102) so sprites
-  // continue shrinking across the full close-range zoom band, improving traffic separation.
+  // Derives a shared zoom scalar from camera distance.
+  //
+  // FULL = 360 (camera max) so scaling spans the ENTIRE zoom range — no dead zone
+  // at far distances where scale was previously frozen at 1.0 from z=360 down to z=195.
+  // NEAR = 102 (camera min) so scale reaches MIN_S only at maximum zoom.
+  // MIN_S = 0.20 — sprites shrink to 20% of base size at closest approach.
+  //
+  // Quantized to 0.01 buckets (was 0.05). Coarser buckets caused a perceptible plateau
+  // near the close-range floor: smoothstep's zero derivative at NEAR meant scale changes
+  // were sub-threshold and the bucket never advanced, freezing sprites while zoom continued.
+  //
+  // 100 possible steps vs 16 previously — no premature floor in any part of the range.
   var _lastZoomBucket = 1.0;
   function _deriveZoomScale(camDist) {
-    var FULL = 195, NEAR = 102, MIN_S = 0.20;
+    var FULL = 360, NEAR = 102, MIN_S = 0.20;
     if (camDist >= FULL) return 1.0;
     if (camDist <= NEAR) return MIN_S;
     var t = (camDist - NEAR) / (FULL - NEAR);
-    t = t * t * (3.0 - 2.0 * t);  // smoothstep — eliminates pop and oscillation at endpoints
-    return MIN_S + (1.0 - MIN_S) * t;
+    t = t * t * (3.0 - 2.0 * t);  // smoothstep — continuous, zero derivative at both endpoints
+    var scale = MIN_S + (1.0 - MIN_S) * t;
+    // Temporary diagnostic — remove after validation
+    if (typeof console !== 'undefined' && window._argusZoomDebug) {
+      console.log('[ArgusZoom]', { camDist: camDist.toFixed(1), t: t.toFixed(4), scale: scale.toFixed(4) });
+    }
+    return scale;
   }
   function _applyZoomScaleIfChanged(camDist) {
-    var bucket = Math.round(_deriveZoomScale(camDist) * 20) / 20;  // quantize to 0.05 steps
+    var bucket = Math.round(_deriveZoomScale(camDist) * 100) / 100;  // quantize to 0.01 steps
     if (bucket === _lastZoomBucket) return;
     _lastZoomBucket = bucket;
     if (window.ArgusAISInstanced)      ArgusAISInstanced.applyZoomScale(bucket);

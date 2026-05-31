@@ -791,8 +791,8 @@ document.addEventListener('DOMContentLoaded', function() {
           return false;  // retry on next poll cycle
         }
 
-        var capGeos  = [], lineGeos = [];
-        var capMat   = null, lineMat = null;
+        var capGeos  = [], sideGeos = [], lineGeos = [];
+        var capMat   = null, sideMat = null, lineMat = null;
         var hidden   = 0;
         var _total   = 0, _excl = 0, _logged = 0;
 
@@ -815,7 +815,7 @@ document.addEventListener('DOMContentLoaded', function() {
               !mat.transparent && mat.opacity === 1) { _excl++; return; }
 
           if (obj instanceof THREE.Mesh) {
-            if (mat.visible === false) return;  // already processed in a prior pass
+            if (obj.visible === false) return;  // already processed in a prior pass
             _total++;
             var geo = obj.geometry;
             if (!geo || !geo.attributes || !geo.attributes.position ||
@@ -832,26 +832,48 @@ document.addEventListener('DOMContentLoaded', function() {
               _logged++;
             }
 
-            capGeos.push(geo);
-            if (!capMat) {
-              // Build a solid-color material — canvas textures per-polygon are all the same
-              // rgba(100,150,200,0.48) cap color. Strip the map; use uniform color instead.
-              capMat = new THREE.MeshBasicMaterial({
-                color:       new THREE.Color(100/255, 150/255, 200/255),
-                transparent: true,
-                opacity:     0.48,
-                depthWrite:  false,
-                side:        THREE.DoubleSide,
-              });
+            // Distinguish caps (opacity ~0.48) from sides (opacity ~0.20) for correct merge color.
+            if (mat.opacity > 0.35) {
+              capGeos.push(geo);
+              if (!capMat) {
+                capMat = new THREE.MeshBasicMaterial({
+                  color:       new THREE.Color(100/255, 150/255, 200/255),
+                  transparent: true,
+                  opacity:     0.48,
+                  depthWrite:  false,
+                  side:        THREE.DoubleSide,
+                });
+              }
+            } else {
+              sideGeos.push(geo);
+              if (!sideMat) {
+                sideMat = new THREE.MeshBasicMaterial({
+                  color:       new THREE.Color(0/255, 80/255, 150/255),
+                  transparent: true,
+                  opacity:     0.20,
+                  depthWrite:  false,
+                  side:        THREE.DoubleSide,
+                });
+              }
             }
-            mat.visible = false;
+            // Hide at Object3D level — more robust than mat.visible which three-globe can reset.
+            obj.visible = false;
             hidden++;
 
           } else if (obj instanceof THREE.Line || obj instanceof THREE.LineSegments) {
-            if (mat.visible === false) return;  // already hidden from prior pass
+            if (obj.visible === false) return;  // already processed in a prior pass
             lineGeos.push(obj.geometry);
-            if (!lineMat) lineMat = mat.clone();
-            mat.visible = false;
+            if (!lineMat) {
+              // Do NOT clone the original dark stroke (#0f2744) — it's invisible on the dark globe.
+              // Use a bright border colour. WebGL caps line width at 1px on most GPUs,
+              // so colour/opacity is the only lever for border legibility.
+              lineMat = new THREE.LineBasicMaterial({
+                color:       new THREE.Color(0.45, 0.75, 1.0),
+                opacity:     0.65,
+                transparent: true,
+              });
+            }
+            obj.visible = false;
             hidden++;
           }
         });
@@ -870,51 +892,46 @@ document.addEventListener('DOMContentLoaded', function() {
           return true;  // bail permanently
         }
 
-        // Merge all polygon cap + side meshes → 1 draw call
+        // ── Merge cap meshes → 1 draw call ──────────────────────────────────────
         if (capGeos.length && capMat) {
           try {
             var polyMerged = merge.call(_BGU, capGeos, false);
             if (polyMerged) {
               var cm = new THREE.Mesh(polyMerged, capMat);
-              cm.name = 'ArgusPolygonsMerged';
+              cm.name = 'ArgusPolygonCapsMerged';
               cm.frustumCulled = false;
               globeGroup.add(cm);
-              console.log('[Argus] polygon merge OK: ' + capGeos.length + ' meshes → 1 draw call');
-            } else {
-              // Fallback: merge in chunks of 500
-              console.warn('[Argus] polygon merge returned null — trying chunked merge');
-              var chunks = [], chunkSize = 500;
-              for (var ci = 0; ci < capGeos.length; ci += chunkSize) {
-                try {
-                  var chunkMerged = merge.call(_BGU, capGeos.slice(ci, ci + chunkSize), false);
-                  if (chunkMerged) chunks.push(chunkMerged);
-                } catch(ce) { /* skip bad chunk */ }
-              }
-              if (chunks.length) {
-                var finalMerged = chunks.length === 1 ? chunks[0] : merge.call(_BGU, chunks, false);
-                if (finalMerged) {
-                  var cm2 = new THREE.Mesh(finalMerged, capMat);
-                  cm2.name = 'ArgusPolygonsMerged';
-                  cm2.frustumCulled = false;
-                  globeGroup.add(cm2);
-                  console.log('[Argus] polygon chunk-merge OK: ' + chunks.length + ' chunks → 1 draw call');
-                }
-              }
+              console.log('[Argus] cap merge OK: ' + capGeos.length + ' → 1 draw call');
             }
-          } catch(e) { console.warn('[Argus] polygon merge error:', e.message); }
+          } catch(e) { console.warn('[Argus] cap merge error:', e.message); }
         }
 
+        // ── Merge side meshes → 1 draw call ─────────────────────────────────────
+        if (sideGeos.length && sideMat) {
+          try {
+            var sideMerged = merge.call(_BGU, sideGeos, false);
+            if (sideMerged) {
+              var sm = new THREE.Mesh(sideMerged, sideMat);
+              sm.name = 'ArgusPolygonSidesMerged';
+              sm.frustumCulled = false;
+              globeGroup.add(sm);
+              console.log('[Argus] side merge OK: ' + sideGeos.length + ' → 1 draw call');
+            }
+          } catch(e) { console.warn('[Argus] side merge error:', e.message); }
+        }
+
+        // ── Merge border strokes → 1 draw call ──────────────────────────────────
         if (lineGeos.length && lineMat) {
           try {
             var lineMerged = merge.call(_BGU, lineGeos, false);
             if (lineMerged) {
-              lineMat.visible = true;
               var lm = new THREE.LineSegments(lineMerged, lineMat);
               lm.name = 'ArgusPolygonStrokesMerged';
               lm.frustumCulled = false;
               globeGroup.add(lm);
+              console.log('[Argus] stroke merge OK: ' + lineGeos.length + ' → 1 draw call');
             }
-          } catch(e) { console.warn('[Argus] line merge error:', e.message); }
+          } catch(e) { console.warn('[Argus] stroke merge error:', e.message); }
         }
 
         console.log('[Argus] polygon merge batch: ' + hidden + ' objects hidden — retrying for late arrivals');

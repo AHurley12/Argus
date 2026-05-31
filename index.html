@@ -791,8 +791,8 @@ document.addEventListener('DOMContentLoaded', function() {
           return false;  // retry on next poll cycle
         }
 
-        var capGeos  = [], sideGeos = [], lineGeos = [];
-        var capMat   = null, sideMat = null, lineMat = null;
+        var capGeos  = [], lineGeos = [];
+        var capMat   = null, lineMat = null;
         var hidden   = 0;
         var _total   = 0, _excl = 0, _logged = 0;
 
@@ -832,27 +832,20 @@ document.addEventListener('DOMContentLoaded', function() {
               _logged++;
             }
 
-            // Distinguish caps (opacity ~0.48) from sides (opacity ~0.20) for correct merge color.
+            // Cap meshes (opacity ~0.48) → merge into one draw call.
+            // Side meshes (opacity ~0.20, vertical extrusion walls) → hide only, no merge.
+            //   Side walls are nearly invisible from normal viewing angles and their DoubleSide
+            //   back-faces caused a "see-to-center" artifact when merged with frustumCulled=false.
             if (mat.opacity > 0.35) {
               capGeos.push(geo);
               if (!capMat) {
                 capMat = new THREE.MeshBasicMaterial({
                   color:       new THREE.Color(100/255, 150/255, 200/255),
                   transparent: true,
-                  opacity:     0.48,
+                  opacity:     0.40,   // slightly below original 0.48 — globe texture shows through
                   depthWrite:  false,
-                  side:        THREE.DoubleSide,
-                });
-              }
-            } else {
-              sideGeos.push(geo);
-              if (!sideMat) {
-                sideMat = new THREE.MeshBasicMaterial({
-                  color:       new THREE.Color(0/255, 80/255, 150/255),
-                  transparent: true,
-                  opacity:     0.20,
-                  depthWrite:  false,
-                  side:        THREE.DoubleSide,
+                  depthTest:   true,
+                  side:        THREE.FrontSide,  // outward faces only — no interior back-face bleed
                 });
               }
             }
@@ -904,20 +897,6 @@ document.addEventListener('DOMContentLoaded', function() {
               console.log('[Argus] cap merge OK: ' + capGeos.length + ' → 1 draw call');
             }
           } catch(e) { console.warn('[Argus] cap merge error:', e.message); }
-        }
-
-        // ── Merge side meshes → 1 draw call ─────────────────────────────────────
-        if (sideGeos.length && sideMat) {
-          try {
-            var sideMerged = merge.call(_BGU, sideGeos, false);
-            if (sideMerged) {
-              var sm = new THREE.Mesh(sideMerged, sideMat);
-              sm.name = 'ArgusPolygonSidesMerged';
-              sm.frustumCulled = false;
-              globeGroup.add(sm);
-              console.log('[Argus] side merge OK: ' + sideGeos.length + ' → 1 draw call');
-            }
-          } catch(e) { console.warn('[Argus] side merge error:', e.message); }
         }
 
         // ── Merge border strokes → 1 draw call ──────────────────────────────────

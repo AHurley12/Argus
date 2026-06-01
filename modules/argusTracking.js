@@ -157,14 +157,16 @@ function ensureGeometries() {
     c.fillStyle = '#ffffff';
     c.fill();
 
-    // Superstructure block (midship) — scaled 2×: x=26,y=30,w=12,h=14
-    c.fillStyle = 'rgba(255,255,255,0.55)';
-    c.fillRect(26, 30, 12, 14);
+    // Superstructure block (midship) — 50% smaller than original (12×14 → 6×7),
+    // recentered at (32,37). Color changed from bright white to muted deep green
+    // for improved contrast against hull and ocean overlays.
+    c.fillStyle = 'rgba(0, 100, 40, 0.65)';
+    c.fillRect(29, 33.5, 6, 7);
 
-    // Center identification box — dark green, smaller than superstructure
-    // Centered at (32,37): 6×8 px block sits over midship superstructure
-    c.fillStyle = 'rgba(0, 150, 55, 0.90)';
-    c.fillRect(29, 33, 6, 8);
+    // Center identification box — 50% smaller than original (6×8 → 3×4),
+    // recentered at (32,37). Darkened for stronger visual separation from superstructure.
+    c.fillStyle = 'rgba(0, 70, 22, 0.95)';
+    c.fillRect(30.5, 35, 3, 4);
 
     // Bow circle — scaled 2×: cx=32,cy=10,r=3
     // Provides a clear directional indicator at the pointed end
@@ -886,10 +888,10 @@ window.ArgusTraffic = window.ArgusTracking;
         c.closePath();
         c.fillStyle = '#ffffff';
         c.fill();
-        c.fillStyle = 'rgba(255,255,255,0.55)';
-        c.fillRect(26, 30, 12, 14);
-        c.fillStyle = 'rgba(0, 150, 55, 0.90)';
-        c.fillRect(29, 33, 6, 8);
+        c.fillStyle = 'rgba(0, 100, 40, 0.65)';
+        c.fillRect(29, 33.5, 6, 7);
+        c.fillStyle = 'rgba(0, 70, 22, 0.95)';
+        c.fillRect(30.5, 35, 3, 4);
         c.fillStyle = 'rgba(255,255,255,0.88)';
         c.beginPath();
         c.arc(32, 10, 3, 0, Math.PI * 2);

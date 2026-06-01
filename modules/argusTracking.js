@@ -253,12 +253,12 @@ var SHIP_TYPE_COLORS = {
   tanker:       0xff9933,  // amber — high-value / high-risk
   military:     0xff4444,  // red   — matches military flight tint
   passenger:    0xffffff,  // white — civilian
-  fishing:      0x44cc88,  // green
+  fishing:      0xff6600,  // orange
   tug:          0xffcc44,  // yellow
   port_service: 0xaaaaaa,  // grey
   recreational: 0xcc88ff,  // violet
-  other:        0x14b8a6,  // default teal (original ship colour)
-  unknown:      0x888888   // mid-grey
+  other:        0x44cc88,  // green — default for unclassified vessels
+  unknown:      0x44cc88   // green — same as other; no type metadata available
 };
 
 // ── Aircraft marker — oriented by heading, tinted by flight type ──────────────
@@ -666,9 +666,16 @@ function renderShips() {
     sorted.sort(function (a, b) { return (b.sog || 0) - (a.sog || 0); });
   }
 
+  var _typeCounts = { cargo: 0, fishing: 0, passenger: 0, unknown: 0 };
   sorted.slice(0, SHIP_LIMIT).forEach(function (s) {
     placeShip(s.lat, s.lon, s.name, s.sog, s.cog, s.typeCategory, s.mmsi, s.region, s.navStatus, s.destination);
+    var tc = s.typeCategory || 'unknown';
+    if (tc === 'cargo' || tc === 'tanker')         _typeCounts.cargo++;
+    else if (tc === 'fishing')                     _typeCounts.fishing++;
+    else if (tc === 'passenger')                   _typeCounts.passenger++;
+    else                                           _typeCounts.unknown++;
   });
+  console.table(_typeCounts);
   if (window.requestIdleCallback) {
     requestIdleCallback(normalizeTracking, { timeout: 5000 });
     if (window.ArgusSchedulerAudit) window.ArgusSchedulerAudit.deferredTasks++;

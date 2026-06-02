@@ -30,8 +30,14 @@ window.ArgusWeatherLayer = (function () {
   // ── Config ───────────────────────────────────────────────────────────────────
 
   var POLL_MS    = 60 * 1000;
-  var PULSE_SIZE = 56;   // canvas px — smaller texture = less GPU upload bandwidth
-  var CYCO_SIZE  = 68;   // canvas px — abstract glow is resolution-insensitive
+  var PULSE_SIZE = 56;   // canvas logical px — actual canvas is CANVAS_QUALITY× larger
+  var CYCO_SIZE  = 68;   // canvas logical px — actual canvas is CANVAS_QUALITY× larger
+
+  // Supersampling factor applied to all canvas textures.
+  // Sprites render at 4.8–7.0 world units vs vessels at 0.89 — a 6× scale mismatch.
+  // 3× canvas resolution closes the gap without redesigning any drawing code.
+  // Cost: 9× pixels per texture, capped at 20 pool entries = negligible vs the gain.
+  var CANVAS_QUALITY = 3;
 
   var SCALE_PULSE   = 4.8;   // 3.0 × 1.6
   var SCALE_CYCLONE = 5.76;  // 3.6 × 1.6
@@ -233,9 +239,12 @@ window.ArgusWeatherLayer = (function () {
   }
 
   function makeCanvas(size) {
-    var cv = document.createElement('canvas');
-    cv.width = cv.height = size;
-    return { canvas: cv, ctx: cv.getContext('2d') };
+    var cv  = document.createElement('canvas');
+    var res = Math.round(size * CANVAS_QUALITY);
+    cv.width = cv.height = res;
+    var ctx = cv.getContext('2d');
+    ctx.scale(CANVAS_QUALITY, CANVAS_QUALITY);
+    return { canvas: cv, ctx: ctx };
   }
 
   // ── HazardTexturePool ──────────────────────────────────────────────────────────

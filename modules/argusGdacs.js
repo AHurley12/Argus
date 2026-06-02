@@ -256,6 +256,7 @@ window.ArgusGDACS = (function () {
         new THREE.SphereGeometry(1.2, 8, 8),
         new THREE.MeshBasicMaterial({ color: col, visible: false })
       );
+      mesh.position.copy(pos);
       // Hazard ghost meshes track W key; non-hazard ghost meshes track E key
       mesh.visible = _HAZARD_CATS[ev.category] ? hazardVisible : visible;
 

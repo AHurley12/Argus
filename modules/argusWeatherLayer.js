@@ -1354,6 +1354,11 @@ window.ArgusWeatherLayer = (function () {
                      (alert.expires  ? '. Expires: ' + new Date(alert.expires).toUTCString() + ' (UTC)' : ''),
       source:        alert.source || 'NOAA',
       countryCode:   null,
+      // Fields used by showEventDetail NOAA card branch
+      severity:      alert.severity  || null,
+      _wSeverity:    alert._wSeverity || null,
+      areaDesc:      alert.areaDesc  ? alert.areaDesc.slice(0, 80) : null,
+      expires:       alert.expires   || null,
     };
   }
 
@@ -1400,6 +1405,19 @@ window.ArgusWeatherLayer = (function () {
 
     marker.setVisible(_enabled);
     _markers[alert.id] = { marker: marker, mType: mType, alert: alert };
+
+    // Register sprites in window.weatherMarkers so the global click handler
+    // and hover raycast can reach them. Replaces the internal hover-only path.
+    var _wm = window.weatherMarkers;
+    if (_wm) {
+      if (mType === 'cyclone') {
+        _wm.push(marker.armSprite);
+        _wm.push(marker.eyeSprite);
+        _wm.push(marker.pulseSprite);
+      } else {
+        _wm.push(marker.sprite);
+      }
+    }
   }
 
   function _removeMarker(id) {
@@ -1412,6 +1430,10 @@ window.ArgusWeatherLayer = (function () {
       if (_spriteIndex[i].id !== id) next.push(_spriteIndex[i]);
     }
     _spriteIndex = next;
+    // Evict from global weatherMarkers by matching _weatherId on userData
+    window.weatherMarkers = (window.weatherMarkers || []).filter(function(m) {
+      return !(m.userData && m.userData._weatherId === id);
+    });
     delete _markers[id];
     delete _alertCache[id];
     if (_hoveredId === id) { _hoveredId = null; _hideTooltip(); }
@@ -1566,13 +1588,13 @@ window.ArgusWeatherLayer = (function () {
       }
       if (hitId && hitId !== _hoveredId) {
         _hoveredId = hitId;
-        var al = _alertCache[hitId];
-        if (al) _showTooltip(al, _mouseX, _mouseY);
+        // Tooltip display delegated to global hover handler via window.weatherMarkers.
+        // _showTooltip is intentionally not called here.
       }
     } else {
       if (_hoveredId !== null) {
         _hoveredId = null;
-        _hideTooltip();
+        // No _hideTooltip() call — global handler owns tooltip lifecycle.
       }
     }
   }

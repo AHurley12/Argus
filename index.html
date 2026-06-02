@@ -1162,6 +1162,9 @@ document.addEventListener('DOMContentLoaded', function() {
 
   function buildTooltipRow(d) {
     var risk = d.severity || d.risk || 'LOW';
+    // Normalize raw GDACS severity ('red'/'orange'/'green') → canonical keys
+    var _rawSevMap = { red: 'CRITICAL', orange: 'WARNING', green: 'WATCH' };
+    if (_rawSevMap[risk]) risk = _rawSevMap[risk];
     var col  = RISK_CSS[risk] || '#aaa';
     if (d.isCapitalCity) {
       return '<div style="padding:3px 0;border-bottom:1px solid rgba(255,255,255,0.06)">' +
@@ -5212,25 +5215,106 @@ window.ArgusUI = (function() {
       return;
     }
 
+    // ── GDACS disaster event ────────────────────────────────────────────────────
+    if (d.isGDACS) {
+      var _gdacsSevMap = { red: 'CRITICAL', orange: 'WARNING', green: 'WATCH' };
+      var _gdacsCatMap = {
+        earthquake: 'EARTHQUAKE', flood: 'FLOOD', drought: 'DROUGHT',
+        wildfire: 'WILDFIRE', TC: 'TROPICAL CYCLONE', storm: 'SEVERE STORM'
+      };
+      var gsev  = _gdacsSevMap[d.severity] || (d.severity || 'WATCH').toUpperCase();
+      var gcat  = _gdacsCatMap[(d.type||'').toLowerCase()] || (d.type || 'DISASTER EVENT').toUpperCase();
+      var gcol  = RC[gsev] || '#ffcc00';
+
+      badge.textContent       = gsev;
+      badge.style.color       = gcol;
+      badge.style.borderColor = gcol + '44';
+      badge.style.background  = RB[gsev] || 'transparent';
+
+      var gHtml = '<div class="detail__section-header">EVENT</div>' +
+        '<div class="detail__row"><span class="detail__label">TYPE</span><span class="detail__value">' + gcat + '</span></div>' +
+        '<div class="detail__row"><span class="detail__label">ALERT LEVEL</span><span class="detail__value" style="color:' + gcol + '">' + gsev + '</span></div>';
+
+      if (d.alertScore != null) {
+        gHtml += '<div class="detail__row"><span class="detail__label">ALERT SCORE</span><span class="detail__value" style="color:' + gcol + '">' + d.alertScore + '</span></div>';
+      }
+      if (d.impact) {
+        gHtml += '<div class="detail__section-header">IMPACT ASSESSMENT</div>' +
+          '<div class="detail__status-box" style="background:' + (RB[gsev] || '') + ';border-color:' + gcol + '44">' +
+          '<div style="font-size:11px;line-height:1.7">' + d.impact + '</div></div>';
+      }
+      gHtml += '<div class="detail__row" style="margin-top:8px"><span class="detail__label">SOURCE</span><span class="detail__value" style="color:#4a7da8">GDACS</span></div>';
+
+      bodyEl.innerHTML = gHtml;
+      openDetail(gcol);
+      ArgusAnim.cipherDecode(tagEl,  'DISASTER ALERT', 320);
+      ArgusAnim.cipherDecode(nameEl, d.title || gcat,  560);
+      ArgusAnim.cipherDecode(badge,  gsev,              260);
+      ArgusAnim.staggerRows(bodyEl);
+      return;
+    }
+
+    // ── NOAA / weather event ────────────────────────────────────────────────────
+    if (d.isNOAA || d._weatherLayer) {
+      var _noaaSevMap = { extreme: 'CRITICAL', severe: 'WARNING', moderate: 'WATCH', minor: 'LOW' };
+      var nsev = _noaaSevMap[(d._wSeverity || '').toLowerCase()] ||
+                 (d.severity ? d.severity.toUpperCase() : 'WATCH');
+      var ncol = RC[nsev] || '#ffcc00';
+
+      badge.textContent       = nsev;
+      badge.style.color       = ncol;
+      badge.style.borderColor = ncol + '44';
+      badge.style.background  = RB[nsev] || 'transparent';
+
+      var nHtml = '<div class="detail__section-header">ALERT</div>' +
+        '<div class="detail__row"><span class="detail__label">TYPE</span><span class="detail__value">' + (d.type || 'WEATHER ALERT') + '</span></div>' +
+        '<div class="detail__row"><span class="detail__label">SEVERITY</span><span class="detail__value" style="color:' + ncol + '">' + nsev + '</span></div>';
+
+      if (d.areaDesc) {
+        nHtml += '<div class="detail__row"><span class="detail__label">AREA</span><span class="detail__value">' + d.areaDesc + '</span></div>';
+      }
+      if (d.expires) {
+        var _expStr = d.expires;
+        try { _expStr = new Date(d.expires).toUTCString(); } catch(e) { /* keep raw */ }
+        nHtml += '<div class="detail__row"><span class="detail__label">EXPIRES</span><span class="detail__value">' + _expStr + '</span></div>';
+      }
+      if (d.impact) {
+        nHtml += '<div class="detail__section-header">SUMMARY</div>' +
+          '<div class="detail__status-box" style="background:' + (RB[nsev] || '') + ';border-color:' + ncol + '44">' +
+          '<div style="font-size:11px;line-height:1.7">' + d.impact + '</div></div>';
+      }
+      nHtml += '<div class="detail__row" style="margin-top:8px"><span class="detail__label">SOURCE</span><span class="detail__value" style="color:#4a7da8">' + (d.source || 'NOAA') + '</span></div>';
+
+      bodyEl.innerHTML = nHtml;
+      openDetail(ncol);
+      ArgusAnim.cipherDecode(tagEl,  'WEATHER ALERT',            320);
+      ArgusAnim.cipherDecode(nameEl, d.title || d.type || 'WEATHER ALERT', 560);
+      ArgusAnim.cipherDecode(badge,  nsev,                       260);
+      ArgusAnim.staggerRows(bodyEl);
+      return;
+    }
+
     // ── Standard event detail ───────────────────────────────────────────────────
-    var col = RC[d.severity] || '#0099ff';
-    badge.textContent       = d.severity;
+    var _evSevMap = { red: 'CRITICAL', orange: 'WARNING', green: 'WATCH' };
+    var _evSev    = _evSevMap[d.severity] || d.severity;
+    var col = RC[_evSev] || '#0099ff';
+    badge.textContent       = _evSev || d.severity;
     badge.style.color       = col;
     badge.style.borderColor = col + '44';
-    badge.style.background  = RB[d.severity] || 'transparent';
+    badge.style.background  = RB[_evSev] || 'transparent';
 
     bodyEl.innerHTML =
       '<div class="detail__row"><span class="detail__label">TYPE</span><span class="detail__value">' + d.type + '</span></div>' +
-      '<div class="detail__row"><span class="detail__label">SEVERITY</span><span class="detail__value" style="color:' + col + '">' + d.severity + '</span></div>' +
-      '<div class="detail__status-box" style="background:' + (RB[d.severity] || '') + ';border-color:' + col + '44">' +
+      '<div class="detail__row"><span class="detail__label">SEVERITY</span><span class="detail__value" style="color:' + col + '">' + (_evSev || d.severity) + '</span></div>' +
+      '<div class="detail__status-box" style="background:' + (RB[_evSev] || '') + ';border-color:' + col + '44">' +
         '<div class="detail__label" style="color:' + col + ';margin-bottom:5px">IMPACT ASSESSMENT</div>' +
         '<div style="font-size:11px;line-height:1.7">' + (d.impact || 'No additional data') + '</div>' +
       '</div>';
 
     openDetail(col);
-    ArgusAnim.cipherDecode(tagEl,  'EVENT ALERT', 320);
-    ArgusAnim.cipherDecode(nameEl,  d.title,       560);
-    ArgusAnim.cipherDecode(badge,   d.severity,    260);
+    ArgusAnim.cipherDecode(tagEl,  'EVENT ALERT',   320);
+    ArgusAnim.cipherDecode(nameEl, d.title,          560);
+    ArgusAnim.cipherDecode(badge,  _evSev || d.severity, 260);
     ArgusAnim.staggerRows(bodyEl);
   }
 

@@ -1031,8 +1031,8 @@
     #panel-detail {
       bottom: 18px;
       left: 18px;
-      width: 300px;
-      height: 420px;
+      width: 380px;
+      height: 340px;
       display: none;
       flex-direction: column;
       border-top: 3px solid transparent;

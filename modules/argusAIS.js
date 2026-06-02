@@ -81,15 +81,16 @@ var _aisState = {
 };
 var _ingestBuffer = [];         // raw normalized vessel objects pushed by handleAISMessage
 var _dirtyVessels = new Set();  // MMSIs that actually changed and need sprite sync this tick
+var _staticCache  = new Map();  // mmsi → {shipType, name} from ShipStaticData messages
 
 // AIS vessel type codes (ITU-R M.1371-5) → color hex
 // NavStatus 0 = under way, 1 = at anchor, 5 = moored
 function aisColor(shipType) {
   var map = {
     cargo: 0x4488ff, tanker: 0xff9933, military: 0xff4444,
-    passenger: 0xffffff, fishing: 0x44cc88, tug: 0xffcc44,
+    passenger: 0xffffff, fishing: 0xff6600, tug: 0xffcc44,
     port_service: 0xaaaaaa, recreational: 0xcc88ff,
-    other: 0x14b8a6, unknown: 0x888888,
+    other: 0x44cc88, unknown: 0x44cc88,
   };
   var t = (shipType || 'other').toLowerCase();
   return map[t] !== undefined ? map[t] : map.other;
@@ -567,7 +568,26 @@ function connectAISStream() {
   }
 
   function handleAISMessage(msg) {
-    var meta   = msg.MetaData   || {};
+    var meta = msg.MetaData || {};
+
+    // ── ShipStaticData — carries ShipType and vessel name; no position ────
+    if (msg.Message && msg.Message.ShipStaticData) {
+      var ssd   = msg.Message.ShipStaticData;
+      var smmsi = String(meta.MMSI || ssd.UserID || '');
+      if (!smmsi) return;
+      var stype = ssd.Type != null ? ssd.Type : null;
+      var sname = (ssd.Name || meta.ShipName || '').trim();
+      _staticCache.set(smmsi, { shipType: stype, name: sname });
+      // Patch existing vessel state immediately so next render picks it up
+      if (_aisState.vessels.has(smmsi)) {
+        var ev = _aisState.vessels.get(smmsi);
+        if (stype != null) ev.shipType = stype;
+        if (sname)         ev.name     = sname;
+        _dirtyVessels.add(smmsi);
+      }
+      return;
+    }
+
     var report = (msg.Message && msg.Message.PositionReport) || {};
 
     var lat = meta.latitude  != null ? meta.latitude  : report.Latitude;
@@ -578,11 +598,17 @@ function connectAISStream() {
     var mmsi = String(meta.MMSI || meta.UserId || report.UserID || '');
     if (!mmsi) return;
 
+    // Resolve ship type: position reports rarely carry it; fall back to static cache
+    var cached   = _staticCache.get(mmsi);
+    var shipType = report.ShipType != null ? report.ShipType
+                 : (cached ? cached.shipType : null);
+    var name     = meta.ShipName || (cached ? cached.name : '') || '';
+
     // ── Noise filter: skip low-intel-value vessel types ───────────────────
     // These burn marker slots without adding geopolitical signal.
     // Kept: fishing (30) — illegal fishing in contested waters has intel value.
     // Kept: tugs (31,32,52) — port-activity indicator.
-    var _stn = parseInt(report.ShipType, 10);
+    var _stn = parseInt(shipType, 10);
     if (!isNaN(_stn)) {
       if (_stn === 36 || _stn === 37) return; // pleasure craft / yacht
       if (_stn === 50) return;                 // pilot vessel
@@ -596,12 +622,12 @@ function connectAISStream() {
 
     updateVesselState(
       mmsi,
-      meta.ShipName || '',
+      name,
       lat,
       lon,
       hdg,
       report.Sog != null ? report.Sog : null,
-      report.ShipType != null ? report.ShipType : null,
+      shipType,
       report.NavigationalStatus != null ? report.NavigationalStatus : null
     );
   }
@@ -641,7 +667,7 @@ function connectAISStream() {
         [[-60, -70], [-45, -50]],  // Cape Horn / Drake Passage  ← Falklands/Southern Ocean
         [[-30,  80], [ 10, 110]],  // Indian Ocean (central)     ← long-haul fill
       ],
-      FilterMessageTypes: ['PositionReport'],
+      FilterMessageTypes: ['PositionReport', 'ShipStaticData'],
     }));
   };
 

@@ -163,10 +163,9 @@ function ensureGeometries() {
     c.fillStyle = 'rgba(0, 100, 40, 0.65)';
     c.fillRect(29, 33.5, 6, 7);
 
-    // Center identification box — 50% smaller than original (6×8 → 3×4),
-    // recentered at (32,37). Darkened for stronger visual separation from superstructure.
+    // Center identification box — increased to 5×6, centered at (32,37).
     c.fillStyle = 'rgba(0, 70, 22, 0.95)';
-    c.fillRect(30.5, 35, 3, 4);
+    c.fillRect(29.5, 34, 5, 6);
 
     // Bow circle — scaled 2×: cx=32,cy=10,r=3
     // Provides a clear directional indicator at the pointed end
@@ -898,7 +897,7 @@ window.ArgusTraffic = window.ArgusTracking;
         c.fillStyle = 'rgba(0, 100, 40, 0.65)';
         c.fillRect(29, 33.5, 6, 7);
         c.fillStyle = 'rgba(0, 70, 22, 0.95)';
-        c.fillRect(30.5, 35, 3, 4);
+        c.fillRect(29.5, 34, 5, 6);
         c.fillStyle = 'rgba(255,255,255,0.88)';
         c.beginPath();
         c.arc(32, 10, 3, 0, Math.PI * 2);

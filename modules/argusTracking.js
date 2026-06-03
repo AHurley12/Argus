@@ -8,7 +8,7 @@ window.ArgusTracking = (function () {
 'use strict';
 
 // ── Config ────────────────────────────────────────────────────────────────────
-var AIRCRAFT_LIMIT = 1500;  // Matches GLOBAL_CAP in fetch-traffic v5
+var AIRCRAFT_LIMIT = 3000;  // Matches GLOBAL_CAP in fetch-traffic v5
 var SHIP_LIMIT     = 500;   // Max ship markers (highest SOG first)
 var AC_CACHE_MS    = 90 * 1000;        // 90 s — matches server 60 s TTL + propagation buffer
 var SHIP_CACHE_MS  = 30 * 60 * 1000;  // 30 min — tanker at 20 knots barely moves in 30 min

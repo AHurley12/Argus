@@ -1,30 +1,34 @@
 import * as THREE from "three";
 import Globe from "three-globe";
 
-// 16 centers × 500ms stagger = 8s spread per cycle.
-// 120s poll interval = 8 req/min — safely under adsb.fi's ~10-12/min limit.
+// 20 centers × 500ms stagger = 10s spread per cycle.
+// 150s poll interval = 8 req/min — same rate as prior 16-center/120s config, safely under adsb.fi's ~10-12/min limit.
 // First poll delayed 8s to avoid colliding with the diagnostic harness on load.
-var POLL_MS          = 120000;
+var POLL_MS          = 150000;
 var INITIAL_DELAY_MS = 8000;
 var STAGGER_MS       = 500;
 
 var CENTERS = [
-  { label: 'US East',     lat: 40,  lon: -75  },
-  { label: 'US Central',  lat: 37,  lon: -100 },
-  { label: 'Europe',      lat: 50,  lon:  10  },
-  { label: 'Middle East', lat: 25,  lon:  55  },
-  { label: 'East Asia',   lat: 35,  lon:  125 },
-  { label: 'Japan East',   lat: 40,  lon:  142 },
-  { label: 'South US',     lat: 30,  lon:  -85 },
-  { label: 'Northwest US', lat: 47,  lon: -122 },
-  { label: 'SE Asia',       lat: 15,  lon:  100 },
-  { label: 'India',          lat: 20,  lon:   80 },
-  { label: 'Australia SE',   lat: -34, lon:  151 },  // Sydney — was outback (-28/135)
-  { label: 'Brazil',         lat: -23, lon:  -46 },  // Sao Paulo — was Amazon (-10/-55)
-  { label: 'Moscow',         lat: 55,  lon:   37 },
-  { label: 'Caribbean',      lat: 20,  lon:  -72 },
-  { label: 'Southern Africa',lat: -26, lon:   28 },  // Johannesburg — no Africa coverage before
+  { label: 'US East',        lat:  40, lon:  -75 },
+  { label: 'US Central',     lat:  37, lon: -100 },
+  { label: 'Europe',         lat:  50, lon:   10 },
+  { label: 'Middle East',    lat:  25, lon:   55 },
+  { label: 'East Asia',      lat:  35, lon:  125 },
+  { label: 'Japan East',     lat:  40, lon:  142 },
+  { label: 'South US',       lat:  30, lon:  -85 },
+  { label: 'Northwest US',   lat:  47, lon: -122 },
+  { label: 'SE Asia',        lat:  15, lon:  100 },
+  { label: 'India',          lat:  20, lon:   80 },
+  { label: 'Australia SE',   lat: -34, lon:  151 },  // Sydney
+  { label: 'Brazil',         lat: -23, lon:  -46 },  // Sao Paulo
+  { label: 'Moscow',         lat:  55, lon:   37 },
+  { label: 'Caribbean',      lat:  20, lon:  -72 },
+  { label: 'Southern Africa',lat: -26, lon:   28 },  // Johannesburg
   { label: 'East Africa',    lat:   0, lon:   37 },  // Nairobi
+  { label: 'North Africa',   lat:  28, lon:   18 },  // Algiers — covers Maghreb + Sahara air routes, gap between Europe and sub-Saharan centers
+  { label: 'Central Asia',   lat:  42, lon:   62 },  // Kazakhstan — Silk Road corridor, gap between Moscow and India centers
+  { label: 'Argentina',      lat: -35, lon:  -65 },  // Buenos Aires — Southern Cone, no prior coverage
+  { label: 'Indonesia East', lat:  -3, lon:  130 },  // Papua / Banda Sea — eastern archipelago, gap beyond SE Asia center
 ];
 
 function wait(ms) {

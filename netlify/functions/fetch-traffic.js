@@ -2,7 +2,7 @@
 // Adaptive geographic ADS-B ingestion pipeline v5.
 //
 // v5 changes from v4:
-//   - 22 regions (was 12) — eliminates geographic blind spots
+//   - 25 regions (was 12) — eliminates geographic blind spots
 //   - Tiered TTLs: core=5 min, standard=8 min, discovery=12 min
 //   - Per-region priority scoring prevents cold-start burst (MAX_SLOTS_PER_CYCLE=12)
 //   - Adaptive yield EMA + stale-bonus ensures every region eventually gets polled
@@ -19,13 +19,16 @@
 //   INDONESIA   — Eastern Indonesian archipelago (SE_ASIA misses this)
 //   N_ATLANTIC  — NATS transatlantic corridor (Gander–Shanwick)
 //   S_ATLANTIC  — Brazil–Africa air bridge
+//   N_PACIFIC   — trans-Pacific great-circle routing (Japan↔NA dateline corridor)
+//   TURKEY      — Turkey + Eastern Mediterranean gap (between EUROPE/MIDEAST/N_AFRICA)
+//   W_AFRICA    — coastal West Africa / Gulf of Guinea air bridge (Lagos, Dakar, Abidjan)
 //
 // Rate analysis (steady state, 90 s Netlify CDN cache per client):
-//   Core     (7 regions,  5-min TTL):  ~2.1 stale regions/invocation
-//   Standard (8 regions,  8-min TTL):  ~1.5 stale regions/invocation
-//   Discovery (7 regions, 12-min TTL): ~0.9 stale regions/invocation
-//   Total avg ~4.5 stale/invocation — comfortably below MAX_SLOTS_PER_CYCLE=12
-//   Cold start: exactly 12 parallel fetches (same as v4)
+//   Core      (7 regions,  5-min TTL):  ~2.1 stale regions/invocation
+//   Standard  (8 regions,  8-min TTL):  ~1.5 stale regions/invocation
+//   Discovery (10 regions, 12-min TTL): ~1.3 stale regions/invocation
+//   Total avg ~4.9 stale/invocation — well below MAX_SLOTS_PER_CYCLE=12
+//   Cold start: exactly 12 parallel fetches (capped by slot limit)
 //
 // All v4 guarantees preserved:
 //   • MIN_PER_CELL per active 5° grid cell
@@ -92,13 +95,16 @@ const REGIONS = [
   { name: 'N_AFRICA',   lat:  28, lon:   18, dist: 700, tier: 'standard',  geoFloor: 0.3 },  // NEW: Maghreb + Sahara corridors
   { name: 'INDONESIA',  lat:  -3, lon:  118, dist: 650, tier: 'standard',  geoFloor: 0.3 },  // NEW: Eastern archipelago
   // ── Discovery (7 regions) — polled every ~12 min, priority-rotated ────────
-  { name: 'NA_NORTH',   lat:  55, lon: -100, dist: 750, tier: 'discovery', geoFloor: 0.2 },  // NEW: Canada / NOPAC approaches
-  { name: 'S_AFRICA',   lat: -27, lon:   25, dist: 650, tier: 'discovery', geoFloor: 0.2 },  // NEW: Southern Africa
-  { name: 'LATAM_S',    lat: -35, lon:  -65, dist: 650, tier: 'discovery', geoFloor: 0.2 },  // NEW: Argentina / Chile
-  { name: 'C_ASIA',     lat:  42, lon:   62, dist: 700, tier: 'discovery', geoFloor: 0.2 },  // NEW: Kazakh / Silk Road corridor
-  { name: 'ARCTIC',     lat:  75, lon:   20, dist: 750, tier: 'discovery', geoFloor: 0.2 },  // NEW: Polar routes
-  { name: 'N_ATLANTIC', lat:  50, lon:  -35, dist: 700, tier: 'discovery', geoFloor: 0.2 },  // NEW: NATS transatlantic
-  { name: 'S_ATLANTIC', lat: -15, lon:  -22, dist: 700, tier: 'discovery', geoFloor: 0.2 },  // NEW: South Atlantic bridge
+  { name: 'NA_NORTH',     lat:  55, lon: -100, dist: 750, tier: 'discovery', geoFloor: 0.2 },  // NEW: Canada / NOPAC approaches
+  { name: 'S_AFRICA',     lat: -27, lon:   25, dist: 650, tier: 'discovery', geoFloor: 0.2 },  // NEW: Southern Africa
+  { name: 'LATAM_S',      lat: -35, lon:  -65, dist: 650, tier: 'discovery', geoFloor: 0.2 },  // NEW: Argentina / Chile
+  { name: 'C_ASIA',       lat:  42, lon:   62, dist: 700, tier: 'discovery', geoFloor: 0.2 },  // NEW: Kazakh / Silk Road corridor
+  { name: 'ARCTIC',       lat:  75, lon:   20, dist: 750, tier: 'discovery', geoFloor: 0.2 },  // NEW: Polar routes
+  { name: 'N_ATLANTIC',   lat:  50, lon:  -35, dist: 700, tier: 'discovery', geoFloor: 0.2 },  // NEW: NATS transatlantic
+  { name: 'S_ATLANTIC',   lat: -15, lon:  -22, dist: 700, tier: 'discovery', geoFloor: 0.2 },  // NEW: South Atlantic bridge
+  { name: 'N_PACIFIC',    lat:  50, lon:  175, dist: 750, tier: 'discovery', geoFloor: 0.2 },  // NEW: trans-Pacific great-circle (dateline crossing, Japan→NA corridor)
+  { name: 'TURKEY',       lat:  37, lon:   35, dist: 650, tier: 'discovery', geoFloor: 0.2 },  // NEW: Turkey + Eastern Mediterranean gap (EUROPE/MIDEAST/N_AFRICA blind spot)
+  { name: 'W_AFRICA',     lat:   5, lon:    0, dist: 600, tier: 'discovery', geoFloor: 0.2 },  // NEW: coastal West Africa / Gulf of Guinea air bridge (Lagos, Dakar, Abidjan)
 ];
 
 // ── Zone groupings for coverage heatmap ───────────────────────────────────────
@@ -108,11 +114,14 @@ const HEATMAP_ZONES = {
   'Europe':              ['EUROPE'],
   'North Africa':        ['N_AFRICA'],
   'Sub-Saharan Africa':  ['AFRICA', 'S_AFRICA'],
+  'West Africa':         ['W_AFRICA'],
   'Middle East':         ['MIDEAST'],
+  'Turkey / E. Med':     ['TURKEY'],
   'Central Asia':        ['C_ASIA'],
   'India':               ['INDIA'],
   'Southeast Asia':      ['SE_ASIA', 'INDONESIA'],
   'East Asia':           ['EAST_ASIA'],
+  'North Pacific':       ['N_PACIFIC'],
   'Russia / Siberia':    ['RUSSIA'],
   'Arctic':              ['ARCTIC'],
   'Oceania':             ['OCEANIA'],

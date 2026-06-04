@@ -1,6 +1,6 @@
 // netlify/functions/fetch-vessels.js
 // Multi-region vessel ingestion via VesselAPI.
-// 5 maritime regions / 28 corridors with stratified sampling and per-region caching.
+// 5 maritime regions / 29 corridors with stratified sampling and per-region caching.
 // Per-region TTLs tuned to ~330 VesselAPI credits/day (~7,920 credit budget over 24 days).
 // Env: VESSELAPI_KEY, SUPABASE_URL, SUPABASE_SERVICE_KEY
 
@@ -62,12 +62,25 @@ function classifyVessel(rawType, name) {
 // Each corridor fetch = 1 VesselAPI credit.  TTLs are in 30-minute increments.
 // Per-region TTLs are set to consume ~330 credits/day total:
 //   MIDDLE_EAST  (3 corridors, 1.5h TTL) →  48 credits/day  [highest tactical value]
-//   ASIA_PACIFIC (9 corridors, 2h TTL)   → 108 credits/day
+//   ASIA_PACIFIC (8 corridors, 2h TTL)   →  96 credits/day  [Colombo removed — lower unique yield]
 //   EUROPE_MED   (7 corridors, 2h TTL)   →  84 credits/day
 //   AMERICAS     (6 corridors, 2h TTL)   →  72 credits/day
-//   AFRICA       (3 corridors, 4h TTL)   →  18 credits/day
+//   AFRICA       (5 corridors, 4h TTL)   →  30 credits/day  [+Mozambique Channel, +Durban]
 //   ──────────────────────────────────────────────────────
 //   Total                                ~330 credits/day  (~7,920 / 24-day window)
+//
+// Rebalancing rationale (zero net credit change):
+//   Colombo [6–8°N, 79–81°E] removed from ASIA_PACIFIC:
+//     Overlaps Bay of Bengal [12–14°N, 82–84°E] and Arabian Sea [18–20°N, 69–71°E].
+//     High duplicate rate — vessels on the India–Malacca trunk appear in all three boxes.
+//     Freeing 12 credits/day (2h TTL × 6 refreshes/day).
+//   Mozambique Channel [-19–-17°N, 40–42°E] added to AFRICA:
+//     Key tanker diversionary route between Madagascar and Mozambique (no current coverage).
+//     6 credits/day (4h TTL × 6 refreshes/day = same tier as existing AFRICA corridors).
+//   Durban [-31–-29°N, 30–32°E] added to AFRICA:
+//     Busiest sub-Saharan African port (no current dedicated coverage).
+//     6 credits/day (same tier).
+//   Net budget change: −12 + 6 + 6 = 0 ✓
 
 // ── Region definitions ─────────────────────────────────────────────────────────
 // Each region contains named VesselAPI corridors (2°×2° bounding boxes).
@@ -76,8 +89,8 @@ function classifyVessel(rawType, name) {
 // ttl     = per-region cache TTL in ms (drives credit consumption rate)
 const REGIONS = [
   {
-    name: 'ASIA_PACIFIC', target: 120, weight: 1.0,
-    ttl: 2 * 60 * 60 * 1000,   //   2h — 12 refreshes/day × 9 corridors = 108 credits/day
+    name: 'ASIA_PACIFIC', target: 107, weight: 1.0,
+    ttl: 2 * 60 * 60 * 1000,   //   2h — 12 refreshes/day × 8 corridors = 96 credits/day
     corridors: [
       { name: 'Strait of Malacca',   latB: 1,    latT: 3,    lonL: 102,   lonR: 104  },
       { name: 'South China Sea',     latB: 14,   latT: 16,   lonL: 113,   lonR: 115  },
@@ -87,7 +100,8 @@ const REGIONS = [
       { name: 'Lombok Strait',       latB: -9,   latT: -7,   lonL: 115,   lonR: 117  },
       { name: 'Luzon Strait',        latB: 19,   latT: 21,   lonL: 120,   lonR: 122  },
       { name: 'Korea Strait',        latB: 33,   latT: 35,   lonL: 128,   lonR: 130  },
-      { name: 'Colombo',             latB: 6,    latT: 8,    lonL: 79,    lonR: 81   },
+      // Colombo [6–8N, 79–81E] removed: high overlap with Bay of Bengal and Arabian Sea boxes.
+      // Freed 12 credits/day reallocated to AFRICA (Mozambique Channel + Durban).
     ],
   },
   {
@@ -125,16 +139,18 @@ const REGIONS = [
     ],
   },
   {
-    name: 'AFRICA', target: 52, weight: 1.2, // overweight sparse region
-    ttl: 4 * 60 * 60 * 1000,   //   4h —  6 refreshes/day × 3 corridors = 18 credits/day
+    name: 'AFRICA', target: 87, weight: 1.2, // overweight sparse region; target raised proportionally for 5 corridors
+    ttl: 4 * 60 * 60 * 1000,   //   4h —  6 refreshes/day × 5 corridors = 30 credits/day
     corridors: [
       { name: 'Cape of Good Hope',   latB: -35,  latT: -33,  lonL: 17,    lonR: 19   },
       { name: 'Gulf of Guinea',      latB: 3,    latT: 5,    lonL: 4,     lonR: 6    },
       { name: 'East Africa',         latB: -5,   latT: -3,   lonL: 39,    lonR: 41   },
+      { name: 'Mozambique Channel',  latB: -19,  latT: -17,  lonL: 40,    lonR: 42   },  // NEW: key tanker diversionary route around Cape of Good Hope
+      { name: 'Durban',              latB: -31,  latT: -29,  lonL: 30,    lonR: 32   },  // NEW: busiest sub-Saharan port, no prior dedicated coverage
     ],
   },
 ];
-// Sum of targets = 450 (at GLOBAL_CAP)
+// Sum of targets = 107+83+105+90+87 = 472 — aggregate() caps at GLOBAL_CAP=450 via ratio scaling.
 
 // ── Data fetching ──────────────────────────────────────────────────────────────
 

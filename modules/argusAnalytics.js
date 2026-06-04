@@ -1,12 +1,13 @@
 'use strict';
 // modules/argusAnalytics.js
-// Unified intelligence analytics workspace — AIS | PORT WATCH | NOAA | INTEL | GDACS
+// Unified intelligence analytics workspace — MARITIME | IMF ECON | ENVIRON | GEM LNG | CRISIS
 //
 // Architecture:
 //   Five isolated analytics modules inside the Neural Web Analytics tab.
 //   AIS + PORT WATCH read live global state (no network fetch).
 //   NOAA + INTEL (ACLED/GEM) + GDACS fetch from Netlify functions on independent timers.
 //   Expand mode transitions #nw-intel-panel width: 272→500px (180ms).
+//   Timeframe selector: SNAP / 24H / 1W / 1M / 1Y — frames intelligence lens.
 //
 // Data bridges:
 //   AIS    — window.ArgusNeuralWeb.getAnalyticsData() → {snap, cpAnalytics}
@@ -34,14 +35,21 @@ window.ArgusAnalytics = (function () {
   var POLL_ACLED = 30 * 60 * 1000;
   var POLL_GEM   = 30 * 60 * 1000;
   var POLL_GDACS = 30 * 60 * 1000;
-  var REFRESH_AIS_MS   =  30 * 1000;   // reads live state, no fetch
+  var REFRESH_AIS_MS   =  30 * 1000;
   var REFRESH_PORTS_MS =  60 * 1000;
+
+  // ── Timeframe config ──────────────────────────────────────────────────────────
+  var _TF_BTNS   = ['snapshot', '24h', '1w', '1m', '1y'];
+  var _TF_LABEL  = { snapshot: 'SNAP', '24h': '24H', '1w': '1W', '1m': '1M', '1y': '1Y' };
+  var _TF_WINDOW = { snapshot: 'CURRENT CONDITIONS', '24h': 'PAST 24 HOURS', '1w': 'PAST 7 DAYS', '1m': 'PAST 30 DAYS', '1y': 'PAST YEAR' };
+  var _TF_DAYS   = { snapshot: null, '24h': 1, '1w': 7, '1m': 30, '1y': 365 };
 
   // ── Module state ──────────────────────────────────────────────────────────────
   var _initialized = false;
   var _mounted     = false;
   var _activeTab   = 'ais';
   var _expanded    = false;
+  var _timeframe   = 'snapshot';
 
   var _state = {
     ais:   { data: null, ts: null },
@@ -91,6 +99,18 @@ window.ArgusAnalytics = (function () {
     return arr.slice(0, limit || 8);
   }
 
+  // Filter a trend array to the current timeframe window
+  function _scopeTrend(trend) {
+    if (!trend || !trend.length) return trend;
+    var days = _TF_DAYS[_timeframe];
+    if (!days) return trend;
+    var cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - days);
+    var cutStr = cutoff.toISOString().slice(0, 10);
+    var scoped = trend.filter(function (t) { return t.d >= cutStr; });
+    return scoped.length >= 2 ? scoped : trend.slice(-Math.min(days, trend.length));
+  }
+
   // Blinking live indicator
   function _dot(color) {
     return '<span style="display:inline-block;width:5px;height:5px;border-radius:50%;' +
@@ -102,10 +122,39 @@ window.ArgusAnalytics = (function () {
   // Tab section header
   function _tabHeader(label, ts, color) {
     return '<div style="display:flex;align-items:center;justify-content:space-between;' +
-      'margin-bottom:12px;padding-bottom:7px;border-bottom:1px solid rgba(10,28,55,0.9);">' +
+      'margin-bottom:8px;padding-bottom:7px;border-bottom:1px solid rgba(10,28,55,0.9);">' +
       '<span style="font-size:9px;letter-spacing:1.8px;color:' + color + ';font-weight:700;' +
         'display:flex;align-items:center;">' + _dot(color) + _esc(label) + '</span>' +
       '<span style="font-size:7.5px;letter-spacing:.4px;color:#12324e;">' + _esc(ts) + '</span>' +
+    '</div>';
+  }
+
+  // Operational question framing block
+  function _question(q, color) {
+    return '<div style="font-size:7.5px;letter-spacing:.8px;color:' + (color || '#1a5a7a') + ';' +
+      'line-height:1.65;margin-bottom:10px;padding:7px 10px;' +
+      'border-left:2px solid ' + (color || '#1a5a7a') + ';opacity:0.75;' +
+      'background:rgba(3,12,30,0.4);">' + _esc(q) + '</div>';
+  }
+
+  // Timeframe window badge (below question)
+  function _tfBadge() {
+    return '<div style="font-size:7px;letter-spacing:1.5px;color:#0e3050;' +
+      'margin-bottom:10px;text-align:right;">' + _esc(_TF_WINDOW[_timeframe] || 'CURRENT') + '</div>';
+  }
+
+  // Intelligence insight row — label / value / detail
+  function _insight(label, value, detail, accent) {
+    accent = accent || '#72eeff';
+    return '<div style="display:flex;align-items:flex-start;gap:8px;padding:6px 0;' +
+      'border-bottom:1px solid rgba(8,24,50,0.5);">' +
+      '<div style="flex:1;min-width:0;">' +
+        '<div style="font-size:7px;letter-spacing:1.3px;color:#1a4a62;margin-bottom:2px;' +
+          'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + _esc(label) + '</div>' +
+        '<div style="font-size:9px;font-weight:700;color:' + accent + ';letter-spacing:.3px;line-height:1.3;">' +
+          _esc(value) + '</div>' +
+        (detail ? '<div style="font-size:7px;color:#0d2a40;margin-top:2px;line-height:1.5;">' + _esc(detail) + '</div>' : '') +
+      '</div>' +
     '</div>';
   }
 
@@ -300,7 +349,6 @@ window.ArgusAnalytics = (function () {
       flightCatCounts[k] = (flightCatCounts[k] || 0) + 1;
     });
 
-    // Vessel type pairs with color coding
     var shipPairs = _sortDesc(shipCatCounts, 6).map(function (p) {
       return { k: p.k.toUpperCase(), v: p.v, c: SHIP_COLORS[p.k] || '#4a7a9a' };
     });
@@ -308,11 +356,9 @@ window.ArgusAnalytics = (function () {
       return { k: p.k.toUpperCase(), v: p.v, c: FLIGHT_COLORS[p.k] || '#4a7a9a' };
     });
 
-    // Tanker count (strategic metric)
     var tankers  = shipCatCounts.tanker  || 0;
     var military = (shipCatCounts.military || 0) + (flightCatCounts.military || 0);
 
-    // Chokepoint stress — sorted by ship count
     var cpList = [];
     if (cpAnalytics) {
       Object.keys(cpAnalytics).forEach(function (id) {
@@ -343,7 +389,6 @@ window.ArgusAnalytics = (function () {
     if (!pa) return null;
     var G = pa.global;
 
-    // Top 8 ports globally (flatten from regions)
     var allPorts = [];
     if (pa.topPortsByRegion) {
       Object.keys(pa.topPortsByRegion).forEach(function (r) {
@@ -361,7 +406,6 @@ window.ArgusAnalytics = (function () {
       };
     });
 
-    // Top 6 regions by port calls
     var topRegions = (pa.regions || []).slice(0, 6).map(function (R) {
       return {
         k: R.name,
@@ -471,7 +515,6 @@ window.ArgusAnalytics = (function () {
   function _normalizeGdacs(json) {
     var events = [];
 
-    // Prefer live cache (populated by argusGdacs.js); fallback to fetch payload
     var cache = window.gdacsEventCache;
     if (cache && typeof cache.forEach === 'function' && cache.size > 0) {
       cache.forEach(function (ev) { events.push(ev); });
@@ -497,7 +540,6 @@ window.ArgusAnalytics = (function () {
       if (bySeverity.hasOwnProperty(sev)) bySeverity[sev]++;
       else bySeverity.green++;
 
-      // Collect named regions (skip 3-char ISO codes)
       (ev.affectedRegions || []).forEach(function (r) {
         if (!r || r.length <= 3) return;
         byRegion[r] = (byRegion[r] || 0) + 1;
@@ -506,7 +548,7 @@ window.ArgusAnalytics = (function () {
       escalationScore += (sev === 'red' ? 3 : sev === 'orange' ? 1.5 : 0.5) * (1 + score / 100);
 
       if (sev === 'red') {
-        redAlerts.push({ title: ev.title || '—', category: cat });
+        redAlerts.push({ title: ev.title || '—', category: cat, score: score });
       }
     }
 
@@ -514,12 +556,17 @@ window.ArgusAnalytics = (function () {
       escalationScore / Math.max(1, events.length) * 20
     ));
 
+    var topCat = _sortDesc(byCategory, 1);
+    var topReg = _sortDesc(byRegion,   1);
+
     return {
       total:          events.length,
       redCount:       bySeverity.red,
       orangeCount:    bySeverity.orange,
       greenCount:     bySeverity.green,
       escalationIndex: escalationIndex,
+      topCategory:    topCat.length ? topCat[0].k : null,
+      topRegion:      topReg.length ? topReg[0].k : null,
       bySeverity: [
         { k: 'RED — EXTREME',   v: bySeverity.red,    c: '#ff3300' },
         { k: 'ORANGE — SEVERE', v: bySeverity.orange, c: '#ff8800' },
@@ -527,16 +574,16 @@ window.ArgusAnalytics = (function () {
       ],
       byCategory: _sortDesc(byCategory, 7),
       topRegions: _sortDesc(byRegion,   6),
-      redAlerts:  redAlerts.slice(0, 5),
+      redAlerts:  redAlerts.sort(function(a,b){return b.score-a.score;}).slice(0, 5),
     };
   }
 
   // ── GEM normalization ─────────────────────────────────────────────────────────
   function _normalizeGem(raw) {
     if (!raw || !Array.isArray(raw.infrastructure)) return null;
-    if (raw.disabled) return null;            // feature-gated on server
+    if (raw.disabled) return null;
     var items = raw.infrastructure;
-    if (!items.length) return null;           // empty dataset — not yet configured
+    if (!items.length) return null;
 
     var byFuel = {}, byStatus = {}, byType = {}, byCountry = {}, byRegion = {};
     var operational = 0, construction = 0, announced = 0;
@@ -564,11 +611,16 @@ window.ArgusAnalytics = (function () {
       if (!isNaN(cap) && cap > 0) { totalCapacity += cap; capCount++; }
     }
 
+    var pipeline   = construction + announced;
+    var growthIdx  = items.length ? Math.min(100, Math.round(pipeline / items.length * 100)) : 0;
+
     return {
       total:         items.length,
       operational:   operational,
       construction:  construction,
       announced:     announced,
+      pipeline:      pipeline,
+      growthIdx:     growthIdx,
       countries:     Object.keys(byCountry).length,
       totalCapacity: capCount > 0 ? Math.round(totalCapacity) : null,
       fuelFilter:    raw.fuelFilter || null,
@@ -580,93 +632,125 @@ window.ArgusAnalytics = (function () {
     };
   }
 
-  // ── AIS render ────────────────────────────────────────────────────────────────
+  // ── AIS render ─────────────────────────────────────────────────────────────────
+  // Intelligence question: "What maritime behavior is changing?"
   function _renderAIS() {
     var s   = _state.ais;
     var ts  = _fmtTs(s.ts);
     var out = _tabHeader('MARITIME INTELLIGENCE', ts, '#4488ff');
+
+    out += _question('What maritime behavior is changing?', '#2255aa');
+    out += _tfBadge();
 
     if (!s.data || !s.data.hasData) {
       return out + _noData('ENABLE AIS OR AIRCRAFT LAYER\nTO LOAD LIVE FEED');
     }
     var d = s.data;
 
-    out += _metricGrid([
-      { label: 'VESSELS',    value: _fmtN(d.ships),   accent: '#4488ff', sub: 'live AIS feed' },
-      { label: 'FLIGHTS',    value: _fmtN(d.flights),  accent: '#66ddff', sub: 'ADS-B tracked' },
-      { label: 'TANKERS',    value: _fmtN(d.tankers),  accent: '#ff9933', sub: 'energy cargo' },
-      { label: 'MILITARY',   value: _fmtN(d.military), accent: '#ff4444', sub: 'tracked contacts' },
-    ]);
+    // Maritime Activity Index — weighted composite
+    var tankerRatio   = d.ships > 0 ? d.tankers / d.ships : 0;
+    var topCpDensity  = d.chokepoints && d.chokepoints.length ? d.chokepoints[0].v : 0;
+    var cpPressure    = Math.min(40, topCpDensity * 1.2);
+    var tankerSignal  = Math.min(30, tankerRatio * 150);
+    var milSignal     = Math.min(30, d.military * 2);
+    var activityIdx   = Math.round(cpPressure + tankerSignal + milSignal);
+    out += _meter(activityIdx, 'MARITIME ACTIVITY INDEX', '#4488ff');
 
+    // Intelligence signals
+    var tankerPct    = d.ships > 0 ? Math.round(tankerRatio * 100) : 0;
+    var tankerDetail = tankerPct >= 25
+      ? 'Elevated energy cargo concentration — supply chain pressure signal'
+      : tankerPct >= 12
+        ? 'Normal tanker density — energy routing stable'
+        : 'Low tanker presence — reduced energy cargo movement';
+
+    var topCpName   = d.chokepoints && d.chokepoints.length ? d.chokepoints[0].k : null;
+    var topCpCount  = d.chokepoints && d.chokepoints.length ? d.chokepoints[0].v : 0;
+    var cpDetail    = topCpName
+      ? (topCpCount >= 30
+          ? 'HIGH — potential congestion affecting transshipment times'
+          : topCpCount >= 15
+            ? 'MODERATE — elevated transit density, monitor for delays'
+            : 'NOMINAL — normal transit volume')
+      : null;
+
+    var insightsHtml =
+      _insight('TANKER CONCENTRATION', tankerPct + '% of fleet', tankerDetail, '#ff9933') +
+      _insight('MILITARY CONTACTS', _fmtN(d.military), d.military > 5 ? 'Elevated military presence — heightened threat environment' : 'Background military activity', '#ff4444') +
+      (topCpName ? _insight('PEAK CHOKEPOINT PRESSURE', topCpName, cpDetail, _cpStressColor(topCpCount)) : '') +
+      _insight('ACTIVE VESSELS', _fmtN(d.ships) + ' AIS', d.flights > 0 ? _fmtN(d.flights) + ' aircraft tracked concurrently' : 'AIS-only feed active', '#4488ff');
+
+    out += _box(insightsHtml);
+
+    // Fleet composition
     if (d.shipPairs && d.shipPairs.length) {
       out += _box(_lbl('VESSEL FLEET COMPOSITION') + _bars(d.shipPairs, d.ships, '#4488ff'));
     }
-    if (d.flightPairs && d.flightPairs.length) {
-      out += _box(_lbl('FLIGHT CATEGORY MIX') + _bars(d.flightPairs, d.flights, '#66ddff'));
-    }
+
+    // Chokepoint traffic
     if (d.chokepoints && d.chokepoints.length) {
-      out += _box(_lbl('CHOKEPOINT TRAFFIC DENSITY') + _bars(d.chokepoints, null, '#4488ff'), 0);
+      out += _box(_lbl('CHOKEPOINT TRAFFIC DENSITY') + _bars(d.chokepoints, null, '#4488ff'));
+    }
+
+    // Flight overlay
+    if (d.flightPairs && d.flightPairs.length) {
+      out += _box(_lbl('ACTIVE FLIGHT CONTACTS') + _bars(d.flightPairs, d.flights, '#66ddff'), 0);
     }
 
     return out;
   }
 
-  // ── Port Watch render ─────────────────────────────────────────────────────────
+  // ── Port Watch render ──────────────────────────────────────────────────────────
+  // Intelligence question: "Where are macroeconomic conditions creating future geopolitical effects?"
   function _renderPorts() {
     var s   = _state.ports;
     var ts  = _fmtTs(s.ts);
     var out = _tabHeader('IMF PORT WATCH', ts, '#00ccff');
+
+    out += _question('Where are macroeconomic conditions creating future geopolitical effects?', '#006688');
+    out += _tfBadge();
 
     if (!s.data) {
       return out + _noData('PORTWATCH LAYER LOADING...\nEnable vessel layer for AIS cross-layer data.');
     }
     var d = s.data;
 
-    var ieCol  = d.ieRatio
-      ? (d.ieRatio > 1.2 ? '#00cc77' : d.ieRatio < 0.83 ? '#ff9933' : '#4a7da8')
-      : '#4a7da8';
-    var balCol = d.balance > 0 ? '#00cc77' : d.balance < 0 ? '#ff4466' : '#4a7da8';
-    var ieLabel = d.ieRatio
-      ? (d.ieRatio > 1.1 ? 'import-heavy' : d.ieRatio < 0.9 ? 'export-heavy' : 'balanced')
-      : '--';
+    // Economic Momentum Score: derived from I/E ratio + trade balance direction
+    var ieScore  = d.ieRatio ? Math.min(50, Math.abs(d.ieRatio - 1) * 100) : 0;
+    var balScore = d.balance != null ? Math.min(50, Math.abs(d.balance) / Math.max(1, d.calls) * 200) : 0;
+    var econScore = Math.round(ieScore + balScore);
+    out += _meter(econScore, 'ECONOMIC DIVERGENCE SCORE', '#00ccff');
 
-    out += _metricGrid([
-      { label: 'PORT CALLS',  value: _fmtN(d.calls),   accent: '#00ccff', sub: (d.period || '') + ' · ' + d.portCount + ' ports' },
-      { label: 'IMPORTS',     value: _fmtN(d.imports),  accent: '#00cc77', sub: 'container + tanker' },
-      { label: 'EXPORTS',     value: _fmtN(d.exports),  accent: '#ff9933', sub: 'container + tanker' },
-      { label: 'I/E RATIO',   value: d.ieRatio ? d.ieRatio.toFixed(2) + ':1' : '--', accent: ieCol, sub: ieLabel },
-    ]);
+    // Intelligence signals
+    var ieDir    = d.ieRatio > 1.1 ? 'Import-heavy' : d.ieRatio < 0.9 ? 'Export-heavy' : 'Balanced';
+    var ieDetail = d.ieRatio > 1.2
+      ? 'Strong import surplus — deficit pressure, potential currency stress'
+      : d.ieRatio > 1.1
+        ? 'Mild import dominance — watch for trade balance deterioration'
+        : d.ieRatio < 0.8
+          ? 'Export-driven economy — geopolitical leverage in commodity flows'
+          : 'Trade flows balanced — stable macroeconomic conditions';
 
-    // Cargo mix
-    var cargoHtml = _lbl('GLOBAL CARGO MIX');
-    cargoHtml +=
-      '<div style="margin-bottom:5px;">' +
-        '<div style="display:flex;justify-content:space-between;margin-bottom:2px;">' +
-          '<span style="font-size:8px;color:#4488ff;">CONTAINER</span>' +
-          '<span style="font-size:7.5px;color:#1a567a;">' + d.contPct + '%</span>' +
-        '</div>' +
-        '<div style="height:2px;background:rgba(8,28,56,0.7);">' +
-          '<div style="height:2px;width:' + d.contPct + '%;background:#4488ff;opacity:0.8;"></div>' +
-        '</div>' +
-      '</div>' +
-      '<div style="margin-bottom:0;">' +
-        '<div style="display:flex;justify-content:space-between;margin-bottom:2px;">' +
-          '<span style="font-size:8px;color:#ff9933;">TANKER</span>' +
-          '<span style="font-size:7.5px;color:#1a567a;">' + d.tankPct + '%</span>' +
-        '</div>' +
-        '<div style="height:2px;background:rgba(8,28,56,0.7);">' +
-          '<div style="height:2px;width:' + d.tankPct + '%;background:#ff9933;opacity:0.8;"></div>' +
-        '</div>' +
-      '</div>';
-    out += _box(cargoHtml);
+    var balColor  = d.balance > 0 ? '#00cc77' : '#ff4466';
+    var balLabel  = d.balance > 0 ? '+' + _fmtN(d.balance) + ' surplus' : _fmtN(Math.abs(d.balance || 0)) + ' deficit';
+
+    var tankDom = d.tankPct > 50 ? 'Energy cargo dominant — supply security exposure' : 'Container trade dominant — consumer goods flow primary';
+
+    var insightsHtml =
+      _insight('TRADE BALANCE', balLabel, 'Net flow direction across ' + (d.portCount || '--') + ' monitored ports', balColor) +
+      _insight('I/E PRESSURE', ieDir + (d.ieRatio ? ' (' + d.ieRatio.toFixed(2) + ':1)' : ''), ieDetail, d.ieRatio > 1.1 ? '#ff9933' : d.ieRatio < 0.9 ? '#00cc77' : '#00ccff') +
+      _insight('CARGO PRIORITY SIGNAL', d.tankPct + '% TANKER · ' + d.contPct + '% CONTAINER', tankDom, '#ff9933') +
+      _insight('TRADE VOLUME', _fmtN(d.calls) + ' port calls', (d.period || '') + ' window · ' + (d.portCount || '--') + ' ports tracked', '#00ccff');
+
+    out += _box(insightsHtml);
 
     if (d.topRegions && d.topRegions.length) {
-      out += _box(_lbl('REGIONAL ACTIVITY RANKING') + _bars(d.topRegions, d.calls, '#00ccff'));
+      out += _box(_lbl('REGIONAL TRADE MOMENTUM') + _bars(d.topRegions, d.calls, '#00ccff'));
     }
     if (d.topPorts && d.topPorts.length) {
       out += _box(
-        _lbl('TOP PORTS BY CALLS') +
-        '<div style="font-size:7px;color:#0d2a40;margin-bottom:6px;">⬡ = CHOKEPOINT ADJACENT</div>' +
+        _lbl('PORT CONCENTRATION RISK') +
+        '<div style="font-size:7px;color:#0d2a40;margin-bottom:6px;">HIGH CONCENTRATION = SINGLE-POINT-OF-FAILURE EXPOSURE · ⬡ = CHOKEPOINT ADJACENT</div>' +
         _bars(d.topPorts, d.calls, '#00ccff'),
         0
       );
@@ -676,25 +760,51 @@ window.ArgusAnalytics = (function () {
   }
 
   // ── NOAA render ───────────────────────────────────────────────────────────────
+  // Intelligence question: "What environmental conditions are changing operationally?"
   function _renderNoaa() {
     var s   = _state.noaa;
     var ts  = _fmtTs(s.ts);
-    var out = _tabHeader('ATMOSPHERIC INTELLIGENCE', ts, '#72eeff');
+    var out = _tabHeader('ENVIRONMENTAL RISK', ts, '#72eeff');
+
+    out += _question('What environmental conditions are changing operationally?', '#2a7a8a');
+    out += _tfBadge();
 
     if (!s.metrics) {
       return out + (s.error ? _errState(s.error) : _skeleton());
     }
     var m = s.metrics;
 
-    out += _metricGrid([
-      { label: 'ACTIVE ALERTS', value: m.total,    accent: '#72eeff', sub: 'NWS + NHC' },
-      { label: 'EXTREME SEV.',  value: m.extreme,  accent: m.extreme  > 0 ? '#ff00cc' : '#72eeff', sub: 'critical' },
-      { label: 'SEVERE SEV.',   value: m.severe,   accent: m.severe   > 0 ? '#ff4400' : '#4fc3ff', sub: 'major impact' },
-      { label: 'CYCLONE SYS.', value: m.cyclones, accent: '#4fc3ff', sub: 'tropical' },
-    ]);
+    out += _meter(m.intensity, 'ENVIRONMENTAL RISK SCORE', '#72eeff');
 
-    out += _meter(m.intensity, 'STORM INTENSITY INDEX', '#72eeff');
+    // Intelligence signals
+    var critZones = m.extreme + m.severe;
+    var topType   = m.topTypes && m.topTypes.length ? m.topTypes[0] : null;
 
+    var cycDetail = m.cyclones > 0
+      ? 'Active tropical systems — maritime routing and coastal operations affected'
+      : 'No tropical systems tracked — normal open-ocean conditions';
+
+    var critDetail = critZones > 10
+      ? 'HIGH — multiple high-severity zones requiring operational avoidance'
+      : critZones > 3
+        ? 'MODERATE — several zones requiring flight/maritime rerouting'
+        : critZones > 0
+          ? 'LIMITED — localized impact zones, standard precautions'
+          : 'CLEAR — no extreme or severe alerts active';
+
+    var hazDetail = topType
+      ? topType.k + ' accounts for ' + Math.round(topType.v / Math.max(1, m.total) * 100) + '% of all active alerts'
+      : null;
+
+    var insightsHtml =
+      _insight('TROPICAL SYSTEMS ACTIVE', String(m.cyclones), cycDetail, m.cyclones > 0 ? '#cc44ff' : '#4fc3ff') +
+      _insight('CRITICAL ALERT ZONES', String(critZones), critDetail, critZones > 10 ? '#ff2200' : critZones > 3 ? '#ff8800' : '#72eeff') +
+      _insight('PRIMARY HAZARD TYPE', topType ? topType.k : '--', hazDetail, '#72eeff') +
+      _insight('TOTAL ACTIVE ALERTS', String(m.total), 'NWS + NHC combined feed', '#4fc3ff');
+
+    out += _box(insightsHtml);
+
+    // Severity distribution
     var sevHtml = _lbl('SEVERITY DISTRIBUTION');
     for (var i = 0; i < m.bySeverity.length; i++) {
       var sv = m.bySeverity[i];
@@ -712,110 +822,130 @@ window.ArgusAnalytics = (function () {
         '</div>';
     }
     out += _box(sevHtml);
-    out += _box(_lbl('ALERT TYPE FREQUENCY') + _bars(m.topTypes, m.total, '#72eeff'), 0);
+    out += _box(_lbl('OPERATIONAL HAZARD TYPES') + _bars(m.topTypes, m.total, '#72eeff'), 0);
 
     return out;
   }
 
-  // ── INTEL render (ACLED + GEM) ────────────────────────────────────────────────
+  // ── GEM LNG render (INTEL tab) ────────────────────────────────────────────────
+  // Intelligence question: "How is global energy infrastructure shifting?"
   function _renderIntel() {
     var s   = _state.intel;
     var ts  = _fmtTs(s.ts);
-    var out = _tabHeader('CONFLICT & ENERGY INTEL', ts, '#cc99ff');
+    var out = _tabHeader('GEM LNG ANALYTICS', ts, '#4fc3ff');
+
+    out += _question('How is global energy infrastructure shifting?', '#1a4a6a');
+    out += _tfBadge();
 
     if (!s.acled && !s.gem) {
       return out + (s.error ? _errState(s.error) : _skeleton());
     }
 
-    // ── ACLED section ──────────────────────────────────────────────────────────
-    if (s.acled) {
-      var ac = s.acled;
-      var fatAccent = ac.fatalities > 500 ? '#ff2200' : ac.fatalities > 100 ? '#ff5500' : '#ff9966';
-
-      out += _metricGrid([
-        { label: 'EVENTS',       value: _fmtN(ac.total),      accent: '#ff6644', sub: 'active feed' },
-        { label: 'FATALITIES',   value: _fmtN(ac.fatalities), accent: fatAccent, sub: 'reported' },
-        { label: 'REGIONS',      value: ac.regions,           accent: '#ffaa44', sub: 'geographic spread' },
-        { label: 'ACTORS',       value: ac.actors,            accent: '#cc8844', sub: 'identified' },
-      ]);
-
-      out += _meter(ac.escalation, 'ESCALATION INDEX', '#ff6644');
-
-      if (ac.trend && ac.trend.length >= 2) {
-        out += _box(_trendSvg(ac.trend, 'EVENT TEMPO — 14-DAY WINDOW'));
-      }
-      out += _box(_lbl('EVENT TYPE BREAKDOWN')  + _bars(ac.byType, ac.total, '#ff6644'));
-      out += _box(_lbl('HIGH-ACTIVITY REGIONS') + _bars(ac.topRegions, null, '#ff8844'));
-    }
-
-    // ── GEM section ────────────────────────────────────────────────────────────
+    // ── GEM primary section ────────────────────────────────────────────────────
     if (s.gem) {
-      var gm       = s.gem;
-      var gemLabel = gm.fuelFilter
-        ? 'LNG INFRASTRUCTURE · GEM'
-        : 'ENERGY INFRASTRUCTURE · GEM';
-      out += _divider(gemLabel, '#1a5a7a');
-
+      var gm      = s.gem;
       var opPct   = gm.total ? Math.round(gm.operational  / gm.total * 100) : 0;
       var conPct  = gm.total ? Math.round(gm.construction / gm.total * 100) : 0;
-      var capSub  = gm.totalCapacity ? _fmtN(gm.totalCapacity) + ' MW fleet' : 'see breakdown';
+      var annPct  = gm.total ? Math.round(gm.announced    / gm.total * 100) : 0;
+
+      out += _meter(gm.growthIdx, 'LNG GROWTH INDEX', '#4fc3ff');
+
+      // Pipeline trend signal
+      var pipelineDetail = gm.growthIdx >= 60
+        ? 'Rapid expansion — significant new capacity entering the market within 3–7 years'
+        : gm.growthIdx >= 35
+          ? 'Steady growth — moderate capacity additions underway'
+          : 'Mature market — operational base dominant, limited new construction';
+
+      var topCountry   = gm.byCountry && gm.byCountry.length ? gm.byCountry[0] : null;
+      var topRegionGem = gm.byRegion  && gm.byRegion.length  ? gm.byRegion[0]  : null;
+
+      var countryDetail = topCountry
+        ? topCountry.k + ' leads with ' + topCountry.v + ' facilities (' +
+          Math.round(topCountry.v / gm.total * 100) + '% of tracked infrastructure)'
+        : null;
+
+      var insightsHtml =
+        _insight('PIPELINE PRESSURE', gm.construction + ' UNDER CONSTRUCTION', pipelineDetail, '#ffaa00') +
+        _insight('ANNOUNCED CAPACITY', gm.announced + ' PRE-CONSTRUCTION', annPct + '% of total represents 5-10yr trajectory signal', '#cc99ff') +
+        _insight('GEOGRAPHIC SPREAD', gm.countries + ' NATIONS', 'Market diversification index — higher = more distributed supply risk', '#4fc3ff') +
+        (topCountry ? _insight('CAPACITY LEADER', topCountry.k.toUpperCase(), countryDetail, '#00cc77') : '') +
+        (topRegionGem ? _insight('DOMINANT REGION', topRegionGem.k.toUpperCase(), topRegionGem.v + ' facilities — primary infrastructure concentration', '#4488ff') : '');
+
+      out += _box(insightsHtml);
 
       out += _metricGrid([
-        { label: 'FACILITIES',    value: _fmtN(gm.total),        accent: '#4fc3ff', sub: gm.fuelFilter ? 'LNG · ' + gm.countries + ' nations' : gm.countries + ' nations' },
+        { label: 'FACILITIES',    value: _fmtN(gm.total),        accent: '#4fc3ff', sub: (gm.fuelFilter || 'all fuels') + ' · ' + gm.countries + ' nations' },
         { label: 'OPERATING',     value: _fmtN(gm.operational),  accent: '#00cc77', sub: opPct + '% of tracked' },
         { label: 'CONSTRUCTION',  value: _fmtN(gm.construction), accent: '#ffaa00', sub: conPct + '% pipeline' },
-        { label: 'ANNOUNCED',     value: _fmtN(gm.announced),    accent: '#cc99ff', sub: 'pre-construction' },
+        { label: 'ANNOUNCED',     value: _fmtN(gm.announced),    accent: '#cc99ff', sub: annPct + '% pre-construction' },
       ]);
 
       if (gm.byRegion && gm.byRegion.length) {
-        out += _box(_lbl('REGIONAL DISTRIBUTION') + _bars(gm.byRegion,   gm.total, '#4fc3ff'));
+        out += _box(_lbl('REGIONAL INFRASTRUCTURE DISTRIBUTION') + _bars(gm.byRegion, gm.total, '#4fc3ff'));
       }
-      out += _box(_lbl('STATUS BREAKDOWN')       + _bars(gm.byStatus,   gm.total, '#72eeff'));
-      out += _box(_lbl('TECHNOLOGY TYPES')       + _bars(gm.byType,     gm.total, '#2299cc'));
-      out += _box(_lbl('TOP NATIONS')            + _bars(gm.byCountry,  gm.total, '#4fc3ff'), 0);
+      out += _box(_lbl('CAPACITY LEADERS BY NATION') + _bars(gm.byCountry, gm.total, '#4fc3ff'));
+      out += _box(_lbl('TECHNOLOGY TYPES') + _bars(gm.byType, gm.total, '#2299cc'), s.acled ? 8 : 0);
+    }
+
+    // ── ACLED secondary section ────────────────────────────────────────────────
+    if (s.acled) {
+      var ac = s.acled;
+      out += _divider('CONFLICT INTELLIGENCE · ACLED', '#3a2a5a');
+
+      var fatAccent = ac.fatalities > 500 ? '#ff2200' : ac.fatalities > 100 ? '#ff5500' : '#ff9966';
+      out += _meter(ac.escalation, 'CONFLICT ESCALATION INDEX', '#ff6644');
+
+      var scopedTrend = _scopeTrend(ac.trend);
+      if (scopedTrend && scopedTrend.length >= 2) {
+        out += _box(_trendSvg(scopedTrend, 'EVENT TEMPO — ' + _TF_WINDOW[_timeframe]));
+      }
+      out += _box(_lbl('HIGH-ACTIVITY REGIONS') + _bars(ac.topRegions, null, '#ff8844'), 0);
     }
 
     return out;
   }
 
-  // ── GDACS render ─────────────────────────────────────────────────────────────
+  // ── GDACS render ──────────────────────────────────────────────────────────────
+  // Intelligence question: "Where is the world's next operational crisis emerging?"
   function _renderGdacs() {
     var s   = _state.gdacs;
     var ts  = _fmtTs(s.ts);
-    var out = _tabHeader('GLOBAL DISASTER INTEL', ts, '#ff6633');
+    var out = _tabHeader('CRISIS INTELLIGENCE', ts, '#ff6633');
+
+    out += _question("Where is the world's next operational crisis emerging?", '#8a3300');
+    out += _tfBadge();
 
     if (!s.metrics) {
       return out + (s.error ? _errState(s.error) : _skeleton());
     }
     var m = s.metrics;
 
-    out += _metricGrid([
-      { label: 'ACTIVE DISASTERS', value: m.total,       accent: '#ff6633', sub: 'GDACS · EU JRC' },
-      { label: 'EXTREME ALERTS',   value: m.redCount,    accent: m.redCount > 0 ? '#ff3300' : '#ff6633', sub: 'red alert' },
-      { label: 'SEVERE EVENTS',    value: m.orangeCount, accent: '#ff8800', sub: 'orange alert' },
-      { label: 'WATCH EVENTS',     value: m.greenCount,  accent: '#33cc77', sub: 'green alert' },
-    ]);
+    out += _meter(m.escalationIndex, 'GLOBAL CRISIS INDEX', '#ff6633');
 
-    out += _meter(m.escalationIndex, 'GLOBAL HAZARD INDEX', '#ff6633');
+    // Intelligence signals
+    var topRedAlert  = m.redAlerts && m.redAlerts.length ? m.redAlerts[0] : null;
+    var escPressure  = m.total > 0 ? Math.round((m.redCount * 3 + m.orangeCount) / m.total * 33) : 0;
+    var pressureLabel = escPressure >= 66 ? 'CRITICAL — majority of events are high-severity'
+      : escPressure >= 33 ? 'ELEVATED — significant proportion of severe events'
+      : 'NOMINAL — mostly watch-level events';
 
-    // Severity distribution bars
-    var sevHtml = _lbl('ALERT SEVERITY DISTRIBUTION');
-    for (var i = 0; i < m.bySeverity.length; i++) {
-      var sv = m.bySeverity[i];
-      if (!sv.v) continue;
-      var pct = Math.round(sv.v / Math.max(1, m.total) * 100);
-      sevHtml +=
-        '<div style="margin-bottom:5px;">' +
-          '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:2px;">' +
-            '<span style="font-size:8px;color:' + sv.c + ';letter-spacing:1px;">' + _esc(sv.k) + '</span>' +
-            '<span style="font-size:7.5px;color:#1a567a;">' + sv.v + ' · ' + pct + '%</span>' +
-          '</div>' +
-          '<div style="height:2px;background:rgba(8,28,56,0.7);">' +
-            '<div style="height:2px;width:' + pct + '%;background:' + sv.c + ';opacity:0.85;"></div>' +
-          '</div>' +
-        '</div>';
-    }
-    out += _box(sevHtml);
+    var insightsHtml =
+      (topRedAlert
+        ? _insight('HIGHEST IMPACT EVENT', topRedAlert.title.slice(0, 55) + (topRedAlert.title.length > 55 ? '…' : ''),
+            topRedAlert.category.replace(/_/g, ' ').toUpperCase() + ' · EXTREME ALERT', '#ff3300')
+        : '') +
+      (m.topRegion
+        ? _insight('CRISIS CONCENTRATION', m.topRegion.toUpperCase(), 'Highest geographic density of active disaster events', '#ff8800')
+        : '') +
+      (m.topCategory
+        ? _insight('DOMINANT HAZARD TYPE', m.topCategory.replace(/_/g, ' ').toUpperCase(),
+            'Primary driver of the Global Crisis Index this period', _GDACS_CAT_COLORS[m.topCategory] || '#ff6633')
+        : '') +
+      _insight('ESCALATION PRESSURE', escPressure + '/100', pressureLabel, escPressure >= 66 ? '#ff2200' : escPressure >= 33 ? '#ff8800' : '#33cc77') +
+      _insight('ACTIVE DISASTERS', String(m.total), m.redCount + ' extreme · ' + m.orangeCount + ' severe · ' + m.greenCount + ' watch', '#ff6633');
+
+    out += _box(insightsHtml);
 
     // Event type breakdown
     if (m.byCategory && m.byCategory.length) {
@@ -826,15 +956,15 @@ window.ArgusAnalytics = (function () {
           c: _GDACS_CAT_COLORS[p.k] || '#ff6633',
         };
       });
-      out += _box(_lbl('EVENT TYPE BREAKDOWN') + _bars(catPairs, m.total, '#ff6633'));
+      out += _box(_lbl('CRISIS TYPE DISTRIBUTION') + _bars(catPairs, m.total, '#ff6633'));
     }
 
-    // Top affected regions
+    // Regional exposure
     if (m.topRegions && m.topRegions.length) {
-      out += _box(_lbl('TOP AFFECTED REGIONS') + _bars(m.topRegions, null, '#ff8844'));
+      out += _box(_lbl('REGIONAL EXPOSURE RANKING') + _bars(m.topRegions, null, '#ff8844'));
     }
 
-    // Extreme alert escalation list
+    // Extreme alert list
     if (m.redAlerts && m.redAlerts.length) {
       var rHtml = _lbl('EXTREME ALERT EVENTS');
       for (var j = 0; j < m.redAlerts.length; j++) {
@@ -868,20 +998,20 @@ window.ArgusAnalytics = (function () {
       '@keyframes ax-blink{0%,100%{opacity:1}50%{opacity:0.15}}' +
 
       // Tab bar row
-      '#ax-tabrow{display:flex;align-items:stretch;border-bottom:1px solid rgba(8,24,50,0.95);margin-bottom:14px;}' +
+      '#ax-tabrow{display:flex;align-items:stretch;border-bottom:1px solid rgba(8,24,50,0.95);margin-bottom:0;}' +
       '#ax-tabbar{display:flex;flex:1;}' +
 
       // Individual tabs
       '.ax-tab{flex:1;background:transparent;border:none;border-bottom:2px solid transparent;' +
-        'color:rgba(50,110,150,0.32);font-size:8px;letter-spacing:1.8px;' +
-        'padding:8px 3px;cursor:pointer;' +
+        'color:rgba(50,110,150,0.32);font-size:7.5px;letter-spacing:1.5px;' +
+        'padding:8px 2px;cursor:pointer;' +
         'transition:color 160ms ease,border-color 160ms ease,text-shadow 160ms ease;' +
         'font-family:inherit;text-align:center;font-weight:700;outline:none;}' +
       '.ax-tab:hover{color:rgba(72,150,190,0.6);}' +
       '.ax-tab-ais.ax-on{color:#4488ff;border-bottom-color:#4488ff;text-shadow:0 0 8px rgba(68,136,255,0.5);}' +
       '.ax-tab-ports.ax-on{color:#00ccff;border-bottom-color:#00ccff;text-shadow:0 0 8px rgba(0,204,255,0.5);}' +
       '.ax-tab-noaa.ax-on{color:#72eeff;border-bottom-color:#72eeff;text-shadow:0 0 8px rgba(114,238,255,0.5);}' +
-      '.ax-tab-intel.ax-on{color:#cc99ff;border-bottom-color:#cc99ff;text-shadow:0 0 8px rgba(204,153,255,0.4);}' +
+      '.ax-tab-intel.ax-on{color:#4fc3ff;border-bottom-color:#4fc3ff;text-shadow:0 0 8px rgba(79,195,255,0.4);}' +
       '.ax-tab-gdacs.ax-on{color:#ff6633;border-bottom-color:#ff6633;text-shadow:0 0 8px rgba(255,102,51,0.5);}' +
       '@keyframes ax-diamond-pulse{0%,100%{opacity:1;box-shadow:0 0 4px #ff3300}50%{opacity:0.35;box-shadow:0 0 9px #ff3300}}' +
 
@@ -891,6 +1021,17 @@ window.ArgusAnalytics = (function () {
         'transition:color 150ms ease,background 150ms ease;outline:none;line-height:1;}' +
       '#ax-expand:hover{color:#4fc3ff;background:rgba(79,195,255,0.05);}' +
       '#ax-expand.ax-on{color:#4fc3ff;background:rgba(79,195,255,0.08);}' +
+
+      // Timeframe selector row
+      '#ax-tfrow{display:flex;align-items:center;gap:2px;padding:5px 0 6px;' +
+        'border-bottom:1px solid rgba(8,24,50,0.7);margin-bottom:12px;}' +
+      '.ax-tf-btn{flex:1;background:transparent;border:1px solid rgba(8,28,56,0.5);' +
+        'border-radius:1px;color:rgba(50,110,150,0.28);font-size:7px;letter-spacing:1.4px;' +
+        'padding:4px 2px;cursor:pointer;font-family:inherit;text-align:center;font-weight:700;' +
+        'transition:color 140ms ease,border-color 140ms ease,background 140ms ease;outline:none;}' +
+      '.ax-tf-btn:hover{color:rgba(79,195,255,0.55);border-color:rgba(8,56,90,0.7);}' +
+      '.ax-tf-btn.ax-on{color:#4fc3ff;border-color:#1a4a6a;background:rgba(8,36,66,0.6);' +
+        'text-shadow:0 0 6px rgba(79,195,255,0.4);}' +
 
       // Pane visibility
       '.ax-pane{display:none;}.ax-pane.ax-show{display:block;animation:ax-fadein 160ms ease;}' +
@@ -905,17 +1046,22 @@ window.ArgusAnalytics = (function () {
 
   // ── Shell HTML ────────────────────────────────────────────────────────────────
   function _buildShell() {
+    var tfBtns = _TF_BTNS.map(function (tf) {
+      return '<button class="ax-tf-btn' + (tf === _timeframe ? ' ax-on' : '') + '" data-tf="' + tf + '">' + _TF_LABEL[tf] + '</button>';
+    }).join('');
+
     return '<div id="ax-root" style="font-family:var(--font-mono,\'Courier New\',monospace);">' +
       '<div id="ax-tabrow">' +
         '<div id="ax-tabbar">' +
-          '<button class="ax-tab ax-tab-ais ax-on"  data-ax="ais">AIS</button>'   +
-          '<button class="ax-tab ax-tab-ports"       data-ax="ports">PORTS</button>' +
-          '<button class="ax-tab ax-tab-noaa"        data-ax="noaa">NOAA</button>'  +
-          '<button class="ax-tab ax-tab-intel"       data-ax="intel">INTEL</button>' +
-          '<button class="ax-tab ax-tab-gdacs"       data-ax="gdacs">GDACS</button>' +
+          '<button class="ax-tab ax-tab-ais ax-on"  data-ax="ais">MARITIME</button>'  +
+          '<button class="ax-tab ax-tab-ports"       data-ax="ports">IMF</button>'     +
+          '<button class="ax-tab ax-tab-noaa"        data-ax="noaa">ENVIRON</button>'  +
+          '<button class="ax-tab ax-tab-intel"       data-ax="intel">GEM LNG</button>' +
+          '<button class="ax-tab ax-tab-gdacs"       data-ax="gdacs">CRISIS</button>'  +
         '</div>' +
         '<button id="ax-expand" title="Expand analytics workspace">⊲</button>' +
       '</div>' +
+      '<div id="ax-tfrow">' + tfBtns + '</div>' +
       '<div id="ax-pane-ais"   class="ax-pane ax-show"></div>' +
       '<div id="ax-pane-ports" class="ax-pane"></div>' +
       '<div id="ax-pane-noaa"  class="ax-pane"></div>' +
@@ -949,6 +1095,17 @@ window.ArgusAnalytics = (function () {
       });
     }
 
+    // Timeframe selector clicks
+    var tfrow = document.getElementById('ax-tfrow');
+    if (tfrow) {
+      tfrow.addEventListener('click', function (e) {
+        var btn = e.target;
+        if (!btn || typeof btn.getAttribute !== 'function') return;
+        var tf = btn.getAttribute('data-tf');
+        if (tf) _setTimeframe(tf);
+      });
+    }
+
     // Expand button
     var expBtn = document.getElementById('ax-expand');
     if (expBtn) {
@@ -957,6 +1114,34 @@ window.ArgusAnalytics = (function () {
 
     _mounted = true;
     return true;
+  }
+
+  // ── Timeframe selector ────────────────────────────────────────────────────────
+  function _setTimeframe(tf) {
+    if (!_TF_DAYS.hasOwnProperty(tf)) return;
+    _timeframe = tf;
+
+    var btns = document.querySelectorAll('#ax-tfrow .ax-tf-btn');
+    for (var i = 0; i < btns.length; i++) {
+      var b = btns[i];
+      b.classList.toggle('ax-on', b.getAttribute('data-tf') === tf);
+    }
+
+    _repaintAll();
+  }
+
+  // Repaint all tabs that have data (so TF change is reflected on next tab switch too)
+  function _repaintAll() {
+    var all = ['ais', 'ports', 'noaa', 'intel', 'gdacs'];
+    for (var i = 0; i < all.length; i++) {
+      var tab = all[i];
+      var hasData = tab === 'ais'   ? !!(_state.ais.data  && _state.ais.data.hasData) :
+                    tab === 'ports' ? !!_state.ports.data  :
+                    tab === 'noaa'  ? !!_state.noaa.metrics :
+                    tab === 'intel' ? !!(_state.intel.acled || _state.intel.gem) :
+                    tab === 'gdacs' ? !!_state.gdacs.metrics : false;
+      if (hasData || tab === _activeTab) _repaint(tab);
+    }
   }
 
   // ── Tab switching ─────────────────────────────────────────────────────────────
@@ -1018,7 +1203,6 @@ window.ArgusAnalytics = (function () {
       snap        = d.snap;
       cpAnalytics = d.cpAnalytics;
     } else {
-      // Direct fallback
       var ships = [], flights = [];
       (window._vesselMarkers || []).forEach(function (m) {
         var ud = m && m.userData;
@@ -1082,7 +1266,6 @@ window.ArgusAnalytics = (function () {
       })
       .catch(function () {
         // ACLED offline — suppress error repaint so GEM renders unobstructed.
-        // Re-enable by restoring: s.error = msg; _repaint('intel');
         s.acled = null;
       });
 
@@ -1105,7 +1288,6 @@ window.ArgusAnalytics = (function () {
     s.loading = true;
     if (!s.metrics) _repaint('gdacs');
 
-    // Prefer live cache populated by argusGdacs.js module
     var cache = window.gdacsEventCache;
     if (cache && typeof cache.size === 'number' && cache.size > 0) {
       s.loading = false; s.ts = Date.now(); s.error = null;
@@ -1138,20 +1320,16 @@ window.ArgusAnalytics = (function () {
       return;
     }
 
-    // Load active tab immediately, others staggered
     _refreshAIS();
     setTimeout(_refreshPorts, 2000);
     setTimeout(_pollNoaa,   5000);
     setTimeout(_pollIntel,  9000);
     setTimeout(_pollGdacs, 12000);
 
-    // React to PortWatch ready event — fires when initial IMF fetch completes.
-    // Catches the race where _refreshPorts runs before PortWatch has ingested data.
     window.addEventListener('argus:portwatch:ready', function () {
       _refreshPorts();
     });
 
-    // Periodic refresh timers
     _timers.ais   = setInterval(_refreshAIS,   REFRESH_AIS_MS);
     _timers.ports = setInterval(_refreshPorts, REFRESH_PORTS_MS);
     _timers.noaa  = setInterval(_pollNoaa,     POLL_NOAA);
@@ -1170,6 +1348,7 @@ window.ArgusAnalytics = (function () {
   function status() {
     return {
       activeTab:   _activeTab,
+      timeframe:   _timeframe,
       expanded:    _expanded,
       initialized: _initialized,
       mounted:     _mounted,

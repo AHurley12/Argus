@@ -634,8 +634,8 @@ function connectAISStream() {
 
   ws.onopen = function () {
     if (window.ArgusPerf) ArgusPerf.mark('AIS_WEBSOCKET_OPEN');
-    console.log('[ArgusAIS] AISstream connected — subscribing (22 strategic regions)');
-    // 22 strategic maritime regions.
+    console.log('[ArgusAIS] AISstream connected — subscribing (26 strategic regions)');
+    // 26 strategic maritime regions.
     // Regional targeting gives proportional global coverage while avoiding the
     // European AIS receiver density bias that a single global bbox produces.
     // Format: [[minLat, minLon], [maxLat, maxLon]]
@@ -645,27 +645,32 @@ function connectAISStream() {
         // ── Original 10 ──────────────────────────────────────────────────────
         [[ 50, -10], [ 70,  30]],  // North Sea & Baltic
         [[ 30,  -6], [ 46,  36]],  // Mediterranean
-        [[ 12,  32], [ 32,  50]],  // Suez Canal & Red Sea       ← chokepoint
-        [[ -2,  95], [  8, 110]],  // Strait of Malacca          ← busiest strait
+        [[ 12,  32], [ 32,  50]],  // Suez Canal & Red Sea           ← chokepoint
+        [[ -2,  95], [  8, 110]],  // Strait of Malacca              ← busiest strait
         [[  5, -85], [ 25, -60]],  // Panama Canal & Caribbean
-        [[ 23,  48], [ 30,  60]],  // Persian Gulf               ← energy
-        [[  0, 105], [ 25, 125]],  // South China Sea            ← contested
-        [[-12,  35], [ 15,  55]],  // East Africa & Horn         ← piracy zone
+        [[ 23,  48], [ 30,  60]],  // Persian Gulf                   ← energy
+        [[  0, 105], [ 25, 125]],  // South China Sea                ← contested
+        [[-12,  35], [ 15,  55]],  // East Africa & Horn             ← piracy zone
         [[ 30, -60], [ 60, -10]],  // North Atlantic
         [[ 20,-135], [ 50,-115]],  // US West Coast & Pacific
-        // ── 12 new regions ───────────────────────────────────────────────────
+        // ── 12 prior additions ───────────────────────────────────────────────
         [[ 25, -98], [ 45, -65]],  // US East Coast & Gulf of Mexico
-        [[ 10,  55], [ 28,  78]],  // Arabian Sea                ← India-Gulf corridor
+        [[ 10,  55], [ 28,  78]],  // Arabian Sea                    ← India-Gulf corridor
         [[ -5,  65], [ 25,  90]],  // Bay of Bengal & Indian Ocean N
-        [[-35,  15], [-25,  40]],  // Cape of Good Hope          ← diversion route
+        [[-35,  15], [-25,  40]],  // Cape of Good Hope              ← diversion route
         [[-10, 105], [  8, 130]],  // Indonesia / Java / Banda Sea
-        [[ 30, 125], [ 45, 145]],  // Japan & Korea              ← major export hub
-        [[ 40,  27], [ 48,  42]],  // Black Sea                  ← Russia/Ukraine/Turkey
-        [[-10, -18], [ 10,  15]],  // West Africa / Gulf of Guinea ← oil
+        [[ 30, 125], [ 45, 145]],  // Japan & Korea                  ← major export hub
+        [[ 40,  27], [ 48,  42]],  // Black Sea                      ← Russia/Ukraine/Turkey
+        [[-10, -18], [ 10,  15]],  // West Africa / Gulf of Guinea   ← oil
         [[-45, 110], [-10, 155]],  // Australia
         [[-35, -55], [ -5, -30]],  // South Atlantic / Brazil coast
-        [[-60, -70], [-45, -50]],  // Cape Horn / Drake Passage  ← Falklands/Southern Ocean
-        [[-30,  80], [ 10, 110]],  // Indian Ocean (central)     ← long-haul fill
+        [[-60, -70], [-45, -50]],  // Cape Horn / Drake Passage      ← Falklands/Southern Ocean
+        [[-30,  80], [ 10, 110]],  // Indian Ocean (central)         ← long-haul fill
+        // ── 4 new coverage-gap fills ─────────────────────────────────────────
+        [[ 42, 145], [ 55, 180]],  // North Pacific routing corridor (Japan→NA great-circle, dateline crossing)
+        [[-40, -85], [ -5, -70]],  // South America Pacific coast (Chile, Peru, Ecuador ports + Pacific routes)
+        [[ 68,  25], [ 78,  80]],  // Arctic / Northern Sea Route (Svalbard → Kara Sea, growing strategic corridor)
+        [[ 15,-175], [ 30,-140]],  // Central Pacific / OPAC routes (Hawaii corridor, no prior AIS coverage)
       ],
       FilterMessageTypes: ['PositionReport', 'ShipStaticData'],
     }));

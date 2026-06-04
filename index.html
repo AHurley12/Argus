@@ -771,8 +771,8 @@ document.addEventListener('DOMContentLoaded', function() {
       // ThreeGlobe 2.45 — call setters individually (chaining unreliable across versions)
       Globe.polygonsData(geo.features);
       Globe.polygonAltitude(0.008);
-      Globe.polygonCapColor(function() { return 'rgba(100,150,200,0.48)'; });
-      Globe.polygonSideColor(function() { return 'rgba(0,80,150,0.2)'; });
+      Globe.polygonCapColor(function() { return 'rgba(46,46,46,0.92)'; });
+      Globe.polygonSideColor(function() { return 'rgba(30,30,30,0.15)'; });
       Globe.polygonStrokeColor(function() { return '#0f2744'; });
       // 3° curvature resolution — more sphere-conforming vertices than default 5°
       // improves how large-country caps conform to globe curvature without changing colors or interactions
@@ -783,7 +783,7 @@ document.addEventListener('DOMContentLoaded', function() {
       // ── Polygon geometry merge ──────────────────────────────────────────────
       // ne_50m has ~4,400 polygon rings. Three-globe creates 2 individual Mesh objects
       // per ring (cap + side) — ~8,800 transparent draw calls dominating frame time.
-      // All caps share rgba(100,150,200,0.48) and all sides share rgba(0,80,150,0.2),
+      // All caps share rgba(46,46,46,0.92) and all sides share rgba(30,30,30,0.15),
       // so they can be merged into 2 draw calls with zero visual change.
       // Ghost meshes stay in Globe's scene graph for onPolygonHover raycasting;
       // only their materials are hidden.
@@ -846,33 +846,16 @@ document.addEventListener('DOMContentLoaded', function() {
             if (mat.opacity > 0.35) {
               capGeos.push(geo);
               if (!capMat) {
-                // ── Hash texture (test) ────────────────────────────────────────
-                var _hCv  = document.createElement('canvas');
-                _hCv.width = _hCv.height = 32;
-                var _hCtx = _hCv.getContext('2d');
-                _hCtx.clearRect(0, 0, 32, 32);
-                _hCtx.strokeStyle = 'rgba(255,220,160,0.65)';
-                _hCtx.lineWidth   = 1;
-                // Forward diagonals
-                for (var _hi = -32; _hi < 64; _hi += 8) {
-                  _hCtx.beginPath(); _hCtx.moveTo(_hi, 0); _hCtx.lineTo(_hi + 32, 32); _hCtx.stroke();
-                }
-                // Back diagonals
-                for (var _hj = -32; _hj < 64; _hj += 8) {
-                  _hCtx.beginPath(); _hCtx.moveTo(_hj + 32, 0); _hCtx.lineTo(_hj, 32); _hCtx.stroke();
-                }
-                var _hTex = new THREE.CanvasTexture(_hCv);
-                _hTex.wrapS = _hTex.wrapT = THREE.RepeatWrapping;
-                _hTex.repeat.set(6, 6);
-                // ─────────────────────────────────────────────────────────────
+                // Flat dark gray landmass fill — neutral, low-contrast, does not compete with entities.
+                // Opacity 0.92 makes land clearly distinct from dark ocean while preserving
+                // a trace of the underlying earth-dark texture for geographic depth.
                 capMat = new THREE.MeshBasicMaterial({
-                  map:         _hTex,
-                  color:       new THREE.Color(0.58, 0.44, 0.30),  // warm tan — tints land, contrasts against dark ocean
+                  color:       new THREE.Color('#2e2e2e'),
                   transparent: true,
-                  opacity:     0.25,   // +40% from previous 0.18
+                  opacity:     0.92,
                   depthWrite:  false,
                   depthTest:   true,
-                  side:        THREE.FrontSide,  // outward faces only — no interior back-face bleed
+                  side:        THREE.FrontSide,
                 });
               }
             }

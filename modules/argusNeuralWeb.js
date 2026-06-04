@@ -409,7 +409,40 @@ function scanRelationships() {
         }
       }
 
-      if (edgeType) relEdges.push({ source: a.id, target: b.id, weight: 2, edgeType: edgeType, detected: true });
+      if (edgeType) {
+        // Phase 5 — Correlation accuracy: boost weight based on time proximity + geographic co-location
+        var baseWeight = 2;
+
+        // Signal 3: Time proximity — events within 7 days of each other are more likely causally linked
+        if (a.timestamp && b.timestamp) {
+          var tDeltaDays = Math.abs(a.timestamp - b.timestamp) / 86400000;
+          if (tDeltaDays <= 1)  baseWeight += 0.8;  // same-day: strongest signal
+          else if (tDeltaDays <= 3) baseWeight += 0.5;  // within 3 days
+          else if (tDeltaDays <= 7) baseWeight += 0.2;  // within a week
+        }
+
+        // Signal 1: Shared geography — both texts mention the same country not already selected
+        // Use window.COUNTRIES_DATA directly — _nwCountries is assigned later in this closure
+        var aCountries = [], bCountries = [];
+        (window.COUNTRIES_DATA || []).forEach(function(cd) {
+          var lbl = cd.label.toLowerCase();
+          if (state.selectedCountry && lbl === state.selectedCountry.toLowerCase()) return;
+          if (lbl.length < 4) return;
+          if (ta.indexOf(lbl) !== -1) aCountries.push(lbl);
+          if (tb.indexOf(lbl) !== -1) bCountries.push(lbl);
+        });
+        var sharedGeo = aCountries.filter(function(c){ return bCountries.indexOf(c) !== -1; }).length;
+        if (sharedGeo > 0) baseWeight += Math.min(0.6, sharedGeo * 0.2);  // Signal 1: shared geography
+
+        // Signal 4: Shared infrastructure — both texts mention transport/supply keywords
+        var INFRA_KWS = ['pipeline','port','strait','canal','corridor','railroad','lng','tanker','chokepoint','shipping'];
+        var aInfra = INFRA_KWS.filter(function(k){ return ta.indexOf(k) !== -1; });
+        var bInfra = INFRA_KWS.filter(function(k){ return tb.indexOf(k) !== -1; });
+        var sharedInfra = aInfra.filter(function(k){ return bInfra.indexOf(k) !== -1; }).length;
+        if (sharedInfra > 0) baseWeight += Math.min(0.4, sharedInfra * 0.2);  // Signal 4: infrastructure
+
+        relEdges.push({ source: a.id, target: b.id, weight: Math.min(4, parseFloat(baseWeight.toFixed(1))), edgeType: edgeType, detected: true });
+      }
     }
   }
 
@@ -1406,6 +1439,287 @@ function showTooltip(node, e) {
   tip.classList.add('is-visible');
 }
 
+// ══════════════════════════════════════════════════════════════════════════════
+// INSPECTOR INTELLIGENCE HELPERS
+// Phase 1: Dynamic event indexing
+// Phase 2: Node intelligence snapshots
+// Phase 3: Correlation explainability
+// ══════════════════════════════════════════════════════════════════════════════
+
+// Phase 1 — Dynamic event count: walks all available data sources at call-time
+// so the count always reflects live graph state, not a cached snapshot.
+function _dynamicEventCount(countryLabel) {
+  var seen  = new Set();
+  var count = 0;
+  var cLow  = (countryLabel || '').toLowerCase();
+  if (!cLow) return 0;
+
+  // 1. Direct store index (base ingested events)
+  (store.byCountry.get(countryLabel) || []).forEach(function(ev) {
+    if (!seen.has(ev.id)) { seen.add(ev.id); count++; }
+  });
+
+  // 2. Current graph event nodes (may include scan-injected corpus events)
+  (state.graph.nodes || []).forEach(function(n) {
+    if (n.type === 'event' && n.id && !seen.has(n.id)) { seen.add(n.id); count++; }
+  });
+
+  // 3. GDACS live cache — check affectedRegions + title for country mention
+  var gdCache = window.gdacsEventCache;
+  if (gdCache && typeof gdCache.forEach === 'function') {
+    gdCache.forEach(function(ev) {
+      var key = 'gdacs_' + (ev.id || ev.title || '');
+      if (seen.has(key)) return;
+      var regions = (ev.affectedRegions || []).join(' ').toLowerCase();
+      var txt = ((ev.title || '') + ' ' + regions).toLowerCase();
+      if (txt.indexOf(cLow) !== -1) { seen.add(key); count++; }
+    });
+  }
+
+  // 4. NOAA events — check region/country fields
+  (window._noaaEvents || []).forEach(function(ev) {
+    var key = 'noaa_' + (ev.id || ev.title || '');
+    if (seen.has(key)) return;
+    var txt = ((ev.title || '') + ' ' + (ev.region || '') + ' ' + (ev.country || '')).toLowerCase();
+    if (txt.indexOf(cLow) !== -1) { seen.add(key); count++; }
+  });
+
+  // 5. Relationship-linked event nodes (events connected to this country node in graph)
+  var countryNodeId = 'country:' + countryLabel;
+  (state.relEdges || []).forEach(function(e) {
+    var otherId = e.source === countryNodeId ? e.target : (e.target === countryNodeId ? e.source : null);
+    if (!otherId || seen.has(otherId)) return;
+    var other = state.graph.nodes.find(function(n) { return n.id === otherId; });
+    if (other && other.type === 'event') { seen.add(otherId); count++; }
+  });
+
+  return count;
+}
+
+// Phase 2 — Operational snapshot: ≤3 intelligence bullets derived from live graph state.
+// No hardcoded values. No external fetches. All data comes from ingested graph memory.
+function _nodeSnapshot(node) {
+  var bullets = [];
+
+  if (node.type === 'country') {
+    var evs      = store.byCountry.get(node.label) || [];
+    var graphEvs = (state.graph.nodes || []).filter(function(n) { return n.type === 'event'; });
+
+    // Bullet 1: Largest active risk driver
+    var critEvs = graphEvs.filter(function(n) { return n.risk === 'CRITICAL'; });
+    var warnEvs = graphEvs.filter(function(n) { return n.risk === 'WARNING'; });
+    if (critEvs.length) {
+      bullets.push('CRITICAL DRIVER — ' + critEvs[0].label.slice(0, 52));
+    } else if (warnEvs.length) {
+      bullets.push('TOP WARNING — ' + warnEvs[0].label.slice(0, 52));
+    }
+
+    // Bullet 2: Dominant event category in store
+    var typeCounts = {};
+    evs.forEach(function(ev) { typeCounts[ev.type] = (typeCounts[ev.type] || 0) + 1; });
+    var sortedTypes = Object.keys(typeCounts).sort(function(a, b) { return typeCounts[b] - typeCounts[a]; });
+    if (sortedTypes.length) {
+      bullets.push('DOMINANT CATEGORY — ' + sortedTypes[0].replace(/_/g,' ') + ' · ' + typeCounts[sortedTypes[0]] + ' events');
+    }
+
+    // Bullet 3: Highest-connectivity event node (most relEdges)
+    var edgeCounts = {};
+    (state.relEdges || []).forEach(function(e) {
+      edgeCounts[e.source] = (edgeCounts[e.source] || 0) + 1;
+      edgeCounts[e.target] = (edgeCounts[e.target] || 0) + 1;
+    });
+    var topNode = null, topEdgeCount = 0;
+    graphEvs.forEach(function(n) {
+      var ec = edgeCounts[n.id] || 0;
+      if (ec > topEdgeCount) { topEdgeCount = ec; topNode = n; }
+    });
+    if (topNode && topEdgeCount > 0) {
+      bullets.push('MOST CONNECTED — ' + topNode.label.slice(0, 45) + ' · ' + topEdgeCount + ' links');
+    }
+
+  } else if (node.type === 'event' || node.type === 'topic') {
+    // Event/topic: age signal + related event count + dominant linked region
+    var now = Date.now();
+    if (node.timestamp) {
+      var ageMs  = now - node.timestamp;
+      var ageDays = Math.floor(ageMs / 86400000);
+      var ageLabel = ageDays === 0 ? 'TODAY' : ageDays === 1 ? '1 DAY AGO' : ageDays + ' DAYS AGO';
+      bullets.push('EVENT AGE — ' + ageLabel);
+    }
+    var relCount = (state.relEdges || []).filter(function(e){ return e.source === node.id || e.target === node.id; }).length;
+    if (relCount > 0) {
+      bullets.push('RELATIONSHIP LOAD — ' + relCount + ' detected connections');
+    }
+    // Linked country entities
+    var linkedCountries = (state.relEdges || [])
+      .filter(function(e){ return e.source === node.id || e.target === node.id; })
+      .map(function(e){
+        var otherId = e.source === node.id ? e.target : e.source;
+        return state.graph.nodes.find(function(n){ return n.id === otherId && n.type === 'entity' && n.entityType === 'country'; });
+      })
+      .filter(Boolean);
+    if (linkedCountries.length) {
+      bullets.push('LINKED REGIONS — ' + linkedCountries.slice(0,3).map(function(n){ return n.label; }).join(', '));
+    }
+
+  } else if (node.type === 'vessel') {
+    // Vessel: nearby op signals + ship category context
+    var snap = collectTrackingSnapshot();
+    if (snap.ships.length) {
+      var typeDist = categoryDistribution(snap.ships);
+      var topCat = Object.keys(typeDist).sort(function(a,b){ return typeDist[b]-typeDist[a]; })[0];
+      if (topCat) bullets.push('DOMINANT SHIP TYPE — ' + topCat.toUpperCase() + ' · ' + typeDist[topCat] + '% of tracked fleet');
+      bullets.push('FLEET SNAPSHOT — ' + snap.ships.length + ' vessels · ' + snap.flights.length + ' aircraft tracked');
+    }
+    // Nearby disruption signals from relEdges
+    var vesDisruptEdges = (state.relEdges || []).filter(function(e){ return e.source === node.id || e.target === node.id; });
+    if (vesDisruptEdges.length) {
+      bullets.push('DISRUPTION SIGNALS — ' + vesDisruptEdges.length + ' active correlation links');
+    }
+
+  } else if (node.type === 'aircraft') {
+    var fsnap = collectTrackingSnapshot();
+    if (fsnap.flights.length) {
+      var ftDist = categoryDistribution(fsnap.flights);
+      var ftTopCat = Object.keys(ftDist).sort(function(a,b){ return ftDist[b]-ftDist[a]; })[0];
+      if (ftTopCat) bullets.push('DOMINANT FLIGHT TYPE — ' + ftTopCat.toUpperCase() + ' · ' + ftDist[ftTopCat] + '% of tracked');
+      bullets.push('AVIATION SNAPSHOT — ' + fsnap.flights.length + ' contacts tracked');
+    }
+
+  } else if (node.type === 'company') {
+    // Company: connected countries, linked event count
+    var coEdges = (state.relEdges || []).concat(state.manualEdges || []).filter(function(e){ return e.source === node.id || e.target === node.id; });
+    var coLinkedCountries = coEdges.map(function(e){
+      var otherId = e.source === node.id ? e.target : e.source;
+      return state.graph.nodes.find(function(n){ return n.id === otherId && (n.type === 'entity' || n.type === 'country'); });
+    }).filter(Boolean);
+    if (coLinkedCountries.length) {
+      bullets.push('GEOGRAPHIC EXPOSURE — ' + coLinkedCountries.slice(0,3).map(function(n){ return n.label; }).join(', '));
+    }
+    var coEventEdges = coEdges.filter(function(e){
+      var otherId = e.source === node.id ? e.target : e.source;
+      var other = state.graph.nodes.find(function(n){ return n.id === otherId; });
+      return other && other.type === 'event';
+    });
+    if (coEventEdges.length) bullets.push('LINKED EVENTS — ' + coEventEdges.length + ' active event connections');
+    if (node.keywords && node.keywords.length) {
+      bullets.push('OPERATIONAL SECTORS — ' + node.keywords.slice(0, 3).join(', '));
+    }
+
+  } else if (node.type === 'news') {
+    // News: related entity count, topic cluster
+    var newsEdges = (state.relEdges || []).filter(function(e){ return e.source === node.id || e.target === node.id; });
+    if (newsEdges.length) {
+      bullets.push('RELATED ENTITIES — ' + newsEdges.length + ' graph connections');
+    }
+    if (node.keywords && node.keywords.length) {
+      bullets.push('TOPIC CLUSTER — ' + node.keywords.slice(0, 4).join(', '));
+    }
+
+  } else if (node.type === 'signal') {
+    var sigEdges = (state.relEdges || []).filter(function(e){ return e.source === node.id || e.target === node.id; });
+    if (sigEdges.length) {
+      var critLinked = sigEdges.filter(function(e){
+        var otherId = e.source === node.id ? e.target : e.source;
+        var other = state.graph.nodes.find(function(n){ return n.id === otherId; });
+        return other && other.risk === 'CRITICAL';
+      }).length;
+      bullets.push('ACTIVE CONNECTIONS — ' + sigEdges.length + ' event links' + (critLinked ? ' · ' + critLinked + ' CRITICAL' : ''));
+    }
+    if (node.keywords && node.keywords.length) {
+      bullets.push('TRIGGER TERMS — ' + node.keywords.slice(0,4).join(', '));
+    }
+
+  } else if (node.type === 'chokepoint') {
+    var cpSnap = collectTrackingSnapshot();
+    if (cpSnap.ships.length > 0) {
+      bullets.push('LIVE TRAFFIC — ' + cpSnap.ships.length + ' vessels · ' + cpSnap.flights.length + ' aircraft tracked globally');
+    }
+    var cpRelEdges = (state.relEdges || []).filter(function(e){ return e.source === node.id || e.target === node.id; });
+    if (cpRelEdges.length) {
+      bullets.push('DISRUPTION LINKS — ' + cpRelEdges.length + ' active event connections');
+    }
+    if (node.risk === 'CRITICAL' || node.risk === 'WARNING') {
+      bullets.push('OPERATIONAL STATUS — ' + node.risk + ' · Monitoring required');
+    }
+  }
+
+  if (!bullets.length) return '';
+
+  var html = '<div style="margin-top:10px;padding:8px 10px;background:rgba(10,4,26,0.6);border:1px solid rgba(100,50,200,0.15);border-left:2px solid #b464ff">';
+  html += '<div style="font-size:7.5px;letter-spacing:1.8px;color:#b464ff;margin-bottom:7px;font-weight:700">⬡ OPERATIONAL SNAPSHOT</div>';
+  bullets.slice(0, 3).forEach(function(b) {
+    html += '<div style="font-size:8px;color:#8899bb;margin-bottom:5px;line-height:1.5;padding:3px 0 3px 8px;border-left:1px solid rgba(100,50,200,0.25)">· ' + b + '</div>';
+  });
+  html += '</div>';
+  return html;
+}
+
+// Phase 3 — Correlation basis: deterministic, graph-derived explanation of WHY
+// two nodes are connected. No AI generation. No fabricated reasoning.
+function _correlationBasis(node) {
+  var edges = (state.relEdges || []).filter(function(e) { return e.source === node.id || e.target === node.id; });
+  if (!edges.length) return '';
+
+  var signals = [];
+  var myKws   = new Set(node.keywords || []);
+  var myTs    = node.timestamp || 0;
+
+  var hasCausality   = false, hasDependency = false, hasCorrelation = false;
+  var sharedKwTotal  = 0, timeProxCount = 0, geoCount = 0, infraCount = 0, marketCount = 0;
+
+  edges.forEach(function(e) {
+    if (e.edgeType === 'causality')   hasCausality   = true;
+    if (e.edgeType === 'dependency')  hasDependency  = true;
+    if (e.edgeType === 'correlation') hasCorrelation = true;
+
+    var otherId   = e.source === node.id ? e.target : e.source;
+    var other     = state.graph.nodes.find(function(n) { return n.id === otherId; });
+    if (!other) return;
+
+    // Shared keywords
+    (other.keywords || []).forEach(function(k) { if (myKws.has(k)) sharedKwTotal++; });
+
+    // Time proximity (±72h)
+    if (myTs && other.timestamp && Math.abs(other.timestamp - myTs) < 72 * 3600000) timeProxCount++;
+
+    // Geographic entity links
+    if (other.type === 'entity' && other.entityType === 'country') geoCount++;
+
+    // Infrastructure/supply signals
+    if (other.type === 'signal' && (other.signalType === 'supply' ||
+        (other.label || '').indexOf('SUPPLY') !== -1 || (other.label || '').indexOf('TRADE') !== -1 ||
+        (other.label || '').indexOf('MARITIME') !== -1)) infraCount++;
+
+    // Market signals
+    if (other.type === 'signal' && other.signalType === 'market') marketCount++;
+  });
+
+  if (hasCausality)           signals.push('Direct causality chain detected in event text');
+  if (sharedKwTotal > 0)      signals.push('Shared keyword overlap · ' + sharedKwTotal + ' common terms');
+  if (geoCount > 0)           signals.push('Shared geography · ' + geoCount + ' linked country node' + (geoCount > 1 ? 's' : ''));
+  if (timeProxCount > 0)      signals.push('Shared event timeline · ' + timeProxCount + ' event' + (timeProxCount > 1 ? 's' : '') + ' within 72h window');
+  if (infraCount > 0)         signals.push('Linked through logistics or supply chain infrastructure');
+  if (marketCount > 0)        signals.push('Linked through market exposure signal');
+  if (hasDependency && !hasCausality) signals.push('Structural dependency relationship');
+  if (hasCorrelation && !hasCausality && !hasDependency) signals.push('Statistical co-movement detected in corpus');
+
+  if (!signals.length) return '';
+
+  var strength      = edges.length >= 4 ? 'HIGH' : edges.length >= 2 ? 'MODERATE' : 'LOW';
+  var strengthColor = edges.length >= 4 ? '#ff9933' : edges.length >= 2 ? '#ffcc00' : '#4a7da8';
+  var typeStr = [hasCausality?'CAUSALITY':'', hasDependency?'DEPENDENCY':'', hasCorrelation?'CORRELATION':''].filter(Boolean).join(' · ');
+
+  var html = '<div style="margin-top:8px;padding:8px 10px;background:rgba(0,8,22,0.6);border:1px solid rgba(0,130,200,0.12);border-left:2px solid #00aaff">';
+  html += '<div style="font-size:7.5px;letter-spacing:1.8px;color:#00aaff;margin-bottom:6px;font-weight:700">◈ CORRELATION BASIS</div>';
+  html += '<div style="font-size:7.5px;color:#2a5a7a;margin-bottom:6px">STRENGTH: <span style="color:' + strengthColor + '">' + strength + '</span>  ·  ' + edges.length + ' EDGES  ·  <span style="color:#1a4060">' + typeStr + '</span></div>';
+  signals.slice(0, 5).forEach(function(s) {
+    html += '<div style="font-size:8px;color:#3a7a9a;margin-bottom:3px;padding-left:2px">✓ ' + s + '</div>';
+  });
+  html += '</div>';
+  return html;
+}
+
 // ── Inspector panel ─────────────────────────────────────────────────────────────
 function showInspector(node) {
   var body = document.getElementById('nw-insp-body');
@@ -1419,6 +1733,9 @@ function showInspector(node) {
 
   if (node.type === 'country') {
     var cd = node.data;
+    var dynCount = _dynamicEventCount(node.label);
+    var storeCount = (store.byCountry.get(node.label) || []).length;
+    var evCountLabel = dynCount + ' events' + (dynCount > storeCount ? ' <span style="color:#3a7a5a;font-size:8px">(+' + (dynCount - storeCount) + ' from linked sources)</span>' : '');
     body.innerHTML = [
       '<div style="font-size:8px;letter-spacing:2px;color:var(--nw-purple);margin-bottom:8px">◈ COUNTRY NODE</div>',
       field('COUNTRY', node.label),
@@ -1426,26 +1743,45 @@ function showInspector(node) {
       cd ? field('GDP', cd.gdp || '—') : '',
       cd ? field('TOP EXPORTS', (cd.topE||[]).join(', ') || '—') : '',
       cd ? field('TOP IMPORTS', (cd.topI||[]).join(', ') || '—') : '',
-      field('EVENTS INDEXED', (store.byCountry.get(node.label) || []).length + ' events'),
+      field('EVENTS INDEXED', evCountLabel),
     ].join('');
+    body.innerHTML += _nodeSnapshot(node);
 
   } else if (node.type === 'topic') {
     var evList = (state.graph.nodes || []).filter(function(n){ return n.type==='event' && (n.topics||[]).indexOf(node.label) !== -1; });
+    var topRelEdgeCount = (state.relEdges || []).filter(function(e){ return e.source === node.id || e.target === node.id; }).length;
     body.innerHTML = [
       '<div style="font-size:8px;letter-spacing:2px;color:#5a2a8a;margin-bottom:8px">⬡ TOPIC CLUSTER</div>',
       field('KEYWORD', node.label),
       field('EVENT COUNT', node.count),
+      topRelEdgeCount ? field('RELATIONSHIPS', topRelEdgeCount + ' detected edges') : '',
       field('LINKED EVENTS', evList.map(function(e){ return '<div style="margin-bottom:4px;color:#8899bb;font-size:9px">· ' + e.label.slice(0,52) + '</div>'; }).join('')),
     ].join('');
+    body.innerHTML += _nodeSnapshot(node);
 
   } else if (node.type === 'entity') {
     var relEdgeCount = (state.relEdges || []).filter(function(e){ return e.source === node.id || e.target === node.id; }).length;
+    // Count events linked to this entity
+    var entLinkedEvs = (state.relEdges || []).filter(function(e){
+      var otherId = e.source === node.id ? e.target : e.source;
+      var other = state.graph.nodes.find(function(n){ return n.id === otherId; });
+      return other && other.type === 'event';
+    });
+    var entLinkedCountries = (state.relEdges || []).filter(function(e){
+      var otherId = e.source === node.id ? e.target : e.source;
+      var other = state.graph.nodes.find(function(n){ return n.id === otherId; });
+      return other && (other.type === 'country' || (other.type === 'entity' && other.entityType === 'country'));
+    });
     body.innerHTML = [
       '<div style="font-size:8px;letter-spacing:2px;color:#b464ff;margin-bottom:8px">◆ ENTITY — ' + (node.entityType || '').toUpperCase() + '</div>',
       field('NAME', node.label),
       field('TYPE', node.entityType || '—'),
       field('RELATIONSHIPS', relEdgeCount + ' detected edges'),
+      entLinkedEvs.length    ? field('LINKED EVENTS',   entLinkedEvs.length + ' active event connections') : '',
+      entLinkedCountries.length ? field('LINKED REGIONS', entLinkedCountries.length + ' geographic connections') : '',
     ].join('');
+    body.innerHTML += _nodeSnapshot(node);
+    body.innerHTML += _correlationBasis(node);
 
   } else if (node.type === 'market_ticker') {
     var mpd = node._payload || {};
@@ -1477,11 +1813,21 @@ function showInspector(node) {
     ].join('');
 
   } else if (node.type === 'signal') {
+    var sigEdgesInspect = (state.relEdges || []).filter(function(e){ return e.source === node.id || e.target === node.id; });
+    var sigCritCount  = sigEdgesInspect.filter(function(e){
+      var otherId = e.source === node.id ? e.target : e.source;
+      var other = state.graph.nodes.find(function(n){ return n.id === otherId; });
+      return other && other.risk === 'CRITICAL';
+    }).length;
     body.innerHTML = [
       '<div style="font-size:8px;letter-spacing:2px;color:' + (node.signalType==='market'?'#ff9933':'#ff4488') + ';margin-bottom:8px">⬡ ' + (node.signalType||'').toUpperCase() + ' SIGNAL</div>',
       field('LABEL', node.label),
       field('TRIGGERED BY', (node.keywords || []).join(', ') || '—'),
+      sigEdgesInspect.length ? field('ACTIVE CONNECTIONS', sigEdgesInspect.length + ' event links') : '',
+      sigCritCount ? field('CRITICAL LINKS', sigCritCount + ' CRITICAL severity events') : '',
     ].join('');
+    body.innerHTML += _nodeSnapshot(node);
+    body.innerHTML += _correlationBasis(node);
 
   } else if (node.type === 'note') {
     var noteLinks = (state.manualEdges || []).filter(function(e){ return e.source === node.id || e.target === node.id; });
@@ -1493,34 +1839,56 @@ function showInspector(node) {
 
   } else if (node.type === 'vessel') {
     var vesLinks = (state.relEdges||[]).concat(state.manualEdges||[]).filter(function(e){ return e.source===node.id||e.target===node.id; });
-    // Attempt chokepoint analytics if this node represents a known chokepoint/route
     var vesAnalyticsHtml = buildChokepointAnalyticsHtml(node.label);
+    // Vessel type from node data
+    var vesType  = node.vesselType || node.badge || node.typeCategory || '—';
+    var vesFlag  = node.flag || node.flagState || '—';
+    var vesRegion = node.region || node.lastRegion || '—';
     body.innerHTML = [
       '<div style="font-size:8px;letter-spacing:2px;color:#00ccff;margin-bottom:8px">🚢 VESSEL / ROUTE</div>',
       field('NAME', node.label),
-      field('TYPE', node.badge || 'VESSEL'),
+      field('VESSEL TYPE', vesType !== '—' ? '<span style="color:#00ccff">' + vesType.toUpperCase() + '</span>' : '—'),
+      vesFlag !== '—' ? field('FLAG STATE', vesFlag) : '',
+      vesRegion !== '—' ? field('LAST REGION', vesRegion) : '',
       vesLinks.length ? field('RELATIONSHIPS', vesLinks.length + ' edges') : '',
       vesAnalyticsHtml,
     ].join('');
+    body.innerHTML += _nodeSnapshot(node);
+    body.innerHTML += _correlationBasis(node);
 
   } else if (node.type === 'aircraft') {
     var acLinks = (state.relEdges||[]).concat(state.manualEdges||[]).filter(function(e){ return e.source===node.id||e.target===node.id; });
     var ftLabel = { commercial:'COMMERCIAL', cargo:'CARGO', military:'MILITARY', unknown:'UNCLASSIFIED' };
     var ftCol   = { commercial:'#66ddff', cargo:'#4488ff', military:'#ff4444', unknown:'#5577aa' };
     var ft4 = (node.flightType || 'unknown').toLowerCase();
+    // Related aviation disruptions from graph signals
+    var acDisruptLinks = acLinks.filter(function(e){
+      var otherId = e.source === node.id ? e.target : e.source;
+      var other = state.graph.nodes.find(function(n){ return n.id === otherId; });
+      return other && (other.type === 'signal' || (other.type === 'event' && other.eventType === 'SUPPLY_CHAIN'));
+    }).length;
     body.innerHTML = [
       '<div style="font-size:8px;letter-spacing:2px;color:#66ddff;margin-bottom:8px">✈ FLIGHT NODE</div>',
       field('CALLSIGN / ID', node.label),
-      field('FLIGHT TYPE', '<span style="color:' + (ftCol[ft4]||'#5577aa') + '">' + (ftLabel[ft4]||ft4.toUpperCase()) + '</span>'),
-      node.region   ? field('REGION', node.region)             : '',
+      field('AIRCRAFT CLASS', '<span style="color:' + (ftCol[ft4]||'#5577aa') + '">' + (ftLabel[ft4]||ft4.toUpperCase()) + '</span>'),
+      node.operator  ? field('OPERATOR', node.operator)           : '',
+      node.region    ? field('LAST REGION', node.region)          : '',
       node.altitude != null ? field('ALTITUDE', node.altitude + ' ft') : '',
       node.lat != null && node.lon != null ? field('POSITION', node.lat.toFixed(2) + '°, ' + node.lon.toFixed(2) + '°') : '',
       acLinks.length ? field('RELATIONSHIPS', acLinks.length + ' edges') : '',
+      acDisruptLinks ? field('AVIATION DISRUPTIONS', acDisruptLinks + ' linked disruption signals') : '',
     ].join('');
+    body.innerHTML += _nodeSnapshot(node);
 
   } else if (node.type === 'chokepoint') {
     var cpAnalyticsHtml = buildChokepointAnalyticsHtml(node.label);
     var cpLinks = (state.relEdges||[]).concat(state.manualEdges||[]).filter(function(e){ return e.source===node.id||e.target===node.id; });
+    // Infrastructure impacts: events linked to this chokepoint
+    var cpLinkedEvs = cpLinks.filter(function(e){
+      var otherId = e.source === node.id ? e.target : e.source;
+      var other = state.graph.nodes.find(function(n){ return n.id === otherId; });
+      return other && other.type === 'event';
+    });
     body.innerHTML = [
       '<div style="font-size:8px;letter-spacing:2px;color:#ffaa33;margin-bottom:8px">◇ CHOKEPOINT</div>',
       field('NAME', node.label),
@@ -1529,32 +1897,63 @@ function showInspector(node) {
       node.volume  ? field('VOLUME',  node.volume)  : '',
       node.status  ? field('STATUS',  '<span style="color:#c0ddf8;line-height:1.5">' + node.status + '</span>') : '',
       cpLinks.length ? field('RELATIONSHIPS', cpLinks.length + ' edges') : '',
+      cpLinkedEvs.length ? field('CONNECTED EVENTS', cpLinkedEvs.length + ' active disruption events') : '',
       cpAnalyticsHtml,
     ].join('');
+    body.innerHTML += _nodeSnapshot(node);
+    body.innerHTML += _correlationBasis(node);
 
   } else if (node.type === 'company') {
     var coLinks = (state.relEdges||[]).concat(state.manualEdges||[]).filter(function(e){ return e.source===node.id||e.target===node.id; });
+    // Connected countries via relEdges
+    var coCountries = coLinks.map(function(e){
+      var otherId = e.source === node.id ? e.target : e.source;
+      return state.graph.nodes.find(function(n){ return n.id === otherId && (n.type === 'country' || (n.type === 'entity' && n.entityType === 'country')); });
+    }).filter(Boolean);
+    // Related event exposures
+    var coEventLinks = coLinks.filter(function(e){
+      var otherId = e.source === node.id ? e.target : e.source;
+      var other = state.graph.nodes.find(function(n){ return n.id === otherId; });
+      return other && other.type === 'event';
+    });
     body.innerHTML = [
       '<div style="font-size:8px;letter-spacing:2px;color:#ff99aa;margin-bottom:8px">🏢 COMPANY</div>',
       field('NAME', node.label),
-      field('SECTOR', node.entityType || 'CORPORATE'),
-      coLinks.length ? field('DETECTED EDGES', coLinks.length + ' relationships') : '',
+      field('INDUSTRY', node.industry || node.sector || node.entityType || 'CORPORATE'),
+      coLinks.length    ? field('DETECTED EDGES', coLinks.length + ' relationships') : '',
+      coEventLinks.length ? field('RELATED EVENTS', coEventLinks.length + ' active event exposures') : '',
+      coCountries.length  ? field('CONNECTED COUNTRIES', coCountries.slice(0,4).map(function(n){ return n.label; }).join(', ')) : '',
+      node.keywords && node.keywords.length ? field('OPERATIONAL SECTORS', node.keywords.slice(0,4).join(', ')) : '',
     ].join('');
+    body.innerHTML += _nodeSnapshot(node);
+    body.innerHTML += _correlationBasis(node);
 
   } else if (node.type === 'news') {
+    var newsLinks = (state.relEdges||[]).filter(function(e){ return e.source===node.id||e.target===node.id; });
+    // Related entities (company/country nodes linked to this news)
+    var newsEntities = newsLinks.map(function(e){
+      var otherId = e.source === node.id ? e.target : e.source;
+      return state.graph.nodes.find(function(n){ return n.id === otherId && (n.type === 'entity' || n.type === 'country'); });
+    }).filter(Boolean);
+    // Regional focus — country entities linked
+    var newsFocusRegions = newsEntities.filter(function(n){ return n.type === 'country' || n.entityType === 'country'; });
     body.innerHTML = [
       '<div style="font-size:8px;letter-spacing:2px;color:#cc88ff;margin-bottom:8px">📰 NEWS ARTICLE</div>',
       field('HEADLINE', '<span style="color:#c0ddf8;line-height:1.5">' + node.label + '</span>'),
       node.source ? field('SOURCE', node.source) : '',
-      node.keywords && node.keywords.length ? field('KEYWORDS', '<div class="nw-kw-wrap">' + node.keywords.map(function(k){ return '<span class="nw-kw">' + k + '</span>'; }).join('') + '</div>') : '',
+      newsLinks.length   ? field('RELATED ENTITIES', newsLinks.length + ' graph connections') : '',
+      newsFocusRegions.length ? field('REGIONAL FOCUS', newsFocusRegions.slice(0,3).map(function(n){ return n.label; }).join(', ')) : '',
+      node.keywords && node.keywords.length ? field('TOPIC CLUSTER', '<div class="nw-kw-wrap">' + node.keywords.map(function(k){ return '<span class="nw-kw">' + k + '</span>'; }).join('') + '</div>') : '',
     ].join('');
+    body.innerHTML += _nodeSnapshot(node);
+    body.innerHTML += _correlationBasis(node);
 
   } else {
-    // Event node — show relationship edges
+    // Event node — show relationship edges + intelligence snapshot
     var ev = node._ev || {};
     var ts = ev.timestamp ? new Date(ev.timestamp).toISOString().replace('T',' ').slice(0,16) + ' UTC' : '—';
-    var relEdges = (state.relEdges || []).filter(function(e){ return e.source === node.id || e.target === node.id; });
-    var relHtml = relEdges.map(function(e) {
+    var evRelEdges = (state.relEdges || []).filter(function(e){ return e.source === node.id || e.target === node.id; });
+    var relHtml = evRelEdges.map(function(e) {
       var et = EDGE_TYPES[e.edgeType] || {};
       var other = e.source === node.id ? e.target : e.source;
       var otherN = state.graph.nodes.find(function(n){ return n.id === other; });
@@ -1562,17 +1961,47 @@ function showInspector(node) {
       return '<div style="margin-bottom:3px;font-size:8px"><span class="nw-edge-badge ' + (et.badge||'') + '">' + (et.label||e.edgeType) + '</span><span style="color:#8899bb">' + otherLabel.slice(0,36) + '</span></div>';
     }).join('');
 
+    // Event age
+    var evAge = '—';
+    if (node.timestamp) {
+      var ageMs  = Date.now() - node.timestamp;
+      var ageDays = Math.floor(ageMs / 86400000);
+      var ageHrs  = Math.floor(ageMs / 3600000);
+      evAge = ageDays >= 1 ? ageDays + ' day' + (ageDays !== 1 ? 's' : '') + ' ago' : ageHrs + ' hour' + (ageHrs !== 1 ? 's' : '') + ' ago';
+    }
+
+    // Linked regions (entity country nodes connected to this event)
+    var linkedRegionNodes = evRelEdges.map(function(e) {
+      var otherId = e.source === node.id ? e.target : e.source;
+      return state.graph.nodes.find(function(n){ return n.id === otherId && n.type === 'entity' && n.entityType === 'country'; });
+    }).filter(Boolean);
+    var linkedRegionsHtml = linkedRegionNodes.length
+      ? linkedRegionNodes.slice(0,4).map(function(n){ return '<span class="nw-kw" style="border-color:#b464ff30">' + n.label + '</span>'; }).join('')
+      : '';
+
+    // Related active events (other event nodes sharing this event's edges)
+    var relActiveEvCount = evRelEdges.filter(function(e) {
+      var otherId = e.source === node.id ? e.target : e.source;
+      var other = state.graph.nodes.find(function(n){ return n.id === otherId; });
+      return other && other.type === 'event';
+    }).length;
+
     body.innerHTML = [
       '<div style="font-size:8px;letter-spacing:2px;color:' + (RISK_COLORS[node.risk]||'#4a7da8') + ';margin-bottom:8px">' + node.risk + ' · ' + (node.eventType||'') + '</div>',
       field('TITLE', '<span style="color:#c0ddf8;line-height:1.5">' + node.label + '</span>'),
       field('DATE', ts),
+      field('EVENT AGE', evAge),
+      field('SEVERITY', '<span style="color:' + (RISK_COLORS[node.risk]||'#4a7da8') + '">' + (node.risk||'—') + '</span>'),
       ev.impact ? field('IMPACT', '<span style="line-height:1.5">' + ev.impact + '</span>') : '',
       ev.source ? field('SOURCE', ev.source) : '',
+      relActiveEvCount ? field('RELATED ACTIVE EVENTS', relActiveEvCount + ' events share relationship links') : '',
+      linkedRegionsHtml ? field('LINKED REGIONS', '<div class="nw-kw-wrap">' + linkedRegionsHtml + '</div>') : '',
       node.keywords && node.keywords.length ? field('KEYWORDS',
         '<div class="nw-kw-wrap">' + node.keywords.map(function(k){ return '<span class="nw-kw">' + k + '</span>'; }).join('') + '</div>'
       ) : '',
-      relEdges.length ? field('RELATIONSHIPS', relHtml) : '',
+      evRelEdges.length ? field('RELATIONSHIPS', relHtml) : '',
     ].join('');
+    body.innerHTML += _correlationBasis(node);
   }
 
   // Append note-link button for all inspectable nodes
@@ -1713,59 +2142,149 @@ function exportGraph(fmt) {
       JSON.stringify(exportObj, null, 2), 'application/json');
 
   } else {
-    // Markdown — Obsidian-compatible
+    // Markdown — Obsidian-compatible, complete field export (Phase 4)
     var lines = [
       '# ARGUS Neural Web — ' + country,
-      '**Generated:** ' + ts + '  ',
-      '**Nodes:** ' + nodes.length + '  **Relationships:** ' + relEdges.length,
+      '**Generated:** ' + ts,
+      '**Nodes:** ' + nodes.length + '  |  **Relationships:** ' + relEdges.length + '  |  **Country:** ' + country,
       '',
       '---',
       '',
-      '## Graph Nodes',
+      '## Intelligence Summary',
+      '',
     ];
 
-    var nodesByType = {};
-    nodes.forEach(function(n){ (nodesByType[n.type] = nodesByType[n.type]||[]).push(n); });
+    // Country node — full field export
+    var cNode = nodes.find(function(n){ return n.type === 'country'; });
+    if (cNode) {
+      var cData = cNode.data;
+      lines.push('### ' + cNode.label);
+      if (cData) {
+        lines.push('- **Risk Score:** ' + (cData.risk || '—') + (cData.score ? ' · ' + cData.score : ''));
+        lines.push('- **GDP:** ' + (cData.gdp || '—'));
+        lines.push('- **Top Exports:** ' + ((cData.topE||[]).join(', ') || '—'));
+        lines.push('- **Top Imports:** ' + ((cData.topI||[]).join(', ') || '—'));
+      }
+      lines.push('- **Events Indexed:** ' + _dynamicEventCount(cNode.label));
+      lines.push('');
 
-    Object.keys(nodesByType).forEach(function(t) {
-      lines.push('\n### ' + t.toUpperCase() + 'S');
-      nodesByType[t].forEach(function(n) {
-        var meta = n.risk ? ' `' + n.risk + '`' : '';
-        var sub  = n.eventType || n.entityType || n.signalType || '';
-        lines.push('- **' + n.label + '**' + meta + (sub ? ' — ' + sub : ''));
-        if (n.keywords && n.keywords.length) lines.push('  - Keywords: ' + n.keywords.join(', '));
+      // Operational snapshot for country
+      var cEvs = store.byCountry.get(cNode.label) || [];
+      var cGraphEvs = nodes.filter(function(n){ return n.type === 'event'; });
+      var cTypeCounts = {};
+      cEvs.forEach(function(ev){ cTypeCounts[ev.type] = (cTypeCounts[ev.type]||0)+1; });
+      var cTopType = Object.keys(cTypeCounts).sort(function(a,b){ return cTypeCounts[b]-cTypeCounts[a]; })[0];
+      var cCritEvs = cGraphEvs.filter(function(n){ return n.risk === 'CRITICAL'; });
+      lines.push('**Operational Snapshot:**');
+      if (cCritEvs.length) lines.push('- Critical Driver: ' + cCritEvs[0].label);
+      if (cTopType) lines.push('- Dominant Category: ' + cTopType.replace(/_/g,' ') + ' (' + cTypeCounts[cTopType] + ' events)');
+      lines.push('');
+    }
+
+    // Event nodes — full field export
+    var evNodes2 = nodes.filter(function(n){ return n.type === 'event'; });
+    if (evNodes2.length) {
+      lines.push('## Events\n');
+      evNodes2.forEach(function(n) {
+        var ev2 = n._ev || {};
+        var evTs = n.timestamp ? new Date(n.timestamp).toISOString().replace('T',' ').slice(0,16) + ' UTC' : '—';
+        var ageDays2 = n.timestamp ? Math.floor((Date.now() - n.timestamp) / 86400000) : null;
+        lines.push('### ' + n.label);
+        lines.push('- **Risk:** ' + (n.risk || '—') + '  |  **Type:** ' + (n.eventType || '—'));
+        lines.push('- **Date:** ' + evTs + (ageDays2 !== null ? '  |  **Age:** ' + ageDays2 + ' days' : ''));
+        if (ev2.impact) lines.push('- **Impact:** ' + ev2.impact);
+        if (ev2.source) lines.push('- **Source:** ' + ev2.source);
+        if (n.keywords && n.keywords.length) lines.push('- **Keywords:** ' + n.keywords.join(', '));
+        // Relationship edges for this node
+        var nEdges = relEdges.filter(function(e){ return e.source === n.id || e.target === n.id; });
+        if (nEdges.length) {
+          lines.push('- **Relationships:**');
+          nEdges.forEach(function(e) {
+            var otherId = e.source === n.id ? e.target : e.source;
+            var otherN = nodes.find(function(x){ return x.id === otherId; });
+            if (otherN) lines.push('  - [' + (EDGE_TYPES[e.edgeType]||{}).label + '] ' + otherN.label + ' (weight: ' + (e.weight||1).toFixed(1) + ')');
+          });
+        }
+        lines.push('');
       });
-    });
+    }
 
+    // Entity nodes
+    var entityNodes = nodes.filter(function(n){ return n.type === 'entity'; });
+    if (entityNodes.length) {
+      lines.push('## Entities\n');
+      entityNodes.forEach(function(n) {
+        var entEdgeCount = relEdges.filter(function(e){ return e.source === n.id || e.target === n.id; }).length;
+        lines.push('- **' + n.label + '** `' + (n.entityType||'entity').toUpperCase() + '`' +
+          (n.risk ? ' · ' + n.risk : '') +
+          (entEdgeCount ? ' · ' + entEdgeCount + ' edges' : ''));
+      });
+      lines.push('');
+    }
+
+    // Signal nodes
+    var signalNodes = nodes.filter(function(n){ return n.type === 'signal'; });
+    if (signalNodes.length) {
+      lines.push('## Signals\n');
+      signalNodes.forEach(function(n) {
+        var sigEdgeCnt = relEdges.filter(function(e){ return e.source === n.id || e.target === n.id; }).length;
+        lines.push('- **' + n.label + '** `' + (n.signalType||'').toUpperCase() + '` · risk: ' + (n.risk||'—'));
+        if (n.keywords && n.keywords.length) lines.push('  - Triggered by: ' + n.keywords.join(', '));
+        if (sigEdgeCnt) lines.push('  - Active connections: ' + sigEdgeCnt);
+      });
+      lines.push('');
+    }
+
+    // Chokepoint + vessel nodes
+    var cpVesNodes = nodes.filter(function(n){ return n.type === 'chokepoint' || n.type === 'vessel'; });
+    if (cpVesNodes.length) {
+      lines.push('## Chokepoints / Vessels\n');
+      cpVesNodes.forEach(function(n) {
+        lines.push('- **' + n.label + '** `' + n.type.toUpperCase() + '`' + (n.risk ? ' · ' + n.risk : '') +
+          (n.traffic ? ' · ' + n.traffic : '') + (n.status ? ' — ' + n.status : ''));
+      });
+      lines.push('');
+    }
+
+    // Full relationship table with correlation basis
     if (relEdges.length) {
-      lines.push('\n## Relationships\n');
-      var edgeGroups = { causality: [], correlation: [], dependency: [] };
+      lines.push('## Relationships\n');
+      var edgeGroups = { causality: [], correlation: [], dependency: [], manual: [] };
       relEdges.forEach(function(e){ if (edgeGroups[e.edgeType]) edgeGroups[e.edgeType].push(e); });
 
-      ['causality','correlation','dependency'].forEach(function(et) {
+      ['causality','correlation','dependency','manual'].forEach(function(et) {
         if (!edgeGroups[et].length) return;
-        lines.push('### ' + et.toUpperCase());
+        lines.push('### ' + et.toUpperCase() + ' (' + edgeGroups[et].length + ')');
         edgeGroups[et].forEach(function(e) {
           var srcN = nodes.find(function(n){ return n.id === e.source; });
           var tgtN = nodes.find(function(n){ return n.id === e.target; });
-          if (srcN && tgtN) lines.push('- [[' + srcN.label + ']] → [[' + tgtN.label + ']]');
+          if (srcN && tgtN) {
+            lines.push('- [[' + srcN.label.slice(0,60) + ']] → [[' + tgtN.label.slice(0,60) + ']]' +
+              ' (weight: ' + (e.weight||1).toFixed(1) + ')');
+          }
         });
+        lines.push('');
       });
     }
 
+    // Timeline
     if (timeline.length) {
-      lines.push('\n## Timeline\n');
-      timeline.slice(0, 30).forEach(function(e) {
+      lines.push('## Timeline\n');
+      timeline.forEach(function(e) {
         lines.push('- **' + e.timestamp.slice(0,10) + '** `' + e.risk + '` ' + e.title + ' (' + e.type + ')');
       });
+      lines.push('');
     }
 
+    // Analyst notes
     if (notes.trim()) {
-      lines.push('\n## Analyst Notes\n');
+      lines.push('## Analyst Notes\n');
       lines.push(notes.trim());
+      lines.push('');
     }
 
-    lines.push('\n---\n*Generated by [[ARGUS Intelligence Terminal]]*');
+    lines.push('---');
+    lines.push('*Generated by [[ARGUS Intelligence Terminal]] · ArgusNeuralWeb-v2*');
     downloadFile('argus-' + country.replace(/\s+/g,'-').toLowerCase() + '-' + new Date().toISOString().slice(0,10) + '.md',
       lines.join('\n'), 'text/markdown');
   }

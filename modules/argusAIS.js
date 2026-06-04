@@ -18,10 +18,11 @@ var AISSTREAM_KEY = '';
 var AIS_OPACITY  = 0.92;   // matches VesselAPI — required for ArgusSelection dim/restore parity
 var AIS_DIM_F    = 0.12 / 0.92;  // ArgusSelection.CFG.DIM_OPACITY / AIS_OPACITY — keep in sync with ArgusSelection
 var AIS_ALTITUDE = 101.3;  // must match R.AIS defined in globe init — no z-fighting with R.SHIP (101.5)
-// Cap how many unique vessels we keep in memory. Oldest-updated get evicted
+// Cap how many unique vessels we keep in memory. Longest-resident get evicted
 // once this limit is hit so the globe doesn't accumulate stale ghosts.
-// 2500 supports ~22 regions × ~150 vessels average, with headroom for high-density zones.
-var AIS_MAX_MARKERS = 2500;
+// 4000 supports 28 regions × ~150 vessels average, with headroom for satellite AIS
+// (mid-ocean vessels that update every 30–60 min via satellite pass).
+var AIS_MAX_MARKERS = 4000;
 // Interval between buffer drain + diff render passes.
 // Ingest (onmessage → buffer.push) is uncapped; only rendering is rate-limited.
 var AIS_RENDER_INTERVAL = 300; // ms — "real-time feel" without flooding the render loop
@@ -404,7 +405,7 @@ function upsertAISMarker(mmsi, name, lat, lon, heading, velocity, shipType, navS
     mat.visible = false;
     aisGroup.add(sprite);
     sprite.updateWorldMatrix(false, false);  // sync matrixWorld immediately for this tick's raycasts
-    aisMarkers.set(mmsi, { sprite: sprite, updatedAt: now });
+    aisMarkers.set(mmsi, { sprite: sprite, updatedAt: now, firstSeenAt: now });
     if (window.ArgusEntityRegistry) window.ArgusEntityRegistry.register(mmsi, 'ais_vessel', sprite, sprite.userData);
     if (window.ArgusAISInstanced) {
       window.ArgusAISInstanced.upsert(mmsi, lat, lon, heading, aisColor(tc));
@@ -422,20 +423,26 @@ function upsertAISMarker(mmsi, name, lat, lon, heading, velocity, shipType, navS
 }
 
 function evictOldest() {
-  // Find the oldest NON-SELECTED vessel. Evicting the selected vessel would
-  // invalidate ArgusSelection._locked (stale sprite ref → auto-unlock next tick).
-  // If somehow every vessel is selected (impossible in practice), fall back to oldest.
+  // Evict by firstSeenAt (longest-resident vessel) rather than updatedAt.
+  // Using updatedAt would structurally evict mid-ocean vessels that get satellite
+  // AIS updates every 30–60 min while coastal vessels update every 30 sec — the
+  // satellite vessels always have the oldest updatedAt and get continuously purged.
+  // firstSeenAt is fair: equal opportunity regardless of update frequency; a
+  // long-tenured coastal vessel is evicted before a newly discovered mid-ocean ship.
+  // Evicted coastal vessels reappear immediately on next message; mid-ocean vessels
+  // may not resurface until the next satellite pass (potentially 45+ minutes later).
   var oldest = null, oldestTime = Infinity;
   var oldestFallback = null, oldestTimeFallback = Infinity;
   aisMarkers.forEach(function(entry, mmsi) {
     // Track overall oldest (fallback)
-    if (entry.updatedAt < oldestTimeFallback) {
-      oldestTimeFallback = entry.updatedAt;
+    var t = entry.firstSeenAt || entry.updatedAt;  // firstSeenAt added in current version; updatedAt fallback for safety
+    if (t < oldestTimeFallback) {
+      oldestTimeFallback = t;
       oldestFallback = mmsi;
     }
     // Skip the currently selected vessel for normal eviction
     if (mmsi === _aisState.selectedVesselId) return;
-    if (entry.updatedAt < oldestTime) { oldestTime = entry.updatedAt; oldest = mmsi; }
+    if (t < oldestTime) { oldestTime = t; oldest = mmsi; }
   });
   // If all vessels are somehow selected, fall back to true oldest
   if (oldest === null) oldest = oldestFallback;
@@ -634,7 +641,7 @@ function connectAISStream() {
 
   ws.onopen = function () {
     if (window.ArgusPerf) ArgusPerf.mark('AIS_WEBSOCKET_OPEN');
-    console.log('[ArgusAIS] AISstream connected — subscribing (26 strategic regions)');
+    console.log('[ArgusAIS] AISstream connected — subscribing (28 strategic regions)');
     // 26 strategic maritime regions.
     // Regional targeting gives proportional global coverage while avoiding the
     // European AIS receiver density bias that a single global bbox produces.
@@ -671,6 +678,9 @@ function connectAISStream() {
         [[-40, -85], [ -5, -70]],  // South America Pacific coast (Chile, Peru, Ecuador ports + Pacific routes)
         [[ 68,  25], [ 78,  80]],  // Arctic / Northern Sea Route (Svalbard → Kara Sea, growing strategic corridor)
         [[ 15,-175], [ 30,-140]],  // Central Pacific / OPAC routes (Hawaii corridor, no prior AIS coverage)
+        // ── 2 mid-ocean transatlantic/transpacific fills ──────────────────────
+        [[-25, -45], [  5, -10]],  // South Atlantic transatlantic (Brazil → Cape Verde → West Africa route)
+        [[  0,-175], [ 22,-130]],  // Mid-Pacific (fills gap between Hawaii corridor and US West Coast box)
       ],
       FilterMessageTypes: ['PositionReport', 'ShipStaticData'],
     }));

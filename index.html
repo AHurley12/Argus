@@ -760,196 +760,82 @@ document.addEventListener('DOMContentLoaded', function() {
   const Globe = new ThreeGlobe();
   if (window.ArgusPerf) ArgusPerf.mark('GLOBE_CONSTRUCTED');
 
-  // Fetch country polygons (Natural Earth 50m — restored from 110m for full coastline + island fidelity)
-  // ne_50m: ~4,400 polygon features, ~500 KB — Caribbean, Indonesian, Mediterranean, Pacific islands included
-  // ne_110m was a regression (commit 0e62a0b): ~255 features, coarse coastlines, missing islands
+  // Fetch country GeoJSON → build canvas texture: land fill + borders painted onto the globe surface.
+  // Zero elevated polygon meshes — eliminates the long-task perf overhead of ConicPolygonGeometry.
+  // 4096×2048 equirectangular canvas drawn once; land gray, ocean dark, borders white.
   if (window.ArgusPerf) ArgusPerf.mark('COUNTRY_GEOJSON_FETCH_START');
   fetch('https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_50m_admin_0_countries.geojson')
     .then(function(r) { return r.json(); })
     .then(function(geo) {
       if (window.ArgusPerf) ArgusPerf.mark('COUNTRY_GEOJSON_RECEIVED');
-      // ThreeGlobe 2.45 — call setters individually (chaining unreliable across versions)
-      Globe.polygonsData(geo.features);
-      Globe.polygonAltitude(0.008);
-      Globe.polygonCapColor(function() { return 'rgba(68,68,68,0.90)'; });
-      Globe.polygonSideColor(function() { return 'rgba(40,40,40,0.12)'; });
-      Globe.polygonStrokeColor(function() { return '#0f2744'; });
-      // 3° curvature resolution — more sphere-conforming vertices than default 5°
-      // improves how large-country caps conform to globe curvature without changing colors or interactions
-      Globe.polygonCapCurvatureResolution(3);
-      if (typeof Globe.polygonLabel    === 'function') Globe.polygonLabel(function(d) { return '<b>' + d.properties.ADMIN + '</b>'; });
-      if (typeof Globe.onPolygonHover  === 'function') Globe.onPolygonHover(function(h) { document.body.style.cursor = h ? 'pointer' : 'grab'; });
+      if (window.ArgusPerf && ArgusPerf.FLAGS.DISABLE_TEXTURES) return;
 
-      // ── Polygon geometry merge ──────────────────────────────────────────────
-      // ne_50m has ~4,400 polygon rings. Three-globe creates 2 individual Mesh objects
-      // per ring (cap + side) — ~8,800 transparent draw calls dominating frame time.
-      // Stroke LineSegments share one material and are merged into 1 draw call.
-      // Polygon cap fills render natively via three-globe (multi-material mesh, not merged).
-      // Ghost meshes stay in Globe's scene graph for onPolygonHover raycasting;
-      // only their materials are hidden.
-      // BufferGeometryUtils is resolved lazily inside each poll so late-loading
-      // shims are picked up. Try THREE global first, then window shim, then bare global.
-      var _mergePolygons = function() {
-        var _BGU = THREE.BufferGeometryUtils ||
-                   window.BufferGeometryUtils ||
-                   (typeof BufferGeometryUtils !== 'undefined' ? BufferGeometryUtils : null);
-        if (!_BGU) {
-          console.warn('[Argus] polygon merge: BufferGeometryUtils not yet available — will retry');
-          return false;  // retry on next poll cycle
-        }
+      var _W = 4096, _H = 2048;
+      var _cv  = document.createElement('canvas');
+      _cv.width = _W; _cv.height = _H;
+      var _ctx = _cv.getContext('2d');
 
-        var capGeos  = [], lineGeos = [];
-        var capMat   = null, lineMat = null;
-        var hidden   = 0;
-        var _total   = 0, _excl = 0, _logged = 0;
+      function _tx(lon) { return (lon + 180) / 360 * _W; }
+      function _ty(lat) { return (90 - lat)  / 180 * _H; }
 
-        // Exclusion strategy (perf-fix-8):
-        //   ShaderMaterial  → atmosphere (skip)
-        //   bumpMap present → globe sphere texture (skip; globe sphere has BOTH map+bumpMap)
-        //   color=black, opacity=1, transparent=false, no map → inner background sphere (skip)
-        //   Everything else that is a Mesh → polygon cap or side (merge)
-        //   Lines not already hidden → polygon strokes (merge)
-        Globe.traverse(function(obj) {
-          if (!obj.material) return;
-          var mat = obj.material;
+      // Dark ocean base
+      _ctx.fillStyle = '#030810';
+      _ctx.fillRect(0, 0, _W, _H);
 
-          if (mat.type === 'ShaderMaterial') { _excl++; return; }  // atmosphere
-          if (mat.bumpMap) { _excl++; return; }                     // globe sphere (map+bumpMap)
-
-          // Inner background sphere: pure black, fully opaque, no canvas map
-          if (!mat.map && mat.color &&
-              mat.color.r === 0 && mat.color.g === 0 && mat.color.b === 0 &&
-              !mat.transparent && mat.opacity === 1) { _excl++; return; }
-
-          if (obj instanceof THREE.Mesh) {
-            if (obj.visible === false) return;  // already processed in a prior pass
-
-            // three-globe v2.30+ creates each polygon as one Mesh with a multi-material
-            // array [sideMaterial, capMaterial] (ConicPolygonGeometry with groups).
-            // We cannot cleanly extract just the cap geometry group for merging,
-            // so skip these meshes here and let three-globe render them natively via
-            // polygonCapColor. The white border merge (LineSegments) still runs below.
-            if (Array.isArray(obj.material)) { _excl++; return; }
-
-            _total++;
-            var geo = obj.geometry;
-            if (!geo || !geo.attributes || !geo.attributes.position ||
-                !geo.attributes.position.count) return;
-
-            if (_logged < 5) {
-              var col = mat.color;
-              console.log('[Argus] poly mesh #' + _logged + ': opacity=' + mat.opacity +
-                ' transparent=' + mat.transparent +
-                ' hasMap=' + !!mat.map +
-                ' color=' + (col ? col.getHexString() : 'none') +
-                ' verts=' + geo.attributes.position.count +
-                ' matType=' + mat.type);
-              _logged++;
-            }
-
-            if (mat.opacity > 0.35) {
-              capGeos.push(geo);
-              if (!capMat) {
-                capMat = new THREE.MeshBasicMaterial({
-                  color:       new THREE.Color('#444444'),
-                  transparent: true,
-                  opacity:     0.90,
-                  depthWrite:  false,
-                  depthTest:   true,
-                  side:        THREE.FrontSide,
-                });
+      // Gray land fill — evenodd handles holes (lakes, enclaves) correctly
+      _ctx.fillStyle = '#444444';
+      geo.features.forEach(function(f) {
+        var g = f.geometry;
+        (g.type === 'Polygon' ? [g.coordinates] : g.coordinates).forEach(function(rings) {
+          _ctx.beginPath();
+          rings.forEach(function(ring) {
+            ring.forEach(function(pt, i) {
+              var x = _tx(pt[0]), y = _ty(pt[1]);
+              if (i === 0) {
+                _ctx.moveTo(x, y);
+              } else {
+                // Lift pen at antimeridian seam to avoid cross-map artifacts
+                Math.abs(x - _tx(ring[i - 1][0])) > _W / 2
+                  ? _ctx.moveTo(x, y) : _ctx.lineTo(x, y);
               }
-            }
-            // Hide at Object3D level — more robust than mat.visible which three-globe can reset.
-            obj.visible = false;
-            hidden++;
-
-          } else if (obj instanceof THREE.Line || obj instanceof THREE.LineSegments) {
-            if (obj.visible === false) return;  // already processed in a prior pass
-            lineGeos.push(obj.geometry);
-            if (!lineMat) {
-              // Do NOT clone the original dark stroke (#0f2744) — it's invisible on the dark globe.
-              // Use a bright border colour. WebGL caps line width at 1px on most GPUs,
-              // so colour/opacity is the only lever for border legibility.
-              lineMat = new THREE.LineBasicMaterial({
-                color:       new THREE.Color(0.82, 0.90, 1.0),  // cool white — crisp, professional border
-                opacity:     0.85,
-                transparent: true,
-              });
-            }
-            obj.visible = false;
-            hidden++;
-          }
+            });
+            _ctx.closePath();
+          });
+          _ctx.fill('evenodd');
         });
+      });
 
-        console.log('[Argus] polygon merge scan: total=' + _total +
-          ' excluded=' + _excl + ' capGeos=' + capGeos.length + ' lineGeos=' + lineGeos.length);
+      // Country borders — white semi-transparent
+      _ctx.strokeStyle = 'rgba(210,230,255,0.80)';
+      _ctx.lineWidth = 1.2;
+      geo.features.forEach(function(f) {
+        var g = f.geometry;
+        (g.type === 'Polygon' ? [g.coordinates] : g.coordinates).forEach(function(rings) {
+          rings.forEach(function(ring) {
+            _ctx.beginPath();
+            ring.forEach(function(pt, i) {
+              var x = _tx(pt[0]), y = _ty(pt[1]);
+              if (i === 0) {
+                _ctx.moveTo(x, y);
+              } else {
+                Math.abs(x - _tx(ring[i - 1][0])) > _W / 2
+                  ? _ctx.moveTo(x, y) : _ctx.lineTo(x, y);
+              }
+            });
+            _ctx.closePath();
+            _ctx.stroke();
+          });
+        });
+      });
 
-        if (!capGeos.length && !lineGeos.length) {
-          console.log('[Argus] polygon merge: stable — all meshes processed');
-          return true;  // nothing new to process — done
-        }
+      Globe.globeImageUrl(_cv.toDataURL('image/jpeg', 0.92));
+      if (window.ArgusPerf) ArgusPerf.mark('GLOBE_TEXTURES_SET');
 
-        var merge = _BGU.mergeGeometries || _BGU.mergeBufferGeometries;
-        if (typeof merge !== 'function') {
-          console.warn('[Argus] polygon merge: mergeGeometries not a function on _BGU');
-          return true;  // bail permanently
-        }
-
-        // ── Merge cap meshes → 1 draw call ──────────────────────────────────────
-        if (capGeos.length && capMat) {
-          try {
-            var polyMerged = merge.call(_BGU, capGeos, false);
-            if (polyMerged) {
-              var cm = new THREE.Mesh(polyMerged, capMat);
-              cm.name = 'ArgusPolygonCapsMerged';
-              cm.frustumCulled = false;
-              globeGroup.add(cm);
-              console.log('[Argus] cap merge OK: ' + capGeos.length + ' → 1 draw call');
-            }
-          } catch(e) { console.warn('[Argus] cap merge error:', e.message); }
-        }
-
-        // ── Merge border strokes → 1 draw call ──────────────────────────────────
-        if (lineGeos.length && lineMat) {
-          try {
-            var lineMerged = merge.call(_BGU, lineGeos, false);
-            if (lineMerged) {
-              var lm = new THREE.LineSegments(lineMerged, lineMat);
-              lm.name = 'ArgusPolygonStrokesMerged';
-              lm.frustumCulled = false;
-              globeGroup.add(lm);
-              console.log('[Argus] stroke merge OK: ' + lineGeos.length + ' → 1 draw call');
-            }
-          } catch(e) { console.warn('[Argus] stroke merge error:', e.message); }
-        }
-
-        console.log('[Argus] polygon merge batch: ' + hidden + ' objects hidden — retrying for late arrivals');
-        return false;  // three-globe may still be adding meshes — retry next cycle
-      };
-
-      // Three-globe builds polygon meshes asynchronously over several rAF cycles.
-      // Poll until meshes appear (up to 15 attempts × 1s = 15s timeout).
-      // Poll runs every 1s until _mergePolygons returns true (zero unprocessed meshes).
-      // three-globe builds polygon meshes over many rAF cycles; each pass hides
-      // newly-visible meshes and merges them into a new batch draw call.
-      var _mergeAttempts = 0;
-      var _mergePoll = function() {
-        _mergeAttempts++;
-        if (_mergePolygons()) return;  // true = stable, nothing left to process
-        if (_mergeAttempts < 25) setTimeout(_mergePoll, 1000);
-      };
-      setTimeout(_mergePoll, 2000);
     })
     .catch(function(e) { console.warn('Country polygon fetch failed:', e); });
 
   if (window.ArgusPerf && ArgusPerf.FLAGS.DISABLE_TEXTURES) {
-    console.warn('[ArgusPerf] DISABLE_TEXTURES active — skipping globe texture/bump load');
-  } else {
-    Globe
-      .globeImageUrl('https://unpkg.com/three-globe/example/img/earth-dark.jpg')
-      .bumpImageUrl('https://unpkg.com/three-globe/example/img/earth-topology.png');
-    if (window.ArgusPerf) ArgusPerf.mark('GLOBE_TEXTURES_SET');
+    console.warn('[ArgusPerf] DISABLE_TEXTURES active — skipping globe texture load');
   }
 
   // Globe group — contains ONLY the globe mesh/texture

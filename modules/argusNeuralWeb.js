@@ -1720,6 +1720,260 @@ function _correlationBasis(node) {
   return html;
 }
 
+// ── Connection count: total unique nodes this node shares any edge with ─────────
+// Walks structural edges, relationship edges, and manual edges in one pass.
+function _connectionCount(node) {
+  var seen = new Set();
+  var sources = [state.graph.edges || [], state.relEdges || [], state.manualEdges || []];
+  for (var si = 0; si < sources.length; si++) {
+    var arr = sources[si];
+    for (var ei = 0; ei < arr.length; ei++) {
+      var e = arr[ei];
+      if (e.source === node.id) seen.add(e.target);
+      else if (e.target === node.id) seen.add(e.source);
+    }
+  }
+  return seen.size;
+}
+
+// ── Country correlation score (0–100): how strongly is this node tied to the
+// currently selected country? Deterministic. Six independent signal components.
+// Returns null when not applicable (no country selected, or structural node type).
+var _CORR_TYPES = { event: 1, vessel: 1, aircraft: 1, company: 1, news: 1, signal: 1, chokepoint: 1 };
+
+function _countryCorrelationScore(node) {
+  if (!state.selectedCountry || !_CORR_TYPES[node.type]) return null;
+
+  var country       = state.selectedCountry;
+  var countryNodeId = 'country:' + country;
+  var cLow          = country.toLowerCase();
+  var cFirst        = cLow.split(' ')[0];  // first word for partial match
+  var score         = 0;
+
+  // ── Component 1 (+35): Direct store index match ──────────────────────────────
+  // Strongest signal — the event was ingested and indexed under this exact country.
+  // Only applicable to event-type nodes (the only type that lives in store.byCountry).
+  if (node.type === 'event') {
+    var storeEvs = store.byCountry.get(country) || [];
+    var evId     = node.id || (node._ev && node._ev.id);
+    for (var si = 0; si < storeEvs.length; si++) {
+      if (storeEvs[si].id === evId) { score += 35; break; }
+    }
+  }
+
+  // ── Component 2 (+20 / +8): Country name in node text ────────────────────────
+  // Moderate signal — node title, impact, or label explicitly references the country.
+  var nodeText = ((node.label || '') + ' ' + (node.impact || '') +
+                  ' ' + ((node._ev && node._ev.impact) || '')).toLowerCase();
+  if (nodeText.indexOf(cLow) !== -1) {
+    score += 20;
+  } else if (cFirst.length > 4 && nodeText.indexOf(cFirst) !== -1) {
+    score += 8;  // partial match (e.g. "United" in "United States")
+  }
+
+  // ── Component 3 (+10): Direct graph edge to country node ─────────────────────
+  // Structural or relationship edge connects this node to the country node directly.
+  var allE = (state.graph.edges || []).concat(state.relEdges || []).concat(state.manualEdges || []);
+  for (var ei = 0; ei < allE.length; ei++) {
+    var e = allE[ei];
+    if ((e.source === node.id && e.target === countryNodeId) ||
+        (e.target === node.id && e.source === countryNodeId)) {
+      score += 10; break;
+    }
+  }
+
+  // ── Component 4 (+5 per hit, max +15): Trade/keyword overlap ─────────────────
+  // Node keywords match the country's known exports or imports.
+  var cd = null;
+  var cds = window.COUNTRIES_DATA || [];
+  for (var ci = 0; ci < cds.length; ci++) {
+    if (cds[ci].label === country) { cd = cds[ci]; break; }
+  }
+  if (cd && node.keywords && node.keywords.length) {
+    var tradeTerms = [].concat(cd.topE || [], cd.topI || []).map(function(t){ return t.toLowerCase().trim(); });
+    var tradeHits = 0;
+    for (var ki = 0; ki < node.keywords.length; ki++) {
+      var kw = node.keywords[ki];
+      for (var ti = 0; ti < tradeTerms.length; ti++) {
+        if (tradeTerms[ti].length > 3 && (tradeTerms[ti].indexOf(kw) !== -1 || kw.indexOf(tradeTerms[ti]) !== -1)) {
+          tradeHits++; break;
+        }
+      }
+    }
+    score += Math.min(15, tradeHits * 5);
+  }
+
+  // ── Component 5 (+3–15): Risk severity ───────────────────────────────────────
+  // Higher-severity events are inherently more operationally significant.
+  var riskBoosts = { CRITICAL: 15, WARNING: 12, WATCH: 8, LOW: 3 };
+  score += (riskBoosts[node.risk] || 3);
+
+  // ── Component 6 (+0–5): Recency ──────────────────────────────────────────────
+  // More recent events are more likely to reflect current conditions.
+  var nodeTs = node.timestamp || (node._ev && node._ev.timestamp) || 0;
+  if (nodeTs) {
+    var ageDays = (Date.now() - nodeTs) / 86400000;
+    if (ageDays <= 7)       score += 5;
+    else if (ageDays <= 30) score += 3;
+    else if (ageDays <= 90) score += 1;
+  }
+
+  return Math.min(100, Math.round(score));
+}
+
+// ── Render correlation score block (HTML string) ──────────────────────────────
+function _correlationScoreHtml(node) {
+  var score = _countryCorrelationScore(node);
+  if (score === null) return '';
+
+  var color  = score >= 80 ? '#ff2200' : score >= 60 ? '#ff8800' : score >= 40 ? '#ffcc00' : '#2a6a9a';
+  var label  = score >= 80 ? 'HIGH'    : score >= 60 ? 'ELEVATED': score >= 40 ? 'MODERATE': 'LOW';
+
+  return '<div style="margin-top:8px;padding:8px 10px;' +
+    'background:rgba(6,2,18,0.65);border:1px solid rgba(80,40,140,0.2);border-left:2px solid ' + color + '">' +
+    '<div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:5px;">' +
+      '<span style="font-size:7.5px;letter-spacing:1.8px;color:#6a3a9a;font-weight:700;">◈ COUNTRY CORRELATION</span>' +
+      '<span style="font-size:18px;font-weight:700;color:' + color + ';letter-spacing:-1px;line-height:1;">' + score + '</span>' +
+    '</div>' +
+    '<div style="height:3px;background:rgba(8,28,56,0.7);border-radius:2px;margin-bottom:4px;">' +
+      '<div style="height:3px;width:' + score + '%;background:' + color + ';border-radius:2px;box-shadow:0 0 4px ' + color + ';"></div>' +
+    '</div>' +
+    '<div style="display:flex;justify-content:space-between;align-items:baseline;">' +
+      '<span style="font-size:7.5px;color:' + color + ';letter-spacing:1px;">' + label + '</span>' +
+      '<span style="font-size:7px;color:#1a3a5a;">vs. ' + _esc(state.selectedCountry || '') + '</span>' +
+    '</div>' +
+  '</div>';
+}
+
+// ── Append indexed event list toggle to inspector body (country nodes only) ────
+// All events in store.byCountry are rendered as clickable rows sorted by risk
+// then timestamp. In-graph events are visually distinguished from store-only events
+// (those outside the current time/type/risk filter).
+function _appendIndexedEventList(body, countryLabel) {
+  var allEvs = (store.byCountry.get(countryLabel) || []).slice();
+  if (!allEvs.length) return;
+
+  // Sort: CRITICAL → WARNING → WATCH → LOW, then newest first within each tier
+  allEvs.sort(function(a, b) {
+    var rd = (RISK_WEIGHTS[b.risk] || 0) - (RISK_WEIGHTS[a.risk] || 0);
+    return rd !== 0 ? rd : b.timestamp - a.timestamp;
+  });
+
+  // Build a Set of node IDs currently present in the graph for in-graph highlighting
+  var inGraphIds = new Set((state.graph.nodes || []).map(function(n) { return n.id; }));
+
+  // ── Toggle button ─────────────────────────────────────────────────────────────
+  var toggleBtn = document.createElement('button');
+  toggleBtn.style.cssText =
+    'width:100%;margin-top:1px;padding:5px 10px;' +
+    'background:rgba(3,5,14,0.85);border:1px solid rgba(8,28,56,0.5);border-top:none;' +
+    'color:#2a5070;font-size:7.5px;letter-spacing:1.4px;cursor:pointer;font-family:inherit;' +
+    'display:flex;justify-content:space-between;align-items:center;' +
+    'transition:color 120ms ease,background 120ms ease;';
+
+  var labelSpan = document.createElement('span');
+  labelSpan.textContent = 'SHOW ' + allEvs.length + ' INDEXED EVENTS';
+  var arrowSpan = document.createElement('span');
+  arrowSpan.textContent = '▶';
+  arrowSpan.style.cssText = 'font-size:7px;transition:transform 120ms ease;';
+  toggleBtn.appendChild(labelSpan);
+  toggleBtn.appendChild(arrowSpan);
+
+  // Hover state
+  toggleBtn.addEventListener('mouseover', function(){ toggleBtn.style.color = '#4a90c0'; toggleBtn.style.background = 'rgba(8,16,40,0.9)'; });
+  toggleBtn.addEventListener('mouseout',  function(){ toggleBtn.style.color = '#2a5070'; toggleBtn.style.background = 'rgba(3,5,14,0.85)'; });
+
+  // ── Event list container ──────────────────────────────────────────────────────
+  var listEl = document.createElement('div');
+  listEl.style.cssText =
+    'display:none;max-height:220px;overflow-y:auto;' +
+    'background:rgba(2,4,12,0.92);border:1px solid rgba(8,28,56,0.5);border-top:none;';
+
+  // Render up to 150 events (performance guard; store can grow large)
+  var CAP = 150;
+  allEvs.slice(0, CAP).forEach(function(ev) {
+    var inGraph  = inGraphIds.has(ev.id);
+    var riskCol  = RISK_COLORS[ev.risk] || '#4a7da8';
+    var d        = new Date(ev.timestamp);
+    var dateStr  = !isNaN(d) && ev.timestamp ? d.getUTCDate() + ' ' + MONTHS[d.getUTCMonth()] + ' \'' + String(d.getUTCFullYear()).slice(2) : '—';
+
+    var evRow = document.createElement('div');
+    evRow.style.cssText =
+      'padding:5px 10px;border-bottom:1px solid rgba(8,24,48,0.4);cursor:pointer;' +
+      'display:flex;align-items:flex-start;gap:6px;' +
+      'background:' + (inGraph ? 'rgba(30,10,58,0.35)' : 'transparent') + ';';
+
+    evRow.title = inGraph ? 'In current graph — click to inspect' : 'In store, outside current filter — click to inspect';
+
+    evRow.innerHTML =
+      '<span style="flex-shrink:0;font-size:7px;font-weight:700;color:' + riskCol + ';' +
+        'min-width:50px;padding-top:1px;letter-spacing:.5px;">' + ev.risk + '</span>' +
+      '<span style="flex:1;font-size:8px;color:' + (inGraph ? '#9ab0d0' : '#4a6a8a') + ';' +
+        'line-height:1.4;word-break:break-word;">' +
+        ev.title.slice(0, 58) + (ev.title.length > 58 ? '…' : '') +
+      '</span>' +
+      '<span style="flex-shrink:0;font-size:7px;color:#1a3050;padding-top:1px;white-space:nowrap;">' + dateStr + '</span>' +
+      (inGraph ? '<span style="flex-shrink:0;font-size:7px;color:#5a2a8a;padding-top:1px;" title="Currently in graph">◈</span>' : '');
+
+    // Hover highlight
+    evRow.addEventListener('mouseover', function(){ evRow.style.background = 'rgba(20,8,48,0.6)'; });
+    evRow.addEventListener('mouseout',  function(){ evRow.style.background = inGraph ? 'rgba(30,10,58,0.35)' : 'transparent'; });
+
+    // Click: inspect this event. If it's in the graph, select it and re-render.
+    evRow.addEventListener('click', (function(ev_) {
+      return function() {
+        var graphNode = null;
+        var gnodes = state.graph.nodes;
+        for (var gi = 0; gi < gnodes.length; gi++) {
+          if (gnodes[gi].id === ev_.id) { graphNode = gnodes[gi]; break; }
+        }
+        if (graphNode) {
+          selectedNode = graphNode;
+          showInspector(graphNode);
+          renderGraph();
+        } else {
+          // Store-only event: synthesise an inspector-compatible node so all
+          // fields (age, severity, relationships, correlation score) render correctly.
+          showInspector({
+            id:        ev_.id,
+            type:      'event',
+            risk:      ev_.risk,
+            eventType: ev_.type,
+            label:     ev_.title,
+            timestamp: ev_.timestamp,
+            impact:    ev_.impact,
+            source:    ev_.source,
+            keywords:  ev_.keywords || [],
+            _ev:       ev_,
+          });
+        }
+      };
+    }(ev)));
+
+    listEl.appendChild(evRow);
+  });
+
+  // Overflow notice if store exceeds CAP
+  if (allEvs.length > CAP) {
+    var moreEl = document.createElement('div');
+    moreEl.style.cssText = 'padding:5px 10px;font-size:7px;color:#1a3050;text-align:center;font-style:italic;';
+    moreEl.textContent = '+ ' + (allEvs.length - CAP) + ' additional events in store';
+    listEl.appendChild(moreEl);
+  }
+
+  // ── Toggle logic ──────────────────────────────────────────────────────────────
+  var _listOpen = false;
+  toggleBtn.addEventListener('click', function() {
+    _listOpen = !_listOpen;
+    listEl.style.display     = _listOpen ? 'block' : 'none';
+    arrowSpan.textContent    = _listOpen ? '▼' : '▶';
+    labelSpan.textContent    = (_listOpen ? 'HIDE ' : 'SHOW ') + allEvs.length + ' INDEXED EVENTS';
+  });
+
+  body.appendChild(toggleBtn);
+  body.appendChild(listEl);
+}
+
 // ── Inspector panel ─────────────────────────────────────────────────────────────
 function showInspector(node) {
   var body = document.getElementById('nw-insp-body');
@@ -2002,6 +2256,30 @@ function showInspector(node) {
       evRelEdges.length ? field('RELATIONSHIPS', relHtml) : '',
     ].join('');
     body.innerHTML += _correlationBasis(node);
+  }
+
+  // Connection count — all nodes
+  var _connCount = _connectionCount(node);
+  if (_connCount > 0) {
+    var _connEl = document.createElement('div');
+    _connEl.className = 'nw-insp-field';
+    _connEl.innerHTML = '<div class="nw-insp-key">CONNECTED NODES</div>' +
+      '<div class="nw-insp-val" style="font-size:11px;color:#4a7a9a">' + _connCount +
+      ' connection' + (_connCount !== 1 ? 's' : '') + '</div>';
+    body.appendChild(_connEl);
+  }
+
+  // Correlation score — event-like nodes only
+  var _corrHtml = _correlationScoreHtml(node);
+  if (_corrHtml) {
+    var _corrEl = document.createElement('div');
+    _corrEl.innerHTML = _corrHtml;
+    body.appendChild(_corrEl);
+  }
+
+  // Indexed event list — country nodes only
+  if (node.type === 'country') {
+    _appendIndexedEventList(body, node.label);
   }
 
   // Append note-link button for all inspectable nodes

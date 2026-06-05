@@ -957,6 +957,8 @@ document.addEventListener('DOMContentLoaded', function() {
       // ACLED + GEM InstancedMesh visual layers — ghost meshes above handle raycasting
       if (window.ArgusACLED  && window.ArgusACLED.setVisible)  window.ArgusACLED.setVisible(evOn);
       if (window.ArgusGEM    && window.ArgusGEM.setVisible)    window.ArgusGEM.setVisible(evOn);
+      // EONET non-hazard InstancedMesh (E key) — hazard sprites follow W key via setVisible()
+      if (window.ArgusEONET  && window.ArgusEONET.setEventsVisible) window.ArgusEONET.setEventsVisible(evOn);
       if (!evOn) clearHoverTooltip();
     }
     if (e.key.toLowerCase() === 'w') {
@@ -982,6 +984,8 @@ document.addEventListener('DOMContentLoaded', function() {
     if (window.ArgusWeatherLayer) window.ArgusWeatherLayer.setVisible(wOn);
     // GDACS — same toggle as NOAA: both are environmental survey layers
     if (window.ArgusGDACS && window.ArgusGDACS.setVisible) window.ArgusGDACS.setVisible(wOn);
+    // EONET hazard sprites (wildfire/earthquake/flood/drought) follow the same W key
+    if (window.ArgusEONET && window.ArgusEONET.setVisible) window.ArgusEONET.setVisible(wOn);
     // Sync button active state
     var btn = document.getElementById('btn-track-weather');
     if (btn) btn.classList.toggle('is-active', wOn);
@@ -1941,6 +1945,7 @@ document.addEventListener('DOMContentLoaded', function() {
     if (window.ArgusSelection)    ArgusSelection.tick();
     if (window.ArgusWeatherLayer) ArgusWeatherLayer.tick();
     if (window.ArgusGDACS && ArgusGDACS.tick) ArgusGDACS.tick();
+    if (window.ArgusEONET && ArgusEONET.tick) ArgusEONET.tick();
     renderer.render(scene, camera);
     if (window.ArgusPerf && window.ArgusPerf._firstRenderDone !== true) {
       window.ArgusPerf._firstRenderDone = true;
@@ -6093,9 +6098,11 @@ window.ArgusEvents = (function() {
       m.visible = evOn;
     });
     if (window.weatherMarkers) window.weatherMarkers.forEach(function(m) { m.visible = wOn; });
-    if (window.ArgusACLED  && window.ArgusACLED.setVisible)  window.ArgusACLED.setVisible(evOn);
-    if (window.ArgusGEM    && window.ArgusGEM.setVisible)    window.ArgusGEM.setVisible(evOn);
-    if (window.ArgusGDACS  && window.ArgusGDACS.setVisible)  window.ArgusGDACS.setVisible(wOn);
+    if (window.ArgusACLED  && window.ArgusACLED.setVisible)        window.ArgusACLED.setVisible(evOn);
+    if (window.ArgusGEM    && window.ArgusGEM.setVisible)          window.ArgusGEM.setVisible(evOn);
+    if (window.ArgusEONET  && window.ArgusEONET.setEventsVisible)  window.ArgusEONET.setEventsVisible(evOn);
+    if (window.ArgusGDACS  && window.ArgusGDACS.setVisible)        window.ArgusGDACS.setVisible(wOn);
+    if (window.ArgusEONET  && window.ArgusEONET.setVisible)        window.ArgusEONET.setVisible(wOn);
   }
 
   // ── Community Intel: Supabase helpers ────────────────────────────────────────
@@ -6422,6 +6429,24 @@ ArgusMarket.init();
      Poll    : 30 minutes (matches backend cache TTL)
 ══════════════════════════════════════════════════════════════════════════════ -->
 <script src="/modules/argusGdacs.js?v=stable-v1"></script>
+
+<!-- ══════════════════════════════════════════════════════════════════════════════
+     EONET — NASA Earth Observatory Natural Event Tracker
+     Sources : /.netlify/functions/fetch-eonet — EONET v3 API, no key required
+     Exposes : window.ArgusEONET          — { start, stop, refresh, status,
+                                              setVisible, setEventsVisible, diagReport }
+               window.eonetEventCache     — Map<id, normalizedEvent>
+               window.ArgusEventCorrelation — cross-source dedup engine
+     Render  : ghost mesh + InstancedMesh (non-hazard, E key)
+               ghost mesh + animated sprite via ArgusWeatherLayer (hazard, W key)
+     Poll    : 15 minutes (matches NOAA cadence)
+     Deferred: 90s start — intentionally after GDACS (75s) so correlation has
+               live GDACS data before first EONET render pass
+     Dedup   : ArgusEventCorrelation checks each event against GDACS + NOAA;
+               correlated events enrich existing markers, never create duplicates
+══════════════════════════════════════════════════════════════════════════════ -->
+<script src="/modules/argusEventCorrelation.js?v=eonet-v1"></script>
+<script src="/modules/argusEonet.js?v=eonet-v1"></script>
 
 <!-- ══════════════════════════════════════════════════════════════════════════════
      SCRIPT 5 — Intelligence Layer Overlays
@@ -7097,9 +7122,11 @@ window.ArgusAnalyst = (function() {
       m.visible = evOn;
     });
     if (window.weatherMarkers) window.weatherMarkers.forEach(function(m) { m.visible = wOn; });
-    if (window.ArgusACLED  && window.ArgusACLED.setVisible)  window.ArgusACLED.setVisible(evOn);
-    if (window.ArgusGEM    && window.ArgusGEM.setVisible)    window.ArgusGEM.setVisible(evOn);
-    if (window.ArgusGDACS  && window.ArgusGDACS.setVisible)  window.ArgusGDACS.setVisible(wOn);
+    if (window.ArgusACLED  && window.ArgusACLED.setVisible)        window.ArgusACLED.setVisible(evOn);
+    if (window.ArgusGEM    && window.ArgusGEM.setVisible)          window.ArgusGEM.setVisible(evOn);
+    if (window.ArgusEONET  && window.ArgusEONET.setEventsVisible)  window.ArgusEONET.setEventsVisible(evOn);
+    if (window.ArgusGDACS  && window.ArgusGDACS.setVisible)        window.ArgusGDACS.setVisible(wOn);
+    if (window.ArgusEONET  && window.ArgusEONET.setVisible)        window.ArgusEONET.setVisible(wOn);
   }
 
   function showModalMsg(text, isError) {

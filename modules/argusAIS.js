@@ -32,6 +32,15 @@ var AIS_DIFF_LAT   = 0.0001; // ~11m at equator
 var AIS_DIFF_LON   = 0.0001;
 var AIS_DIFF_HDG   = 2;      // degrees
 
+// Dead reckoning — extrapolates position for vessels not heard from recently.
+// Satellite AIS revisit time is 45–90 min; without DR these vessels freeze in place.
+// DR activates after AIS_DR_ACTIVATE_MS of silence and extrapolates up to AIS_DR_MAX_AGE_MS.
+// Only vessels with a valid heading + SOG are extrapolated; anchored/slow vessels are skipped.
+var AIS_DR_ACTIVATE_MS  = 120000;    // 2 min — start DR after 2 min with no update
+var AIS_DR_MAX_AGE_MS   = 21600000;  // 6 hr  — drop DR after 6 hours of silence
+var AIS_DR_MIN_SOG      = 0.5;       // knots — skip vessels that are effectively stationary
+var AIS_DR_INTERVAL_MS  = 30000;     // 30 s  — re-extrapolate stale vessels every 30 seconds
+
 // ── State ──────────────────────────────────────────────────────────────────────
 var aisGroup    = null;      // THREE.Group containing all AIS sprites
 var aisMarkers  = new Map(); // mmsi → { sprite, updatedAt }
@@ -482,6 +491,64 @@ function evictOldest() {
   }
 }
 
+// ── Dead reckoning — extrapolate position for satellite-gap vessels ───────────
+// Runs every AIS_DR_INTERVAL_MS (30 s). Iterates _aisState.vessels, finds any vessel
+// that has not been heard from in AIS_DR_ACTIVATE_MS+ but has a valid heading + SOG,
+// and moves its sprite + InstancedMesh instance to an extrapolated position.
+//
+// Uses ArgusAISInstanced.updatePosition() (matrix-only) rather than upsert() so that
+// selection dim state is not disturbed — upsert() resets _lastDim to 1.0, which would
+// un-dim a selection-dimmed vessel on every DR tick.
+//
+// Position math mirrors argusTracking.js aircraft dead reckoning:
+//   distNm = SOG (knots) × dtHours
+//   dLat   = distNm × cos(heading) / 60          (1° lat = 60 nm)
+//   dLon   = distNm × sin(heading) / (60 × cos(lat))
+function _runDeadReckoning() {
+  if (document.hidden) return;
+  if (!aisGroup || !window.ArgusGlobe || !window.ArgusAISInstanced) return;
+  var now     = Date.now();
+  var RAD     = Math.PI / 180;
+  var inst    = window.ArgusAISInstanced;
+  var AG      = window.ArgusGlobe;
+  var drCount = 0;
+
+  _aisState.vessels.forEach(function(v, mmsi) {
+    var age = now - v.updatedAt;
+    if (age < AIS_DR_ACTIVATE_MS)                          return;  // updated recently
+    if (age > AIS_DR_MAX_AGE_MS)                           return;  // too stale — unreliable
+    if (v.velocity == null || v.velocity < AIS_DR_MIN_SOG) return;  // stationary / anchored
+    if (v.heading  == null)                                return;  // no direction vector
+
+    var dtHours = age / 3600000;
+    var distNm  = v.velocity * dtHours;
+    var dLat    = distNm * Math.cos(v.heading * RAD) / 60;
+    var dLon    = distNm * Math.sin(v.heading * RAD) / (60 * Math.max(0.05, Math.cos(v.lat * RAD)));
+    var drLat   = v.lat + dLat;
+    var drLon   = v.lon + dLon;
+
+    if (drLat < -90 || drLat > 90) return;  // pole crossing — skip
+
+    var entry = aisMarkers.get(mmsi);
+    if (!entry) return;
+
+    // Move invisible sprite (drives raycasting / ArgusSelection hover accuracy)
+    entry.sprite.position.copy(AG.latLonToVector(drLat, drLon, AIS_ALTITUDE));
+    entry.sprite.updateWorldMatrix(false, false);
+    entry.sprite.userData.lat = drLat;
+    entry.sprite.userData.lon = drLon;
+
+    // Move InstancedMesh visual (matrix only — colour and dim factor left untouched)
+    inst.updatePosition(mmsi, drLat, drLon, v.heading);
+    drCount++;
+  });
+
+  if (drCount > 0) {
+    inst.commitBatch();
+    if (_diag.logRate) console.log('[ArgusAIS DR] extrapolated ' + drCount + ' vessels');
+  }
+}
+
 // ── Toggle ─────────────────────────────────────────────────────────────────────
 function toggle() {
   aisOn = !aisOn;
@@ -761,6 +828,15 @@ function connectAISStream() {
       // This is the ONLY place sprites are updated — ingest path just pushes to buffer.
       setInterval(_processAndRender, AIS_RENDER_INTERVAL);
       console.log('[ArgusAIS] render interval started (' + AIS_RENDER_INTERVAL + 'ms)');
+
+      // ── Start dead reckoning interval ────────────────────────────────────
+      // Extrapolates position for vessels not heard from in AIS_DR_ACTIVATE_MS+.
+      // Satellite AIS revisit gaps (45–90 min) would otherwise freeze mid-ocean vessels.
+      // First run delayed 5 s so the initial render pass completes before DR starts.
+      setTimeout(function() {
+        setInterval(_runDeadReckoning, AIS_DR_INTERVAL_MS);
+        console.log('[ArgusAIS] dead reckoning interval started (' + AIS_DR_INTERVAL_MS + 'ms)');
+      }, 5000);
 
 console.log('[ArgusAIS] globe ready — opening AISstream WebSocket');
       connectAISStream();

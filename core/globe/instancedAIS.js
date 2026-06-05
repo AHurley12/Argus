@@ -24,7 +24,7 @@ window.ArgusAISInstanced = (function () {
   'use strict';
 
   // Must match AIS_MAX_MARKERS in argusAIS.js
-  var MAX       = 2500;
+  var MAX       = 4000;
   var SCALE     = 0.89;
   var ALTITUDE  = 101.3; // R.AIS from globe init
 
@@ -280,6 +280,22 @@ window.ArgusAISInstanced = (function () {
     _audit.dirtyOpacity++;
   }
 
+  // Position-only update for dead reckoning — does NOT touch colour or dimFactor.
+  // upsert() resets _lastDim to 1.0, which would un-dim a selection-dimmed vessel
+  // on every DR tick. This method only rebuilds the matrix so selection state is preserved.
+  function updatePosition(mmsi, lat, lon, heading) {
+    if (!_ready) return;
+    var idx = _mmsiToIdx.get(mmsi);
+    if (idx === undefined) return;  // vessel not in instanced mesh yet — skip
+    _entryLat[idx]  = lat;
+    _entryLon[idx]  = lon;
+    _entryHead[idx] = (heading != null && !isNaN(heading)) ? heading : 0;
+    if (_buildMatrix(lat, lon, heading, SCALE)) {
+      _mesh.setMatrixAt(idx, _dummy.matrix);
+      _matrixNeedsUpdate = true;
+    }
+  }
+
   // Scale update (ArgusSelection highlights selected vessel at 1.45× base scale).
   // Requires lat/lon/heading from _aisState to rebuild the matrix with new scale.
   function setScale(mmsi, scale, lat, lon, heading) {
@@ -355,6 +371,7 @@ window.ArgusAISInstanced = (function () {
     commitBatch:  commitBatch,
     setScale:       setScale,
     applyZoomScale: applyZoomScale,
+    updatePosition: updatePosition,
     setVisible:     setVisible,
     getCount:     getCount,
     getMesh:      getMesh,

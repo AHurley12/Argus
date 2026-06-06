@@ -947,6 +947,7 @@ document.addEventListener('DOMContentLoaded', function() {
       var _eHazardCats = { earthquake: 1, flood: 1, drought: 1, wildfire: 1 };
       window.eventMarkers.forEach(function(m) {
         if (m.userData && m.userData.isGDACS && _eHazardCats[m.userData.type]) return;
+        if (m.userData && m.userData.isEONET) return;  // EONET follows W key, not E key
         m.visible = evOn;
       });
       // Also toggle pulse rings that belong to non-weather events
@@ -957,8 +958,7 @@ document.addEventListener('DOMContentLoaded', function() {
       // ACLED + GEM InstancedMesh visual layers — ghost meshes above handle raycasting
       if (window.ArgusACLED  && window.ArgusACLED.setVisible)  window.ArgusACLED.setVisible(evOn);
       if (window.ArgusGEM    && window.ArgusGEM.setVisible)    window.ArgusGEM.setVisible(evOn);
-      // EONET non-hazard InstancedMesh (E key) — hazard sprites follow W key via setVisible()
-      if (window.ArgusEONET  && window.ArgusEONET.setEventsVisible) window.ArgusEONET.setEventsVisible(evOn);
+      // EONET follows W key entirely — setEventsVisible is a no-op, omitted here
       if (!evOn) clearHoverTooltip();
     }
     if (e.key.toLowerCase() === 'w') {
@@ -6095,14 +6095,14 @@ window.ArgusEvents = (function() {
     var _mHazardCats = { earthquake: 1, flood: 1, drought: 1, wildfire: 1 };
     if (window.eventMarkers)   window.eventMarkers.forEach(function(m) {
       if (m.userData && m.userData.isGDACS && _mHazardCats[m.userData.type]) return;
+      if (m.userData && m.userData.isEONET) return;  // EONET follows W key
       m.visible = evOn;
     });
     if (window.weatherMarkers) window.weatherMarkers.forEach(function(m) { m.visible = wOn; });
-    if (window.ArgusACLED  && window.ArgusACLED.setVisible)        window.ArgusACLED.setVisible(evOn);
-    if (window.ArgusGEM    && window.ArgusGEM.setVisible)          window.ArgusGEM.setVisible(evOn);
-    if (window.ArgusEONET  && window.ArgusEONET.setEventsVisible)  window.ArgusEONET.setEventsVisible(evOn);
-    if (window.ArgusGDACS  && window.ArgusGDACS.setVisible)        window.ArgusGDACS.setVisible(wOn);
-    if (window.ArgusEONET  && window.ArgusEONET.setVisible)        window.ArgusEONET.setVisible(wOn);
+    if (window.ArgusACLED  && window.ArgusACLED.setVisible)  window.ArgusACLED.setVisible(evOn);
+    if (window.ArgusGEM    && window.ArgusGEM.setVisible)    window.ArgusGEM.setVisible(evOn);
+    if (window.ArgusGDACS  && window.ArgusGDACS.setVisible)  window.ArgusGDACS.setVisible(wOn);
+    if (window.ArgusEONET  && window.ArgusEONET.setVisible)  window.ArgusEONET.setVisible(wOn);
   }
 
   // ── Community Intel: Supabase helpers ────────────────────────────────────────
@@ -7119,14 +7119,14 @@ window.ArgusAnalyst = (function() {
     var _m2HazardCats = { earthquake: 1, flood: 1, drought: 1, wildfire: 1 };
     if (window.eventMarkers)   window.eventMarkers.forEach(function(m) {
       if (m.userData && m.userData.isGDACS && _m2HazardCats[m.userData.type]) return;
+      if (m.userData && m.userData.isEONET) return;  // EONET follows W key
       m.visible = evOn;
     });
     if (window.weatherMarkers) window.weatherMarkers.forEach(function(m) { m.visible = wOn; });
-    if (window.ArgusACLED  && window.ArgusACLED.setVisible)        window.ArgusACLED.setVisible(evOn);
-    if (window.ArgusGEM    && window.ArgusGEM.setVisible)          window.ArgusGEM.setVisible(evOn);
-    if (window.ArgusEONET  && window.ArgusEONET.setEventsVisible)  window.ArgusEONET.setEventsVisible(evOn);
-    if (window.ArgusGDACS  && window.ArgusGDACS.setVisible)        window.ArgusGDACS.setVisible(wOn);
-    if (window.ArgusEONET  && window.ArgusEONET.setVisible)        window.ArgusEONET.setVisible(wOn);
+    if (window.ArgusACLED  && window.ArgusACLED.setVisible)  window.ArgusACLED.setVisible(evOn);
+    if (window.ArgusGEM    && window.ArgusGEM.setVisible)    window.ArgusGEM.setVisible(evOn);
+    if (window.ArgusGDACS  && window.ArgusGDACS.setVisible)  window.ArgusGDACS.setVisible(wOn);
+    if (window.ArgusEONET  && window.ArgusEONET.setVisible)  window.ArgusEONET.setVisible(wOn);
   }
 
   function showModalMsg(text, isError) {

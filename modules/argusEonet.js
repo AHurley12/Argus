@@ -8,13 +8,13 @@
 //   Correlated events: existing marker enriched with EONET source attribution — no new marker.
 //   Unique events: ghost mesh + InstancedMesh (non-hazard) or animated sprite (hazard).
 //
-// Rendering — two tiers, mirrors GDACS exactly:
+// Rendering — ALL EONET events follow the W key (weather toggle):
 //   Hazard (wildfire / earthquake / flood / drought):
 //     Ghost mesh (eventMarkerGroup, raycasting) + animated sprite (weatherSpriteGroup).
-//     Visibility: W key, via ArgusEONET.setVisible(wOn).
 //   Non-hazard (volcano / tropical_cyclone / tsunami / sea_ice / dust_haze / etc.):
 //     Ghost mesh (eventMarkerGroup, raycasting) + InstancedMesh sphere.
-//     Visibility: E key, via ArgusEONET.setEventsVisible(evOn).
+//   Both tiers: Visibility controlled by ArgusEONET.setVisible(wOn) via W key.
+//   EONET does NOT respond to the E key — all content is environmental/disaster data.
 //
 // Deferred start: 90 seconds — intentionally after GDACS (75s) so correlation
 //   has live GDACS data to compare against before the first EONET render pass.
@@ -248,8 +248,8 @@ window.ArgusEONET = (function () {
         new THREE.MeshBasicMaterial({ color: col, visible: false })
       );
       mesh.position.copy(pos);
-      // Hazard ghosts follow W key; non-hazard ghosts follow E key
-      mesh.visible = _HAZARD_CATS[ev.category] ? hazardVisible : evVisible;
+      // ALL EONET ghosts follow W key — EONET is an environmental/disaster source
+      mesh.visible = hazardVisible;
 
       mesh.userData = {
         _eonetMarker: true,
@@ -307,7 +307,7 @@ window.ArgusEONET = (function () {
       if (typeof window.updateNodeCounts === 'function') window.updateNodeCounts();
     }
 
-    _rebuildInstanced(AG, altR, evVisible);
+    _rebuildInstanced(AG, altR, hazardVisible);
   }
 
   // ── Load response into cache (diff-aware + correlation) ───────────────────
@@ -434,25 +434,25 @@ window.ArgusEONET = (function () {
   function refresh() { _poll(); }
 
   // ── Visibility ────────────────────────────────────────────────────────────
-  // setVisible(wOn)         — W key: controls hazard animated sprites + their ghosts
-  // setEventsVisible(evOn)  — E key: controls non-hazard InstancedMesh
+  // setVisible(wOn) — W key: controls ALL EONET markers (sprites + InstancedMesh + ghosts).
+  // All EONET content is environmental/disaster data — it lives on the weather toggle.
   function setVisible(wOn) {
     var vis = !!wOn;
+    // Hazard animated sprites
     for (var hid in _hazardSprites) { _hazardSprites[hid].setVisible(vis); }
+    // Non-hazard InstancedMesh
+    if (_imesh) _imesh.visible = !!(vis && _imesh.count > 0);
+    // All EONET ghost meshes
     if (window.eventMarkers) {
       window.eventMarkers.forEach(function (m) {
-        if (m.userData && m.userData.isEONET && _HAZARD_CATS[m.userData.type]) {
-          m.visible = vis;
-        }
+        if (m.userData && m.userData.isEONET) m.visible = vis;
       });
     }
   }
 
-  function setEventsVisible(evOn) {
-    if (_imesh) _imesh.visible = !!evOn;
-    // Non-hazard ghost meshes are toggled by the E key handler in index.html
-    // iterating window.eventMarkers directly — no extra work needed here.
-  }
+  // setEventsVisible — no-op. EONET does not respond to the E key.
+  // Kept for API stability only.
+  function setEventsVisible() {}
 
   // Tick — no-op; hazard sprites are driven centrally by ArgusWeatherLayer.tick()
   // via HazardTexturePool, same as GDACS hazard sprites.
@@ -527,8 +527,8 @@ window.ArgusEONET = (function () {
     stop:              stop,
     refresh:           refresh,
     status:            status,
-    setVisible:        setVisible,      // W key — hazard sprites
-    setEventsVisible:  setEventsVisible, // E key — non-hazard InstancedMesh
+    setVisible:        setVisible,       // W key — all EONET markers
+    setEventsVisible:  setEventsVisible, // no-op — EONET is weather-only
     tick:              tick,
     diagReport:        diagReport,
   };

@@ -40,7 +40,7 @@ window.ArgusWeatherLayer = (function () {
   var CANVAS_QUALITY = 3;
 
   var SCALE_PULSE   = 4.8;   // 3.0 × 1.6
-  var SCALE_CYCLONE = 5.76;  // 3.6 × 1.6
+  var SCALE_CYCLONE = 9.6;   // 2× SCALE_PULSE — tropical weather systems render larger than standard events
 
   // LOD: skip canvas redraws for markers this far from camera
   var LOD_SKIP_DIST = 350;
@@ -414,10 +414,13 @@ window.ArgusWeatherLayer = (function () {
 
   // ── CycloneMarker ──────────────────────────────────────────────────────────────
   //
-  // THREE.Group with 3 independently animated sprite layers:
-  //   armSprite   — 3 segmented rotational arms, rotates clockwise
-  //   eyeSprite   — 4 counter-rotating inner shards + dark core, rotates CCW
-  //   pulseSprite — eye pulse ring, opacity oscillation only
+  // THREE.Group with 2 independently animated sprite layers:
+  //   armSprite  — 3 segmented rotational arms, rotates clockwise
+  //   eyeSprite  — 4 counter-rotating inner shards + dark core nucleus, rotates CCW
+  //
+  // Design: light blue/cyan palette, semi-3D spiral, bright central eye, additive blending.
+  // Size: SCALE_CYCLONE = 2× SCALE_PULSE (double standard event marker size).
+  // No pulse ring — clean intelligence-platform aesthetic, no weather-app effects.
 
   function CycloneMarker(scene, position, severity) {
     this.severity    = severity || 'minor';
@@ -428,17 +431,14 @@ window.ArgusWeatherLayer = (function () {
     this._frameSkip  = SEV_FRAME_SKIP[severity] || 4;
     this.group       = new THREE.Group();
 
-    var armC   = makeCanvas(CYCO_SIZE);
-    var eyeC   = makeCanvas(CYCO_SIZE);
-    var pulseC = makeCanvas(CYCO_SIZE);
+    var armC = makeCanvas(CYCO_SIZE);
+    var eyeC = makeCanvas(CYCO_SIZE);
 
-    this._armCtx   = armC.ctx;
-    this._eyeCtx   = eyeC.ctx;
-    this._pulseCtx = pulseC.ctx;
+    this._armCtx = armC.ctx;
+    this._eyeCtx = eyeC.ctx;
 
-    this.armTex   = new THREE.CanvasTexture(armC.canvas);
-    this.eyeTex   = new THREE.CanvasTexture(eyeC.canvas);
-    this.pulseTex = new THREE.CanvasTexture(pulseC.canvas);
+    this.armTex = new THREE.CanvasTexture(armC.canvas);
+    this.eyeTex = new THREE.CanvasTexture(eyeC.canvas);
 
     this.armSprite = new THREE.Sprite(new THREE.SpriteMaterial({
       map: this.armTex, transparent: true,
@@ -452,15 +452,8 @@ window.ArgusWeatherLayer = (function () {
     }));
     this.eyeSprite.scale.set(SCALE_CYCLONE * 0.4, SCALE_CYCLONE * 0.4, 1);
 
-    this.pulseSprite = new THREE.Sprite(new THREE.SpriteMaterial({
-      map: this.pulseTex, transparent: true,
-      blending: THREE.AdditiveBlending, depthWrite: false,
-    }));
-    this.pulseSprite.scale.set(SCALE_CYCLONE * 0.6, SCALE_CYCLONE * 0.6, 1);
-
     this.group.add(this.armSprite);
     this.group.add(this.eyeSprite);
-    this.group.add(this.pulseSprite);
     this.group.position.copy(position);
     scene.add(this.group);
 
@@ -468,8 +461,7 @@ window.ArgusWeatherLayer = (function () {
     var severe = this.severity === 'severe' || this.severity === 'extreme';
     this._drawArms(0, severe);
     this._drawEye(0, severe);
-    this._drawPulseRing(severe);
-    this.armTex.needsUpdate = this.eyeTex.needsUpdate = this.pulseTex.needsUpdate = true;
+    this.armTex.needsUpdate = this.eyeTex.needsUpdate = true;
   }
 
   CycloneMarker.prototype.tick = function (dt) {
@@ -479,19 +471,12 @@ window.ArgusWeatherLayer = (function () {
 
     // Arms + eye: update at severity frame-skip rate
     if (this._tickCount % skip === 0) {
-      var dtScaled = dt * 60 * skip;
-      this.t           += dtScaled;
+      this.t           += dt * 60 * skip;
       this._outerAngle += (severe ? 0.022 : 0.014) * skip;
       this._innerAngle -= (severe ? 0.016 : 0.010) * skip;
       this._drawArms(this._outerAngle, severe);
       this._drawEye(this._innerAngle, severe);
       this.armTex.needsUpdate = this.eyeTex.needsUpdate = true;
-    }
-
-    // Pulse ring: very slow oscillation — update at 3× frame-skip (max ~10fps for extreme)
-    if (this._tickCount % (skip * 3) === 0) {
-      this._drawPulseRing(severe);
-      this.pulseTex.needsUpdate = true;
     }
   };
 
@@ -586,25 +571,6 @@ window.ArgusWeatherLayer = (function () {
     ctx.restore();
   };
 
-  CycloneMarker.prototype._drawPulseRing = function (severe) {
-    var ctx   = this._pulseCtx;
-    var size  = CYCO_SIZE;
-    var cx    = size / 2;
-    var cy    = size / 2;
-    var eyeR  = severe ? 5 : 4;
-    var pulse = 0.5 + Math.sin(this.t * 0.03) * 0.5;
-
-    ctx.clearRect(0, 0, size, size);
-    ctx.save();
-    ctx.globalCompositeOperation = 'screen';
-    ctx.beginPath();
-    ctx.arc(cx, cy, eyeR + 2, 0, Math.PI * 2);
-    ctx.strokeStyle = 'rgba(79,195,255,' + (0.15 + pulse * 0.20).toFixed(3) + ')';
-    ctx.lineWidth   = 1.5;
-    ctx.stroke();
-    ctx.restore();
-  };
-
   CycloneMarker.prototype.setVisible = function (v) {
     this.group.visible = v;
   };
@@ -612,10 +578,8 @@ window.ArgusWeatherLayer = (function () {
   CycloneMarker.prototype.dispose = function () {
     this.armTex.dispose();
     this.eyeTex.dispose();
-    this.pulseTex.dispose();
     this.armSprite.material.dispose();
     this.eyeSprite.material.dispose();
-    this.pulseSprite.material.dispose();
     if (this.group.parent) this.group.parent.remove(this.group);
   };
 
@@ -1393,13 +1357,11 @@ window.ArgusWeatherLayer = (function () {
     if (mType === 'cyclone') {
       marker = new CycloneMarker(scene, pos, sev);
       marker._tickCount = _stagger % marker._frameSkip;
-      marker.group.userData = ud;
-      marker.armSprite.userData   = ud;
-      marker.eyeSprite.userData   = ud;
-      marker.pulseSprite.userData = ud;
-      _spriteIndex.push({ obj: marker.armSprite,   id: alert.id });
-      _spriteIndex.push({ obj: marker.eyeSprite,   id: alert.id });
-      _spriteIndex.push({ obj: marker.pulseSprite, id: alert.id });
+      marker.group.userData    = ud;
+      marker.armSprite.userData  = ud;
+      marker.eyeSprite.userData  = ud;
+      _spriteIndex.push({ obj: marker.armSprite,  id: alert.id });
+      _spriteIndex.push({ obj: marker.eyeSprite,  id: alert.id });
     } else if (mType === 'flood') {
       marker = new FloodMarker(scene, pos, sev, false);  // NOAA flood: flat scale
       // No stagger: pool texture has its own _tickCount; stagger not applicable
@@ -1422,7 +1384,6 @@ window.ArgusWeatherLayer = (function () {
       if (mType === 'cyclone') {
         _wm.push(marker.armSprite);
         _wm.push(marker.eyeSprite);
-        _wm.push(marker.pulseSprite);
       } else {
         _wm.push(marker.sprite);
       }
@@ -1706,10 +1667,11 @@ window.ArgusWeatherLayer = (function () {
     setVisible:     setVisible,
     refresh:        refresh,
     status:         status,
-    DroughtMarker:    DroughtMarker,
-    WildfireMarker:   WildfireMarker,
-    FloodMarker:      FloodMarker,
-    EarthquakeMarker: EarthquakeMarker,
+    CycloneMarker:     CycloneMarker,
+    DroughtMarker:     DroughtMarker,
+    WildfireMarker:    WildfireMarker,
+    FloodMarker:       FloodMarker,
+    EarthquakeMarker:  EarthquakeMarker,
     HazardTexturePool: HazardTexturePool,
   };
 

@@ -1630,10 +1630,11 @@ document.addEventListener('DOMContentLoaded', function() {
     if (d.isChokepoint)  return ls.chokepoints;
     // NOAA static markers and ArgusWeatherLayer sprites — gated by weather layer, not events
     if (d._noaaMarker || d.isNOAA || d._weatherLayer || d.isWeather) return !!ls.weather;
-    // GDACS hazard events (earthquake/flood/drought/wildfire) are displayed on the W key,
-    // not the E key. Their ghost meshes are in eventMarkers but must be gated by weather.
-    var _gdacsHazard = { earthquake: 1, flood: 1, drought: 1, wildfire: 1 };
+    // GDACS hazard events are on the W key. tropical_cyclone now joins drought/wildfire/flood/earthquake.
+    var _gdacsHazard = { earthquake: 1, flood: 1, drought: 1, wildfire: 1, tropical_cyclone: 1 };
     if (d.isGDACS && _gdacsHazard[d.type]) return !!ls.weather;
+    // ALL EONET markers are on the W key (environmental/disaster data only)
+    if (d.isEONET) return !!ls.weather;
     return ls.events;
   }
 

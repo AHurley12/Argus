@@ -9,9 +9,10 @@
 //   Unique events: ghost mesh + InstancedMesh (non-hazard) or animated sprite (hazard).
 //
 // Rendering — ALL EONET events follow the W key (weather toggle):
-//   Hazard (wildfire / earthquake / flood / drought):
+//   Animated-sprite tier (wildfire / earthquake / flood / drought / tropical_cyclone):
 //     Ghost mesh (eventMarkerGroup, raycasting) + animated sprite (weatherSpriteGroup).
-//   Non-hazard (volcano / tropical_cyclone / tsunami / sea_ice / dust_haze / etc.):
+//     tropical_cyclone → CycloneMarker (same sprite class as NOAA NHC + GDACS cyclones).
+//   InstancedMesh tier (volcano / tsunami / sea_ice / dust_haze / etc.):
 //     Ghost mesh (eventMarkerGroup, raycasting) + InstancedMesh sphere.
 //   Both tiers: Visibility controlled by ArgusEONET.setVisible(wOn) via W key.
 //   EONET does NOT respond to the E key — all content is environmental/disaster data.
@@ -48,6 +49,9 @@ window.ArgusEONET = (function () {
   var _placedIds      = new Set();  // ids whose ghost meshes are in eventMarkerGroup
   var _pollTimer      = null;
 
+  // ── Tick state ────────────────────────────────────────────────────────────
+  var _lastHazardT = null;
+
   // ── InstancedMesh (non-hazard events) ─────────────────────────────────────
   var _imesh  = null;
   var _iDummy = new THREE.Object3D();
@@ -73,7 +77,8 @@ window.ArgusEONET = (function () {
 
   // ── Category constants ─────────────────────────────────────────────────────
   // Hazard categories: animated sprites, W key visibility — mirrors GDACS split.
-  var _HAZARD_CATS = { wildfire: 1, earthquake: 1, flood: 1, drought: 1 };
+  // tropical_cyclone uses CycloneMarker (same as GDACS + NOAA NHC pathway).
+  var _HAZARD_CATS = { wildfire: 1, earthquake: 1, flood: 1, drought: 1, tropical_cyclone: 1 };
 
   // Non-unique EONET categories that may overlap GDACS (handled by correlation)
   // Listed here for reference only — actual dedup logic lives in argusEventCorrelation.js.
@@ -292,10 +297,11 @@ window.ArgusEONET = (function () {
       var hsev  = _hazardSeverity(ev);
       var hpos  = AG.latLonToVector(ev.lat, ev.lon, altR + 0.5);
       var hmark;
-      if      (ev.category === 'wildfire')   hmark = new window.ArgusWeatherLayer.WildfireMarker(AG.weatherSpriteGroup, hpos, hsev);
-      else if (ev.category === 'earthquake') hmark = new window.ArgusWeatherLayer.EarthquakeMarker(AG.weatherSpriteGroup, hpos, hsev);
-      else if (ev.category === 'flood')      hmark = new window.ArgusWeatherLayer.FloodMarker(AG.weatherSpriteGroup, hpos, hsev, true);
-      else                                   hmark = new window.ArgusWeatherLayer.DroughtMarker(AG.weatherSpriteGroup, hpos, hsev);
+      if      (ev.category === 'wildfire')         hmark = new window.ArgusWeatherLayer.WildfireMarker(AG.weatherSpriteGroup, hpos, hsev);
+      else if (ev.category === 'earthquake')       hmark = new window.ArgusWeatherLayer.EarthquakeMarker(AG.weatherSpriteGroup, hpos, hsev);
+      else if (ev.category === 'flood')            hmark = new window.ArgusWeatherLayer.FloodMarker(AG.weatherSpriteGroup, hpos, hsev, true);
+      else if (ev.category === 'tropical_cyclone') hmark = new window.ArgusWeatherLayer.CycloneMarker(AG.weatherSpriteGroup, hpos, hsev);
+      else                                          hmark = new window.ArgusWeatherLayer.DroughtMarker(AG.weatherSpriteGroup, hpos, hsev);
 
       hmark.setVisible(hazardVisible);
       _hazardSprites[ev.id] = hmark;
@@ -454,9 +460,22 @@ window.ArgusEONET = (function () {
   // Kept for API stability only.
   function setEventsVisible() {}
 
-  // Tick — no-op; hazard sprites are driven centrally by ArgusWeatherLayer.tick()
-  // via HazardTexturePool, same as GDACS hazard sprites.
-  function tick() {}
+  // Tick — pool-based hazard sprites are driven by ArgusWeatherLayer.tick().
+  // CycloneMarker has per-instance canvas textures and requires direct tick() calls.
+  function tick() {
+    var now = Date.now();
+    var dt  = _lastHazardT ? Math.min((now - _lastHazardT) / 1000, 0.1) : 0.016;
+    _lastHazardT = now;
+    var AG     = window.ArgusGlobe;
+    var camPos = AG && AG.camera ? AG.camera.position : null;
+    var LOD    = 350;
+    for (var id in _hazardSprites) {
+      var m = _hazardSprites[id];
+      if (!m || !m.tick) continue;
+      if (camPos && m.group && m.group.position.distanceTo(camPos) > LOD) continue;
+      m.tick(dt);
+    }
+  }
 
   // ── Status ────────────────────────────────────────────────────────────────
   function status() {

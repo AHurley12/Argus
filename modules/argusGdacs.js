@@ -11,10 +11,11 @@
 //
 // Rendering:
 //   Two rendering tiers:
-//   1. Non-hazard events (volcano, tsunami, tropical_cyclone): ghost mesh + InstancedMesh sphere.
+//   1. Non-hazard events (volcano, tsunami): ghost mesh + InstancedMesh sphere.
 //      Visibility tied to ArgusLayerState.events (E key).
-//   2. Hazard events (earthquake, flood, drought, wildfire): ghost mesh + animated canvas sprite.
-//      Sprites created by ArgusWeatherLayer marker classes, animated via HazardTexturePool.
+//   2. Hazard events (earthquake, flood, drought, wildfire, tropical_cyclone):
+//      Ghost mesh + animated canvas sprite (ArgusWeatherLayer marker classes).
+//      tropical_cyclone → CycloneMarker (shared with NOAA NHC pathway).
 //      Visibility tied to ArgusLayerState.weather (W key) — same toggle as NOAA weather.
 //   Ghost meshes always live in eventMarkerGroup for raycasting. Hazard ghost mesh visibility
 //   is controlled by ArgusGDACS.setVisible(), not the E key, to stay in sync with sprites.
@@ -174,8 +175,10 @@ window.ArgusGDACS = (function () {
     var n = 0;
     gdacsEventCache.forEach(function (ev) {
       if (n >= _IMAX) return;
-      // Drought, wildfire, flood, and earthquake have dedicated animated sprite markers — skip instanced sphere
-      if (ev.category === 'drought' || ev.category === 'wildfire' || ev.category === 'flood' || ev.category === 'earthquake') return;
+      // Hazard categories have dedicated animated sprite markers — skip instanced sphere
+      if (ev.category === 'drought'   || ev.category === 'wildfire' ||
+          ev.category === 'flood'     || ev.category === 'earthquake' ||
+          ev.category === 'tropical_cyclone') return;
       var pos = AG.latLonToVector(ev.lat, ev.lon, altR);
       _iDummy.position.copy(pos);
       _iDummy.scale.set(1, 1, 1);
@@ -209,7 +212,7 @@ window.ArgusGDACS = (function () {
     var altR          = (AG.R && AG.R.MARKER) || 101;
     var visible       = !!(window.ArgusLayerState && window.ArgusLayerState.events);
     var hazardVisible = !!(window.ArgusLayerState && window.ArgusLayerState.weather);
-    var _HAZARD_CATS  = { drought: 1, wildfire: 1, flood: 1, earthquake: 1 };
+    var _HAZARD_CATS  = { drought: 1, wildfire: 1, flood: 1, earthquake: 1, tropical_cyclone: 1 };
     var added   = 0;
     var removed = 0;
 
@@ -280,23 +283,24 @@ window.ArgusGDACS = (function () {
       added++;
     });
 
-    // ── Hazard sprites (drought/wildfire/flood/earthquake) — separate loop, not gated by _placedIds ──
-    // Checked every render cycle so late ArgusWeatherLayer init is handled gracefully.
+    // ── Hazard sprites (drought/wildfire/flood/earthquake/tropical_cyclone) ──────
+    // Separate loop, not gated by _placedIds — checked every render cycle so late
+    // ArgusWeatherLayer init is handled gracefully.
     gdacsEventCache.forEach(function (ev) {
-      var isHazard = ev.category === 'drought'   || ev.category === 'wildfire' ||
-                     ev.category === 'flood'      || ev.category === 'earthquake';
+      var isHazard = ev.category === 'drought'          || ev.category === 'wildfire' ||
+                     ev.category === 'flood'            || ev.category === 'earthquake' ||
+                     ev.category === 'tropical_cyclone';
       if (!isHazard || _hazardSprites[ev.eventId]) return;
       if (!AG.weatherSpriteGroup) return;
       if (!window.ArgusWeatherLayer || !window.ArgusWeatherLayer.EarthquakeMarker) return;
       var hsev  = _mapHazardSeverity(ev.severity);
       var hpos  = AG.latLonToVector(ev.lat, ev.lon, altR + 0.5);
-      var hmark = ev.category === 'drought'
-        ? new window.ArgusWeatherLayer.DroughtMarker(AG.weatherSpriteGroup, hpos, hsev)
-        : ev.category === 'wildfire'
-        ? new window.ArgusWeatherLayer.WildfireMarker(AG.weatherSpriteGroup, hpos, hsev)
-        : ev.category === 'earthquake'
-        ? new window.ArgusWeatherLayer.EarthquakeMarker(AG.weatherSpriteGroup, hpos, hsev)
-        : new window.ArgusWeatherLayer.FloodMarker(AG.weatherSpriteGroup, hpos, hsev, true);  // isGdacs=true → _HAZARD_SCALE
+      var hmark;
+      if      (ev.category === 'drought')          hmark = new window.ArgusWeatherLayer.DroughtMarker(AG.weatherSpriteGroup, hpos, hsev);
+      else if (ev.category === 'wildfire')         hmark = new window.ArgusWeatherLayer.WildfireMarker(AG.weatherSpriteGroup, hpos, hsev);
+      else if (ev.category === 'earthquake')       hmark = new window.ArgusWeatherLayer.EarthquakeMarker(AG.weatherSpriteGroup, hpos, hsev);
+      else if (ev.category === 'tropical_cyclone') hmark = new window.ArgusWeatherLayer.CycloneMarker(AG.weatherSpriteGroup, hpos, hsev);
+      else                                          hmark = new window.ArgusWeatherLayer.FloodMarker(AG.weatherSpriteGroup, hpos, hsev, true);  // isGdacs=true → _HAZARD_SCALE
       hmark.setVisible(hazardVisible);
       _hazardSprites[ev.eventId] = hmark;
     });
@@ -441,10 +445,23 @@ window.ArgusGDACS = (function () {
   }
 
   // ── Tick ──────────────────────────────────────────────────────────────────────
-  // Hazard sprite texture animation is now driven centrally by ArgusWeatherLayer.tick()
-  // via HazardTexturePool. All per-sprite tick calls are no-ops under the shared texture
-  // pool architecture. This function is retained for API stability only.
-  function tick() { /* no-op: pool is driven by ArgusWeatherLayer.tick() */ }
+  // Pool-based hazard sprites (drought/wildfire/flood/earthquake) are driven by
+  // ArgusWeatherLayer.tick() via HazardTexturePool and do not need per-instance calls.
+  // CycloneMarker has its own per-instance canvas textures — tick() must be called directly.
+  function tick() {
+    var now = Date.now();
+    var dt  = _lastHazardT ? Math.min((now - _lastHazardT) / 1000, 0.1) : 0.016;
+    _lastHazardT = now;
+    var AG     = window.ArgusGlobe;
+    var camPos = AG && AG.camera ? AG.camera.position : null;
+    var LOD    = 350;
+    for (var id in _hazardSprites) {
+      var m = _hazardSprites[id];
+      if (!m || !m.tick) continue;
+      if (camPos && m.group && m.group.position.distanceTo(camPos) > LOD) continue;
+      m.tick(dt);
+    }
+  }
 
   // ── Start / stop ─────────────────────────────────────────────────────────────
   function start() {
@@ -510,7 +527,7 @@ window.ArgusGDACS = (function () {
     for (var hid in _hazardSprites) { _hazardSprites[hid].setVisible(vis); }
     // Hazard ghost meshes (eventMarkerGroup) — must stay in sync with sprites
     // so hover/select always matches what the user can see.
-    var hazardCats = { drought: 1, wildfire: 1, flood: 1, earthquake: 1 };
+    var hazardCats = { drought: 1, wildfire: 1, flood: 1, earthquake: 1, tropical_cyclone: 1 };
     if (window.eventMarkers) {
       window.eventMarkers.forEach(function (m) {
         if (m.userData && m.userData.isGDACS && hazardCats[m.userData.type]) {

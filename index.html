@@ -1533,10 +1533,11 @@ document.addEventListener('DOMContentLoaded', function() {
   // ── Universal autofocus — smoothly rotates the globe to centre on (lat, lon) ──
   // zoom: optional camera.position.z target (102–360). Omit to keep current zoom.
   //
-  // Formula: latLonToVector puts lon=0 at x=+r in globe-local space. With the
-  // globe's initial rotation.y = π/2, lon=180 faces the camera (+z). The absolute
-  // rotation needed to bring longitude L to the front is:
-  //   rawTargetY = 3π/2 − lon×π/180
+  // Two separate groups exist: globeGroup (texture only) and dataGroup (all markers).
+  // dataGroup.rotation.y = globeGroup.rotation.y − π/2 always.
+  // All markers live in dataGroup. For lon=L to face camera (+z):
+  //   dataGroup.rotation.y = −π/2 − lon×π/180
+  //   globeGroup.rotation.y = dataGroup.rotation.y + π/2 = −lon×π/180
   //
   // CRITICAL — shortest-path normalisation: globeGroup.rotation.y accumulates every
   // pan gesture. After a few spins it can be 30π or more. Without normalising,
@@ -1546,7 +1547,11 @@ document.addEventListener('DOMContentLoaded', function() {
     var PI = Math.PI;
     var startRotY = globeGroup.rotation.y;
     var startRotX = globeGroup.rotation.x;
-    var rawTargetY = 1.5 * PI - lon * PI / 180;
+    // AIS/vessel sprites live in dataGroup (via eventMarkerGroup), not globeGroup.
+    // dataGroup.rotation.y = globeGroup.rotation.y − π/2 always.
+    // For lon=L to face the camera (+z), dataGroup.rotation.y must equal −π/2 − L×π/180,
+    // so globeGroup.rotation.y = dataGroup.rotation.y + π/2 = −lon×π/180.
+    var rawTargetY = -lon * PI / 180;
     // Normalise delta to shortest arc: clamp to (−π, π]
     var diffY = rawTargetY - startRotY;
     diffY -= Math.round(diffY / (2 * PI)) * 2 * PI;

@@ -496,16 +496,18 @@ window.ArgusSelection = (function () {
     var cs = _candidates(mx, my, G.camera, W, H);
     if (!cs.length) return false;
     var topUD = cs[0].sprite.userData;
-    // Vessels always route through the panel — even for 1 candidate — so the user
-    // can confirm the selection before locking. In dense ports/waterways this also
-    // lets them pick from multiple overlapping AIS sprites. Aircraft keep the
-    // previous direct-lock behaviour for the single / very-close-hit case.
     var isVessel = topUD.isShip || topUD.isAISVessel;
-    if (!isVessel && (cs.length === 1 || cs[0].dist < 6)) {
-      _lock(cs[0].sprite);
-    } else {
+    if (isVessel) {
+      // Vessels: always open panel so the user can confirm which ship in a busy
+      // port/waterway — AIS traffic is dense and names/types are distinguishable.
       _applyDim(cs[0].sprite);
       _openPanel(cs, mx, my);
+    } else {
+      // Aircraft: always direct-lock to the nearest candidate. Flight density is
+      // low enough that the closest hit is always the intended target. The panel
+      // adds friction with no precision gain — callsigns alone don't help users
+      // distinguish overlapping aircraft. Lock immediately → autofocus fires.
+      _lock(cs[0].sprite);
     }
     return true;
   }

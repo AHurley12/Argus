@@ -75,6 +75,7 @@ window.ArgusSelection = (function () {
   var _pEntityN  = -1;                              // entity count at last build
   var _pCacheTs  = 0;                              // performance.now() at last build
   var _pLayerHash = -1;                             // layer on/off bitmask at last build
+  var _pGlobeRotY = 0, _pGlobeRotX = 0;            // dataGroup rotation snapshot — invalidates on globe pan
   var _PCACHE_TTL = 250;  // ms — max age before forced rebuild (catches AIS position updates)
   var _CAM_EPS   = 1e-3;  // camera movement threshold before cache is invalidated
   // 1e-3 tolerates OrbitControls damping residuals (~0.001/frame during deceleration)
@@ -95,9 +96,6 @@ window.ArgusSelection = (function () {
   function _cacheStale(cam, markers, W, H) {
     if (!_pCache) return true;
     // Layer-toggle check: immediately invalidates if any traffic layer was turned on/off.
-    // Deliberately separate from entity-count (which was removed to avoid AIS-churn
-    // rebuilds) — layer hash changes only on explicit toggles, so zero extra rebuilds
-    // during normal AIS streaming.
     if (_layerHash() !== _pLayerHash) return true;
     if (W !== _pCache.w || H !== _pCache.h) return true;
     if (performance.now() - _pCacheTs > _PCACHE_TTL) return true;
@@ -107,6 +105,14 @@ window.ArgusSelection = (function () {
     if (Math.abs(cam.quaternion.x - _pCamQX) > _CAM_EPS) return true;
     if (Math.abs(cam.quaternion.y - _pCamQY) > _CAM_EPS) return true;
     if (Math.abs(cam.quaternion.w - _pCamQW) > _CAM_EPS) return true;
+    // Globe rotation check: the camera is fixed; the globe rotates via dataGroup.
+    // Aircraft/ship ghost sprites are orphaned (parent=null) — their screen positions
+    // are computed using dataGroup.matrixWorld, so any globe pan must invalidate the cache.
+    var _ag = window.ArgusGlobe;
+    if (_ag && _ag.dataGroup) {
+      if (Math.abs(_ag.dataGroup.rotation.y - _pGlobeRotY) > _CAM_EPS) return true;
+      if (Math.abs(_ag.dataGroup.rotation.x - _pGlobeRotX) > _CAM_EPS) return true;
+    }
     return false;
   }
 
@@ -118,13 +124,30 @@ window.ArgusSelection = (function () {
     var ys = (_pCache && _pCache.ys.length === n) ? _pCache.ys : new Float32Array(n);
     var zs = (_pCache && _pCache.zs.length === n) ? _pCache.zs : new Float32Array(n);
 
-    // MUST use getWorldPosition, not .position — sprites in scene groups
-    // inherit parent transforms (globeGroup PI Y-rotation) so .position is local.
-    // Ghost sprites (parent===null) make this a no-op beyond a .position copy,
-    // but scene-attached sprites (capitals, event markers) need the full traversal.
+    // Screen-space projection for two sprite classes:
+    //
+    //   Scene-attached (AIS in aisGroup→dataGroup): getWorldPosition() traverses the
+    //   parent chain and correctly applies dataGroup's current rotation. ✓
+    //
+    //   Orphaned ghosts (aircraft/ship, parent=null): getWorldPosition() just copies
+    //   .position with no parent transforms, so it returns the raw latLonToVector
+    //   output — correct at placement time but STALE after globe rotation.
+    //   Fix: manually apply dataGroup.matrixWorld to get the world-space position
+    //   that matches where the InstancedMesh visually renders the entity.
+    var _dataMatWorld = null;
+    var _ag = window.ArgusGlobe;
+    if (_ag && _ag.dataGroup) {
+      _ag.dataGroup.updateWorldMatrix(true, false);  // ensure matrix is current
+      _dataMatWorld = _ag.dataGroup.matrixWorld;
+    }
     var buckets = Object.create(null);
     for (var i = 0; i < n; i++) {
-      markers[i].getWorldPosition(_wp);
+      if (markers[i].parent) {
+        markers[i].getWorldPosition(_wp);
+      } else {
+        _wp.copy(markers[i].position);
+        if (_dataMatWorld) _wp.applyMatrix4(_dataMatWorld);
+      }
       _rv.copy(_wp).project(cam);
       xs[i] = (_rv.x * 0.5 + 0.5) * W;
       ys[i] = (1 - (_rv.y * 0.5 + 0.5)) * H;
@@ -145,6 +168,10 @@ window.ArgusSelection = (function () {
     _pEntityN  = n;
     _pLayerHash = _layerHash();
     _pCacheTs  = performance.now();
+    if (_ag && _ag.dataGroup) {
+      _pGlobeRotY = _ag.dataGroup.rotation.y;
+      _pGlobeRotX = _ag.dataGroup.rotation.x;
+    }
   }
 
   // ── Bucket-grid candidate query ────────────────────────────────────────────

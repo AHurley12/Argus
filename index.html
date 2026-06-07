@@ -1868,7 +1868,7 @@ document.addEventListener('DOMContentLoaded', function() {
       // Vessel/aircraft hits → always route through selection system first.
       // ArgusSelection uses screen-space search which handles dense overlap better
       // than the 3D raycaster's single nearest-in-depth winner.
-      if ((_topHit.userData.isAircraft || _topHit.userData.isShip || _topHit.userData.isAISVessel || _topHit.userData.isGDACS || _topHit.userData.isEONET) && window.ArgusSelection) {
+      if ((_topHit.userData.isAircraft || _topHit.userData.isShip || _topHit.userData.isAISVessel) && window.ArgusSelection) {
         if (ArgusSelection.onClick(e.clientX, e.clientY)) return;
       }
       ArgusUI.showEventDetail(_topHit.userData);

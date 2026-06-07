@@ -48,22 +48,6 @@ window.ArgusSelection = (function () {
     return window.ArgusEntityRegistry.getSprites(types);
   }
 
-  // Extended candidate set for screen-space search — includes event ghost meshes
-  // so dense event clusters can be disambiguated via the panel.
-  // Dim/restore only uses _all() (aircraft/ship/AIS) — ghost meshes are invisible
-  // and don't need dim treatment.
-  function _allInteractable() {
-    var base = _all();
-    if (window.eventMarkers && window.eventMarkers.length) {
-      var extras = [];
-      var em = window.eventMarkers;
-      for (var i = 0; i < em.length; i++) {
-        if (em[i] && em[i].visible) extras.push(em[i]);
-      }
-      if (extras.length) return base.concat(extras);
-    }
-    return base;
-  }
 
   function _baseScale(s)   { return s.userData.isAircraft ? CFG.BASE_SCALE_AC : CFG.BASE_SCALE_SH; }
   function _baseOpacity(s) { return s.userData.stale ? 0.45 : 0.92; }
@@ -171,7 +155,7 @@ window.ArgusSelection = (function () {
     var B = CFG.BUCKET_SIZE, R = CFG.SCREEN_RADIUS;
     var bR = Math.ceil(R / B) + 1;
     var bx0 = Math.floor(mx / B), by0 = Math.floor(my / B);
-    var markers = _allInteractable();
+    var markers = _all();
 
     if (_cacheStale(cam, markers, W, H)) _rebuildCache(markers, cam, W, H);
 

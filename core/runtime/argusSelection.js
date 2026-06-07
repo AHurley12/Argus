@@ -552,5 +552,5 @@ window.ArgusSelection = (function () {
 
   if (window.ArgusModuleAudit) window.ArgusModuleAudit.register('ArgusSelection');
 
-  return { onHover: onHover, onClick: onClick, tick: tick, unlock: unlock, getAudit: getAudit, getLocked: getLocked, getDimmedExcept: getDimmedExcept };
+  return { onHover: onHover, onClick: onClick, lockSprite: _lock, tick: tick, unlock: unlock, getAudit: getAudit, getLocked: getLocked, getDimmedExcept: getDimmedExcept };
 }());

@@ -1870,10 +1870,13 @@ document.addEventListener('DOMContentLoaded', function() {
       if (window._argusGdacsDebug && _topHit.userData && _topHit.userData.isGDACS) {
         console.log('[GDACS CLICK]', { object: _topHit, id: _topHit.userData._gdacsId, type: _topHit.userData.type, metadata: _topHit.userData });
       }
-      // Vessel/aircraft hits → always route through selection system first.
-      // ArgusSelection uses screen-space search which handles dense overlap better
-      // than the 3D raycaster's single nearest-in-depth winner.
-      if ((_topHit.userData.isAircraft || _topHit.userData.isShip || _topHit.userData.isAISVessel) && window.ArgusSelection) {
+      // Aircraft: raycast winner is authoritative — lock the exact hit, never substitute.
+      if (_topHit.userData.isAircraft && window.ArgusSelection) {
+        ArgusSelection.lockSprite(_topHit);
+        return;
+      }
+      // Vessels: open disambiguation panel via screen-space search (handles dense clusters).
+      if ((_topHit.userData.isShip || _topHit.userData.isAISVessel) && window.ArgusSelection) {
         if (ArgusSelection.onClick(e.clientX, e.clientY)) return;
       }
       ArgusUI.showEventDetail(_topHit.userData);

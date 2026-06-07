@@ -98,9 +98,9 @@ var _staticCache  = new Map();  // mmsi → {shipType, name} from ShipStaticData
 function aisColor(shipType) {
   var map = {
     cargo: 0x4488ff, tanker: 0xff9933, military: 0xff4444,
-    passenger: 0xffffff, fishing: 0xff6600, tug: 0xffcc44,
+    passenger: 0xc5d7e8, fishing: 0x44cc88, tug: 0xffcc44,
     port_service: 0xaaaaaa, recreational: 0xcc88ff,
-    other: 0x44cc88, unknown: 0x44cc88,
+    other: 0x14b8a6, unknown: 0x5577aa,
   };
   var t = (shipType || 'other').toLowerCase();
   return map[t] !== undefined ? map[t] : map.other;

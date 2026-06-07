@@ -48,6 +48,23 @@ window.ArgusSelection = (function () {
     return window.ArgusEntityRegistry.getSprites(types);
   }
 
+  // Extended candidate set for screen-space search — includes event ghost meshes
+  // so dense event clusters can be disambiguated via the panel.
+  // Dim/restore only uses _all() (aircraft/ship/AIS) — ghost meshes are invisible
+  // and don't need dim treatment.
+  function _allInteractable() {
+    var base = _all();
+    if (window.eventMarkers && window.eventMarkers.length) {
+      var extras = [];
+      var em = window.eventMarkers;
+      for (var i = 0; i < em.length; i++) {
+        if (em[i] && em[i].visible) extras.push(em[i]);
+      }
+      if (extras.length) return base.concat(extras);
+    }
+    return base;
+  }
+
   function _baseScale(s)   { return s.userData.isAircraft ? CFG.BASE_SCALE_AC : CFG.BASE_SCALE_SH; }
   function _baseOpacity(s) { return s.userData.stale ? 0.45 : 0.92; }
 
@@ -154,7 +171,7 @@ window.ArgusSelection = (function () {
     var B = CFG.BUCKET_SIZE, R = CFG.SCREEN_RADIUS;
     var bR = Math.ceil(R / B) + 1;
     var bx0 = Math.floor(mx / B), by0 = Math.floor(my / B);
-    var markers = _all();
+    var markers = _allInteractable();
 
     if (_cacheStale(cam, markers, W, H)) _rebuildCache(markers, cam, W, H);
 
@@ -287,6 +304,43 @@ window.ArgusSelection = (function () {
     _trackRing = null;
   }
 
+  // ── Entity presentation helpers ───────────────────────────────────────────
+  function _entityIcon(ud) {
+    if (ud.isAircraft) return '✈';
+    if (ud.isShip || ud.isAISVessel) return '⛵';
+    var cat = (ud.type || ud.category || '').toLowerCase();
+    if (cat === 'tropical_cyclone') return '◎';
+    if (cat === 'wildfire')         return '▲';
+    if (cat === 'earthquake')       return '◉';
+    if (cat === 'flood')            return '◈';
+    if (cat === 'volcano')          return '▲';
+    return '◈';
+  }
+
+  function _entityName(ud) {
+    if (ud.isAircraft) return (ud.title || ud.icao24 || 'UNKNOWN').replace(/ \[.*\]$/, '');
+    if (ud.isShip || ud.isAISVessel) return (ud.title || ud.mmsi || 'VESSEL');
+    return (ud.title || ud.name || ud._gdacsId || ud.id || 'EVENT');
+  }
+
+  function _entityDetail(ud) {
+    var parts = [];
+    if (ud.isAircraft) {
+      if (ud.flightType) parts.push(ud.flightType.toUpperCase());
+      if (ud.gs)         parts.push(Math.round(ud.gs) + 'kt');
+      if (ud.alt)        parts.push(Math.round(ud.alt / 100) * 100 + 'ft');
+    } else if (ud.isShip || ud.isAISVessel) {
+      if (ud.typeCategory) parts.push(ud.typeCategory.toUpperCase());
+      if (ud.velocity)     parts.push(Math.round(ud.velocity) + 'kt');
+    } else {
+      var cat = (ud.type || ud.category || '');
+      if (cat) parts.push(cat.replace(/_/g, ' ').toUpperCase());
+      if (ud.severity)       parts.push(ud.severity.toUpperCase());
+      if (ud.magnitude != null) parts.push(ud.magnitude + (ud.magnitudeUnit || ''));
+    }
+    return parts.join(' · ');
+  }
+
   // ── Disambiguation panel ───────────────────────────────────────────────────
   function _getPanel() {
     if (_panel) return _panel;
@@ -321,21 +375,9 @@ window.ArgusSelection = (function () {
     for (var i = 0; i < shown; i++) {
       var c  = candidates[i];
       var ud = c.sprite.userData;
-      var icon = ud.isAircraft ? '✈' : '⛵';
-      var name = ud.isAircraft
-        ? (ud.title || ud.icao24 || 'UNKNOWN').replace(/ \[.*\]$/, '')
-        : (ud.title || ud.mmsi  || 'VESSEL');
-
-      var parts = [];
-      if (ud.isAircraft) {
-        if (ud.flightType) parts.push(ud.flightType.toUpperCase());
-        if (ud.gs)         parts.push(Math.round(ud.gs) + 'kt');
-        if (ud.alt)        parts.push(Math.round(ud.alt / 100) * 100 + 'ft');
-      } else {
-        if (ud.typeCategory) parts.push(ud.typeCategory.toUpperCase());
-        if (ud.velocity)     parts.push(Math.round(ud.velocity) + 'kt');
-      }
-      var detail = parts.join(' · ');
+      var icon   = _entityIcon(ud);
+      var name   = _entityName(ud);
+      var detail = _entityDetail(ud);
 
       html += '<div class="asl-r" data-i="' + i + '" style="'
             + 'padding:5px 12px 4px;cursor:pointer;'
@@ -400,6 +442,10 @@ window.ArgusSelection = (function () {
     _applyDim(sprite);
     _showRing(sprite);
     if (window.ArgusUI && sprite.userData) ArgusUI.showEventDetail(sprite.userData);
+    var ud = sprite.userData;
+    if (ud && ud.lat != null && ud.lon != null && window.ArgusGlobe && window.ArgusGlobe.focusEntity) {
+      window.ArgusGlobe.focusEntity(ud.lat, ud.lon);
+    }
   }
 
   function unlock() {

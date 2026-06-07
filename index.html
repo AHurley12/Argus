@@ -1530,6 +1530,33 @@ document.addEventListener('DOMContentLoaded', function() {
     }());
   }
 
+  // ── Universal autofocus — smoothly rotates the globe to centre on (lat, lon) ──
+  // zoom: optional camera.position.z target (102–360). Omit to keep current zoom.
+  // Formula: initial globeGroup.rotation.y = PI/2 → lon=180 at screen centre.
+  //   targetRotY = 3π/2 − lon×π/180  (subtracting lon shifts west face to centre)
+  //   targetRotX = clamp(lat×π/180, ±π/2.2)
+  //   dataGroup always mirrors globeGroup with the − π/2 offset.
+  function focusEntity(lat, lon, zoom) {
+    var PI = Math.PI;
+    var targetRotY = 1.5 * PI - lon * PI / 180;
+    var targetRotX = Math.max(-PI / 2.2, Math.min(PI / 2.2, lat * PI / 180));
+    var startRotY  = globeGroup.rotation.y;
+    var startRotX  = globeGroup.rotation.x;
+    var startZ     = camera.position.z;
+    var targetZ    = (zoom != null) ? Math.max(102, Math.min(360, zoom)) : startZ;
+    var startT     = performance.now();
+    (function _step() {
+      var t    = Math.min(1, (performance.now() - startT) / 600);
+      var ease = 1 - Math.pow(1 - t, 3);  // cubic ease-out
+      globeGroup.rotation.y = startRotY + (targetRotY - startRotY) * ease;
+      globeGroup.rotation.x = startRotX + (targetRotX - startRotX) * ease;
+      dataGroup.rotation.y  = globeGroup.rotation.y - PI / 2;
+      dataGroup.rotation.x  = globeGroup.rotation.x;
+      if (zoom != null) camera.position.z = startZ + (targetZ - startZ) * ease;
+      if (t < 1) requestAnimationFrame(_step);
+    }());
+  }
+
   if (_isMobile) {
     // Prevent browser gesture hijacking (scroll, native zoom) on the canvas.
     // Desktop: touch-action is not set here — only applied inside this gate.
@@ -1820,10 +1847,12 @@ document.addEventListener('DOMContentLoaded', function() {
       // Vessel/aircraft hits → always route through selection system first.
       // ArgusSelection uses screen-space search which handles dense overlap better
       // than the 3D raycaster's single nearest-in-depth winner.
-      if ((_topHit.userData.isAircraft || _topHit.userData.isShip) && window.ArgusSelection) {
+      if ((_topHit.userData.isAircraft || _topHit.userData.isShip || _topHit.userData.isAISVessel || _topHit.userData.isGDACS || _topHit.userData.isEONET) && window.ArgusSelection) {
         if (ArgusSelection.onClick(e.clientX, e.clientY)) return;
       }
       ArgusUI.showEventDetail(_topHit.userData);
+      var _hud = _topHit.userData;
+      if (_hud && _hud.lat != null && _hud.lon != null) focusEntity(_hud.lat, _hud.lon);
       // Mobile: smoothly zoom in toward the selected event so the detail is easier
       // to read and nearby markers become easier to tap. No-ops on desktop (_isMobile=false).
       if (_isMobile && camera.position.z > 155) _mobileZoomTo(135, 480);
@@ -2101,7 +2130,7 @@ document.addEventListener('DOMContentLoaded', function() {
   });
 
   // Expose for external access
-  window.ArgusGlobe = { scene: scene, camera: camera, renderer: renderer, globe: Globe, globeGroup: globeGroup, dataGroup: dataGroup, eventMarkerGroup: eventMarkerGroup, weatherSpriteGroup: weatherSpriteGroup, latLonToVector: latLonToVector, R: R, clearHover: clearHoverTooltip };
+  window.ArgusGlobe = { scene: scene, camera: camera, renderer: renderer, globe: Globe, globeGroup: globeGroup, dataGroup: dataGroup, eventMarkerGroup: eventMarkerGroup, weatherSpriteGroup: weatherSpriteGroup, latLonToVector: latLonToVector, R: R, clearHover: clearHoverTooltip, focusEntity: focusEntity };
   if (window.ArgusPerf) ArgusPerf.mark('ARGUS_GLOBE_EXPORTED');
 
   // ── Read-only debug interface — diagnostics only, no mutation surface ─────────
@@ -9355,7 +9384,7 @@ window.ArgusCaseBuilder = (function () {
     var nearF  = c.lat != null ? getFlightsNear(c.lat, c.lon, 700) : [];
     if (!nearV.length && !nearF.length) return '';
 
-    var SHIP_COL = { cargo:'#4488ff', tanker:'#ff9933', military:'#ff4444', passenger:'#00ff88', fishing:'#ffcc00', other:'#5577aa' };
+    var SHIP_COL = { cargo:'#4488ff', tanker:'#ff9933', military:'#ff4444', passenger:'#c5d7e8', fishing:'#44cc88', tug:'#ffcc44', port_service:'#aaaaaa', recreational:'#cc88ff', other:'#14b8a6', unknown:'#5577aa' };
     var FLT_COL  = { commercial:'#66ddff', cargo:'#4488ff', military:'#ff4444', unknown:'#5577aa' };
 
     var h = '<div style="margin-top:8px;padding:7px 9px;background:rgba(0,180,255,0.03);border:1px solid rgba(0,180,255,0.12);border-radius:3px">';
@@ -10162,7 +10191,7 @@ window.ArgusCaseBuilder = (function () {
     }
 
     var PILLAR_ICON = { KINETIC:'◉', ECONOMIC:'⬡', HUMANITARIAN:'◈', STRATEGIC:'▤' };
-    var SHIP_COL  = { cargo:'#4488ff', tanker:'#ff9933', military:'#ff4444', passenger:'#00ff88', fishing:'#ffcc00', other:'#5577aa' };
+    var SHIP_COL  = { cargo:'#4488ff', tanker:'#ff9933', military:'#ff4444', passenger:'#c5d7e8', fishing:'#44cc88', tug:'#ffcc44', port_service:'#aaaaaa', recreational:'#cc88ff', other:'#14b8a6', unknown:'#5577aa' };
     var FLT_COL   = { commercial:'#66ddff', cargo:'#4488ff', military:'#ff4444', unknown:'#5577aa' };
     var html = '';
 
@@ -10688,7 +10717,7 @@ function _renderAISChart(ais) {
   if (!ais || (ais.totalVessels + ais.totalFlights === 0)) {
     return '<div style="padding:10px 0;font-size:8px;color:#2a4a6a;text-align:center;letter-spacing:1px">ENABLE AIS LAYER</div>';
   }
-  var VCOL = { cargo:'#4488ff', tanker:'#ff9933', military:'#ff4444', passenger:'#00ff88', fishing:'#ffcc00', other:'#5577aa', unknown:'#5577aa' };
+  var VCOL = { cargo:'#4488ff', tanker:'#ff9933', military:'#ff4444', passenger:'#c5d7e8', fishing:'#44cc88', tug:'#ffcc44', port_service:'#aaaaaa', recreational:'#cc88ff', other:'#14b8a6', unknown:'#5577aa' };
   var FCOL = { commercial:'#66ddff', cargo:'#4488ff', military:'#ff4444', unknown:'#5577aa' };
   var html = '';
   if (ais.vesselTypes.length) {

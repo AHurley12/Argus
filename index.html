@@ -1532,23 +1532,32 @@ document.addEventListener('DOMContentLoaded', function() {
 
   // ── Universal autofocus — smoothly rotates the globe to centre on (lat, lon) ──
   // zoom: optional camera.position.z target (102–360). Omit to keep current zoom.
-  // Formula: initial globeGroup.rotation.y = PI/2 → lon=180 at screen centre.
-  //   targetRotY = 3π/2 − lon×π/180  (subtracting lon shifts west face to centre)
-  //   targetRotX = clamp(lat×π/180, ±π/2.2)
-  //   dataGroup always mirrors globeGroup with the − π/2 offset.
+  //
+  // Formula: latLonToVector puts lon=0 at x=+r in globe-local space. With the
+  // globe's initial rotation.y = π/2, lon=180 faces the camera (+z). The absolute
+  // rotation needed to bring longitude L to the front is:
+  //   rawTargetY = 3π/2 − lon×π/180
+  //
+  // CRITICAL — shortest-path normalisation: globeGroup.rotation.y accumulates every
+  // pan gesture. After a few spins it can be 30π or more. Without normalising,
+  // (rawTargetY − startRotY) can be ±dozens of radians, spinning the globe through
+  // many full revolutions in the wrong direction. We clamp the delta to (−π, π].
   function focusEntity(lat, lon, zoom) {
     var PI = Math.PI;
-    var targetRotY = 1.5 * PI - lon * PI / 180;
+    var startRotY = globeGroup.rotation.y;
+    var startRotX = globeGroup.rotation.x;
+    var rawTargetY = 1.5 * PI - lon * PI / 180;
+    // Normalise delta to shortest arc: clamp to (−π, π]
+    var diffY = rawTargetY - startRotY;
+    diffY -= Math.round(diffY / (2 * PI)) * 2 * PI;
     var targetRotX = Math.max(-PI / 2.2, Math.min(PI / 2.2, lat * PI / 180));
-    var startRotY  = globeGroup.rotation.y;
-    var startRotX  = globeGroup.rotation.x;
-    var startZ     = camera.position.z;
-    var targetZ    = (zoom != null) ? Math.max(102, Math.min(360, zoom)) : startZ;
-    var startT     = performance.now();
+    var startZ  = camera.position.z;
+    var targetZ = (zoom != null) ? Math.max(102, Math.min(360, zoom)) : startZ;
+    var startT  = performance.now();
     (function _step() {
       var t    = Math.min(1, (performance.now() - startT) / 600);
       var ease = 1 - Math.pow(1 - t, 3);  // cubic ease-out
-      globeGroup.rotation.y = startRotY + (targetRotY - startRotY) * ease;
+      globeGroup.rotation.y = startRotY + diffY * ease;
       globeGroup.rotation.x = startRotX + (targetRotX - startRotX) * ease;
       dataGroup.rotation.y  = globeGroup.rotation.y - PI / 2;
       dataGroup.rotation.x  = globeGroup.rotation.x;
@@ -1779,8 +1788,20 @@ document.addEventListener('DOMContentLoaded', function() {
     if (unique.length > 0) {
       _activeHoverObj = unique[0].object;
       if (window.ArgusSelection) ArgusSelection.onHover(e.clientX, e.clientY);
-      var rows = unique.map(function(h) { return buildTooltipRow(h.object.userData); }).join('');
-      var hdr  = unique.length > 1 ? '<div style="color:#4a7da8;font-size:8px;letter-spacing:2px;margin-bottom:5px">' + unique.length + ' MARKERS</div>' : '';
+      // Vessel/AIS hover is handled exclusively by ArgusSelection's dim+highlight.
+      // Suppress the floating tooltip for these types — the name label is redundant
+      // noise in dense traffic areas where ArgusSelection provides the visual feedback.
+      var tooltipHits = unique.filter(function(h) {
+        var ud = h.object.userData;
+        return !ud.isAISVessel && !ud.isShip;
+      });
+      if (tooltipHits.length === 0) {
+        if (tooltip.style.display !== 'none') clearHoverTooltip();
+        document.body.style.cursor = 'pointer';
+        return;
+      }
+      var rows = tooltipHits.map(function(h) { return buildTooltipRow(h.object.userData); }).join('');
+      var hdr  = tooltipHits.length > 1 ? '<div style="color:#4a7da8;font-size:8px;letter-spacing:2px;margin-bottom:5px">' + tooltipHits.length + ' MARKERS</div>' : '';
 
       // Re-trigger the pop animation by swapping the node
       var wasHidden = tooltip.style.display === 'none';
@@ -1793,8 +1814,8 @@ document.addEventListener('DOMContentLoaded', function() {
         tooltip = fresh;
       }
 
-      var sp = getDotScreenPos(unique[0].object);
-      var isCapital = unique[0].object.userData && unique[0].object.userData.isCapitalCity;
+      var sp = getDotScreenPos(tooltipHits[0].object);
+      var isCapital = tooltipHits[0].object.userData && tooltipHits[0].object.userData.isCapitalCity;
       var yOffset   = isCapital ? -24 : 24;
       tooltip.style.left = Math.round(sp.x - tooltip.offsetWidth / 2) + 'px';
       tooltip.style.top  = Math.round(sp.y - tooltip.offsetHeight + yOffset) + 'px';

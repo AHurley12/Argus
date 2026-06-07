@@ -484,7 +484,13 @@ window.ArgusSelection = (function () {
     var W  = window.innerWidth, H = window.innerHeight;
     var cs = _candidates(mx, my, G.camera, W, H);
     if (!cs.length) return false;
-    if (cs.length === 1 || cs[0].dist < 6) {
+    var topUD = cs[0].sprite.userData;
+    // Vessels always route through the panel — even for 1 candidate — so the user
+    // can confirm the selection before locking. In dense ports/waterways this also
+    // lets them pick from multiple overlapping AIS sprites. Aircraft keep the
+    // previous direct-lock behaviour for the single / very-close-hit case.
+    var isVessel = topUD.isShip || topUD.isAISVessel;
+    if (!isVessel && (cs.length === 1 || cs[0].dist < 6)) {
       _lock(cs[0].sprite);
     } else {
       _applyDim(cs[0].sprite);

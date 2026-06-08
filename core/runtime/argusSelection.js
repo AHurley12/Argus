@@ -99,6 +99,10 @@ window.ArgusSelection = (function () {
     if (_layerHash() !== _pLayerHash) return true;
     if (W !== _pCache.w || H !== _pCache.h) return true;
     if (performance.now() - _pCacheTs > _PCACHE_TTL) return true;
+    // Entity count change: aircraft/ship/AIS refresh cycles add or remove sprites.
+    // Without this check a 90s aircraft rebuild would silently serve stale xs/ys for
+    // up to 250ms (TTL) while the pool-reused sprite objects carry new positions.
+    if (markers.length !== _pEntityN) return true;
     if (Math.abs(cam.position.x  - _pCamPX) > _CAM_EPS) return true;
     if (Math.abs(cam.position.y  - _pCamPY) > _CAM_EPS) return true;
     if (Math.abs(cam.position.z  - _pCamPZ) > _CAM_EPS) return true;
@@ -493,6 +497,12 @@ window.ArgusSelection = (function () {
     var G = window.ArgusGlobe;
     if (!G) return false;
     var W  = window.innerWidth, H = window.innerHeight;
+    // Force a full position rebuild on every click.
+    // Ghost sprites (aircraft/ship, parent=null) are pool-reused on every ~90s refresh —
+    // same JS objects get new positions but the TTL cache still holds old screen coords.
+    // A click on empty space "hits" a stale bucket entry from the previous aircraft layout.
+    // Rebuilding here is O(N) but clicks are infrequent; the hover path keeps the fast path.
+    _pCacheTs = 0;
     var cs = _candidates(mx, my, G.camera, W, H);
     if (!cs.length) return false;
     var topUD = cs[0].sprite.userData;

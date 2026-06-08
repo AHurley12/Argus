@@ -1870,13 +1870,12 @@ document.addEventListener('DOMContentLoaded', function() {
       if (window._argusGdacsDebug && _topHit.userData && _topHit.userData.isGDACS) {
         console.log('[GDACS CLICK]', { object: _topHit, id: _topHit.userData._gdacsId, type: _topHit.userData.type, metadata: _topHit.userData });
       }
-      // Aircraft: raycast winner is authoritative — lock the exact hit, never substitute.
-      if (_topHit.userData.isAircraft && window.ArgusSelection) {
-        ArgusSelection.lockSprite(_topHit);
-        return;
-      }
-      // Vessels: open disambiguation panel via screen-space search (handles dense clusters).
-      if ((_topHit.userData.isShip || _topHit.userData.isAISVessel) && window.ArgusSelection) {
+      // Aircraft + vessels: both use screen-space selection, NOT the 3D raycast hit.
+      // Ghost sprites (aircraft/ship, parent=null) carry pre-rotation sphere positions —
+      // the raycaster tests against those stale 3D coords, hitting the wrong sprite after
+      // any globe pan. Screen-space search applies dataGroup.matrixWorld so positions
+      // reflect the current view. onClick() direct-locks aircraft, opens panel for vessels.
+      if ((_topHit.userData.isAircraft || _topHit.userData.isShip || _topHit.userData.isAISVessel) && window.ArgusSelection) {
         if (ArgusSelection.onClick(e.clientX, e.clientY)) return;
       }
       ArgusUI.showEventDetail(_topHit.userData);

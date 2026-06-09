@@ -155,6 +155,13 @@ window.ArgusSelection = (function () {
       _rv.copy(_wp).project(cam);
       xs[i] = (_rv.x * 0.5 + 0.5) * W;
       ys[i] = (1 - (_rv.y * 0.5 + 0.5)) * H;
+      // Aircraft selection zone offset: the InstancedMesh visual renders slightly
+      // below where the ghost sprite projects. Shift the selection zone down by a
+      // zoom-scaled amount so hover/click aligns with the visible aircraft.
+      // Calibrated at 16px at default camera z=225; scales inversely with zoom distance.
+      if (markers[i].userData && markers[i].userData.isAircraft) {
+        ys[i] += 16 * (225 / cam.position.z);
+      }
       zs[i] = _rv.z;
       markers[i]._scx = xs[i];
       markers[i]._scy = ys[i];

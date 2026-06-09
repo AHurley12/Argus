@@ -1838,6 +1838,13 @@ document.addEventListener('DOMContentLoaded', function() {
   // ── Click Handling ───────────────────────────────────────────────────────────
   evtMgr.add(renderer.domElement, 'click', function(e) {
     if (isDragging) return;
+
+    // ── Aircraft: deterministic screen-space hit test, runs before any 3D raycast.
+    // ArgusFlightSelection projects sprites using current dataGroup.matrixWorld so
+    // positions are correct after globe rotation. Returns true → handled, stop here.
+    // Returns false → no aircraft near cursor, fall through to vessels/events below.
+    if (window.ArgusFlightSelection && ArgusFlightSelection.onClick(e.clientX, e.clientY)) return;
+
     var rect = renderer.domElement.getBoundingClientRect();
     mouseClick.x =  ((e.clientX - rect.left) / rect.width)  * 2 - 1;
     mouseClick.y = -((e.clientY - rect.top)  / rect.height) * 2 + 1;
@@ -1870,12 +1877,10 @@ document.addEventListener('DOMContentLoaded', function() {
       if (window._argusGdacsDebug && _topHit.userData && _topHit.userData.isGDACS) {
         console.log('[GDACS CLICK]', { object: _topHit, id: _topHit.userData._gdacsId, type: _topHit.userData.type, metadata: _topHit.userData });
       }
-      // Aircraft + vessels: both use screen-space selection, NOT the 3D raycast hit.
-      // Ghost sprites (aircraft/ship, parent=null) carry pre-rotation sphere positions —
-      // the raycaster tests against those stale 3D coords, hitting the wrong sprite after
-      // any globe pan. Screen-space search applies dataGroup.matrixWorld so positions
-      // reflect the current view. onClick() direct-locks aircraft, opens panel for vessels.
-      if ((_topHit.userData.isAircraft || _topHit.userData.isShip || _topHit.userData.isAISVessel) && window.ArgusSelection) {
+      // Vessels: screen-space panel via ArgusSelection (handles dense AIS/ship clusters).
+      // Aircraft are handled at the top of this handler by ArgusFlightSelection and
+      // never reach this point — isAircraft check removed intentionally.
+      if ((_topHit.userData.isShip || _topHit.userData.isAISVessel) && window.ArgusSelection) {
         if (ArgusSelection.onClick(e.clientX, e.clientY)) return;
       }
       ArgusUI.showEventDetail(_topHit.userData);
@@ -11122,6 +11127,9 @@ if (document.readyState === 'loading') {
 
 <!-- ArgusSelection — extracted to separate file for background parsing -->
 <script src="/core/runtime/argusSelection.js?v=perf-fix-8"></script>
+
+<!-- ArgusFlightSelection — deterministic aircraft selection (replaces screen-space heuristics) -->
+<script src="/core/runtime/argusFlightSelection.js?v=1"></script>
 
 <!-- ArgusDiagnostics — unified observability framework + debug overlay (Ctrl+Shift+D) -->
 <script src="/core/runtime/argusDiagnostics.js?v=perf-fix-8"></script>

@@ -561,11 +561,8 @@ function renderAircraft(json) {
     });
   });
 
-  // Render corridor flow indicators (visible while aircraft layer is on)
-  if (corridorGroup) {
-    renderCorridors(corridors);
-    corridorGroup.visible = aircraftOn;
-  }
+  // Corridor flow indicators disabled — clear any previously rendered lines
+  if (corridorGroup) renderCorridors([]);
 
   if (window.requestIdleCallback) {
     requestIdleCallback(normalizeTracking, { timeout: 5000 });
@@ -692,7 +689,7 @@ function toggleAircraft() {
   }
   aircraftOn             = !aircraftOn;
   aircraftGroup.visible  = aircraftOn;
-  if (corridorGroup) corridorGroup.visible = aircraftOn;
+  // corridorGroup intentionally kept hidden
   window.ArgusLayerState.aircraft = aircraftOn;
   if (!aircraftOn && window.ArgusGlobe && window.ArgusGlobe.clearHover) window.ArgusGlobe.clearHover();
 

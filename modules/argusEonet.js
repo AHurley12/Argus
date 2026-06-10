@@ -53,7 +53,8 @@ window.ArgusEONET = (function () {
   var _lastHazardT = null;
 
   // ── InstancedMesh (non-hazard events) ─────────────────────────────────────
-  var _imesh  = null;
+  var _imesh    = null;       // sphere mesh — all non-hazard non-ice events
+  var _imeshIce = null;       // octahedron (diamond) mesh — sea_ice only
   var _iDummy = new THREE.Object3D();
   var _iColor = new THREE.Color();
   var _IMAX   = 200;  // EONET typically returns 50–150 open events
@@ -132,11 +133,14 @@ window.ArgusEONET = (function () {
   }
 
   // ── InstancedMesh rebuild ──────────────────────────────────────────────────
-  // One draw call for all non-hazard EONET events.
+  // Two draw calls for non-hazard EONET events:
+  //   _imesh    — SphereGeometry for all non-hazard non-ice categories
+  //   _imeshIce — OctahedronGeometry (diamond) for sea_ice (iceberg) events only
   // Correlated events are excluded — they are rendered by their source module.
   function _rebuildInstanced(AG, altR, visible) {
     if (!AG || !AG.eventMarkerGroup) return;
 
+    // ── Sphere mesh (non-ice non-hazard events) ──────────────────────────────
     if (!_imesh) {
       var geo = new THREE.SphereGeometry(1.2, 8, 8);
       var mat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.80 });
@@ -154,17 +158,64 @@ window.ArgusEONET = (function () {
       AG.eventMarkerGroup.add(_imesh);
     }
 
+    // ── Diamond mesh (sea_ice / iceberg events) ──────────────────────────────
+    if (!_imeshIce) {
+      var iceGeo = new THREE.OctahedronGeometry(1.6, 0);
+      var iceMat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.92 });
+      _imeshIce = new THREE.InstancedMesh(iceGeo, iceMat, _IMAX);
+      _imeshIce.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+      _imeshIce.name          = 'ArgusEONETIceInstanced';
+      _imeshIce.frustumCulled = false;
+      _imeshIce.count         = 0;
+      _imeshIce.visible       = false;
+
+      var iceCols = new Float32Array(_IMAX * 3);
+      for (var ic = 0; ic < _IMAX * 3; ic++) iceCols[ic] = 1.0;
+      _imeshIce.instanceColor = new THREE.InstancedBufferAttribute(iceCols, 3);
+
+      AG.eventMarkerGroup.add(_imeshIce);
+    }
+
     // Zero all slots before rebuilding
     _iDummy.scale.set(0, 0, 0);
     _iDummy.position.set(0, 0, 0);
     _iDummy.rotation.set(0, 0, 0);
     _iDummy.updateMatrix();
 
-    var n = 0;
+    var n    = 0;  // sphere slot counter
+    var nice = 0;  // ice diamond slot counter
+
+    // ── Iceberg (diamond) pass ───────────────────────────────────────────────
+    _iColor.setHex(0x99e8ff);  // bright icy blue-white for icebergs
     eonetEventCache.forEach(function (ev) {
-      if (n >= _IMAX)           return;
-      if (_HAZARD_CATS[ev.category]) return;  // animated sprites handle these
-      if (ev._correlated)       return;       // rendered by the correlated source
+      if (nice >= _IMAX)        return;
+      if (ev.category !== 'sea_ice') return;
+      if (ev._correlated)       return;
+
+      var pos = AG.latLonToVector(ev.lat, ev.lon, altR);
+      _iDummy.position.copy(pos);
+      _iDummy.scale.set(1, 1, 1);
+      _iDummy.updateMatrix();
+      _imeshIce.setMatrixAt(nice, _iDummy.matrix);
+
+      var ioff = nice * 3;
+      _imeshIce.instanceColor.array[ioff]     = _iColor.r;
+      _imeshIce.instanceColor.array[ioff + 1] = _iColor.g;
+      _imeshIce.instanceColor.array[ioff + 2] = _iColor.b;
+      nice++;
+    });
+
+    _imeshIce.count = nice;
+    _imeshIce.instanceMatrix.needsUpdate = true;
+    _imeshIce.instanceColor.needsUpdate  = true;
+    _imeshIce.visible = !!(visible && nice > 0);
+
+    // ── Sphere (all other non-hazard) pass ───────────────────────────────────
+    eonetEventCache.forEach(function (ev) {
+      if (n >= _IMAX)                 return;
+      if (_HAZARD_CATS[ev.category])  return;  // animated sprites handle these
+      if (ev.category === 'sea_ice')  return;  // rendered as diamond above
+      if (ev._correlated)             return;  // rendered by the correlated source
 
       var pos = AG.latLonToVector(ev.lat, ev.lon, altR);
       _iDummy.position.copy(pos);
@@ -185,8 +236,8 @@ window.ArgusEONET = (function () {
     _imesh.instanceColor.needsUpdate  = true;
     _imesh.visible = !!(visible && n > 0);
 
-    if (n > 0) {
-      console.log('[ArgusEONET] instanced mesh rebuilt —', n, 'unique non-hazard events');
+    if (n > 0 || nice > 0) {
+      console.log('[ArgusEONET] instanced mesh rebuilt —', n, 'non-hazard events,', nice, 'icebergs (diamond)');
     }
   }
 
@@ -430,7 +481,8 @@ window.ArgusEONET = (function () {
       });
     }
 
-    if (_imesh) _imesh.visible = false;
+    if (_imesh)    _imesh.visible    = false;
+    if (_imeshIce) _imeshIce.visible = false;
     for (var hid in _hazardSprites) { _hazardSprites[hid].dispose(); }
     _hazardSprites = {};
     eonetEventCache.clear();
@@ -446,8 +498,10 @@ window.ArgusEONET = (function () {
     var vis = !!wOn;
     // Hazard animated sprites
     for (var hid in _hazardSprites) { _hazardSprites[hid].setVisible(vis); }
-    // Non-hazard InstancedMesh
-    if (_imesh) _imesh.visible = !!(vis && _imesh.count > 0);
+    // Non-hazard InstancedMesh (spheres)
+    if (_imesh)    _imesh.visible    = !!(vis && _imesh.count > 0);
+    // Iceberg diamond mesh
+    if (_imeshIce) _imeshIce.visible = !!(vis && _imeshIce.count > 0);
     // All EONET ghost meshes
     if (window.eventMarkers) {
       window.eventMarkers.forEach(function (m) {

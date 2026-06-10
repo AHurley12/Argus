@@ -19,6 +19,7 @@
        Config:     apps/web/vite.vendor.config.js                          -->
   <script src="/vendor/vendor.js?v=perf-fix-8"></script>
   <script src="/data/static-data.js?v=perf-fix-8"></script>
+  <script src="/data/static-data-search.js?v=1"></script>
 
   <link rel="stylesheet" href="/index.css">
 </head>
@@ -806,8 +807,10 @@ document.addEventListener('DOMContentLoaded', function() {
       });
 
       // Country borders — white semi-transparent
-      _ctx.strokeStyle = 'rgba(210,230,255,0.80)';
-      _ctx.lineWidth = 1.2;
+      // lineWidth 2.5 at 4096px wide: thick enough that bilinear texture magnification
+      // can't blur the border to invisibility when zoomed in on the globe.
+      _ctx.strokeStyle = 'rgba(210,230,255,0.90)';
+      _ctx.lineWidth = 2.5;
       geo.features.forEach(function(f) {
         var g = f.geometry;
         (g.type === 'Polygon' ? [g.coordinates] : g.coordinates).forEach(function(rings) {
@@ -828,7 +831,9 @@ document.addEventListener('DOMContentLoaded', function() {
         });
       });
 
-      Globe.globeImageUrl(_cv.toDataURL('image/jpeg', 0.92));
+      // PNG preserves exact pixel values — JPEG DCT compression smears fine lines
+      // like border strokes before they even reach the GPU texture.
+      Globe.globeImageUrl(_cv.toDataURL('image/png'));
       if (window.ArgusPerf) ArgusPerf.mark('GLOBE_TEXTURES_SET');
 
     })
@@ -1844,6 +1849,12 @@ document.addEventListener('DOMContentLoaded', function() {
     // positions are correct after globe rotation. Returns true → handled, stop here.
     // Returns false → no aircraft near cursor, fall through to vessels/events below.
     if (window.ArgusFlightSelection && ArgusFlightSelection.onClick(e.clientX, e.clientY)) return;
+
+    // ── Vessels: deterministic screen-space hit test, same pattern as aircraft above.
+    // ArgusVesselSelection handles both ship ghosts (parent=null, needs matrixWorld) and
+    // AIS sprites (parent set, getWorldPosition traverses aisGroup→dataGroup).
+    // Returns true → handled, stop here. Returns false → no vessel near cursor, fall through.
+    if (window.ArgusVesselSelection && ArgusVesselSelection.onClick(e.clientX, e.clientY)) return;
 
     var rect = renderer.domElement.getBoundingClientRect();
     mouseClick.x =  ((e.clientX - rect.left) / rect.width)  * 2 - 1;
@@ -5258,7 +5269,7 @@ window.ArgusUI = (function() {
 
   function showStaticDetail(d) {
     var col = RC[d.risk] || '#0099ff';
-    var tagLabel  = d.isCountry ? 'COUNTRY PROFILE' : 'CHOKEPOINT SENTINEL';
+    var tagLabel  = d.isCountry ? 'COUNTRY PROFILE' : d.isPort ? 'PORT PROFILE' : d.isLNG ? 'LNG FACILITY' : 'CHOKEPOINT SENTINEL';
     var tagEl     = document.getElementById('detail-tag');
     var nameEl    = document.getElementById('detail-name');
     var badge     = document.getElementById('detail-risk-badge');
@@ -5512,6 +5523,23 @@ window.ArgusUI = (function() {
         html += '<div class="detail__section-header" style="color:#4da6ff">UN HUMANITARIAN STATUS</div>';
         html += '<div class="detail__placeholder">AWAITING UN DATA FEED…</div>';
       }
+    } else if (d.isPort) {
+      html += '<div class="detail__section-header">PORT PROFILE</div>';
+      html += '<div class="detail__row"><span class="detail__label">COUNTRY</span><span class="detail__value">' + d.country + '</span></div>';
+      html += '<div class="detail__row"><span class="detail__label">PORT TYPE</span><span class="detail__value">' + d.portType + '</span></div>';
+      html += '<div class="detail__row"><span class="detail__label">ANNUAL THROUGHPUT</span><span class="detail__value" style="color:#00ff88">' + d.teu + '</span></div>';
+      html += '<div class="detail__row"><span class="detail__label">WORLD RANK</span><span class="detail__value">#' + d.worldRank + '</span></div>';
+      html += '<div class="detail__row"><span class="detail__label">REGION</span><span class="detail__value">' + d.region + '</span></div>';
+    } else if (d.isLNG) {
+      html += '<div class="detail__section-header">FACILITY PROFILE</div>';
+      html += '<div class="detail__row"><span class="detail__label">COUNTRY</span><span class="detail__value">' + d.country + '</span></div>';
+      html += '<div class="detail__row"><span class="detail__label">OPERATOR</span><span class="detail__value">' + d.operator + '</span></div>';
+      html += '<div class="detail__row"><span class="detail__label">FACILITY TYPE</span><span class="detail__value">' + d.facilityType + ' TERMINAL</span></div>';
+      html += '<div class="detail__row"><span class="detail__label">NAMEPLATE CAPACITY</span><span class="detail__value" style="color:#00ff88">' + d.capacity + '</span></div>';
+      html += '<div class="detail__row"><span class="detail__label">LIQUEFACTION TRAINS</span><span class="detail__value">' + d.trains + '</span></div>';
+      var stCol = d.lngStatus === 'OPERATIONAL' ? '#00ff88' : d.lngStatus === 'SANCTIONED' ? '#ff0044' : '#ff9933';
+      html += '<div class="detail__section-header">OPERATIONAL STATUS</div>';
+      html += '<div class="detail__row"><span class="detail__label">STATUS</span><span class="detail__value" style="color:' + stCol + '">' + d.lngStatus + '</span></div>';
     } else {
       [['VESSEL TRAFFIC', d.traffic], ['TRADE VOLUME', d.volume]].forEach(function(kv) {
         html += '<div class="detail__row"><span class="detail__label">' + kv[0] + '</span><span class="detail__value">' + kv[1] + '</span></div>';
@@ -11131,6 +11159,9 @@ if (document.readyState === 'loading') {
 <!-- ArgusFlightSelection — deterministic aircraft selection (replaces screen-space heuristics) -->
 <script src="/core/runtime/argusFlightSelection.js?v=1"></script>
 
+<!-- ArgusVesselSelection — deterministic vessel selection mirroring ArgusFlightSelection -->
+<script src="/core/runtime/argusVesselSelection.js?v=1"></script>
+
 <!-- ArgusDiagnostics — unified observability framework + debug overlay (Ctrl+Shift+D) -->
 <script src="/core/runtime/argusDiagnostics.js?v=perf-fix-8"></script>
 
@@ -11139,5 +11170,9 @@ if (document.readyState === 'loading') {
 
 <!-- ArgusAnalytics — multi-source intelligence analytics panel (GEM / NOAA / ACLED) -->
 <script src="/modules/argusAnalytics.js?v=analytics-v2"></script>
+
+<!-- ArgusSearch — navigation registry + UI Phase 1+2 (countries, chokepoints, ports, LNG) -->
+<script src="/core/search/argusSearchRegistry.js?v=1"></script>
+<script src="/core/search/argusSearchUI.js?v=1"></script>
 </body>
 </html>

@@ -168,7 +168,8 @@
       "Bash(git -C \"C:/Users/aidan/Desktop/Argus\" log --oneline -5)",
       "Bash(git -C \"C:/Users/aidan/Desktop/Argus\" add index.html netlify/functions/fetch-td-history.js)",
       "Bash(git -C C:/Users/aidan/Desktop/Argus commit -m ':*)",
-      "Bash(git:*)"
+      "Bash(git:*)",
+      "Bash(npx:*)"
     ]
   }
 }

@@ -1,24 +1,22 @@
 // netlify/functions/calculate-risk.js
-// Hybrid risk scoring engine: blends static baselines with live GDELT signal.
+// Three-pillar risk scoring engine.
 //
-// Score formula (per country):
-//   dynamicScore = 0.55 * baseline + 0.30 * eventScore + 0.15 * volatility
+// Pillars (weighted composite):
+//   Economic     (40%): baseline + GDELT sanction/trade/financial event signal
+//   Humanitarian (30%): baseline + GDELT civilian/displacement/protest signal
+//   Security     (30%): baseline + GDELT conflict/military event signal + volatility
 //
-// eventScore  = sum of (keyword weight × time decay) for each article, normalised 0–100
-// volatility  = 24h article density relative to 48h window, scaled 0–100
-// time decay  = exp(-age_hours / 48)  — half-life 48 h (matches GDELT query window)
-//
+// Severity adjustment: pulls composite toward the highest-scoring pillar.
+// Escalation rules: any pillar ≥ 85 → Orange floor; ≥ 95 → Red floor.
 // Results cached in Supabase global_events (key: "risk_scores"), TTL 5 minutes.
-// Reads article data directly from Supabase cache (key: "gdelt_feed") — avoids
-// internal Netlify function-to-function HTTP call latency.
 
 const { createClient } = require('@supabase/supabase-js');
-const baseline = require('../../data/baseline.json');
+const baseline   = require('../../data/baseline.json');
+const riskEngine = require('../../core/risk/riskEngine');
 
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
 // ── GDELT sourcecountry name → ISO3 ─────────────────────────────────────────
-// GDELT DOC v2 returns full English country names in sourcecountry.
 const NAME_TO_ISO3 = {
   'united states': 'USA', 'russia': 'RUS', 'china': 'CHN', 'germany': 'DEU',
   'japan': 'JPN', 'india': 'IND', 'brazil': 'BRA', 'saudi arabia': 'SAU',
@@ -43,18 +41,6 @@ const NAME_TO_ISO3 = {
   'zimbabwe': 'ZWE', 'rwanda': 'RWA', 'uganda': 'UGA', 'tanzania': 'TZA',
 };
 
-// ── Title keyword → event weight ──────────────────────────────────────────────
-function getWeight(title) {
-  if (!title) return 1;
-  var t = title.toLowerCase();
-  if (/war|invasion|airstrike|bombing|missile|offensive|coup|massacre/.test(t)) return 5;
-  if (/sanction|embargo|tariff|blockade|seizure|seized/.test(t))               return 4;
-  if (/attack|explosion|killed|fighting|offensive|assault/.test(t))            return 4;
-  if (/protest|riot|strike|unrest|clash|uprising/.test(t))                     return 3;
-  if (/conflict|tension|threat|crisis|warning|disputed/.test(t))               return 2;
-  return 1;
-}
-
 // ── Exponential time decay — half-life 48 h ───────────────────────────────────
 function decay(seendate) {
   try {
@@ -63,17 +49,48 @@ function decay(seendate) {
   } catch(e) { return 0.5; }
 }
 
-// ── Normalise raw score to 0–100 with soft cap ────────────────────────────────
+// ── Normalise raw signal to 0–100 with soft cap ───────────────────────────────
 function norm(raw, maxExpected) {
   return Math.min(100, (raw / maxExpected) * 100);
 }
 
-// ── score → risk tier ─────────────────────────────────────────────────────────
-function scoreToTier(s) {
-  if (s >= 75) return 'CRITICAL';
-  if (s >= 54) return 'WARNING';
-  if (s >= 33) return 'WATCH';
-  return 'LOW';
+// ── Economic keywords: sanctions, trade war, financial crisis ─────────────────
+// Returns weight 1–5, or 0 if the article is not economically relevant.
+function getEconWeight(title) {
+  if (!title) return 0;
+  var t = title.toLowerCase();
+  if (/sanction|embargo|blockade|seized|seizure/.test(t))                   return 5;
+  if (/tariff|trade war|export ban|import ban/.test(t))                      return 4;
+  if (/currency crisis|hyperinflation|economic collapse/.test(t))            return 4;
+  if (/debt default|sovereign default|bankrupt|debt crisis/.test(t))         return 4;
+  if (/economic crisis|financial crisis|market crash/.test(t))               return 3;
+  return 0;
+}
+
+// ── Humanitarian keywords: civilian casualties, displacement, unrest ──────────
+// Returns weight 1–5, or 0 if not relevant.
+function getHumanWeight(title) {
+  if (!title) return 0;
+  var t = title.toLowerCase();
+  if (/famine|starvation|genocide|civilian massacre/.test(t))                return 5;
+  if (/\bkilled\b|civilian|casualties|displaced|refugee/.test(t))            return 4;
+  if (/epidemic|pandemic|cholera|disease outbreak/.test(t))                  return 4;
+  if (/protest|riot|unrest|uprising|strike/.test(t))                         return 3;
+  if (/humanitarian|aid crisis|relief effort|food insecurity/.test(t))       return 2;
+  return 0;
+}
+
+// ── Security keywords: armed conflict, terrorism, military action ─────────────
+// Returns weight 1–5, or 0 if not relevant.
+function getSecurityWeight(title) {
+  if (!title) return 0;
+  var t = title.toLowerCase();
+  if (/war|invasion|airstrike|bombing|missile|offensive|coup|massacre/.test(t)) return 5;
+  if (/\battack\b|explosion|fighting|assault|military strike/.test(t))           return 4;
+  if (/terrorist|terrorism|nuclear weapon|armed conflict/.test(t))               return 4;
+  if (/\bconflict\b|military operation|clash|battle/.test(t))                    return 3;
+  if (/tension|threat|crisis|warning|disputed/.test(t))                          return 2;
+  return 0;
 }
 
 exports.handler = async function(event) {
@@ -111,7 +128,7 @@ exports.handler = async function(event) {
     articles.forEach(function(a) {
       var raw  = (a.sourcecountry || '').trim().toLowerCase();
       var iso3 = NAME_TO_ISO3[raw];
-      if (!iso3) return; // skip unknown countries
+      if (!iso3) return;
       if (!byCountry[iso3]) byCountry[iso3] = [];
       byCountry[iso3].push(a);
     });
@@ -120,36 +137,62 @@ exports.handler = async function(event) {
 
     // ── Compute per-country scores ────────────────────────────────────────────
     const scores = Object.keys(baseline).map(function(iso3) {
-      var articles  = byCountry[iso3] || [];
-      var base      = baseline[iso3] || 30;
+      var countryArticles = byCountry[iso3] || [];
+      var base = baseline[iso3] || 30;
 
-      // Event score: weighted sum with time decay, normalised over expected max
-      var rawEvent = articles.reduce(function(sum, a) {
-        return sum + getWeight(a.title) * decay(a.seendate);
-      }, 0);
-      var eventScore = norm(rawEvent, 8); // 8 = ~2 high-weight fresh articles
+      // ── Three pillar GDELT signals ─────────────────────────────────────────
+      // Each article contributes to zero or more pillar signals independently.
+      var rawEcon     = 0;
+      var rawHuman    = 0;
+      var rawSecurity = 0;
 
-      // Volatility: 24h density relative to full 48h window
-      var recent24h = articles.filter(function(a) {
+      countryArticles.forEach(function(a) {
+        var d = decay(a.seendate);
+        rawEcon     += getEconWeight(a.title)     * d;
+        rawHuman    += getHumanWeight(a.title)    * d;
+        rawSecurity += getSecurityWeight(a.title) * d;
+      });
+
+      // Normalise signals 0–100 (calibrated: ~1–2 high-weight fresh articles = 100)
+      var econSignal     = norm(rawEcon,     6);
+      var humanSignal    = norm(rawHuman,   10);
+      var securitySignal = norm(rawSecurity, 8);
+
+      // ── Volatility: 24h article density relative to 48h window ─────────────
+      var recent24h = countryArticles.filter(function(a) {
         try { return now - new Date(a.seendate).getTime() < 86400000; } catch(e) { return false; }
       });
-      var volatility = articles.length > 0
-        ? norm(recent24h.length / articles.length * articles.length, 5)
+      var volatility = countryArticles.length > 0
+        ? norm(recent24h.length, 5)
         : 0;
 
-      // Blend
-      var dynamicScore = Math.min(100, Math.round(
-        0.55 * base + 0.30 * eventScore + 0.15 * volatility
-      ));
+      // ── Run three-pillar risk engine ────────────────────────────────────────
+      var result = riskEngine.assessRisk({
+        baseline:       base,
+        econSignal:     econSignal,
+        humanSignal:    humanSignal,
+        securitySignal: securitySignal,
+        volatility:     volatility,
+      });
 
       return {
-        iso3,
-        dynamicScore,
+        iso3:         iso3,
+        // Legacy fields — kept for backwards-compatible client consumption
+        dynamicScore: result.finalScore,
         baseline:     base,
-        eventScore:   Math.round(eventScore),
+        eventScore:   Math.round((econSignal + humanSignal + securitySignal) / 3),
         volatility:   Math.round(volatility),
-        articleCount: articles.length,
-        tier:         scoreToTier(dynamicScore),
+        articleCount: countryArticles.length,
+        tier:         result.tier,
+        // Pillar breakdown
+        pillars: {
+          economic:     result.pillars.economic,
+          humanitarian: result.pillars.humanitarian,
+          security:     result.pillars.security,
+        },
+        compositeScore: result.compositeScore,
+        adjustedRisk:   result.adjustedRisk,
+        band:           result.band,
       };
     });
 
@@ -164,9 +207,29 @@ exports.handler = async function(event) {
 
   } catch(err) {
     console.error('calculate-risk error:', err.message);
-    // Return baseline-only scores as fallback — never hard fail
+    // Baseline-only fallback — never hard fail
     const fallback = Object.keys(baseline).map(function(iso3) {
-      return { iso3, dynamicScore: baseline[iso3], baseline: baseline[iso3], eventScore: 0, volatility: 0, articleCount: 0, tier: scoreToTier(baseline[iso3]) };
+      var base   = baseline[iso3];
+      var result = riskEngine.assessRisk({
+        baseline:       base,
+        econSignal:     0,
+        humanSignal:    0,
+        securitySignal: 0,
+        volatility:     0,
+      });
+      return {
+        iso3:         iso3,
+        dynamicScore: result.finalScore,
+        baseline:     base,
+        eventScore:   0,
+        volatility:   0,
+        articleCount: 0,
+        tier:         result.tier,
+        pillars:      result.pillars,
+        compositeScore: result.compositeScore,
+        adjustedRisk:   result.adjustedRisk,
+        band:           result.band,
+      };
     });
     return { statusCode: 200, headers, body: JSON.stringify({ source: 'fallback', scores: fallback }) };
   }

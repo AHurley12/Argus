@@ -272,7 +272,7 @@ window.ArgusEONET = (function () {
           color:       iceberg ? 0x99e8ff : _color(ev.category),
           transparent: true,
           opacity:     iceberg ? 0.92 : 1.0,
-          visible:     !iceberg,   // icebergs ARE the visual; others are ghost-only
+          visible:     iceberg,    // icebergs ARE the visual; others are ghost-only
         })
       );
       mesh.position.copy(pos);

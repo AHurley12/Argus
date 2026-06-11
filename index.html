@@ -810,8 +810,8 @@ document.addEventListener('DOMContentLoaded', function() {
       // lineWidth 1.1 at 4096px wide: thin enough to be subtle at full-globe zoom,
       // crisp and well-defined when zoomed in (texture magnification naturally
       // scales border width with zoom level).
-      _ctx.strokeStyle = 'rgba(210,230,255,0.60)';
-      _ctx.lineWidth = 1.1;
+      _ctx.strokeStyle = 'rgba(210,230,255,0.82)';
+      _ctx.lineWidth = 0.8;
       geo.features.forEach(function(f) {
         var g = f.geometry;
         (g.type === 'Polygon' ? [g.coordinates] : g.coordinates).forEach(function(rings) {

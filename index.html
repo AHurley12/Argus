@@ -807,10 +807,11 @@ document.addEventListener('DOMContentLoaded', function() {
       });
 
       // Country borders — white semi-transparent
-      // lineWidth 2.5 at 4096px wide: thick enough that bilinear texture magnification
-      // can't blur the border to invisibility when zoomed in on the globe.
-      _ctx.strokeStyle = 'rgba(210,230,255,0.90)';
-      _ctx.lineWidth = 2.5;
+      // lineWidth 1.1 at 4096px wide: thin enough to be subtle at full-globe zoom,
+      // crisp and well-defined when zoomed in (texture magnification naturally
+      // scales border width with zoom level).
+      _ctx.strokeStyle = 'rgba(210,230,255,0.60)';
+      _ctx.lineWidth = 1.1;
       geo.features.forEach(function(f) {
         var g = f.geometry;
         (g.type === 'Polygon' ? [g.coordinates] : g.coordinates).forEach(function(rings) {

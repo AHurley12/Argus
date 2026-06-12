@@ -36,10 +36,14 @@ async function fetchDynamicRisk() {
     (window.COUNTRIES_DATA || []).forEach(function(cd) {
       var s = byIso3[cd.code];
       if (!s) return;
-      cd._dynamicScore  = s.dynamicScore;
-      cd._eventScore    = s.eventScore;
-      cd._volatility    = s.volatility;
-      cd._articleCount  = s.articleCount;
+      cd._dynamicScore   = s.dynamicScore;
+      cd._eventScore     = s.eventScore;
+      cd._volatility     = s.volatility;
+      cd._articleCount   = s.articleCount;
+      cd._pillars        = s.pillars        || null;
+      cd._band           = s.band           || null;
+      cd._adjustedRisk   = s.adjustedRisk   || null;
+      cd._compositeScore = s.compositeScore || null;
     });
 
     // ── Update globe marker colors ────────────────────────────────────────────
@@ -51,9 +55,13 @@ async function fetchDynamicRisk() {
       var staticTier  = mesh.userData.risk || 'LOW';
       var dynamicTier = scoreToTier(s.dynamicScore);
 
-      mesh.userData._dynamicScore = s.dynamicScore;
-      mesh.userData._eventScore   = s.eventScore;
-      mesh.userData._volatility   = s.volatility;
+      mesh.userData._dynamicScore   = s.dynamicScore;
+      mesh.userData._eventScore     = s.eventScore;
+      mesh.userData._volatility     = s.volatility;
+      mesh.userData._pillars        = s.pillars        || null;
+      mesh.userData._band           = s.band           || null;
+      mesh.userData._adjustedRisk   = s.adjustedRisk   || null;
+      mesh.userData._compositeScore = s.compositeScore || null;
 
       if (RISK_TIER_RANK[dynamicTier] > RISK_TIER_RANK[staticTier]) {
         mesh.material.color.set(RISK_TIER_COLOR[dynamicTier]);
@@ -65,10 +73,17 @@ async function fetchDynamicRisk() {
     (window.countryHitMeshes || []).forEach(function(mesh) {
       var s = byIso3[mesh.userData.code];
       if (!s) return;
-      mesh.userData._dynamicScore = s.dynamicScore;
-      mesh.userData._eventScore   = s.eventScore;
-      mesh.userData._volatility   = s.volatility;
+      mesh.userData._dynamicScore   = s.dynamicScore;
+      mesh.userData._eventScore     = s.eventScore;
+      mesh.userData._volatility     = s.volatility;
+      mesh.userData._pillars        = s.pillars        || null;
+      mesh.userData._band           = s.band           || null;
+      mesh.userData._adjustedRisk   = s.adjustedRisk   || null;
+      mesh.userData._compositeScore = s.compositeScore || null;
     });
+
+    // Expose shared store so any module can access scores and freshness timestamp
+    window._argusRiskStore = { byIso3: byIso3, fetchedAt: Date.now(), source: json.source };
 
     console.log('calculate-risk: applied dynamic scores (' + json.source + ', ' + scores.length + ' countries)');
 

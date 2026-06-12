@@ -1040,6 +1040,64 @@ document.addEventListener('DOMContentLoaded', function() {
 
   var RISK_CSS = { LOW:'#00ff88', WATCH:'#ffcc00', WARNING:'#ff9933', CRITICAL:'#ff0044' };
 
+  // ── Chokepoint → surrounding country weights ────────────────────────────────
+  // Weights represent geopolitical influence on each chokepoint's risk profile.
+  // Countries not present in the risk store are skipped; remaining weights
+  // are redistributed via the denominator in computeChokepointRisk.
+  var _CP_COUNTRIES = {
+    suez:        { EGY:0.70, ISR:0.20, SAU:0.10 },
+    hormuz:      { IRN:0.50, ARE:0.30, OMN:0.20 },
+    malacca:     { MYS:0.40, IDN:0.40, SGP:0.20 },
+    panama_cp:   { PAN:0.40, COL:0.30, USA:0.30 },
+    bosphorus:   { TUR:0.70, UKR:0.20, RUS:0.10 },
+    bab_cp:      { YEM:0.50, ERI:0.30, ETH:0.20 },
+    dover:       { GBR:0.50, FRA:0.50 },
+    cape_cp:     { ZAF:0.80, MOZ:0.10, AGO:0.10 },
+    dardanelles: { TUR:0.70, GRC:0.20, UKR:0.10 },
+    oresund:     { DNK:0.50, SWE:0.50 },
+    great_belt:  { DNK:0.60, SWE:0.40 },
+    taiwan_cp:   { TWN:0.50, CHN:0.40, PHL:0.10 },
+    lombok:      { IDN:0.80, AUS:0.20 },
+    sunda:       { IDN:0.90, MYS:0.10 },
+  };
+
+  // Compute pillar-structured risk for a chokepoint from its bordering countries.
+  // Returns null if no risk store data is available yet.
+  // Replicates the same escalation and band logic as core/risk/riskEngine.js so
+  // chokepoints and countries use identical classification thresholds.
+  window._computeChokepointRisk = function(cpId) {
+    var mapping = _CP_COUNTRIES[cpId];
+    if (!mapping || !window._argusRiskStore) return null;
+    var store = window._argusRiskStore.byIso3;
+    var econSum = 0, humanSum = 0, secSum = 0, totalW = 0;
+    Object.keys(mapping).forEach(function(iso3) {
+      var w = mapping[iso3];
+      var s = store[iso3];
+      if (!s || !s.pillars) return; // skip unknown countries; weight redistributes
+      econSum  += s.pillars.economic     * w;
+      humanSum += s.pillars.humanitarian * w;
+      secSum   += s.pillars.security     * w;
+      totalW   += w;
+    });
+    if (totalW === 0) return null;
+    var pillars = {
+      economic:     Math.round(econSum  / totalW),
+      humanitarian: Math.round(humanSum / totalW),
+      security:     Math.round(secSum   / totalW),
+    };
+    var composite  = Math.round(0.40*pillars.economic + 0.30*pillars.humanitarian + 0.30*pillars.security);
+    var maxPillar  = Math.max(pillars.economic, pillars.humanitarian, pillars.security);
+    var adjusted   = Math.round(composite + 0.15*(maxPillar - composite));
+    // Escalation floors (mirror classificationEngine.js)
+    var finalScore = adjusted;
+    if      (maxPillar >= 95) finalScore = Math.max(finalScore, 75);
+    else if (maxPillar >= 85) finalScore = Math.max(finalScore, 50);
+    finalScore = Math.min(100, finalScore);
+    var band = finalScore >= 75 ? 'Red' : finalScore >= 50 ? 'Orange' : finalScore >= 25 ? 'Yellow' : 'Green';
+    var tier = finalScore >= 75 ? 'CRITICAL' : finalScore >= 50 ? 'WARNING' : finalScore >= 25 ? 'WATCH' : 'LOW';
+    return { pillars:pillars, composite:composite, maxPillar:maxPillar, finalScore:finalScore, band:band, tier:tier };
+  };
+
   function buildTooltipRow(d) {
     var risk = d.severity || d.risk || 'LOW';
     // Normalize raw GDACS severity ('red'/'orange'/'green') → canonical keys
@@ -1054,23 +1112,35 @@ document.addEventListener('DOMContentLoaded', function() {
         '<div style="color:#4a6080;font-size:8px;margin-top:1px">' + d.lat.toFixed(1) + '°N ' + Math.abs(d.lon).toFixed(1) + '°' + (d.lon >= 0 ? 'E' : 'W') + '</div></div>';
     }
     if (d.isCountry) {
+      // Use live dynamic tier/score if available; fall back to static baseline
+      var _bandMap = { Red:'CRITICAL', Orange:'WARNING', Yellow:'WATCH', Green:'LOW' };
+      var _dRisk  = d._band ? (_bandMap[d._band] || risk) : risk;
+      var _dCol   = RISK_CSS[_dRisk] || col;
+      var _dScore = d._dynamicScore != null ? d._dynamicScore : d.score;
+      var _dFlag  = (d._pillars && Math.max(d._pillars.economic||0, d._pillars.humanitarian||0, d._pillars.security||0) >= 85) ? ' ⚠' : '';
       return '<div style="padding:4px 0;border-bottom:1px solid rgba(255,255,255,0.06)">' +
         '<div style="display:flex;align-items:center;gap:6px;margin-bottom:3px">' +
-          '<span style="color:' + col + ';font-weight:700;font-size:10px">' + d.label + '</span>' +
-          '<span style="color:' + col + ';font-size:8px;letter-spacing:1px">● ' + risk + '</span>' +
+          '<span style="color:' + _dCol + ';font-weight:700;font-size:10px">' + d.label + '</span>' +
+          '<span style="color:' + _dCol + ';font-size:8px;letter-spacing:1px">● ' + _dRisk + _dFlag + '</span>' +
         '</div>' +
         '<div style="display:flex;gap:10px">' +
           (d.pop ? '<span style="color:#4a7da8;font-size:8px">POP <span style="color:#c5d7e8">' + d.pop + '</span></span>' : '') +
           (d.gdp ? '<span style="color:#4a7da8;font-size:8px">GDP <span style="color:#c5d7e8">' + d.gdp + '</span></span>' : '') +
-          '<span style="color:#4a7da8;font-size:8px">RISK <span style="color:' + col + '">' + d.score + '/100</span></span>' +
+          '<span style="color:#4a7da8;font-size:8px">RISK <span style="color:' + _dCol + '">' + _dScore + '/100</span></span>' +
         '</div>' +
       '</div>';
     }
     if (d.isChokepoint) {
+      // Compute risk from bordering countries if risk store is populated
+      var _cpr = window._computeChokepointRisk ? window._computeChokepointRisk(d.id) : null;
+      var _cpTier  = _cpr ? _cpr.tier  : risk;
+      var _cpCol   = RISK_CSS[_cpTier] || col;
+      var _cpExtra = _cpr ? (' · ' + _cpr.finalScore + '/100') : '';
+      var _cpFlag  = (_cpr && _cpr.maxPillar >= 85) ? ' ⚠' : '';
       return '<div style="padding:3px 0;border-bottom:1px solid rgba(255,255,255,0.06)">' +
-        '<span style="color:' + col + ';font-weight:700;font-size:10px">' + d.label + '</span>' +
+        '<span style="color:' + _cpCol + ';font-weight:700;font-size:10px">' + d.label + '</span>' +
         '<span style="color:#4a7da8;font-size:9px;margin-left:6px">CHOKEPOINT</span>' +
-        '<span style="color:' + col + ';font-size:9px;margin-left:6px">◆ ' + risk + '</span></div>';
+        '<span style="color:' + _cpCol + ';font-size:9px;margin-left:6px">◆ ' + _cpTier + _cpExtra + _cpFlag + '</span></div>';
     }
     return '<div style="padding:3px 0;border-bottom:1px solid rgba(255,255,255,0.06)">' +
       '<span style="color:' + col + ';font-weight:700;font-size:10px">' + (d.title || 'EVENT') + '</span>' +
@@ -4878,6 +4948,50 @@ function mergeAuxEvents() {
 // ════════════════════════════════════════════════════════════════════════════
 window.ArgusUI = (function() {
 
+  // ── Shared helpers ────────────────────────────────────────────────────────
+  function _relativeTime(ts) {
+    if (!ts) return '—';
+    var mins = Math.floor((Date.now() - ts) / 60000);
+    if (mins < 1)  return 'just now';
+    if (mins === 1) return '1m ago';
+    if (mins < 60)  return mins + 'm ago';
+    return Math.floor(mins / 60) + 'h ago';
+  }
+
+  // Build three pillar rows with anomaly flag inline.
+  // Returns an HTML string suitable for injection into detail panel body.
+  function _pillarSectionHtml(pillars, compositeScore) {
+    var PCOL = { 75:'#ff0044', 50:'#ff9933', 25:'#ffcc00', 0:'#00ff88' };
+    function pCol(s) { return s >= 75 ? PCOL[75] : s >= 50 ? PCOL[50] : s >= 25 ? PCOL[25] : PCOL[0]; }
+    function pFlag(s) {
+      if (s >= 95) return ' <span style="color:#ff0044;font-size:8px;letter-spacing:0.5px">⚠⚠ CRITICAL ANOMALY</span>';
+      if (s >= 85) return ' <span style="color:#ff9933;font-size:8px;letter-spacing:0.5px">⚠ ELEVATED ANOMALY</span>';
+      return '';
+    }
+    var html = '';
+    [['ECONOMIC (40%)', pillars.economic], ['HUMANITARIAN (30%)', pillars.humanitarian], ['SECURITY (30%)', pillars.security]].forEach(function(p) {
+      var s = p[1] || 0;
+      html += '<div class="detail__row">' +
+        '<span class="detail__label" style="font-size:8px">' + p[0] + '</span>' +
+        '<span class="detail__value" style="color:' + pCol(s) + '">' + s + pFlag(s) + '</span></div>';
+    });
+    if (compositeScore != null) {
+      html += '<div class="detail__row" style="border-top:1px solid rgba(255,255,255,0.04);padding-top:4px;margin-top:2px">' +
+        '<span class="detail__label" style="font-size:7px;color:#2a4a6a">COMPOSITE (pre-adjust)</span>' +
+        '<span class="detail__value" style="color:#4a7da8;font-size:9px">' + compositeScore + '</span></div>';
+    }
+    return html;
+  }
+
+  // Freshness footer row for risk data sections.
+  function _freshnessBadge() {
+    if (!window._argusRiskStore) return '';
+    var stale = Date.now() - window._argusRiskStore.fetchedAt > 5 * 60 * 1000;
+    return '<div style="font-size:7px;color:' + (stale ? '#ff9933' : '#2a4a68') + ';margin-top:5px;letter-spacing:1px">' +
+      (stale ? '⚠ RISK DATA STALE · ' : '◈ RISK DATA · ') +
+      _relativeTime(window._argusRiskStore.fetchedAt) + ' · GDELT/SUPABASE</div>';
+  }
+
   var aiOpen = false;
 
   function toggleAI() {
@@ -5269,7 +5383,15 @@ window.ArgusUI = (function() {
   }
 
   function showStaticDetail(d) {
-    var col = RC[d.risk] || '#0099ff';
+    // For countries, prefer the live dynamic tier/band if available
+    var _liveBandMap = { Red:'CRITICAL', Orange:'WARNING', Yellow:'WATCH', Green:'LOW' };
+    var _liveRisk = d.isCountry && d._band ? (_liveBandMap[d._band] || d.risk) : d.risk;
+    // For chokepoints, derive live tier from computed risk
+    if (d.isChokepoint && window._computeChokepointRisk) {
+      var _cpLive = window._computeChokepointRisk(d.id);
+      if (_cpLive) _liveRisk = _cpLive.tier;
+    }
+    var col = RC[_liveRisk] || RC[d.risk] || '#0099ff';
     var tagLabel  = d.isCountry ? 'COUNTRY PROFILE' : d.isPort ? 'PORT PROFILE' : d.isLNG ? 'LNG FACILITY' : 'CHOKEPOINT SENTINEL';
     var tagEl     = document.getElementById('detail-tag');
     var nameEl    = document.getElementById('detail-name');
@@ -5277,10 +5399,10 @@ window.ArgusUI = (function() {
 
     tagEl.textContent  = '';
     nameEl.textContent = '';
-    badge.textContent  = d.risk;
+    badge.textContent  = _liveRisk;
     badge.style.color       = col;
     badge.style.borderColor = col + '44';
-    badge.style.background  = RB[d.risk] || 'transparent';
+    badge.style.background  = RB[_liveRisk] || 'transparent';
 
     var html = '';
     if (d.isCountry) {
@@ -5295,11 +5417,21 @@ window.ArgusUI = (function() {
       html += '<div class="detail__section-header">RISK ASSESSMENT</div>';
       html += '<div class="detail__row"><span class="detail__label">BASELINE SCORE<br><span style="font-size:7px;color:#4a7da8;letter-spacing:0;font-weight:300">Human rights 70% · Supply chain 30%<br>FH · RSF · ILGA · Gini · Trade</span></span><span class="detail__value" style="color:' + col + '">' + d.score + ' / 100</span></div>';
       if (d._dynamicScore != null) {
-        var dsCol = d._dynamicScore >= 75 ? '#ff0044' : d._dynamicScore >= 54 ? '#ff9933' : d._dynamicScore >= 33 ? '#ffcc00' : '#00ff88';
-        html += '<div class="detail__row"><span class="detail__label">DYNAMIC SCORE<br><span style="font-size:7px;color:#4a7da8;letter-spacing:0;font-weight:300">Baseline 55% · GDELT events 30% · Volatility 15%</span></span><span class="detail__value" style="color:' + dsCol + '">' + d._dynamicScore + ' / 100</span></div>';
-        if (d._articleCount > 0) {
-          html += '<div class="detail__row"><span class="detail__label">LIVE SIGNAL</span><span class="detail__value" style="color:#7ab8d4">' + d._articleCount + ' articles · event +' + (d._eventScore || 0) + ' · vol +' + (d._volatility || 0) + '</span></div>';
+        var dsCol = d._dynamicScore >= 75 ? '#ff0044' : d._dynamicScore >= 50 ? '#ff9933' : d._dynamicScore >= 25 ? '#ffcc00' : '#00ff88';
+        var dsBand = d._band || (d._dynamicScore >= 75 ? 'Red' : d._dynamicScore >= 50 ? 'Orange' : d._dynamicScore >= 25 ? 'Yellow' : 'Green');
+        html += '<div class="detail__row"><span class="detail__label">ADJUSTED RISK SCORE<br>' +
+          '<span style="font-size:7px;color:#4a7da8;letter-spacing:0;font-weight:300">Three-pillar · GDELT-enhanced · ' + _relativeTime(window._argusRiskStore && window._argusRiskStore.fetchedAt) + '</span></span>' +
+          '<span class="detail__value"><span style="color:' + dsCol + ';font-weight:700">' + d._dynamicScore + '</span>' +
+          '<span style="color:#4a7da8;font-size:9px"> / 100 · ' + dsBand + '</span></span></div>';
+        if (d._pillars) {
+          html += '<div class="detail__section-header" style="margin-top:8px;margin-bottom:4px">RISK PILLAR BREAKDOWN</div>';
+          html += _pillarSectionHtml(d._pillars, d._compositeScore);
         }
+        if (d._articleCount > 0) {
+          html += '<div class="detail__row"><span class="detail__label">LIVE SIGNAL</span>' +
+            '<span class="detail__value" style="color:#7ab8d4">' + d._articleCount + ' articles · event ' + (d._eventScore || 0) + ' · vol ' + (d._volatility || 0) + '</span></div>';
+        }
+        html += _freshnessBadge();
       }
       // ── helpers ────────────────────────────────────────────────────────────
       function parseMoney(str) {
@@ -5548,6 +5680,25 @@ window.ArgusUI = (function() {
       html += '<div class="detail__status-box" style="background:' + (RB[d.risk] || '') + ';border-color:' + col + '44">' +
         '<div class="detail__label" style="color:' + col + ';margin-bottom:5px">CURRENT STATUS</div>' +
         '<div style="font-size:11px;line-height:1.7">' + d.status + '</div></div>';
+      // ── Chokepoint Risk Index ───────────────────────────────────────────────
+      // Derived as weighted-average pillar score across bordering countries.
+      // Uses the same three-pillar model and escalation rules as the risk engine.
+      var _cpRisk = window._computeChokepointRisk ? window._computeChokepointRisk(d.id) : null;
+      if (_cpRisk) {
+        var _cpBandCol = { Red:'#ff0044', Orange:'#ff9933', Yellow:'#ffcc00', Green:'#00ff88' };
+        var _cprc = _cpBandCol[_cpRisk.band] || col;
+        html += '<div class="detail__section-header">CHOKEPOINT RISK INDEX</div>';
+        html += '<div class="detail__row"><span class="detail__label">COMPOSITE RISK SCORE<br>' +
+          '<span style="font-size:7px;color:#4a7da8;font-weight:300">Weighted avg · bordering countries · ' +
+          (window._argusRiskStore ? _relativeTime(window._argusRiskStore.fetchedAt) : '—') + '</span></span>' +
+          '<span class="detail__value"><span style="color:' + _cprc + ';font-weight:700">' + _cpRisk.finalScore + '</span>' +
+          '<span style="color:#4a7da8;font-size:9px"> / 100 · ' + _cpRisk.tier + '</span></span></div>';
+        html += _pillarSectionHtml(_cpRisk.pillars, _cpRisk.composite);
+        html += _freshnessBadge();
+      } else if (window._argusRiskStore) {
+        html += '<div class="detail__section-header">CHOKEPOINT RISK INDEX</div>';
+        html += '<div class="detail__placeholder">RISK DATA NOT AVAILABLE FOR THIS REGION</div>';
+      }
       var pw = window._portData && window._portData[d.id];
       if (pw) {
         var dateStr = pw.year + '-' + String(pw.month).padStart(2,'0') + '-' + String(pw.day).padStart(2,'0');

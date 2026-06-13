@@ -236,8 +236,10 @@ window.ArgusHumanitarian = (function () {
 
   // ── Normalize a UNHCR population row → canonical entity ──────────────────────
   function _normalizeUNHCR(row) {
-    var iso2 = (row.coa_iso || '').toUpperCase();
-    var iso3 = ISO2_TO_ISO3[iso2] || null;
+    // UNHCR Population API returns coa_iso as ISO3 (3 chars, e.g. "AFG").
+    // ISO2 lookup is fallback only for any edge-case 2-char codes.
+    var rawIso = (row.coa_iso || '').toUpperCase();
+    var iso3   = rawIso.length === 3 ? rawIso : (ISO2_TO_ISO3[rawIso] || null);
     if (!iso3) return null;  // cannot place without ISO3
 
     var refugees = parseInt(row.refugees)      || 0;
@@ -451,10 +453,14 @@ window.ArgusHumanitarian = (function () {
       .then(function (data) {
         if (!data) return;
         var items = data.data || [];
-        try {
-          localStorage.setItem(CACHE_KEY_RW, JSON.stringify(items));
-          localStorage.setItem(CACHE_TS_RW,  String(Date.now()));
-        } catch (e) { /* storage full — skip cache write */ }
+        console.log('[ArgusHumanitarian] ReliefWeb raw: count=' + items.length + (data.note ? ' note=' + data.note : ''));
+        // Only cache if we got real data — avoids poisoning the cache with empty results
+        if (items.length > 0) {
+          try {
+            localStorage.setItem(CACHE_KEY_RW, JSON.stringify(items));
+            localStorage.setItem(CACHE_TS_RW,  String(Date.now()));
+          } catch (e) { /* storage full — skip cache write */ }
+        }
         _processRW(items);
       })
       .catch(function (e) {

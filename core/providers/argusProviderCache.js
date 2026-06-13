@@ -270,6 +270,7 @@
     var score, age, tile, i;
     for (i = 0; i < GLOBAL_TILES.length; i++) {
       tile  = GLOBAL_TILES[i];
+      if (tile._backoffUntil && now < tile._backoffUntil) continue; // 429 backoff
       age   = tile.lastPolledAt === 0 ? Infinity : (now - tile.lastPolledAt);
       score = age === Infinity ? Infinity : age / tile.targetRevisitMs;
       if (score > bestScore) {
@@ -296,6 +297,11 @@
         // ── [ADSB DEBUG] Step 3 / 5 diagnostics ──────────────────────────────
         // Logs on non-ok responses only — not spammy on healthy ticks.
         if (!resp.ok) {
+          // 429 — back off this tile for 90 s to respect upstream rate limit
+          if (resp.status === 429) {
+            region._backoffUntil = Date.now() + 90 * 1000;
+            return [];
+          }
           // Read body for preview without consuming resp (clone it first).
           var bodyPreview = '(body unread)';
           resp.clone().text().then(function (txt) {

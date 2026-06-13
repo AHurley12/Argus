@@ -436,40 +436,67 @@ function switchTab(tab) {
 setTimeout(fetchAll, 4000);
 setInterval(function () { if (!document.hidden) fetchAll(); }, TTL);
 
-// ── DISASTER tab — NOAA severe weather fetch ──────────────────────────────────
-(function loadNOAA() {
-  var URL      = 'https://api.weather.gov/alerts/active?limit=50';
-  var CACHE_K  = 'argus_noaa_v2';
-  var CACHE_T  = 'argus_noaa_ts_v2';
-  var TTL_MS   = 30 * 60 * 1000; // 30 min — weather events stable enough for strategic view
+// ── DISASTER tab — NOAA severe weather + NHC storms (via Netlify proxy) ────────
+// Routes through /.netlify/functions/fetch-noaa to avoid browser CORS/User-Agent
+// restrictions on api.weather.gov (400) and nhc.noaa.gov RSS (codetabs 400).
+// Response splits into window._noaaEvents (NWS) and window._stormEvents (NHC).
+(function loadNOAAAndStorms() {
+  var CACHE_K_NOAA  = 'argus_noaa_v2',  CACHE_T_NOAA  = 'argus_noaa_ts_v2';
+  var CACHE_K_STORM = 'argus_nhc_v1',   CACHE_T_STORM = 'argus_nhc_ts_v1';
+  var TTL_MS = 30 * 60 * 1000;
   try {
-    var cached = localStorage.getItem(CACHE_K);
-    var ts     = parseInt(localStorage.getItem(CACHE_T) || '0');
-    if (cached && Date.now() - ts < TTL_MS) { window._noaaEvents = JSON.parse(cached); return; }
+    var cn = localStorage.getItem(CACHE_K_NOAA),  tn = parseInt(localStorage.getItem(CACHE_T_NOAA)  || '0');
+    var cs = localStorage.getItem(CACHE_K_STORM), ts = parseInt(localStorage.getItem(CACHE_T_STORM) || '0');
+    if (cn && cs && Date.now() - tn < TTL_MS && Date.now() - ts < TTL_MS) {
+      window._noaaEvents  = JSON.parse(cn);
+      window._stormEvents = JSON.parse(cs);
+      if (activeTab === 'disaster') renderDisasterTab();
+      return;
+    }
   } catch(e) {}
-  fetch(URL, { headers: { 'Accept': 'application/geo+json', 'User-Agent': 'ArgusIntelligence/1.0 (contact@argus.app)' } })
+  fetch('/.netlify/functions/fetch-noaa')
   .then(function(r) { return r.ok ? r.json() : null; })
   .then(function(data) {
-    if (!data || !data.features) return;
-    var events = data.features.slice(0, 15).map(function(f, i) {
-      var p   = f.properties || {};
-      var sev = p.severity === 'Extreme' ? 'CRITICAL' : p.severity === 'Severe' ? 'WARNING' : 'WATCH';
-      return {
-        id: 9800 + i,
-        type: 'DISASTER',
-        severity: sev,
-        title: (p.event || 'Weather Alert') + (p.areaDesc ? ' — ' + p.areaDesc.split(';')[0] : ''),
-        impact: p.description ? p.description.slice(0, 180) + '…' : (p.headline || ''),
-        region: p.areaDesc ? p.areaDesc.split(';')[0].trim() : 'USA',
-        pubDate: p.effective ? new Date(p.effective).toUTCString().slice(0,22) : '',
-        source: 'NOAA',
-        link: p['@id'] || '',
-        lat: null, lon: null,
-        plotPriority: sev === 'CRITICAL' ? 85 : sev === 'WARNING' ? 55 : 30,
-      };
+    if (!data || !Array.isArray(data.alerts)) return;
+    var noaaEvents = [], stormEvents = [], ni = 0, si = 0;
+    data.alerts.forEach(function(alert) {
+      var sev = alert.severity === 'Extreme' ? 'CRITICAL' : alert.severity === 'Severe' ? 'WARNING' : 'WATCH';
+      if (alert.source === 'NOAA/NHC') {
+        stormEvents.push({
+          id: 9870 + si++,
+          type: 'TROPICAL STORM',
+          severity: sev,
+          title: (alert.headline || alert.eventType || 'Tropical System').slice(0, 100),
+          impact: (alert.headline || '').slice(0, 200),
+          region: alert.areaDesc || '',
+          pubDate: alert.onset ? new Date(alert.onset).toUTCString().slice(0,22) : '',
+          source: 'NOAA NHC',
+          link: '',
+          lat: alert.lat, lon: alert.lon,
+          plotPriority: sev === 'CRITICAL' ? 88 : sev === 'WARNING' ? 58 : 32,
+        });
+      } else if (ni < 15) {
+        noaaEvents.push({
+          id: 9800 + ni++,
+          type: 'DISASTER',
+          severity: sev,
+          title: (alert.eventType || 'Weather Alert') + (alert.areaDesc ? ' — ' + alert.areaDesc.split(';')[0] : ''),
+          impact: (alert.headline || '').slice(0, 180),
+          region: alert.areaDesc ? alert.areaDesc.split(';')[0].trim() : 'USA',
+          pubDate: alert.onset ? new Date(alert.onset).toUTCString().slice(0,22) : '',
+          source: 'NOAA',
+          link: alert.id || '',
+          lat: alert.lat, lon: alert.lon,
+          plotPriority: sev === 'CRITICAL' ? 85 : sev === 'WARNING' ? 55 : 30,
+        });
+      }
     });
-    window._noaaEvents = events;
-    try { localStorage.setItem(CACHE_K, JSON.stringify(events)); localStorage.setItem(CACHE_T, String(Date.now())); } catch(e) {}
+    window._noaaEvents  = noaaEvents;
+    window._stormEvents = stormEvents;
+    try {
+      localStorage.setItem(CACHE_K_NOAA,  JSON.stringify(noaaEvents));  localStorage.setItem(CACHE_T_NOAA,  String(Date.now()));
+      localStorage.setItem(CACHE_K_STORM, JSON.stringify(stormEvents)); localStorage.setItem(CACHE_T_STORM, String(Date.now()));
+    } catch(e) {}
     if (activeTab === 'disaster') renderDisasterTab();
   })
   .catch(function() {});
@@ -597,72 +624,6 @@ setInterval(function () { if (!document.hidden) fetchAll(); }, TTL);
   }
 })();
 
-// ── NHC Active Storms — NOAA National Hurricane Center RSS — free, no key ────
-(function loadStorms() {
-  var CACHE_K = 'argus_nhc_v1', CACHE_T = 'argus_nhc_ts_v1';
-  var TTL = 30 * 60 * 1000; // 30 min
-  try {
-    var cached = localStorage.getItem(CACHE_K);
-    var ts = parseInt(localStorage.getItem(CACHE_T) || '0');
-    if (cached && Date.now() - ts < TTL) {
-      window._stormEvents = JSON.parse(cached);
-      if (typeof activeTab !== 'undefined' && activeTab === 'disaster') renderDisasterTab();
-      return;
-    }
-  } catch(e) {}
-
-  // NHC Atlantic + Pacific active storm advisories RSS
-  var feeds = [
-    'https://www.nhc.noaa.gov/index-at.xml',   // Atlantic
-    'https://www.nhc.noaa.gov/index-ep.xml',   // East Pacific
-  ];
-
-  var allStorms = [];
-  var done = 0;
-
-  feeds.forEach(function(feedUrl, fi) {
-    fetch('https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(feedUrl))
-    .then(function(r) { return r.ok ? r.text() : null; })
-    .then(function(xml) {
-      if (xml) {
-        // Parse storm titles and descriptions from RSS
-        var items = xml.match(/<item>([\s\S]*?)<\/item>/g) || [];
-        items.forEach(function(item, i) {
-          var title   = (item.match(/<title>([\s\S]*?)<\/title>/)   || [])[1] || '';
-          var desc    = (item.match(/<description>([\s\S]*?)<\/description>/) || [])[1] || '';
-          var link    = (item.match(/<link>([\s\S]*?)<\/link>/)     || [])[1] || '';
-          title = title.replace(/<!\[CDATA\[|\]\]>/g, '').trim();
-          desc  = desc.replace(/<!\[CDATA\[|\]\]>/g, '').replace(/<[^>]+>/g, '').trim();
-          if (!title || title.toLowerCase().includes('national hurricane')) return;
-          var isHurricane = /hurricane/i.test(title);
-          var isTropical  = /tropical storm/i.test(title);
-          var sev = isHurricane ? 'CRITICAL' : isTropical ? 'WARNING' : 'WATCH';
-          allStorms.push({
-            id: 9870 + fi * 10 + i,
-            type: 'TROPICAL STORM',
-            severity: sev,
-            title: title.slice(0, 100),
-            impact: desc.slice(0, 200),
-            region: fi === 0 ? 'Atlantic' : 'East Pacific',
-            pubDate: '',
-            source: 'NOAA NHC',
-            link: link,
-            lat: null, lon: null,
-            plotPriority: sev === 'CRITICAL' ? 88 : sev === 'WARNING' ? 58 : 32,
-          });
-        });
-      }
-      done++;
-      if (done === feeds.length) {
-        window._stormEvents = allStorms;
-        try { localStorage.setItem(CACHE_K, JSON.stringify(allStorms)); localStorage.setItem(CACHE_T, String(Date.now())); } catch(e) {}
-        console.log('NHC storms: ' + allStorms.length + ' advisories loaded');
-        if (typeof activeTab !== 'undefined' && activeTab === 'disaster') renderDisasterTab();
-      }
-    })
-    .catch(function() { done++; });
-  });
-})();
 
 // ── renderDisasterTab — aggregates all disaster sources ───────────────────────
 function renderDisasterTab() {

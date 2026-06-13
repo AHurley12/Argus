@@ -23,7 +23,7 @@
 //
 // Backward compat:
 //   window.ArgusRW.getCountryData(iso3) — country tooltip humanitarian data
-//   window._rwData — per-ISO3 disaster index (populated from GDACS events + UNHCR)
+//   window._rwData — per-ISO3 disaster index (GDACS events; ReliefWeb + UNHCR via ArgusHumanitarian)
 //
 // Cache isolation:
 //   gdacsEventCache  Map<eventId, normalizedEvent> — isolated from all other caches.
@@ -33,9 +33,10 @@
 //   window.gdacsEventCache — Map<eventId, event> per architecture spec
 //   window.ArgusGDACS      — { start, stop, refresh, status, setVisible }
 //   window.ArgusRW         — { getCountryData, getDisasters } (tooltip compat)
-//   window._rwData         — per-ISO3 UN humanitarian index
+//   window._rwData         — per-ISO3 humanitarian index (GDACS disasters; shared with ArgusHumanitarian)
 //
 // Load order: after cache.js (window._argusReqCache) and globe init
+// UNHCR displacement data is now managed by ArgusHumanitarian (SCRIPT 4b)
 
 window.ArgusGDACS = (function () {
   'use strict';
@@ -387,32 +388,10 @@ window.ArgusGDACS = (function () {
 
     // Sync _rwData for tooltip system
     _populateRwData(Array.from(gdacsEventCache.values()));
-  }
-
-  // ── UNHCR displacement fetch ──────────────────────────────────────────────────
-  // Secondary fetch — enriches _rwData with displacement figures for country tooltips.
-  // Failure is silent — displacement data is supplementary, not critical path.
-  function _fetchUnhcr() {
-    fetch('https://api.unhcr.org/population/v1/population/?limit=300&dataset=population' +
-      '&displayType=totals&columns[]=refugees&columns[]=idps&yearFrom=2023&yearTo=2023&coa_all=true')
-      .then(function (r) { return r.ok ? r.json() : null; })
-      .then(function (json) {
-        if (!json || !json.items) return;
-        json.items.forEach(function (row) {
-          var iso = (row.coa_iso || '').toUpperCase();
-          if (!iso) return;
-          if (!_rwData[iso]) _rwData[iso] = { disasters: [], sitreps: [], displaced: null, refugees: null };
-          var refs = parseInt(row.refugees) || 0;
-          var idps = parseInt(row.idps)     || 0;
-          if (refs > 0) _rwData[iso].refugees  = refs;
-          if (idps > 0) _rwData[iso].displaced = idps;
-        });
-        console.log('[ArgusGDACS] UNHCR: displacement indexed for',
-          json.items.length, 'countries');
-      })
-      .catch(function (e) {
-        console.warn('[ArgusGDACS] UNHCR fetch failed (non-critical):', e.message);
-      });
+    // Notify ArgusHumanitarian for GLIDE cross-reference correlation
+    if (window.ArgusHumanitarian && typeof window.ArgusHumanitarian._onGdacsLoad === 'function') {
+      window.ArgusHumanitarian._onGdacsLoad(Array.from(gdacsEventCache.values()));
+    }
   }
 
   // ── Poll ─────────────────────────────────────────────────────────────────────
@@ -482,10 +461,8 @@ window.ArgusGDACS = (function () {
 
     // Initial fetch deferred 75s — lowest priority in the sparse intel stack
     // (ACLED: 30s, NOAA: 45s, GEM: 60s, GDACS: 75s)
+    // UNHCR displacement data is managed by ArgusHumanitarian (SCRIPT 4b)
     setTimeout(_poll, 75 * 1000);
-
-    // UNHCR enrichment deferred 90s — fires once after GDACS data is in
-    setTimeout(_fetchUnhcr, 90 * 1000);
 
     _pollTimer = setInterval(_poll, POLL_MS);
   }

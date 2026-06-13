@@ -1,21 +1,23 @@
 'use strict';
 // modules/argusAnalytics.js
-// Unified intelligence analytics workspace — MARITIME | IMF ECON | ENVIRON | GEM LNG | CRISIS
+// Unified intelligence analytics workspace — MARITIME | IMF ECON | ENVIRON | GEM LNG | CRISIS | UN HUMANITARIAN
 //
 // Architecture:
-//   Five isolated analytics modules inside the Neural Web Analytics tab.
+//   Six isolated analytics modules inside the Neural Web Analytics tab.
 //   AIS + PORT WATCH read live global state (no network fetch).
 //   NOAA + INTEL (ACLED/GEM) + GDACS fetch from Netlify functions on independent timers.
+//   HUMANITARIAN reads from window.ArgusHumanitarian live store (no network fetch).
 //   Expand mode transitions #nw-intel-panel width: 272→500px (180ms).
 //   Timeframe selector: SNAP / 24H / 1W / 1M / 1Y — frames intelligence lens.
 //
 // Data bridges:
-//   AIS    — window.ArgusNeuralWeb.getAnalyticsData() → {snap, cpAnalytics}
-//   PORTS  — window.ArgusNeuralWeb.getPortAnalytics() → portAnalytics object
-//   NOAA   — /.netlify/functions/fetch-noaa
-//   ACLED  — /.netlify/functions/fetch-acled
-//   GEM    — /.netlify/functions/fetch-gem
-//   GDACS  — window.gdacsEventCache (live) or /.netlify/functions/fetch-gdacs
+//   AIS          — window.ArgusNeuralWeb.getAnalyticsData() → {snap, cpAnalytics}
+//   PORTS        — window.ArgusNeuralWeb.getPortAnalytics() → portAnalytics object
+//   NOAA         — /.netlify/functions/fetch-noaa
+//   ACLED        — /.netlify/functions/fetch-acled
+//   GEM          — /.netlify/functions/fetch-gem
+//   GDACS        — window.gdacsEventCache (live) or /.netlify/functions/fetch-gdacs
+//   HUMANITARIAN — window.ArgusHumanitarian.getAllEntities() (live, no fetch)
 //
 // Globals:
 //   window.ArgusAnalytics — { init, refresh, status }
@@ -52,11 +54,12 @@ window.ArgusAnalytics = (function () {
   var _timeframe   = 'snapshot';
 
   var _state = {
-    ais:   { data: null, ts: null },
-    ports: { data: null, ts: null },
-    noaa:  { metrics: null, ts: null, loading: false, error: null },
-    intel: { gem: null, acled: null, ts: null, loading: false, error: null },
-    gdacs: { metrics: null, ts: null, loading: false, error: null },
+    ais:          { data: null, ts: null },
+    ports:        { data: null, ts: null },
+    noaa:         { metrics: null, ts: null, loading: false, error: null },
+    intel:        { gem: null, acled: null, ts: null, loading: false, error: null },
+    gdacs:        { metrics: null, ts: null, loading: false, error: null },
+    humanitarian: { data: null, ts: null },
   };
 
   var _timers = {};
@@ -989,6 +992,253 @@ window.ArgusAnalytics = (function () {
     return out;
   }
 
+  // ── Humanitarian category + severity colors ───────────────────────────────────
+  var _HUM_CAT_COLORS = {
+    'Conflict':                '#ff3300',
+    'Famine':                  '#cc4400',
+    'Humanitarian Emergency':  '#ff6600',
+    'Epidemic':                '#cc44ff',
+    'Food Security':           '#ffaa00',
+    'Disease Outbreak':        '#9944cc',
+    'Refugee Crisis':          '#ff4488',
+    'Displacement':            '#ff9933',
+    'Natural Disaster Impact': '#44aaff',
+    'Protection Crisis':       '#ff2266',
+  };
+
+  var _HUM_SEV_RANK  = { Critical: 5, Severe: 4, High: 3, Moderate: 2, Low: 1, Unknown: 0 };
+  var _HUM_SEV_COLOR = { Critical: '#ff0044', Severe: '#ff4400', High: '#ff9933', Moderate: '#ffcc00', Low: '#00ff88', Unknown: '#4a7da8' };
+
+  // ── Humanitarian normalization ─────────────────────────────────────────────────
+  function _normalizeHumanitarian(entities) {
+    if (!entities || !entities.length) return null;
+
+    var rwEntities    = [];
+    var unhcrEntities = [];
+    var bySeverity    = { Critical: 0, Severe: 0, High: 0, Moderate: 0, Low: 0, Unknown: 0 };
+    var byCategory    = {};
+    var byCountry     = {};
+
+    for (var i = 0; i < entities.length; i++) {
+      var ent = entities[i];
+      if (ent.source === 'UNHCR') {
+        unhcrEntities.push(ent);
+      } else {
+        rwEntities.push(ent);
+        var cat = ent.category || 'Humanitarian Emergency';
+        byCategory[cat] = (byCategory[cat] || 0) + 1;
+        var ctries = ent.countries && ent.countries.length ? ent.countries : (ent.country ? [ent.country] : []);
+        for (var ci = 0; ci < ctries.length; ci++) {
+          if (ctries[ci]) byCountry[ctries[ci]] = (byCountry[ctries[ci]] || 0) + 1;
+        }
+      }
+      var sev = ent.severity || 'Unknown';
+      if (bySeverity.hasOwnProperty(sev)) bySeverity[sev]++; else bySeverity.Unknown++;
+    }
+
+    var totalRW = rwEntities.length;
+
+    // Stress index: weighted severity across all ReliefWeb events, normalized 0–100
+    var stressScore = 0;
+    if (totalRW > 0) {
+      var weightedSum = bySeverity.Critical * 5 + bySeverity.Severe * 4 +
+                        bySeverity.High * 3 + bySeverity.Moderate * 2 + bySeverity.Low;
+      stressScore = Math.min(100, Math.round(weightedSum / (totalRW * 5) * 100));
+    }
+
+    // Sort ReliefWeb events by severity desc
+    var sortedRW = rwEntities.slice().sort(function (a, b) {
+      return (_HUM_SEV_RANK[b.severity] || 0) - (_HUM_SEV_RANK[a.severity] || 0);
+    });
+
+    // UNHCR displacement sorted by total displaced desc
+    var displacement = unhcrEntities.slice().sort(function (a, b) {
+      var at = a.displacementImpact && a.displacementImpact.total || 0;
+      var bt = b.displacementImpact && b.displacementImpact.total || 0;
+      return bt - at;
+    });
+
+    // Total displaced (sum of UNHCR totals)
+    var totalDisplaced = 0;
+    for (var di = 0; di < displacement.length; di++) {
+      var dii = displacement[di].displacementImpact;
+      totalDisplaced += (dii && dii.total) || 0;
+    }
+
+    // Category + severity bars
+    var catPairs = _sortDesc(byCategory, 8).map(function (p) {
+      return { k: p.k, v: p.v, c: _HUM_CAT_COLORS[p.k] || '#4da6ff' };
+    });
+    var sevPairs = [
+      { k: 'CRITICAL', v: bySeverity.Critical, c: '#ff0044' },
+      { k: 'SEVERE',   v: bySeverity.Severe,   c: '#ff4400' },
+      { k: 'HIGH',     v: bySeverity.High,      c: '#ff9933' },
+      { k: 'MODERATE', v: bySeverity.Moderate,  c: '#ffcc00' },
+      { k: 'LOW',      v: bySeverity.Low,        c: '#00ff88' },
+    ].filter(function (p) { return p.v > 0; });
+
+    var topCountries = _sortDesc(byCountry, 6).map(function (p) {
+      return { k: p.k, v: p.v, c: '#4da6ff' };
+    });
+
+    return {
+      total:          totalRW,
+      totalUnhcr:     unhcrEntities.length,
+      totalDisplaced: totalDisplaced,
+      stressScore:    stressScore,
+      critical:       bySeverity.Critical,
+      severe:         bySeverity.Severe,
+      high:           bySeverity.High,
+      moderate:       bySeverity.Moderate,
+      conflicts:      sortedRW.filter(function (e) { return e.category === 'Conflict'; }).slice(0, 5),
+      foodCrises:     sortedRW.filter(function (e) { return e.category === 'Food Security' || e.category === 'Famine'; }).slice(0, 3),
+      epidemics:      sortedRW.filter(function (e) { return e.category === 'Epidemic' || e.category === 'Disease Outbreak'; }).slice(0, 3),
+      displacement:   displacement.slice(0, 5),
+      sevPairs:       sevPairs,
+      catPairs:       catPairs,
+      topCountries:   topCountries,
+      hasData:        (totalRW + unhcrEntities.length) > 0,
+    };
+  }
+
+  // ── Humanitarian refresh (reads ArgusHumanitarian live store — no network call) ─
+  function _refreshHumanitarian() {
+    var s  = _state.humanitarian;
+    var ah = window.ArgusHumanitarian;
+    if (!ah || typeof ah.getAllEntities !== 'function') {
+      s.data = null;
+      s.ts   = Date.now();
+      _repaint('humanitarian');
+      return;
+    }
+    var entities = ah.getAllEntities();
+    s.data = _normalizeHumanitarian(entities);
+    s.ts   = Date.now();
+    _repaint('humanitarian');
+  }
+
+  // ── Humanitarian render ────────────────────────────────────────────────────────
+  // Intelligence question: "Where are active humanitarian crises placing populations at risk?"
+  function _renderHumanitarian() {
+    var s   = _state.humanitarian;
+    var ts  = _fmtTs(s.ts);
+    var UNB = '#4da6ff';
+    var out = _tabHeader('UN HUMANITARIAN INTELLIGENCE', ts, UNB);
+
+    out += _question('Where are active humanitarian crises placing populations at risk?', '#1a3a7a');
+    out += _tfBadge();
+
+    if (!s.data || !s.data.hasData) {
+      return out + _noData('UN HUMANITARIAN DATA LOADING…\nPipeline initializes 90–120s after page load.');
+    }
+    var m = s.data;
+
+    out += _meter(m.stressScore, 'GLOBAL HUMANITARIAN STRESS INDEX', UNB);
+
+    // Key intelligence signals
+    var critDetail = m.critical > 0
+      ? m.critical + ' event' + (m.critical !== 1 ? 's' : '') + ' at CRITICAL severity — immediate humanitarian action required'
+      : 'No events at CRITICAL severity';
+
+    var conflictDetail = m.conflicts.length
+      ? m.conflicts.length + ' active conflict zone' + (m.conflicts.length !== 1 ? 's' : '') + ' tracked via UN OCHA ReliefWeb'
+      : 'No active conflict events in current UN reporting';
+
+    var dispYear    = String(new Date().getFullYear() - 1);
+    var dispDetail  = m.totalDisplaced > 0
+      ? _fmtN(m.totalDisplaced) + ' displaced tracked by UNHCR ' + dispYear + ' data'
+      : m.totalUnhcr + ' countries with UNHCR displacement data';
+
+    var insightsHtml =
+      _insight('ACTIVE HUMANITARIAN EVENTS', String(m.total), m.severe + ' severe · ' + m.high + ' high · ' + m.moderate + ' moderate', UNB) +
+      _insight('CRITICAL EVENTS', String(m.critical), critDetail, m.critical > 0 ? '#ff0044' : '#00ff88') +
+      _insight('CONFLICT ZONES ACTIVE', String(m.conflicts.length), conflictDetail, m.conflicts.length > 0 ? '#ff3300' : UNB) +
+      _insight('POPULATION AT RISK', _fmtN(m.totalDisplaced), dispDetail, '#ff9933');
+
+    out += _box(insightsHtml);
+
+    // Severity distribution
+    if (m.sevPairs && m.sevPairs.length) {
+      out += _box(_lbl('CRISIS SEVERITY DISTRIBUTION') + _bars(m.sevPairs, m.total, UNB));
+    }
+
+    // Conflict hotspots
+    if (m.conflicts.length) {
+      var cHtml = _lbl('CONFLICT ZONES');
+      for (var ci = 0; ci < m.conflicts.length; ci++) {
+        var cf    = m.conflicts[ci];
+        var cfCol = _HUM_SEV_COLOR[cf.severity] || '#ff6633';
+        var cfGlide = cf.humanitarianImpact && cf.humanitarianImpact.glide;
+        cHtml +=
+          '<div style="display:flex;align-items:flex-start;gap:6px;margin-bottom:5px;' +
+            'padding:5px 6px;background:rgba(255,30,0,0.05);border-left:2px solid ' + cfCol + ';">' +
+            '<div style="flex:1;min-width:0;">' +
+              '<div style="font-size:8px;color:' + cfCol + ';line-height:1.5;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' +
+                _esc(cf.title.length > 52 ? cf.title.slice(0, 52) + '…' : cf.title) +
+              '</div>' +
+              '<div style="font-size:7px;color:#2a4a6a;margin-top:1px;">' +
+                _esc(cf.severity.toUpperCase()) +
+                (cf.country ? ' · ' + _esc(cf.country) : '') +
+                (cfGlide ? ' · ' + _esc(cfGlide) : '') +
+              '</div>' +
+            '</div>' +
+          '</div>';
+      }
+      out += _box(cHtml);
+    }
+
+    // Food security + famine
+    if (m.foodCrises.length) {
+      var fHtml = _lbl('FOOD SECURITY');
+      for (var fi = 0; fi < m.foodCrises.length; fi++) {
+        var fc    = m.foodCrises[fi];
+        var fcCol = fc.category === 'Famine' ? '#cc4400' : '#ffaa00';
+        fHtml +=
+          '<div style="margin-bottom:5px;padding:4px 6px;border-left:2px solid ' + fcCol + ';background:rgba(255,160,0,0.04);">' +
+            '<div style="font-size:8px;color:' + fcCol + ';overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' +
+              _esc(fc.title.length > 52 ? fc.title.slice(0, 52) + '…' : fc.title) +
+            '</div>' +
+            '<div style="font-size:7px;color:#2a4a6a;margin-top:1px;">' +
+              _esc(fc.category.toUpperCase()) + ' · ' + _esc(fc.severity.toUpperCase()) +
+              (fc.country ? ' · ' + _esc(fc.country) : '') +
+            '</div>' +
+          '</div>';
+      }
+      out += _box(fHtml);
+    }
+
+    // Epidemic / disease alerts
+    if (m.epidemics.length) {
+      var eHtml = _lbl('EPIDEMIC ALERTS');
+      for (var ei = 0; ei < m.epidemics.length; ei++) {
+        var ep = m.epidemics[ei];
+        eHtml +=
+          '<div style="margin-bottom:5px;padding:4px 6px;border-left:2px solid #cc44ff;background:rgba(180,50,255,0.04);">' +
+            '<div style="font-size:8px;color:#cc44ff;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' +
+              _esc(ep.title.length > 52 ? ep.title.slice(0, 52) + '…' : ep.title) +
+            '</div>' +
+            '<div style="font-size:7px;color:#2a4a6a;margin-top:1px;">' +
+              _esc(ep.category.toUpperCase()) + ' · ' + _esc(ep.severity.toUpperCase()) +
+              (ep.country ? ' · ' + _esc(ep.country) : '') +
+            '</div>' +
+          '</div>';
+      }
+      out += _box(eHtml);
+    }
+
+    // Crisis type breakdown
+    if (m.catPairs && m.catPairs.length) {
+      out += _box(_lbl('CRISIS TYPE BREAKDOWN') + _bars(m.catPairs, m.total, UNB));
+    }
+
+    // Country concentration
+    if (m.topCountries && m.topCountries.length) {
+      out += _box(_lbl('CRISIS CONCENTRATION BY COUNTRY') + _bars(m.topCountries, null, UNB), 0);
+    }
+
+    return out;
+  }
+
   // ── CSS injection ─────────────────────────────────────────────────────────────
   function _injectStyles() {
     if (document.getElementById('ax-css')) return;
@@ -1013,6 +1263,7 @@ window.ArgusAnalytics = (function () {
       '.ax-tab-noaa.ax-on{color:#72eeff;border-bottom-color:#72eeff;text-shadow:0 0 8px rgba(114,238,255,0.5);}' +
       '.ax-tab-intel.ax-on{color:#4fc3ff;border-bottom-color:#4fc3ff;text-shadow:0 0 8px rgba(79,195,255,0.4);}' +
       '.ax-tab-gdacs.ax-on{color:#ff6633;border-bottom-color:#ff6633;text-shadow:0 0 8px rgba(255,102,51,0.5);}' +
+      '.ax-tab-humanitarian.ax-on{color:#4da6ff;border-bottom-color:#4da6ff;text-shadow:0 0 8px rgba(77,166,255,0.5);}' +
       '@keyframes ax-diamond-pulse{0%,100%{opacity:1;box-shadow:0 0 4px #ff3300}50%{opacity:0.35;box-shadow:0 0 9px #ff3300}}' +
 
       // Expand button
@@ -1053,20 +1304,22 @@ window.ArgusAnalytics = (function () {
     return '<div id="ax-root" style="font-family:var(--font-mono,\'Courier New\',monospace);">' +
       '<div id="ax-tabrow">' +
         '<div id="ax-tabbar">' +
-          '<button class="ax-tab ax-tab-ais ax-on"  data-ax="ais">MARITIME</button>'  +
-          '<button class="ax-tab ax-tab-ports"       data-ax="ports">IMF</button>'     +
-          '<button class="ax-tab ax-tab-noaa"        data-ax="noaa">ENVIRON</button>'  +
-          '<button class="ax-tab ax-tab-intel"       data-ax="intel">GEM LNG</button>' +
-          '<button class="ax-tab ax-tab-gdacs"       data-ax="gdacs">CRISIS</button>'  +
+          '<button class="ax-tab ax-tab-ais ax-on"        data-ax="ais">MARITIME</button>'   +
+          '<button class="ax-tab ax-tab-ports"             data-ax="ports">IMF</button>'      +
+          '<button class="ax-tab ax-tab-noaa"              data-ax="noaa">ENVIRON</button>'   +
+          '<button class="ax-tab ax-tab-intel"             data-ax="intel">GEM LNG</button>'  +
+          '<button class="ax-tab ax-tab-gdacs"             data-ax="gdacs">CRISIS</button>'   +
+          '<button class="ax-tab ax-tab-humanitarian"      data-ax="humanitarian">UN HUM</button>' +
         '</div>' +
         '<button id="ax-expand" title="Expand analytics workspace">⊲</button>' +
       '</div>' +
       '<div id="ax-tfrow">' + tfBtns + '</div>' +
-      '<div id="ax-pane-ais"   class="ax-pane ax-show"></div>' +
-      '<div id="ax-pane-ports" class="ax-pane"></div>' +
-      '<div id="ax-pane-noaa"  class="ax-pane"></div>' +
-      '<div id="ax-pane-intel" class="ax-pane"></div>' +
-      '<div id="ax-pane-gdacs" class="ax-pane"></div>' +
+      '<div id="ax-pane-ais"          class="ax-pane ax-show"></div>' +
+      '<div id="ax-pane-ports"        class="ax-pane"></div>' +
+      '<div id="ax-pane-noaa"         class="ax-pane"></div>' +
+      '<div id="ax-pane-intel"        class="ax-pane"></div>' +
+      '<div id="ax-pane-gdacs"        class="ax-pane"></div>' +
+      '<div id="ax-pane-humanitarian" class="ax-pane"></div>' +
     '</div>';
   }
 
@@ -1132,14 +1385,15 @@ window.ArgusAnalytics = (function () {
 
   // Repaint all tabs that have data (so TF change is reflected on next tab switch too)
   function _repaintAll() {
-    var all = ['ais', 'ports', 'noaa', 'intel', 'gdacs'];
+    var all = ['ais', 'ports', 'noaa', 'intel', 'gdacs', 'humanitarian'];
     for (var i = 0; i < all.length; i++) {
       var tab = all[i];
-      var hasData = tab === 'ais'   ? !!(_state.ais.data  && _state.ais.data.hasData) :
-                    tab === 'ports' ? !!_state.ports.data  :
-                    tab === 'noaa'  ? !!_state.noaa.metrics :
-                    tab === 'intel' ? !!(_state.intel.acled || _state.intel.gem) :
-                    tab === 'gdacs' ? !!_state.gdacs.metrics : false;
+      var hasData = tab === 'ais'          ? !!(_state.ais.data  && _state.ais.data.hasData) :
+                    tab === 'ports'        ? !!_state.ports.data  :
+                    tab === 'noaa'         ? !!_state.noaa.metrics :
+                    tab === 'intel'        ? !!(_state.intel.acled || _state.intel.gem) :
+                    tab === 'gdacs'        ? !!_state.gdacs.metrics :
+                    tab === 'humanitarian' ? !!(_state.humanitarian.data && _state.humanitarian.data.hasData) : false;
       if (hasData || tab === _activeTab) _repaint(tab);
     }
   }
@@ -1153,7 +1407,7 @@ window.ArgusAnalytics = (function () {
     var active = document.querySelector('#ax-tabbar [data-ax="' + tab + '"]');
     if (active) active.classList.add('ax-on');
 
-    var allTabs = ['ais', 'ports', 'noaa', 'intel', 'gdacs'];
+    var allTabs = ['ais', 'ports', 'noaa', 'intel', 'gdacs', 'humanitarian'];
     for (var j = 0; j < allTabs.length; j++) {
       var pane = document.getElementById('ax-pane-' + allTabs[j]);
       if (!pane) continue;
@@ -1162,11 +1416,12 @@ window.ArgusAnalytics = (function () {
     }
 
     // On first activation of each tab, trigger data load
-    if (tab === 'ais'   && !_state.ais.data)                 _refreshAIS();
-    if (tab === 'ports' && !_state.ports.data)               _refreshPorts();
-    if (tab === 'noaa'  && !_state.noaa.metrics  && !_state.noaa.loading)  _pollNoaa();
-    if (tab === 'intel' && !_state.intel.acled   && !_state.intel.loading) _pollIntel();
-    if (tab === 'gdacs' && !_state.gdacs.metrics && !_state.gdacs.loading) _pollGdacs();
+    if (tab === 'ais'          && !_state.ais.data)                          _refreshAIS();
+    if (tab === 'ports'        && !_state.ports.data)                        _refreshPorts();
+    if (tab === 'noaa'         && !_state.noaa.metrics  && !_state.noaa.loading)  _pollNoaa();
+    if (tab === 'intel'        && !_state.intel.acled   && !_state.intel.loading) _pollIntel();
+    if (tab === 'gdacs'        && !_state.gdacs.metrics && !_state.gdacs.loading) _pollGdacs();
+    if (tab === 'humanitarian' && !_state.humanitarian.data)                 _refreshHumanitarian();
   }
 
   // ── Expand mode ───────────────────────────────────────────────────────────────
@@ -1186,10 +1441,11 @@ window.ArgusAnalytics = (function () {
   function _repaint(tab) {
     var pane = document.getElementById('ax-pane-' + tab);
     if (!pane) return;
-    var html = tab === 'ais'   ? _renderAIS()    :
-               tab === 'ports' ? _renderPorts()  :
-               tab === 'noaa'  ? _renderNoaa()   :
-               tab === 'gdacs' ? _renderGdacs()  : _renderIntel();
+    var html = tab === 'ais'          ? _renderAIS()          :
+               tab === 'ports'        ? _renderPorts()        :
+               tab === 'noaa'         ? _renderNoaa()         :
+               tab === 'gdacs'        ? _renderGdacs()        :
+               tab === 'humanitarian' ? _renderHumanitarian() : _renderIntel();
     pane.innerHTML = html;
   }
 
@@ -1321,20 +1577,22 @@ window.ArgusAnalytics = (function () {
     }
 
     _refreshAIS();
-    setTimeout(_refreshPorts, 2000);
-    setTimeout(_pollNoaa,   5000);
-    setTimeout(_pollIntel,  9000);
-    setTimeout(_pollGdacs, 12000);
+    setTimeout(_refreshPorts,        2000);
+    setTimeout(_pollNoaa,            5000);
+    setTimeout(_pollIntel,           9000);
+    setTimeout(_pollGdacs,          12000);
+    setTimeout(_refreshHumanitarian, 15000); // after ArgusHumanitarian pipeline completes
 
     window.addEventListener('argus:portwatch:ready', function () {
       _refreshPorts();
     });
 
-    _timers.ais   = setInterval(_refreshAIS,   REFRESH_AIS_MS);
-    _timers.ports = setInterval(_refreshPorts, REFRESH_PORTS_MS);
-    _timers.noaa  = setInterval(_pollNoaa,     POLL_NOAA);
-    _timers.intel = setInterval(_pollIntel,    POLL_ACLED);
-    _timers.gdacs = setInterval(_pollGdacs,    POLL_GDACS);
+    _timers.ais          = setInterval(_refreshAIS,          REFRESH_AIS_MS);
+    _timers.ports        = setInterval(_refreshPorts,        REFRESH_PORTS_MS);
+    _timers.noaa         = setInterval(_pollNoaa,            POLL_NOAA);
+    _timers.intel        = setInterval(_pollIntel,           POLL_ACLED);
+    _timers.gdacs        = setInterval(_pollGdacs,           POLL_GDACS);
+    _timers.humanitarian = setInterval(_refreshHumanitarian, 5 * 60 * 1000);
   }
 
   function refresh() {
@@ -1343,6 +1601,7 @@ window.ArgusAnalytics = (function () {
     _pollNoaa();
     _pollIntel();
     _pollGdacs();
+    _refreshHumanitarian();
   }
 
   function status() {
@@ -1352,11 +1611,12 @@ window.ArgusAnalytics = (function () {
       expanded:    _expanded,
       initialized: _initialized,
       mounted:     _mounted,
-      ais:   { hasData: !!(_state.ais.data && _state.ais.data.hasData),  ts: _state.ais.ts   },
-      ports: { hasData: !!_state.ports.data,  ts: _state.ports.ts  },
-      noaa:  { hasData: !!_state.noaa.metrics, ts: _state.noaa.ts  },
-      intel: { hasData: !!(_state.intel.acled || _state.intel.gem), ts: _state.intel.ts },
-      gdacs: { hasData: !!_state.gdacs.metrics, ts: _state.gdacs.ts },
+      ais:          { hasData: !!(_state.ais.data && _state.ais.data.hasData),  ts: _state.ais.ts   },
+      ports:        { hasData: !!_state.ports.data,  ts: _state.ports.ts  },
+      noaa:         { hasData: !!_state.noaa.metrics, ts: _state.noaa.ts  },
+      intel:        { hasData: !!(_state.intel.acled || _state.intel.gem), ts: _state.intel.ts },
+      gdacs:        { hasData: !!_state.gdacs.metrics, ts: _state.gdacs.ts },
+      humanitarian: { hasData: !!(_state.humanitarian.data && _state.humanitarian.data.hasData), ts: _state.humanitarian.ts },
     };
   }
 

@@ -4878,58 +4878,9 @@ setInterval(function () { if (!document.hidden) loadLiveEvents(); }, FEED_TTL);
 })();
 
 // ════════════════════════════════════════════════════════════════════════════
-// ReliefWeb Active Crises — free, no key, UN OCHA
-// ════════════════════════════════════════════════════════════════════════════
-(function loadReliefWeb() {
-  var RW_FN     = '/.netlify/functions/fetch-reliefweb';
-  var CACHE_KEY = 'argus_rw_v2';
-  var CACHE_TS  = 'argus_rw_ts_v2';
-  var TTL       = 60 * 60 * 1000; // 1 hr
-
-  try {
-    var cached = localStorage.getItem(CACHE_KEY);
-    var ts     = parseInt(localStorage.getItem(CACHE_TS) || '0');
-    if (cached && Date.now() - ts < TTL) {
-      injectRW(JSON.parse(cached)); return;
-    }
-  } catch(e) {}
-
-  fetch(RW_FN)
-  .then(function(r) { return r.ok ? r.json() : Promise.reject('HTTP ' + r.status); })
-  .then(function(data) {
-    if (!data) { console.warn('ReliefWeb: no data'); return; }
-    var items = (data.data || []);
-    localStorage.setItem(CACHE_KEY, JSON.stringify(items));
-    localStorage.setItem(CACHE_TS, String(Date.now()));
-    injectRW(items);
-  })
-  .catch(function(e) { console.warn('ReliefWeb: failed', e.message); });
-
-  function injectRW(items) {
-    var events = items.map(function(d, i) {
-      var f       = d.fields || {};
-      var country = f.country && f.country[0] ? f.country[0].name : '';
-      var type    = f.type    && f.type[0]    ? f.type[0].name    : 'Disaster';
-      return {
-        id: 9500 + i,
-        type: 'DISASTER',
-        severity: 'WARNING',
-        title: type + ' — ' + (f.name || country || 'Active Crisis'),
-        impact: 'Active UN-designated crisis. Country: ' + (country || 'Unknown') + '. Status: ' + (f.status || 'current') + '.',
-        region: country,
-        pubDate: f.date && f.date.created ? new Date(f.date.created).toLocaleDateString() : '',
-        source: 'UN RELIEFWEB',
-        link: 'https://reliefweb.int',
-        plotPriority: 55,
-      };
-    });
-    window._rwCrisisEvents = events;
-    console.log('ReliefWeb: ' + events.length + ' active crises loaded');
-    mergeAuxEvents();
-  }
-})();
-
 // ── Merge auxiliary sources into main feed ────────────────────────────────────
+// Exposed on window so ArgusHumanitarian (external module) can trigger merges
+// after ReliefWeb data loads. Called by USGS loader and ArgusHumanitarian.
 function mergeAuxEvents() {
   var base    = window._currentEvents || [];
   var usgs    = window._usgsEvents    || [];
@@ -4942,6 +4893,7 @@ function mergeAuxEvents() {
   merged.sort(function(a,b) { return b.plotPriority - a.plotPriority; });
   window._currentEvents = merged;
 }
+window.mergeAuxEvents = mergeAuxEvents; // expose for ArgusHumanitarian
 
 // ════════════════════════════════════════════════════════════════════════════
 // ArgusUI — panel display and detail views
@@ -5585,29 +5537,74 @@ window.ArgusUI = (function() {
         }
       }
 
-      // ── UN Humanitarian Status (ReliefWeb + UNHCR) ────────────────────────
-      var rw = window.ArgusRW && window.ArgusRW.getCountryData(d.code);
-      if (rw) {
-        var rwCol = '#4da6ff'; // UN blue
-        html += '<div class="detail__section-header" style="color:' + rwCol + '">UN HUMANITARIAN STATUS <span style="color:#2a4a6a;font-size:7px;font-weight:300;float:right">RELIEFWEB · UNHCR · OCHA</span></div>';
+      // ── UN Humanitarian Status (ArgusHumanitarian canonical + _rwData legacy fallback) ─
+      var rwCol      = '#4da6ff'; // UN blue
+      var _ah        = window.ArgusHumanitarian;
+      var ahEntities = (_ah && typeof _ah.getCountryData === 'function') ? _ah.getCountryData(d.code) : [];
+      var rw         = window.ArgusRW && window.ArgusRW.getCountryData(d.code);
+      var dispYear   = String(new Date().getFullYear() - 1);
 
-        // Active disasters
-        if (rw.disasters && rw.disasters.length) {
-          var crit = rw.disasters.filter(function(x) { return x.sev === 'CRITICAL'; }).length;
-          var warn = rw.disasters.filter(function(x) { return x.sev === 'WARNING'; }).length;
-          var sevStr = (crit ? '<span style="color:#ff0044">' + crit + ' CRITICAL</span> ' : '') +
-                       (warn ? '<span style="color:#ff9933">' + warn + ' WARNING</span>' : '');
+      // Primary: canonical entities from ArgusHumanitarian
+      var rwCanonical  = [];
+      var unhcrEntity  = null;
+      for (var _ahI = 0; _ahI < ahEntities.length; _ahI++) {
+        if (ahEntities[_ahI].source === 'UNHCR') { unhcrEntity = ahEntities[_ahI]; }
+        else { rwCanonical.push(ahEntities[_ahI]); }
+      }
+      // Sort canonical ReliefWeb entities by severity (Critical first)
+      var _sevRankPanel = { Critical: 5, Severe: 4, High: 3, Moderate: 2, Low: 1, Unknown: 0 };
+      rwCanonical.sort(function(a, b) {
+        return (_sevRankPanel[b.severity] || 0) - (_sevRankPanel[a.severity] || 0);
+      });
+      var _sevColorPanel = { Critical: '#ff0044', Severe: '#ff4400', High: '#ff9933', Moderate: '#ffcc00', Low: '#00ff88', Unknown: '#4a7da8' };
+
+      var hasUNData = rwCanonical.length > 0 || unhcrEntity !== null ||
+                      (rw && ((rw.disasters && rw.disasters.length) || rw.refugees != null || rw.displaced != null));
+
+      if (hasUNData) {
+        html += '<div class="detail__section-header" style="color:' + rwCol + '">UN HUMANITARIAN STATUS <span style="color:#2a4a6a;font-size:7px;font-weight:300;float:right">RELIEFWEB · UNHCR</span></div>';
+
+        // ── Active crises ───────────────────────────────────────────────────────
+        if (rwCanonical.length) {
+          // Use canonical entities from ArgusHumanitarian
+          var _critC = rwCanonical.filter(function(x) { return x.severity === 'Critical'; }).length;
+          var _sevC  = rwCanonical.filter(function(x) { return x.severity === 'Severe';   }).length;
+          var _sevStr = (_critC ? '<span style="color:#ff0044">' + _critC + ' CRITICAL</span> ' : '') +
+                        (_sevC  ? '<span style="color:#ff4400">' + _sevC  + ' SEVERE</span>'   : '');
           html += '<div class="detail__row"><span class="detail__label">ACTIVE UN CRISES</span>' +
-            '<span class="detail__value" style="font-size:11px">' + rw.disasters.length + ' &nbsp;' + sevStr + '</span></div>';
+            '<span class="detail__value" style="font-size:11px">' + rwCanonical.length + ' &nbsp;' + _sevStr + '</span></div>';
 
-          // List each active crisis
+          rwCanonical.slice(0, 4).forEach(function(ent) {
+            var eCol   = _sevColorPanel[ent.severity] || '#ffcc00';
+            var glide  = ent.humanitarianImpact && ent.humanitarianImpact.glide;
+            html += '<div style="padding:4px 0 3px;border-bottom:1px solid rgba(15,39,68,0.25)">' +
+              '<div style="font-size:9px;color:' + eCol + ';font-weight:700;letter-spacing:1px">' +
+              '◈ ' + (ent.title.length > 55 ? ent.title.slice(0, 55) + '…' : ent.title) + '</div>' +
+              '<div style="font-size:8px;color:#4a7da8;margin-top:1px">' +
+              ent.category + (ent.eventDate ? ' &nbsp;·&nbsp; ' + ent.eventDate.slice(0, 10) : '') +
+              (glide ? ' &nbsp;<span style="color:#2a4a68">' + glide + '</span>' : '') +
+              '</div>' +
+              '<div style="font-size:7px;color:#2a4a6a;margin-top:1px">' + ent.severity.toUpperCase() + ' · ' + ent.source + '</div>' +
+              '</div>';
+          });
+          if (rwCanonical.length > 4) {
+            html += '<div style="font-size:8px;color:#2a4a68;padding:3px 0">+ ' + (rwCanonical.length - 4) + ' more active crises</div>';
+          }
+        } else if (rw && rw.disasters && rw.disasters.length) {
+          // Fallback to legacy _rwData disasters (ArgusHumanitarian not yet loaded)
+          var _crit = rw.disasters.filter(function(x) { return x.sev === 'CRITICAL'; }).length;
+          var _warn = rw.disasters.filter(function(x) { return x.sev === 'WARNING';  }).length;
+          var _sfStr = (_crit ? '<span style="color:#ff0044">' + _crit + ' CRITICAL</span> ' : '') +
+                       (_warn ? '<span style="color:#ff9933">' + _warn + ' WARNING</span>' : '');
+          html += '<div class="detail__row"><span class="detail__label">ACTIVE UN CRISES</span>' +
+            '<span class="detail__value" style="font-size:11px">' + rw.disasters.length + ' &nbsp;' + _sfStr + '</span></div>';
           rw.disasters.slice(0, 4).forEach(function(dis) {
             var dCol = dis.sev === 'CRITICAL' ? '#ff0044' : dis.sev === 'WARNING' ? '#ff9933' : '#ffcc00';
             html += '<div style="padding:4px 0 3px;border-bottom:1px solid rgba(15,39,68,0.25)">' +
               '<div style="font-size:9px;color:' + dCol + ';font-weight:700;letter-spacing:1px">' +
               '◈ ' + dis.name.slice(0, 55) + '</div>' +
               '<div style="font-size:8px;color:#4a7da8;margin-top:1px">' +
-              dis.types.slice(0,2).join(' · ') + (dis.date ? ' &nbsp;·&nbsp; ' + dis.date : '') +
+              dis.types.slice(0, 2).join(' · ') + (dis.date ? ' &nbsp;·&nbsp; ' + dis.date : '') +
               (dis.glide ? ' &nbsp;<span style="color:#2a4a68">' + dis.glide + '</span>' : '') +
               '</div></div>';
           });
@@ -5618,9 +5615,25 @@ window.ArgusUI = (function() {
           html += '<div class="detail__row"><span class="detail__label">ACTIVE UN CRISES</span><span class="detail__value" style="color:#00ff88">NONE REGISTERED</span></div>';
         }
 
-        // Displacement + refugee figures
-        if (rw.refugees != null || rw.displaced != null) {
-          html += '<div class="detail__section-header" style="color:' + rwCol + ';margin-top:10px">DISPLACEMENT (UNHCR 2023)</div>';
+        // ── Displacement intelligence ───────────────────────────────────────────
+        if (unhcrEntity && unhcrEntity.displacementImpact) {
+          // Use canonical UNHCR entity from ArgusHumanitarian
+          var di = unhcrEntity.displacementImpact;
+          if (di.refugees != null || di.idps != null) {
+            html += '<div class="detail__section-header" style="color:' + rwCol + ';margin-top:10px">DISPLACEMENT (UNHCR ' + dispYear + ')</div>';
+            if (di.refugees != null) {
+              html += '<div class="detail__row"><span class="detail__label">REFUGEES HOSTED</span><span class="detail__value" style="color:#ff9933">' +
+                Number(di.refugees).toLocaleString() + '</span></div>';
+            }
+            if (di.idps != null) {
+              html += '<div class="detail__row"><span class="detail__label">INTERNAL DISPL. (IDPs)</span><span class="detail__value" style="color:#ff9933">' +
+                Number(di.idps).toLocaleString() + '</span></div>';
+            }
+            html += '<div class="detail__row"><span class="detail__label">DISPLACEMENT SCALE</span><span class="detail__value" style="color:' + (_sevColorPanel[unhcrEntity.severity] || '#4da6ff') + '">' + unhcrEntity.severity.toUpperCase() + '</span></div>';
+          }
+        } else if (rw && (rw.refugees != null || rw.displaced != null)) {
+          // Fallback to legacy _rwData displacement
+          html += '<div class="detail__section-header" style="color:' + rwCol + ';margin-top:10px">DISPLACEMENT (UNHCR ' + dispYear + ')</div>';
           if (rw.refugees != null) {
             html += '<div class="detail__row"><span class="detail__label">REFUGEES HOSTED</span><span class="detail__value" style="color:#ff9933">' +
               Number(rw.refugees).toLocaleString() + '</span></div>';
@@ -5631,30 +5644,12 @@ window.ArgusUI = (function() {
           }
         }
 
-        // Latest situation reports
-        if (rw.sitreps && rw.sitreps.length) {
-          html += '<div class="detail__section-header" style="color:' + rwCol + ';margin-top:10px">SITUATION REPORTS</div>';
-          rw.sitreps.slice(0, 3).forEach(function(s) {
-            var titleShort = s.title.length > 70 ? s.title.slice(0, 70) + '…' : s.title;
-            html += '<div style="padding:4px 0 3px;border-bottom:1px solid rgba(15,39,68,0.25)">' +
-              '<div style="font-size:9px;color:#c5d7e8;line-height:1.5">' + titleShort + '</div>' +
-              '<div style="display:flex;justify-content:space-between;margin-top:2px">' +
-                '<span style="font-size:7px;letter-spacing:1px;color:#4a7da8">' + (s.src || 'UN') + '</span>' +
-                '<span style="font-size:7px;color:#2a4a68">' + (s.date || '') + '</span>' +
-              '</div>' +
-              (s.url ? '<a href="' + s.url + '" target="_blank" rel="noopener" onclick="event.stopPropagation()" ' +
-                'style="font-size:7px;color:#4da6ff;text-decoration:underline;display:block;margin-top:2px">↗ READ FULL REPORT</a>' : '') +
-            '</div>';
-          });
-        }
-
         // Attribution
         html += '<div style="font-size:7px;color:#1a3a58;margin-top:6px;letter-spacing:1px">DATA · UN OCHA RELIEFWEB · UNHCR POPULATION STATISTICS</div>';
 
       } else {
-        // UN data not yet loaded — async check
         html += '<div class="detail__section-header" style="color:#4da6ff">UN HUMANITARIAN STATUS</div>';
-        html += '<div class="detail__placeholder">AWAITING UN DATA FEED…</div>';
+        html += '<div class="detail__placeholder">No Active Humanitarian Intelligence Reported</div>';
       }
     } else if (d.isPort) {
       html += '<div class="detail__section-header">PORT PROFILE</div>';
@@ -6661,17 +6656,32 @@ ArgusMarket.init();
 <script src="/modules/argusGdelt.js?v=api-fix-1"></script>
 
 <!-- ══════════════════════════════════════════════════════════════════════════════
-     SCRIPT 4 — GDACS Global Disaster Intelligence + UNHCR Humanitarian Data
+     SCRIPT 4 — GDACS Global Disaster Intelligence
      Sources : /.netlify/functions/fetch-gdacs — normalized ARGUS event schema
-               UNHCR population API — displacement figures, CORS-open, no key
      Exposes : window.ArgusGDACS — { start, stop, refresh, status, setVisible }
                window.gdacsEventCache — Map<eventId, normalizedEvent>
                window.ArgusRW  — { getCountryData, getDisasters } (tooltip compat)
-               window._rwData  — per-ISO3 humanitarian index (GDACS + UNHCR)
+               window._rwData  — per-ISO3 humanitarian index (GDACS disasters; shared with ArgusHumanitarian)
      Render  : ghost mesh + InstancedMesh (N events → 1 draw call)
      Poll    : 30 minutes (matches backend cache TTL)
 ══════════════════════════════════════════════════════════════════════════════ -->
 <script src="/modules/argusGdacs.js?v=stable-v1"></script>
+
+<!-- ══════════════════════════════════════════════════════════════════════════════
+     SCRIPT 4b — ArgusHumanitarian: Unified UN Humanitarian Intelligence
+     Sources : /.netlify/functions/fetch-reliefweb — UN OCHA ReliefWeb active crises
+               UNHCR Population API — displacement figures (current year, 24hr cache)
+     Normalizes: ReliefWeb + UNHCR → canonical humanitarian schema
+     Bridges : window._rwData         — enriches with ReliefWeb (non-GDACS crises) + UNHCR displacement
+               window._rwCrisisEvents — ReliefWeb events for main feed (replaces inline loadReliefWeb)
+     Exposes : window.ArgusHumanitarian — { getCountryData, getAllEntities, getByGlide,
+                                           getCorrelation, getStore, refresh, _onGdacsLoad }
+               window._argusHumanitarianStore — canonical store { entities, byIso3, byGlide }
+               window._argusGlideIndex        — { byGlide, byIso3 } for cross-source lookup
+     Poll    : ReliefWeb 1hr (Supabase cache + localStorage); UNHCR 24hr (localStorage)
+     Load after: argusGdacs.js (shares window._rwData object)
+══════════════════════════════════════════════════════════════════════════════ -->
+<script src="/modules/argusHumanitarian.js?v=humanitarian-v1"></script>
 
 <!-- ══════════════════════════════════════════════════════════════════════════════
      EONET — NASA Earth Observatory Natural Event Tracker

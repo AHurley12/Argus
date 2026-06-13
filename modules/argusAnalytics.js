@@ -63,6 +63,7 @@ window.ArgusAnalytics = (function () {
   };
 
   var _timers = {};
+  var _humRetryTimer = null; // one-shot retry when ArgusHumanitarian hasn't loaded yet
 
   // ── Fetch (shared request cache when available) ───────────────────────────────
   function _fetch(url) {
@@ -1102,7 +1103,10 @@ window.ArgusAnalytics = (function () {
   }
 
   // ── Humanitarian refresh (reads ArgusHumanitarian live store — no network call) ─
+  // Retries every 8s while ArgusHumanitarian pipeline is still loading (race guard).
   function _refreshHumanitarian() {
+    if (_humRetryTimer) { clearTimeout(_humRetryTimer); _humRetryTimer = null; }
+
     var s  = _state.humanitarian;
     var ah = window.ArgusHumanitarian;
     if (!ah || typeof ah.getAllEntities !== 'function') {
@@ -1111,7 +1115,17 @@ window.ArgusAnalytics = (function () {
       _repaint('humanitarian');
       return;
     }
+
     var entities = ah.getAllEntities();
+    if (!entities.length) {
+      // Pipeline not done yet — show loading state, retry in 8s
+      s.data = null;
+      s.ts   = Date.now();
+      _repaint('humanitarian');
+      _humRetryTimer = setTimeout(_refreshHumanitarian, 8000);
+      return;
+    }
+
     s.data = _normalizeHumanitarian(entities);
     s.ts   = Date.now();
     _repaint('humanitarian');

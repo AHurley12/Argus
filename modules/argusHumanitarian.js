@@ -194,20 +194,19 @@ window.ArgusHumanitarian = (function () {
     var category = typeName ? _rwCategory(typeName) : 'Humanitarian Emergency';
     var severity = _categoryDefaultSeverity(category);
 
-    // Country resolution — use ISO2 → ISO3 for accurate mapping
+    // Country resolution — ReliefWeb returns iso3 directly; ISO2 lookup is fallback only
     var primaryCountry = null;
     var allCountries   = [];
     if (f.country && f.country.length) {
       for (var ci = 0; ci < f.country.length; ci++) {
         var c    = f.country[ci];
-        var iso2 = (c.iso2 || '').toUpperCase();
-        var iso3 = ISO2_TO_ISO3[iso2] || null;
+        var iso3 = c.iso3 || ISO2_TO_ISO3[(c.iso2 || '').toUpperCase()] || null;
         if (iso3 && _indexOfId(allCountries, iso3) === -1) allCountries.push(iso3);
         if (!primaryCountry && iso3) primaryCountry = iso3;
       }
     }
 
-    var glide = f.glide || null;
+    var glide = Array.isArray(f.glide) ? (f.glide[0] || null) : (f.glide || null);
 
     return {
       id:      'rw_' + (item.id || (9500 + index)),

@@ -118,7 +118,6 @@ exports.handler = async function (event) {
     raw = await _rwFetch({
       filter: { field: 'status', value: 'current' },
       fields: { include: FIELDS },
-      sort:   ['date.created:desc'],
       limit:  50,
     }, signal);
 
@@ -132,7 +131,6 @@ exports.handler = async function (event) {
       console.warn('[fetch-reliefweb] primary returned 0 — trying fallback (no filter)');
       const fallbackRaw = await _rwFetch({
         fields: { include: FIELDS },
-        sort:   ['date.created:desc'],
         limit:  10,
       }, signal);
       const fallbackData = Array.isArray(fallbackRaw.data) ? fallbackRaw.data : [];
@@ -145,7 +143,6 @@ exports.handler = async function (event) {
         // Re-fetch with higher limit and no filter
         const fullRaw = await _rwFetch({
           fields: { include: FIELDS },
-          sort:   ['date.created:desc'],
           limit:  50,
         }, signal);
         data = Array.isArray(fullRaw.data) ? fullRaw.data : [];

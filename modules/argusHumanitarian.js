@@ -251,7 +251,7 @@ window.ArgusHumanitarian = (function () {
     return {
       id:        'unhcr_' + iso3 + '_' + UNHCR_YEAR,
       source:    'UNHCR',
-      sourceId:  iso2,
+      sourceId:  rawIso,
       sourceUrl: null,
       title:     'Displacement Situation — ' + iso3,
       category:  'Displacement',

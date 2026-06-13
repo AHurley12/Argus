@@ -1,7 +1,7 @@
 // ── ArgusDataAge — dynamic risk scoring overlay ───────────────────────────────
 // Fetches dynamic country risk scores from calculate-risk Netlify function.
 // Overlays scores onto COUNTRIES_DATA and globe marker colors.
-// Only escalates risk (never silently downgrades static baselines).
+// Colors are always driven by the adjusted dynamic score — Low/Watch/Warning/Critical.
 // Extracted from index.html inline script — no closure dependencies.
 
 (function() {
@@ -47,7 +47,6 @@ async function fetchDynamicRisk() {
     });
 
     // ── Update globe marker colors ────────────────────────────────────────────
-    // Only escalate — if dynamic score pushes to a higher tier, update color.
     (window.countryMarkers || []).forEach(function(mesh) {
       var s = byIso3[mesh.userData.code];
       if (!s) return;
@@ -63,10 +62,8 @@ async function fetchDynamicRisk() {
       mesh.userData._adjustedRisk   = s.adjustedRisk   || null;
       mesh.userData._compositeScore = s.compositeScore || null;
 
-      if (RISK_TIER_RANK[dynamicTier] > RISK_TIER_RANK[staticTier]) {
-        mesh.material.color.set(RISK_TIER_COLOR[dynamicTier]);
-        mesh.userData._dynamicTier = dynamicTier;
-      }
+      mesh.material.color.set(RISK_TIER_COLOR[dynamicTier]);
+      mesh.userData._dynamicTier = dynamicTier;
     });
 
     // Mirror to hit meshes (invisible but carry userData for detail panel)

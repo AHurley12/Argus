@@ -40,40 +40,11 @@ window.ArgusNOAA = (function () {
   // Separate from acledEventCache / aircraftLiveCache / energyInfrastructureCache.
   var weatherOverlayCache = new Map();
 
-  // ── Render state ─────────────────────────────────────────────────────────────
-  var _placedIds = new Set();
-
   // ── Audit ────────────────────────────────────────────────────────────────────
   var _audit = { polls: 0, placed: 0, removed: 0, lastPollMs: 0, lastError: null };
 
   // ── Poll timer ───────────────────────────────────────────────────────────────
   var _pollTimer = null;
-
-  // ── Severity → THREE.js hex color ────────────────────────────────────────────
-  var SEVERITY_COLORS = {
-    'Extreme':  0xff00cc,  // magenta — catastrophic (Cat 3+ hurricane, violent tornado)
-    'Severe':   0xff4400,  // red-orange — major impact (tropical storm, severe warning)
-    'Moderate': 0xffcc00,  // yellow — watch / advisory
-    'Minor':    0xaaaaaa,  // gray — informational
-    'Unknown':  0xff9933,  // default orange
-  };
-
-  var WEATHER_BLUE = 0x2299ee;
-  var WEATHER_RE   = /flood|storm|rain|snow|blizzard|drought|tornado|cyclone|monsoon|surge/i;
-
-  function _severityColor(severity, eventType) {
-    // Flood and precipitation-type alerts always use water blue regardless of severity
-    if (eventType && WEATHER_RE.test(eventType)) return WEATHER_BLUE;
-    return SEVERITY_COLORS[severity] || SEVERITY_COLORS['Unknown'];
-  }
-
-  // ── Geometry by event type ────────────────────────────────────────────────────
-  // Hurricanes get a distinct shape vs standard warning spheres
-  function _isTropicalCyclone(eventType) {
-    var t = (eventType || '').toLowerCase();
-    return t.indexOf('hurricane') >= 0 || t.indexOf('typhoon') >= 0 ||
-           t.indexOf('tropical') >= 0  || t.indexOf('cyclone') >= 0;
-  }
 
   // ── Diff-based render ────────────────────────────────────────────────────────
   // Static mesh rendering is intentionally suppressed.
@@ -167,12 +138,8 @@ window.ArgusNOAA = (function () {
         if (window.ArgusResourceTracker) window.ArgusResourceTracker.safeDisposeMesh(toRemove[i], 'noaa_alert');
         AG.eventMarkerGroup.remove(toRemove[i]);
       }
-      window.weatherMarkers = (window.weatherMarkers || []).filter(function (m) {
-        return !(m.userData && m.userData._noaaMarker);
-      });
     }
     weatherOverlayCache.clear();
-    _placedIds.clear();
   }
 
   function refresh() {
@@ -182,7 +149,6 @@ window.ArgusNOAA = (function () {
   function status() {
     return {
       cacheSize:  weatherOverlayCache.size,
-      placed:     _placedIds.size,
       polls:      _audit.polls,
       placed:     _audit.placed,
       removed:    _audit.removed,

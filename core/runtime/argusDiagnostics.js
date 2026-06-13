@@ -28,8 +28,6 @@
   var _latency = {
     hover:  { count: 0, totalMs: 0, maxMs: 0 },
     click:  { count: 0, totalMs: 0, maxMs: 0 },
-    dim:    { count: 0, totalMs: 0, maxMs: 0 },
-    restore:{ count: 0, totalMs: 0, maxMs: 0 },
   };
 
   function _recordLatency(bucket, ms) {

@@ -5571,7 +5571,7 @@ window.ArgusUI = (function() {
           var _sevC  = rwCanonical.filter(function(x) { return x.severity === 'Severe';   }).length;
           var _sevStr = (_critC ? '<span style="color:#ff0044">' + _critC + ' CRITICAL</span> ' : '') +
                         (_sevC  ? '<span style="color:#ff4400">' + _sevC  + ' SEVERE</span>'   : '');
-          html += '<div class="detail__row"><span class="detail__label">ACTIVE UN CRISES</span>' +
+          html += '<div class="detail__row"><span class="detail__label">ACTIVE DISASTERS</span>' +
             '<span class="detail__value" style="font-size:11px">' + rwCanonical.length + ' &nbsp;' + _sevStr + '</span></div>';
 
           rwCanonical.slice(0, 4).forEach(function(ent) {
@@ -5596,7 +5596,7 @@ window.ArgusUI = (function() {
           var _warn = rw.disasters.filter(function(x) { return x.sev === 'WARNING';  }).length;
           var _sfStr = (_crit ? '<span style="color:#ff0044">' + _crit + ' CRITICAL</span> ' : '') +
                        (_warn ? '<span style="color:#ff9933">' + _warn + ' WARNING</span>' : '');
-          html += '<div class="detail__row"><span class="detail__label">ACTIVE UN CRISES</span>' +
+          html += '<div class="detail__row"><span class="detail__label">ACTIVE DISASTERS</span>' +
             '<span class="detail__value" style="font-size:11px">' + rw.disasters.length + ' &nbsp;' + _sfStr + '</span></div>';
           rw.disasters.slice(0, 4).forEach(function(dis) {
             var dCol = dis.sev === 'CRITICAL' ? '#ff0044' : dis.sev === 'WARNING' ? '#ff9933' : '#ffcc00';
@@ -5612,7 +5612,7 @@ window.ArgusUI = (function() {
             html += '<div style="font-size:8px;color:#2a4a68;padding:3px 0">+ ' + (rw.disasters.length - 4) + ' more active crises</div>';
           }
         } else {
-          html += '<div class="detail__row"><span class="detail__label">ACTIVE UN CRISES</span><span class="detail__value" style="color:#00ff88">NONE REGISTERED</span></div>';
+          html += '<div class="detail__row"><span class="detail__label">ACTIVE DISASTERS</span><span class="detail__value" style="color:#00ff88">NONE REGISTERED</span></div>';
         }
 
         // ── Displacement intelligence ───────────────────────────────────────────

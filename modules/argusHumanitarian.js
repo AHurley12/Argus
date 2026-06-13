@@ -549,8 +549,10 @@ window.ArgusHumanitarian = (function () {
 
   // Fetch both sources independently on start.
   // Failure of one does not block or affect the other.
+  // UNHCR is 24hr-cached and has no GDACS dependency — load in parallel with a small
+  // politeness offset (5s) so the page finishes its critical render path first.
   _fetchReliefWeb();
-  setTimeout(_fetchUnhcr, 90 * 1000); // 90s — deferred after GDACS (75s) has loaded first
+  setTimeout(_fetchUnhcr, 5000); // 5s offset — purely cosmetic, no architectural dependency
 
   // Publish canonical store (mutated in place — external references remain valid)
   window._argusHumanitarianStore = _store;

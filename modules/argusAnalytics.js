@@ -1595,7 +1595,7 @@ window.ArgusAnalytics = (function () {
     setTimeout(_pollNoaa,            5000);
     setTimeout(_pollIntel,           9000);
     setTimeout(_pollGdacs,          12000);
-    setTimeout(_refreshHumanitarian, 15000); // after ArgusHumanitarian pipeline completes
+    setTimeout(_refreshHumanitarian, 6000); // after ArgusHumanitarian pipeline completes (~3-5s typical)
 
     window.addEventListener('argus:portwatch:ready', function () {
       _refreshPorts();

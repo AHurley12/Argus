@@ -21,6 +21,8 @@
       --font-admin:         'Iosevka', monospace;
       --font-display:       'Rajdhani', sans-serif;
       --header-height:      76px;
+      --sidebar-width:      44px;
+      --snapshot-height:    34px;
       --panel-left-width:   290px;
       --panel-right-width:  clamp(180px, 17vw, 221px);
       --ai-panel-width:     380px;
@@ -56,8 +58,8 @@
     /* ── Globe Canvas ────────────────────────────────────────────────────────── */
     #globe-canvas-container {
       position: absolute;
-      top: var(--header-height);
-      left: 0;
+      top: calc(var(--header-height) + var(--snapshot-height));
+      left: var(--sidebar-width);
       right: 0;
       bottom: 0;
       z-index: var(--z-globe);
@@ -1486,7 +1488,7 @@
     #hud-legend {
       position: absolute;
       bottom: 18px;
-      left: 18px;
+      left: calc(var(--sidebar-width) + 8px);
       z-index: var(--z-panels);
       display: flex;
       flex-direction: column;
@@ -2362,18 +2364,190 @@
   .admin-refresh-btn:hover { border-color: #1a4a70; color: #7aafcc; }
   .admin-status { font-size: 9px; letter-spacing: 1px; color: #1a4a70; margin-bottom: 8px; }
 
-  /* ── Live Tracking Controls ─────────────────────────────────────────────── */
-  #tracking-controls {
+  /* ══════════════════════════════════════════════════════════════════════════
+     ARGUS SIDEBAR — vertical left navigation rail
+  ══════════════════════════════════════════════════════════════════════════ */
+  #argus-sidebar {
     position: absolute;
-    bottom: 18px;
-    left: 50%;
-    transform: translateX(-50%);
+    top: var(--header-height);
+    left: 0;
+    bottom: 0;
+    width: var(--sidebar-width);
     z-index: var(--z-panels);
     display: flex;
-    flex-direction: row;
-    gap: 4px;
-    align-items: center;
+    flex-direction: column;
+    background: linear-gradient(180deg, rgba(3,9,20,0.97) 0%, rgba(2,7,16,0.97) 100%);
+    border-right: 1px solid var(--color-border-solid);
+    backdrop-filter: blur(10px);
   }
+
+  .sb-section {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 6px 0;
+  }
+  .sb-section--domains { border-bottom: 1px solid var(--color-border-solid); flex: 1; padding-top: 8px; }
+  .sb-section--layers  { border-bottom: 1px solid var(--color-border-solid); padding: 6px 0; }
+  .sb-section--bottom  { padding: 6px 0 10px; }
+
+  .sb-btn {
+    width: 36px;
+    height: 36px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    background: none;
+    border: none;
+    border-left: 2px solid transparent;
+    color: var(--color-text-faint);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    border-radius: 0;
+    transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+    outline: none;
+    position: relative;
+    margin: 1px 0;
+    padding: 0;
+  }
+  .sb-btn:hover {
+    color: var(--color-text);
+    background: rgba(0, 153, 255, 0.06);
+    border-left-color: rgba(0, 153, 255, 0.3);
+  }
+  .sb-btn span {
+    font-size: 6px;
+    letter-spacing: 0.8px;
+    line-height: 1;
+    opacity: 0.7;
+  }
+  .sb-btn .sb-icon {
+    font-size: 13px;
+    line-height: 1;
+  }
+
+  /* Domain buttons — active state */
+  .sb-btn--domain.is-active {
+    color: var(--color-accent);
+    border-left-color: var(--color-accent);
+    background: rgba(0, 153, 255, 0.08);
+  }
+
+  /* Layer toggles reuse existing .track-btn active colors; add sidebar overrides */
+  .sb-btn.track-ais.is-active     { color: #34d399; border-left-color: #34d399; background: rgba(52,211,153,0.07); }
+  .sb-btn.track-weather.is-active { color: #72eeff; border-left-color: #72eeff; background: rgba(114,238,255,0.07); }
+  .sb-btn.is-active:not(.track-ais):not(.track-weather) {
+    color: #ffffff;
+    border-left-color: #ffffff;
+    background: rgba(255,255,255,0.06);
+  }
+
+  /* SRC / Analytics Lab button */
+  #btn-ax-lab { margin-top: 2px; }
+  #btn-ax-lab.is-active { color: #4fc3ff; border-left-color: #4fc3ff; background: rgba(79,195,255,0.08); }
+
+  /* Zoom buttons */
+  #btn-zoom-in, #btn-zoom-out { font-size: 16px; font-weight: 300; height: 30px; }
+
+  /* ── Global Snapshot Strip ─────────────────────────────────────────────── */
+  #argus-snapshot-strip {
+    position: absolute;
+    top: var(--header-height);
+    left: var(--sidebar-width);
+    right: 0;
+    height: var(--snapshot-height);
+    z-index: var(--z-panels);
+    display: flex;
+    align-items: center;
+    background: rgba(3,9,22,0.94);
+    border-bottom: 1px solid var(--color-border-solid);
+    backdrop-filter: blur(8px);
+    padding: 0 8px;
+    gap: 0;
+    overflow: hidden;
+  }
+  .snap-card {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0 12px;
+    border-right: 1px solid rgba(15,39,68,0.5);
+    height: 100%;
+    flex-shrink: 0;
+  }
+  .snap-card:last-child { border-right: none; }
+  .snap-label {
+    font-size: 7px;
+    letter-spacing: 1.2px;
+    color: var(--color-text-faint);
+    font-family: var(--font-mono);
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .snap-val {
+    font-size: 11px;
+    font-family: var(--font-mono);
+    font-weight: 700;
+    color: var(--color-text);
+    letter-spacing: 0.5px;
+    min-width: 24px;
+    text-align: right;
+  }
+  .snap-val.snap-critical { color: var(--color-red); }
+  .snap-val.snap-watch    { color: var(--color-yellow); }
+
+  /* ── Analytics Lab overlay ─────────────────────────────────────────────── */
+  #ax-lab-panel {
+    position: fixed;
+    inset: 0;
+    z-index: 9985;
+    display: none;
+    flex-direction: column;
+    background: #040b17;
+    overflow: hidden;
+  }
+  #ax-lab-panel.is-open { display: flex; }
+  #ax-lab-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 16px;
+    height: 42px;
+    flex-shrink: 0;
+    border-bottom: 1px solid var(--color-border-solid);
+    background: rgba(4,12,26,0.98);
+  }
+  #ax-lab-header-title {
+    font-size: 9px;
+    letter-spacing: 2.5px;
+    color: #4fc3ff;
+    font-family: var(--font-mono);
+    font-weight: 700;
+  }
+  #ax-lab-close {
+    background: none;
+    border: none;
+    color: var(--color-text-dim);
+    font-size: 13px;
+    cursor: pointer;
+    padding: 4px 6px;
+    font-family: var(--font-mono);
+    transition: color 0.15s;
+  }
+  #ax-lab-close:hover { color: var(--color-text); }
+  #ax-lab-body {
+    flex: 1;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(0,153,255,0.2) transparent;
+  }
+
+  /* ── Live Tracking Controls — hidden; buttons live in #argus-sidebar ─── */
+  #tracking-controls { display: none; }
   .track-btn {
     background: rgba(5, 15, 30, 0.82);
     border: 1px solid rgba(15, 39, 68, 0.8);

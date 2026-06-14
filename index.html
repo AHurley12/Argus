@@ -177,6 +177,103 @@
     </div>
   </div>
 
+  <!-- ── Left Navigation Sidebar ───────────────────────────────────────────── -->
+  <nav id="argus-sidebar" aria-label="Domain navigation">
+
+    <!-- Domain navigation (7 intelligence domains) -->
+    <div class="sb-section sb-section--domains">
+      <button class="sb-btn sb-btn--domain is-active" data-domain="overview"      title="Overview">
+        <span class="sb-icon">⬡</span><span>OVER</span>
+      </button>
+      <button class="sb-btn sb-btn--domain" data-domain="trade"         title="Trade &amp; Logistics">
+        <span class="sb-icon">⊞</span><span>TRADE</span>
+      </button>
+      <button class="sb-btn sb-btn--domain" data-domain="conflict"      title="Conflict &amp; Security">
+        <span class="sb-icon">◈</span><span>CONFL</span>
+      </button>
+      <button class="sb-btn sb-btn--domain" data-domain="weather"       title="Weather &amp; Disasters">
+        <span class="sb-icon">⊛</span><span>WTHR</span>
+      </button>
+      <button class="sb-btn sb-btn--domain" data-domain="humanitarian"  title="Humanitarian &amp; Population">
+        <span class="sb-icon">♥</span><span>HUM</span>
+      </button>
+      <button class="sb-btn sb-btn--domain" data-domain="energy"        title="Energy &amp; Infrastructure">
+        <span class="sb-icon">⚡</span><span>ENRG</span>
+      </button>
+      <button class="sb-btn sb-btn--domain" data-domain="emerging"      title="Emerging Risks">
+        <span class="sb-icon">⬦</span><span>RISK</span>
+      </button>
+    </div>
+
+    <!-- Layer toggles (migrated from #tracking-controls) -->
+    <div class="sb-section sb-section--layers">
+      <button id="btn-track-aircraft" class="sb-btn track-btn"
+              onclick="window.ArgusTracking && ArgusTracking.toggleAircraft()"
+              title="Toggle live aircraft (OpenSky Network · key A)">
+        <span class="sb-icon">✈</span><span>AIR</span>
+      </button>
+      <button id="btn-track-ais" class="sb-btn track-btn track-ais is-active"
+              onclick="window.ArgusAIS && ArgusAIS.toggle()"
+              title="Toggle AISstream live vessels">
+        <span class="sb-icon">⚓</span><span>AIS</span>
+      </button>
+      <button id="btn-track-weather" class="sb-btn track-btn track-weather"
+              onclick="window._toggleWeatherLayer && window._toggleWeatherLayer()"
+              title="Toggle NOAA weather layer (key W)">
+        <span class="sb-icon">⊛</span><span>WX</span>
+      </button>
+    </div>
+
+    <!-- Zoom + Legend + SRC -->
+    <div class="sb-section sb-section--bottom">
+      <button class="sb-btn" id="btn-zoom-in"
+              onmousedown="window._startZoom(-1)" onmouseup="window._stopZoom()" onmouseleave="window._stopZoom()"
+              title="Zoom in">
+        <span class="sb-icon">+</span>
+      </button>
+      <button class="sb-btn" id="btn-zoom-out"
+              onmousedown="window._startZoom(1)" onmouseup="window._stopZoom()" onmouseleave="window._stopZoom()"
+              title="Zoom out">
+        <span class="sb-icon">−</span>
+      </button>
+      <button class="sb-btn" id="btn-sb-legend"
+              onclick="document.getElementById('hud-legend').classList.toggle('is-open')"
+              title="Toggle legend">
+        <span class="sb-icon">⊟</span><span>KEY</span>
+      </button>
+      <button class="sb-btn" id="btn-ax-lab"
+              onclick="window.ArgusAnalyticsLab && ArgusAnalyticsLab.toggle()"
+              title="Analytics Lab — source intelligence">
+        <span class="sb-icon">⊕</span><span>SRC</span>
+      </button>
+    </div>
+
+  </nav>
+
+  <!-- ── Global Snapshot Strip ──────────────────────────────────────────────── -->
+  <div id="argus-snapshot-strip" aria-label="Global intelligence snapshot">
+    <div class="snap-card">
+      <span class="snap-label">CRITICAL</span>
+      <span class="snap-val snap-critical" id="snap-val-critical">—</span>
+    </div>
+    <div class="snap-card">
+      <span class="snap-label">LIVE EVENTS</span>
+      <span class="snap-val" id="snap-val-events">—</span>
+    </div>
+    <div class="snap-card">
+      <span class="snap-label">AIRCRAFT</span>
+      <span class="snap-val" id="snap-val-aircraft">—</span>
+    </div>
+    <div class="snap-card">
+      <span class="snap-label">VESSELS</span>
+      <span class="snap-val" id="snap-val-vessels">—</span>
+    </div>
+    <div class="snap-card">
+      <span class="snap-label">DISASTERS</span>
+      <span class="snap-val snap-watch" id="snap-val-disasters">—</span>
+    </div>
+  </div>
+
   <!-- ── Globe Viewport ──────────────────────────────────────────────────────── -->
   <div id="globe-canvas-container" aria-label="Interactive 3D globe" role="img"></div>
 
@@ -529,24 +626,8 @@
     </button>
   </div>
 
-  <!-- ── Live Tracking Toggle Buttons ───────────────────────────────────────── -->
-  <div id="tracking-controls" aria-label="Live tracking controls">
-    <button id="btn-track-aircraft" class="track-btn"
-            onclick="window.ArgusTracking && ArgusTracking.toggleAircraft()"
-            title="Toggle live aircraft (OpenSky Network · key A)">✈ AIRCRAFT</button>
-    <button id="btn-track-ais" class="track-btn track-ais is-active"
-            onclick="window.ArgusAIS && ArgusAIS.toggle()"
-            title="Toggle AISstream live vessels (Supabase Realtime · WebSocket feed)">◈ AIS LIVE</button>
-    <button id="btn-track-weather" class="track-btn track-weather"
-            onclick="window._toggleWeatherLayer && window._toggleWeatherLayer()"
-            title="Toggle NOAA atmospheric intelligence layer — NWS alerts + NHC tropical cyclones (key W)">⊛ WEATHER</button>
-    <span class="zoom-divider"></span>
-    <button class="track-btn zoom-btn" id="btn-zoom-in"
-            onmousedown="window._startZoom(-1)" onmouseup="window._stopZoom()" onmouseleave="window._stopZoom()"
-            title="Zoom in">+</button>
-    <button class="track-btn zoom-btn" id="btn-zoom-out"
-            onmousedown="window._startZoom(1)" onmouseup="window._stopZoom()" onmouseleave="window._stopZoom()"
-            title="Zoom out">−</button>
+  <!-- ── Live Tracking Controls — buttons migrated to #argus-sidebar ──────── -->
+  <div id="tracking-controls" aria-hidden="true">
     <div id="tracking-status"></div>
   </div>
   <!-- AIS render layer — placeholder for JS-driven vessel list; hidden by default.
@@ -11250,7 +11331,7 @@ if (document.readyState === 'loading') {
       <button class="nw-tab-btn is-active" data-tab="inspect">INSPECT</button>
       <button class="nw-tab-btn"           data-tab="timeline">TIMELINE</button>
       <button class="nw-tab-btn"           data-tab="notes">NOTES</button>
-      <button class="nw-tab-btn"           data-tab="analytics">ANALYTICS</button>
+      <button class="nw-tab-btn"           data-tab="analytics">INTEL</button>
     </div>
 
     <!-- Inspector pane -->
@@ -11303,11 +11384,22 @@ if (document.readyState === 'loading') {
 
 </div>
 
+<!-- ── Analytics Lab overlay — decoupled from Neural Web ────────────────────── -->
+<div id="ax-lab-panel" aria-label="Analytics Lab" role="dialog">
+  <div id="ax-lab-header">
+    <span id="ax-lab-header-title">⊕ ANALYTICS LAB — SOURCE INTELLIGENCE</span>
+    <button id="ax-lab-close" onclick="window.ArgusAnalyticsLab && ArgusAnalyticsLab.close()" aria-label="Close Analytics Lab">✕ CLOSE</button>
+  </div>
+  <div id="ax-lab-body">
+    <!-- ArgusAnalytics._mount() targets #ax-lab-body -->
+  </div>
+</div>
+
 <!-- ══════════════════════════════════════════════════════════════════════════════
      SCRIPT 6 — ArgusNeuralWeb: Country-Centric Intelligence Graph
      3-layer architecture: Data → State → View. Non-destructive.
 ══════════════════════════════════════════════════════════════════════════════ -->
-<script src="/modules/argusNeuralWeb.js?v=perf-fix-8"></script>
+<script src="/modules/argusNeuralWeb.js?v=sidebar-v1"></script>
 
 <!-- Dynamic risk scoring — extracted to separate file for background parsing -->
 <script src="/core/runtime/argusDynamicRisk.js?v=perf-fix-9"></script>
@@ -11331,10 +11423,108 @@ if (document.readyState === 'loading') {
 <script src="/core/providers/argusProviderCache.js?v=coverage-v6"></script>
 
 <!-- ArgusAnalytics — multi-source intelligence analytics panel (GEM / NOAA / ACLED) -->
-<script src="/modules/argusAnalytics.js?v=analytics-v2"></script>
+<script src="/modules/argusAnalytics.js?v=analytics-v3"></script>
 
 <!-- ArgusSearch — navigation registry + UI Phase 1+2 (countries, chokepoints, ports, LNG) -->
 <script src="/core/search/argusSearchRegistry.js?v=1"></script>
 <script src="/core/search/argusSearchUI.js?v=1"></script>
+
+<script>
+// ── ArgusAnalyticsLab — controller for #ax-lab-panel ──────────────────────────
+window.ArgusAnalyticsLab = (function () {
+  'use strict';
+  var _panel   = null;
+  var _btn     = null;
+
+  function _el() {
+    if (!_panel) _panel = document.getElementById('ax-lab-panel');
+    if (!_btn)   _btn   = document.getElementById('btn-ax-lab');
+    return _panel;
+  }
+
+  function open() {
+    var el = _el();
+    if (!el) return;
+    el.classList.add('is-open');
+    if (_btn) _btn.classList.add('is-active');
+    if (window.ArgusAnalytics) window.ArgusAnalytics.init(); // idempotent
+  }
+
+  function close() {
+    var el = _el();
+    if (!el) return;
+    el.classList.remove('is-open');
+    if (_btn) _btn.classList.remove('is-active');
+  }
+
+  function toggle() {
+    var el = _el();
+    if (!el) return;
+    el.classList.contains('is-open') ? close() : open();
+  }
+
+  return { open: open, close: close, toggle: toggle };
+}());
+
+// ── Sidebar domain button wiring ───────────────────────────────────────────────
+(function () {
+  'use strict';
+  var sidebar = document.getElementById('argus-sidebar');
+  if (!sidebar) return;
+
+  sidebar.addEventListener('click', function (e) {
+    var btn = e.target.closest('.sb-btn--domain');
+    if (!btn) return;
+    sidebar.querySelectorAll('.sb-btn--domain').forEach(function (b) {
+      b.classList.remove('is-active');
+    });
+    btn.classList.add('is-active');
+    // Phase B: domain-specific content rendering goes here
+  });
+}());
+
+// ── Global Snapshot Strip — updates every 10 s ────────────────────────────────
+(function () {
+  'use strict';
+
+  function _set(id, val) {
+    var el = document.getElementById(id);
+    if (el) el.textContent = val != null ? String(val) : '—';
+  }
+
+  function _updateSnap() {
+    // Critical countries
+    try {
+      var crit = (window.countryMarkers || []).filter(function (m) {
+        return m.userData && m.userData._dynamicTier === 'CRITICAL';
+      }).length;
+      _set('snap-val-critical', crit || '—');
+    } catch (_) {}
+
+    // Live events count (reads existing DOM element updated by ArgusEvents)
+    try {
+      var evEl = document.getElementById('ev-feed-count');
+      _set('snap-val-events', evEl ? evEl.textContent || '—' : '—');
+    } catch (_) {}
+
+    // Aircraft
+    try {
+      var reg = window.ArgusEntityRegistry && window.ArgusEntityRegistry.getAudit();
+      _set('snap-val-aircraft', reg ? reg.aircraftCount : '—');
+      _set('snap-val-vessels',  reg ? reg.shipCount     : '—');
+    } catch (_) {}
+
+    // Active disasters (NOAA cache)
+    try {
+      var dsz = window.weatherOverlayCache ? window.weatherOverlayCache.size : null;
+      _set('snap-val-disasters', dsz != null ? dsz : '—');
+    } catch (_) {}
+  }
+
+  // First update after data systems have had time to populate
+  setTimeout(_updateSnap, 8000);
+  setInterval(_updateSnap, 10000);
+}());
+</script>
 </body>
 </html>

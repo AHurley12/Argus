@@ -2585,7 +2585,7 @@ function switchTab(tab) {
     pane.classList.toggle('is-active', pane.id === 'nw-pane-' + tab);
   });
   if (tab === 'timeline') renderTimeline();
-  if (tab === 'analytics') renderAnalytics();
+  // 'analytics' tab now shows INTEL domain content (Phase B) — no renderAnalytics() call
   if (tab === 'notes') {
     var ta = document.getElementById('nw-notes-input');
     if (ta && !ta.value) ta.value = loadNotes();

@@ -1302,9 +1302,8 @@ window.ArgusAnalytics = (function () {
       '.ax-pane{display:none;}.ax-pane.ax-show{display:block;animation:ax-fadein 160ms ease;}' +
       '@keyframes ax-fadein{from{opacity:0}to{opacity:1}}' +
 
-      // Panel expand mode — width transition on #nw-intel-panel
-      '#nw-intel-panel{transition:width 180ms cubic-bezier(0.4,0,0.2,1);}' +
-      '#nw-intel-panel.ax-expanded{width:500px;}';
+      // Expand mode removed — Analytics Lab is now a full-screen overlay
+      '';
 
     document.head.appendChild(el);
   }
@@ -1339,11 +1338,8 @@ window.ArgusAnalytics = (function () {
 
   // ── DOM mount ─────────────────────────────────────────────────────────────────
   function _mount() {
-    var body = document.getElementById('nw-analytics-body');
+    var body = document.getElementById('ax-lab-body');
     if (!body) return false;
-
-    var ph = document.getElementById('nw-analytics-placeholder');
-    if (ph) ph.style.display = 'none';
 
     if (!document.getElementById('ax-root')) {
       var tmp = document.createElement('div');
@@ -1438,18 +1434,9 @@ window.ArgusAnalytics = (function () {
     if (tab === 'humanitarian' && !_state.humanitarian.data)                 _refreshHumanitarian();
   }
 
-  // ── Expand mode ───────────────────────────────────────────────────────────────
-  function _toggleExpand() {
-    _expanded = !_expanded;
-    var panel  = document.getElementById('nw-intel-panel');
-    var btn    = document.getElementById('ax-expand');
-    if (panel) panel.classList.toggle('ax-expanded', _expanded);
-    if (btn)   {
-      btn.classList.toggle('ax-on', _expanded);
-      btn.textContent = _expanded ? '⊳' : '⊲';
-      btn.title = _expanded ? 'Collapse analytics workspace' : 'Expand analytics workspace';
-    }
-  }
+  // ── Expand mode — no-op: Analytics Lab is now a full-screen overlay ──────────
+  function _toggleExpand() { /* intentionally empty */ }
+
 
   // ── Repaint ───────────────────────────────────────────────────────────────────
   function _repaint(tab) {

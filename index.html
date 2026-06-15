@@ -176,10 +176,25 @@
   <!-- ── Left Navigation Sidebar ───────────────────────────────────────────── -->
   <nav id="argus-sidebar" aria-label="Layer controls">
 
-    <!-- Emerging Risks (only active domain navigation) -->
+    <!-- Feature buttons -->
     <div class="sb-section sb-section--layers">
       <button class="sb-btn sb-btn--domain" data-domain="emerging" title="Emerging Risks">
         <span class="sb-icon">⬦</span><span>RISK</span>
+      </button>
+      <button class="sb-btn" id="btn-sb-neural-web"
+              onclick="window.ArgusNeuralWeb?.toggle?.()"
+              title="Neural Web — intelligence graph builder">
+        <span class="sb-icon">⬡</span><span>NW</span>
+      </button>
+      <button class="sb-btn" id="btn-sb-ax-lab"
+              onclick="window.ArgusAnalyticsLab && ArgusAnalyticsLab.toggle()"
+              title="Analytics Lab — source intelligence">
+        <span class="sb-icon">▦</span><span>SRC</span>
+      </button>
+      <button class="sb-btn" id="btn-sb-add-intel"
+              onclick="ArgusEvents.openModal()"
+              title="Add Intelligence — submit report">
+        <span class="sb-icon">⊕</span><span>ADD</span>
       </button>
     </div>
 
@@ -11437,6 +11452,19 @@ window.ArgusAnalyticsLab = (function () {
   }
 
   return { open: open, close: close, toggle: toggle };
+}());
+
+// ── Sidebar NW button — mirror is-active state from hidden #btn-neural-web ────
+// ArgusNeuralWeb.js toggles #btn-neural-web; we observe it and sync the sidebar btn.
+(function () {
+  'use strict';
+  var src = document.getElementById('btn-neural-web');
+  var sb  = document.getElementById('btn-sb-neural-web');
+  if (!src || !sb) return;
+  var obs = new MutationObserver(function () {
+    sb.classList.toggle('is-active', src.classList.contains('is-active'));
+  });
+  obs.observe(src, { attributes: true, attributeFilter: ['class'] });
 }());
 
 // ── Admin toggle button — show only when admin-bar is visible (admin users) ───

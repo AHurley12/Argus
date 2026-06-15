@@ -62,14 +62,16 @@ window.ArgusSearchUI = (function () {
     // ── Wrapper ────────────────────────────────────────────────────────────
     _bar = document.createElement('div');
     _bar.id = 'argus-search-bar';
+    // Center bar vertically inside the header (header is ~76px tall, bar ~40px tall)
+    var barTop = Math.round((hTop - 40) / 2);
     _bar.style.cssText = [
       'position:fixed',
-      'top:' + hTop + 'px',
+      'top:' + barTop + 'px',
       'left:50%',
       'transform:translateX(-50%)',
-      'z-index:19',
-      'width:460px',
-      'max-width:calc(100vw - 24px)',
+      'z-index:25',
+      'width:380px',
+      'max-width:calc(100vw - 320px)',
       'pointer-events:all',
       'font-family:"JetBrains Mono",monospace',
     ].join(';');

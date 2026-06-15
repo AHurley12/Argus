@@ -168,6 +168,28 @@
       transition: background 0.2s, box-shadow 0.2s;
     }
 
+    /* ── Admin toggle (header right zone, admin-only) ── */
+    #btn-admin-toggle {
+      display: none;  /* shown via JS when admin bar is visible */
+      height: 28px;
+      padding: 0 10px;
+      background: rgba(10,20,40,0.8);
+      border: 1px solid #3a6a2a;
+      color: #ff9900;
+      font-family: var(--font-mono);
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 1.5px;
+      border-radius: 3px;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: border-color 0.2s, color 0.2s;
+    }
+    #btn-admin-toggle:hover { border-color: #ff9900; color: #ffbb44; }
+
+    /* ── AI Query — standalone in right zone ── */
+    #btn-ai-query { border-radius: 3px; }
+
     /* ── Account panel dropdown ── */
     #panel-account {
       position: fixed;
@@ -1989,7 +2011,7 @@
     transition: height 0.3s cubic-bezier(0.22,1,0.36,1);
     overflow: hidden;
   }
-  #admin-bar.collapsed { height: 28px; }
+  #admin-bar.collapsed { height: 0; }
   #admin-bar.expanded  { height: 420px; }
 
   #admin-toggle-row {

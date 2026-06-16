@@ -133,6 +133,7 @@
       letter-spacing: 3px;
       color: var(--color-text-dim);
       font-weight: 300;
+      line-height: 1.65;
     }
 
     .header__tagline-version {
@@ -461,8 +462,8 @@
 
     /* ── Events Feed Panel ───────────────────────────────────────────────────── */
     #panel-events {
-      top: 106px;
-      left: 18px;
+      top: 126px;
+      left: calc(var(--sidebar-width) + 18px);
       width: var(--panel-left-width);
       max-height: calc(100vh - 252px);
       padding: 12px;
@@ -1054,7 +1055,7 @@
     /* ── Detail Panel ────────────────────────────────────────────────────────── */
     #panel-detail {
       bottom: 18px;
-      left: 18px;
+      left: calc(var(--sidebar-width) + 18px);
       width: 380px;
       height: 340px;
       display: none;
@@ -1160,7 +1161,7 @@
 
     /* ── Market Intelligence Panel (right) ───────────────────────────────────── */
     #panel-market {
-      top: 106px;
+      top: 126px;
       right: 14px;
       width: var(--panel-right-width);
       max-height: calc(100vh - 180px);
@@ -1743,7 +1744,7 @@
       z-index: 10000;
       align-items: flex-end;
       justify-content: flex-start;
-      padding: 0 0 134px 18px;
+      padding: 0 0 134px calc(var(--sidebar-width) + 18px);
     }
     #es-modal-overlay.is-open { display: flex; }
     #es-modal {
@@ -2424,7 +2425,7 @@
     background: none;
     border: none;
     border-left: 2px solid transparent;
-    color: var(--color-text-faint);
+    color: var(--color-text-dim);
     font-family: var(--font-mono);
     font-size: 11px;
     font-weight: 600;
@@ -2442,13 +2443,13 @@
     border-left-color: rgba(0, 153, 255, 0.3);
   }
   .sb-btn span {
-    font-size: 6px;
+    font-size: 7px;
     letter-spacing: 0.8px;
     line-height: 1;
-    opacity: 0.7;
+    opacity: 0.85;
   }
   .sb-btn .sb-icon {
-    font-size: 13px;
+    font-size: 14px;
     line-height: 1;
   }
 
@@ -2468,9 +2469,9 @@
     background: rgba(255,255,255,0.06);
   }
 
-  /* SRC / Analytics Lab button */
-  #btn-ax-lab { margin-top: 2px; }
-  #btn-ax-lab.is-active { color: #4fc3ff; border-left-color: #4fc3ff; background: rgba(79,195,255,0.08); }
+  /* Analytics Lab button */
+  #btn-sb-ax-lab { margin-top: 2px; }
+  #btn-sb-ax-lab.is-active { color: #4fc3ff; border-left-color: #4fc3ff; background: rgba(79,195,255,0.08); }
 
   /* Zoom buttons */
   #btn-zoom-in, #btn-zoom-out { font-size: 16px; font-weight: 300; height: 30px; }

@@ -40,7 +40,7 @@
           <div class="header__tagline-version">v.beta</div>
         </div>
         <div class="header__tagline">
-          <div class="header__tagline-sub">FORTUNE FAVORS THE INFORMED</div>
+          <div class="header__tagline-sub">FORTUNE<br>FAVORS THE<br>INFORMED</div>
         </div>
       </div>
       <div class="header__stats">
@@ -176,28 +176,6 @@
   <!-- ── Left Navigation Sidebar ───────────────────────────────────────────── -->
   <nav id="argus-sidebar" aria-label="Layer controls">
 
-    <!-- Feature buttons -->
-    <div class="sb-section sb-section--layers">
-      <button class="sb-btn sb-btn--domain" data-domain="emerging" title="Emerging Risks">
-        <span class="sb-icon">⬦</span><span>RISK</span>
-      </button>
-      <button class="sb-btn" id="btn-sb-neural-web"
-              onclick="window.ArgusNeuralWeb?.toggle?.()"
-              title="Neural Web — intelligence graph builder">
-        <span class="sb-icon">⬡</span><span>NW</span>
-      </button>
-      <button class="sb-btn" id="btn-sb-ax-lab"
-              onclick="window.ArgusAnalyticsLab && ArgusAnalyticsLab.toggle()"
-              title="Analytics Lab — source intelligence">
-        <span class="sb-icon">▦</span><span>SRC</span>
-      </button>
-      <button class="sb-btn" id="btn-sb-add-intel"
-              onclick="ArgusEvents.openModal()"
-              title="Add Intelligence — submit report">
-        <span class="sb-icon">⊕</span><span>ADD</span>
-      </button>
-    </div>
-
     <!-- Layer toggles: Aircraft · AIS · Weather -->
     <div class="sb-section sb-section--layers">
       <button id="btn-track-aircraft" class="sb-btn track-btn"
@@ -214,6 +192,39 @@
               onclick="window._toggleWeatherLayer && window._toggleWeatherLayer()"
               title="Toggle NOAA weather layer (key W)">
         <span class="sb-icon">⊛</span><span>WX</span>
+      </button>
+    </div>
+
+    <!-- Panel toggles: Events/News · Market -->
+    <div class="sb-section sb-section--layers">
+      <button class="sb-btn is-active" id="btn-sb-events"
+              onclick="window.ArgusSidebarPanels && ArgusSidebarPanels.toggle('events')"
+              title="Events &amp; News — live feed, GDELT, disasters, community intel">
+        <span class="sb-icon">◈</span><span>NEWS</span>
+      </button>
+      <button class="sb-btn is-active" id="btn-sb-market"
+              onclick="window.ArgusSidebarPanels && ArgusSidebarPanels.toggle('market')"
+              title="Market Intelligence — equities, FX, energy, crypto, economic indicators">
+        <span class="sb-icon">◎</span><span>MKT</span>
+      </button>
+    </div>
+
+    <!-- Feature buttons: Neural Web · Analytics Lab · Add Intelligence -->
+    <div class="sb-section sb-section--layers">
+      <button class="sb-btn" id="btn-sb-neural-web"
+              onclick="window.ArgusNeuralWeb?.toggle?.()"
+              title="Neural Web — intelligence graph builder">
+        <span class="sb-icon">⬡</span><span>NW</span>
+      </button>
+      <button class="sb-btn" id="btn-sb-ax-lab"
+              onclick="window.ArgusAnalyticsLab && ArgusAnalyticsLab.toggle()"
+              title="Analytics Lab — source intelligence">
+        <span class="sb-icon">▦</span><span>LAB</span>
+      </button>
+      <button class="sb-btn" id="btn-sb-add-intel"
+              onclick="ArgusEvents.openModal()"
+              title="Add Intelligence — submit report">
+        <span class="sb-icon">⊕</span><span>ADD</span>
       </button>
     </div>
 
@@ -11465,6 +11476,44 @@ window.ArgusAnalyticsLab = (function () {
     sb.classList.toggle('is-active', src.classList.contains('is-active'));
   });
   obs.observe(src, { attributes: true, attributeFilter: ['class'] });
+}());
+
+// ── Sidebar panel show/hide toggles (Events & Market) ────────────────────────
+// Separate from ArgusUI.togglePanel which only minimizes. These fully show/hide
+// the panels. Data polling is untouched — only CSS display state changes.
+window.ArgusSidebarPanels = (function () {
+  'use strict';
+
+  var _PANELS = {
+    events: { panelId: 'panel-events', btnId: 'btn-sb-events' },
+    market: { panelId: 'panel-market', btnId: 'btn-sb-market' }
+  };
+
+  function toggle(name) {
+    var cfg   = _PANELS[name];
+    if (!cfg) return;
+    var panel = document.getElementById(cfg.panelId);
+    var btn   = document.getElementById(cfg.btnId);
+    if (!panel) return;
+    var nowHidden = panel.style.display === 'none';
+    panel.style.display = nowHidden ? '' : 'none';
+    if (btn) btn.classList.toggle('is-active', nowHidden);
+    try { localStorage.setItem('argus_sb_panel_' + name, nowHidden ? '1' : '0'); } catch (_) {}
+  }
+
+  // Restore persisted state on load
+  Object.keys(_PANELS).forEach(function (name) {
+    var cfg = _PANELS[name];
+    var hidden = localStorage.getItem('argus_sb_panel_' + name) === '0';
+    if (hidden) {
+      var panel = document.getElementById(cfg.panelId);
+      var btn   = document.getElementById(cfg.btnId);
+      if (panel) panel.style.display = 'none';
+      if (btn)   btn.classList.remove('is-active');
+    }
+  });
+
+  return { toggle: toggle };
 }());
 
 // ── Admin toggle button — show only when admin-bar is visible (admin users) ───

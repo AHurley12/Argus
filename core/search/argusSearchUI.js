@@ -67,11 +67,11 @@ window.ArgusSearchUI = (function () {
     _bar.style.cssText = [
       'position:fixed',
       'top:' + barTop + 'px',
-      'left:50%',
+      'left:calc(50% + 80px)',
       'transform:translateX(-50%)',
       'z-index:25',
       'width:380px',
-      'max-width:calc(100vw - 320px)',
+      'max-width:calc(100vw - 400px)',
       'pointer-events:all',
       'font-family:"JetBrains Mono",monospace',
     ].join(';');

@@ -31,7 +31,7 @@
       --z-strip:            4;   /* event command strip — intentionally below panels */
       --z-panels:           10;
       --z-header:           20;
-      --z-ai:               20;
+      --z-ai:               26;
       --z-tooltip:          100;
     }
 

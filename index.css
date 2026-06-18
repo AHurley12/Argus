@@ -483,11 +483,7 @@
     }
 
     .events-header {
-      font-size: 9px;
-      letter-spacing: 3px;
-      color: var(--color-text-dim);
       margin-bottom: 10px;
-      font-weight: 600;
       display: flex;
       align-items: center;
       gap: 8px;
@@ -496,9 +492,31 @@
     .events-header__pulse {
       width: 6px;
       height: 6px;
+      flex-shrink: 0;
       background: #ff6600;
       border-radius: 50%;
       animation: pulse 2s ease-in-out infinite;
+    }
+
+    .events-header__info {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      flex: 1;
+    }
+
+    .events-header__title {
+      font-size: 9px;
+      letter-spacing: 3px;
+      color: var(--color-text-dim);
+      font-weight: 700;
+    }
+
+    .events-header__count {
+      font-size: 8px;
+      letter-spacing: 2px;
+      color: var(--color-text-faint);
+      font-weight: 400;
     }
 
     .event-card {
@@ -1325,7 +1343,40 @@
     .dp-label { font-size: 8px; letter-spacing: 1px; color: var(--color-text-dim); font-weight: 400; line-height: 1.4; }
     .dp-label span { display: block; font-size: 7px; color: var(--color-text-faint); font-weight: 300; letter-spacing: 0; margin-top: 1px; }
     .dp-value { font-size: 13px; font-weight: 700; font-family: var(--font-display); text-align: right; }
-    .dp-value--sub { font-size: 8px; color: var(--color-text-dim); }
+    .dp-value--sub { font-size: 8px; color: var(--color-text-dim); text-align: right; }
+    .dp-value-group { text-align: right; }
+
+    /* ── Sources footer — shared by both panel types ─────────────────────────── */
+    .panel-sources-footer {
+      margin-top: 16px;
+      padding-top: 10px;
+      border-top: 1px solid rgba(15, 39, 68, 0.4);
+    }
+    .panel-sources-footer__label {
+      font-size: 7px;
+      letter-spacing: 2px;
+      color: var(--color-text-faint);
+      margin-bottom: 6px;
+    }
+    .panel-sources-footer__items {
+      display: flex;
+      flex-wrap: wrap;
+      row-gap: 4px;
+    }
+    .panel-sources-footer__item {
+      font-size: 7px;
+      letter-spacing: 0.5px;
+      color: #1e3a58;
+    }
+    .panel-sources-footer__item::after {
+      content: '·';
+      margin: 0 5px;
+      color: #162a3e;
+    }
+    .panel-sources-footer__item:last-child::after {
+      content: '';
+      margin: 0;
+    }
 
     /* ── Data Sources Info ───────────────────────────────────────────────────── */
     #panel-data-sources {

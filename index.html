@@ -280,7 +280,10 @@
   <aside id="panel-events" class="panel panel--scrollable" aria-label="Live events feed">
     <div class="events-header" onclick="ArgusUI.togglePanel('events')">
       <span class="events-header__pulse" aria-hidden="true"></span>
-      LIVE EVENTS — <span id="ev-feed-count"></span> ACTIVE
+      <div class="events-header__info">
+        <span class="events-header__title">LIVE EVENTS</span>
+        <span class="events-header__count"><span id="ev-feed-count"></span> ACTIVE</span>
+      </div>
       <span class="data-age is-stale" id="data-age-events" title="Last events refresh">—</span>
       <button class="panel-min-btn" id="min-btn-events" aria-label="Minimize events panel">—</button>
     </div>
@@ -290,6 +293,19 @@
     </div>
     <div id="ev-list" role="list"></div>
     <div id="ci-list" style="display:none"></div>
+    <div class="panel-sources-footer">
+      <div class="panel-sources-footer__label">DATA SOURCES</div>
+      <div class="panel-sources-footer__items">
+        <span class="panel-sources-footer__item">NewsData.io</span>
+        <span class="panel-sources-footer__item">ACLED</span>
+        <span class="panel-sources-footer__item">GDELT 2.0</span>
+        <span class="panel-sources-footer__item">GDACS</span>
+        <span class="panel-sources-footer__item">NASA EONET</span>
+        <span class="panel-sources-footer__item">UN ReliefWeb</span>
+        <span class="panel-sources-footer__item">NOAA</span>
+        <span class="panel-sources-footer__item">GEM</span>
+      </div>
+    </div>
   </aside>
 
   <!-- ── Node Detail Panel ───────────────────────────────────────────────────── -->
@@ -314,7 +330,6 @@
   <aside id="panel-market" class="panel panel--scrollable" aria-label="Market intelligence data">
     <div class="dp-header" onclick="ArgusUI.togglePanel('market')">
       <span class="dp-title">MARKET INTELLIGENCE</span>
-      <span class="dp-source">AV · EIA · FRED</span>
       <span class="data-age is-stale" id="data-age-market" title="Last data refresh">—</span>
       <button class="panel-min-btn" id="min-btn-market" aria-label="Minimize market panel">—</button>
     </div>
@@ -408,28 +423,28 @@
 
       <div class="dp-row">
         <div class="dp-label">GOLD<span>GLD ETF · Yahoo Finance</span></div>
-        <div style="text-align:right">
+        <div class="dp-value-group">
           <div class="dp-value" id="gold-val" style="color:#c5d7e8">—</div>
           <div class="dp-value--sub" id="gold-chg"></div>
         </div>
       </div>
       <div class="dp-row">
         <div class="dp-label">SILVER<span>SI=F futures · Yahoo Finance</span></div>
-        <div style="text-align:right">
+        <div class="dp-value-group">
           <div class="dp-value" id="silver-val" style="color:#c5d7e8">—</div>
           <div class="dp-value--sub" id="silver-chg"></div>
         </div>
       </div>
       <div class="dp-row">
         <div class="dp-label">COPPER<span>HG=F futures · Yahoo Finance</span></div>
-        <div style="text-align:right">
+        <div class="dp-value-group">
           <div class="dp-value" id="copper-val" style="color:#c5d7e8">—</div>
           <div class="dp-value--sub" id="copper-chg"></div>
         </div>
       </div>
       <div class="dp-row">
         <div class="dp-label">WHEAT<span>ZW=F futures · Yahoo Finance</span></div>
-        <div style="text-align:right">
+        <div class="dp-value-group">
           <div class="dp-value" id="wheat-val" style="color:#c5d7e8">—</div>
           <div class="dp-value--sub" id="wheat-chg"></div>
         </div>
@@ -439,16 +454,25 @@
 
       <div class="dp-row">
         <div class="dp-label">BITCOIN<span>BTC/USD · Yahoo Finance</span></div>
-        <div style="text-align:right">
+        <div class="dp-value-group">
           <div class="dp-value" id="btc-val" style="color:#c5d7e8">—</div>
           <div class="dp-value--sub" id="btc-chg"></div>
         </div>
       </div>
       <div class="dp-row">
         <div class="dp-label">ETHEREUM<span>ETH/USD · Yahoo Finance</span></div>
-        <div style="text-align:right">
+        <div class="dp-value-group">
           <div class="dp-value" id="eth-val" style="color:#c5d7e8">—</div>
           <div class="dp-value--sub" id="eth-chg"></div>
+        </div>
+      </div>
+
+      <div class="panel-sources-footer">
+        <div class="panel-sources-footer__label">DATA SOURCES</div>
+        <div class="panel-sources-footer__items">
+          <span class="panel-sources-footer__item">Yahoo Finance</span>
+          <span class="panel-sources-footer__item">EIA</span>
+          <span class="panel-sources-footer__item">FRED</span>
         </div>
       </div>
 

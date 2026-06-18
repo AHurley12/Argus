@@ -576,6 +576,7 @@
       <div class="kbd-row"><span class="kbd-key">A</span><span class="kbd-label">AIRCRAFT</span></div>
       <div class="kbd-row"><span class="kbd-key">K</span><span class="kbd-label">CHOKEPOINTS</span></div>
       <div class="kbd-row"><span class="kbd-key">N</span><span class="kbd-label">NEURAL WEB</span></div>
+      <div class="kbd-row"><span class="kbd-key">M</span><span class="kbd-label">VESSELS</span></div>
 
       <div class="hud-section">RISK LEVEL</div>
       <div class="legend__row">
@@ -1057,6 +1058,9 @@ document.addEventListener('DOMContentLoaded', function() {
       window.chokepointSpikes.forEach(function(m)  { m.visible = cpOn; });
       window.chokepointRings.forEach(function(m)   { m.visible = cpOn; });
       if (!cpOn) clearHoverTooltip();
+    }
+    if (e.key.toLowerCase() === 'm') {
+      if (window.ArgusAIS) window.ArgusAIS.toggle();
     }
   });
 

@@ -7751,9 +7751,14 @@ window.ArgusAdmin = (function() {
     status.textContent = 'Loading...';
 
     // Load ALL active events: pending + approved (weekly review) — not denied
-    sbFetch('/rest/v1/argus_event_queue?select=*&status=in.(pending,approved,held)&order=created_at.desc&limit=50')
-    .then(function(r) { return r.json(); })
-    .then(function(rows) {
+    // Also fetch permanent events directly so publishedItems never depends on _permanentPins timing
+    Promise.all([
+      sbFetch('/rest/v1/argus_event_queue?select=*&status=in.(pending,approved,held)&order=created_at.desc&limit=50').then(function(r) { return r.json(); }),
+      sbFetch('/rest/v1/argus_permanent_events?select=id,data,location,source,category&order=created_at.desc').then(function(r) { return r.json(); }).catch(function() { return []; })
+    ])
+    .then(function(results) {
+      var rows     = results[0];
+      var permRows = Array.isArray(results[1]) ? results[1] : [];
       var now = new Date();
 
       // ── Client-side Jaccard similarity map for pending rows ───────────────
@@ -7913,13 +7918,13 @@ window.ArgusAdmin = (function() {
         })
         .sort(function(a, b) { return (sevOrder[a.sev] || 2) - (sevOrder[b.sev] || 2); });
 
-      // Published permanent events on globe
-      var publishedItems = (window._permanentPins || [])
+      // Published permanent events — read directly from DB, not from _permanentPins
+      var publishedItems = permRows
         .map(function(p) {
-          var d = p.mesh ? p.mesh.userData : {};
-          return { src: d.source || '★ ADMIN', sev: (d.severity || 'WARNING').toUpperCase(),
-            type: d.type || 'EVENT', title: d.title || p.title || '—',
-            lat: null, lon: null, permId: p.permId };
+          var d = p.data || {};
+          return { src: '\u2605 ' + (p.source || 'ADMIN'), sev: (d.severity || 'WARNING').toUpperCase(),
+            type: (d.type || p.category || 'EVENT').toUpperCase(), title: d.title || '—',
+            lat: null, lon: null, permId: p.id };
         })
         .sort(function(a, b) { return (sevOrder[a.sev] || 2) - (sevOrder[b.sev] || 2); });
 

@@ -212,12 +212,12 @@
     <!-- Feature buttons: Neural Web · Analytics Lab · Add Intelligence -->
     <div class="sb-section sb-section--layers">
       <button class="sb-btn" id="btn-sb-neural-web"
-              onclick="window.ArgusNeuralWeb?.toggle?.()"
-              title="Neural Web — intelligence graph builder">
+              onclick="ArgusUI.toggleNeuralWeb()"
+              title="Neural Web — intelligence graph builder (Pro)">
         <span class="sb-icon">⬡</span><span>NW</span>
       </button>
       <button class="sb-btn" id="btn-sb-ax-lab"
-              onclick="window.ArgusAnalyticsLab && ArgusAnalyticsLab.toggle()"
+              onclick="ArgusUI.toggleAnalyticsLab()"
               title="Analytics Lab — source intelligence">
         <span class="sb-icon">▦</span><span>LAB</span>
       </button>
@@ -225,6 +225,15 @@
               onclick="ArgusEvents.openModal()"
               title="Add Intelligence — submit report">
         <span class="sb-icon">⊕</span><span>ADD</span>
+      </button>
+    </div>
+
+    <!-- Admin dashboard — visible only for admin/owner tier, hidden by default -->
+    <div class="sb-section sb-section--admin" id="sb-section-admin" style="display:none">
+      <button class="sb-btn sb-btn--admin" id="btn-sb-admin"
+              onclick="ArgusAdmin.toggle()"
+              title="Admin dashboard — event queue, users, requests">
+        <span class="sb-icon">⊞</span><span>ADM</span>
       </button>
     </div>
 
@@ -5105,6 +5114,33 @@ window.ArgusUI = (function() {
     modal.addEventListener('click', function(e) { if (e.target === modal) modal.remove(); });
   }
 
+  // ── Feature access gates — checked here, not inside individual modules ──────
+  // Tier hierarchy: viewer (free) < pro (paid) < admin < owner
+  // Add new gated features here so the permission model stays in one place.
+
+  // Neural Web — paid tier only
+  function toggleNeuralWeb() {
+    var tier = window.ArgusSession ? window.ArgusSession.tier : 'viewer';
+    var hasAccess = (tier === 'owner' || tier === 'admin' || tier === 'pro');
+    if (!hasAccess) {
+      showUpgradePrompt({
+        title: 'NEURAL WEB ENGINE',
+        desc:  'The Neural Web intelligence graph is available to Pro analysts. Upgrade to map relationships across geopolitical events, vessels, flights, and market signals.',
+      });
+      return;
+    }
+    if (window.ArgusNeuralWeb && typeof window.ArgusNeuralWeb.toggle === 'function') {
+      window.ArgusNeuralWeb.toggle();
+    }
+  }
+
+  // Analytics Lab — free for all tiers
+  function toggleAnalyticsLab() {
+    if (window.ArgusAnalyticsLab && typeof window.ArgusAnalyticsLab.toggle === 'function') {
+      window.ArgusAnalyticsLab.toggle();
+    }
+  }
+
   function setSuggestion(el) {
     document.getElementById('ai-input').value = el.textContent;
   }
@@ -5874,7 +5910,7 @@ window.ArgusUI = (function() {
     }
   });
 
-  return { toggleAI: toggleAI, togglePanel: togglePanel, setSuggestion: setSuggestion, closeDetail: closeDetail, showEventDetail: showEventDetail, showStaticDetail: showStaticDetail, showUpgradePrompt: showUpgradePrompt };
+  return { toggleAI: toggleAI, toggleNeuralWeb: toggleNeuralWeb, toggleAnalyticsLab: toggleAnalyticsLab, togglePanel: togglePanel, setSuggestion: setSuggestion, closeDetail: closeDetail, showEventDetail: showEventDetail, showStaticDetail: showStaticDetail, showUpgradePrompt: showUpgradePrompt };
 
 })(); // end ArgusUI
 
@@ -11465,7 +11501,7 @@ window.ArgusAnalyticsLab = (function () {
 
   function _el() {
     if (!_panel) _panel = document.getElementById('ax-lab-panel');
-    if (!_btn)   _btn   = document.getElementById('btn-ax-lab');
+    if (!_btn)   _btn   = document.getElementById('btn-sb-ax-lab');
     return _panel;
   }
 
@@ -11544,16 +11580,28 @@ window.ArgusSidebarPanels = (function () {
   return { toggle: toggle };
 }());
 
-// ── Admin toggle button — show only when admin-bar is visible (admin users) ───
+// ── Admin visibility sync — drives old btn-admin-toggle + new sidebar btn/section ─
+// ArgusAdmin.boot() sets admin-bar display:block for admin/owner tiers.
+// ArgusAdmin.toggle() adds/removes .expanded on admin-bar.
+// This observer keeps both the old button and the new sidebar section in sync.
 (function () {
   'use strict';
-  var adminBar = document.getElementById('admin-bar');
-  var adminBtn = document.getElementById('btn-admin-toggle');
-  if (!adminBar || !adminBtn) return;
-  var obs = new MutationObserver(function () {
-    adminBtn.style.display = adminBar.style.display === 'none' ? 'none' : '';
-  });
-  obs.observe(adminBar, { attributes: true, attributeFilter: ['style'] });
+  var adminBar  = document.getElementById('admin-bar');
+  if (!adminBar) return;
+  var oldBtn    = document.getElementById('btn-admin-toggle');
+  var sbSection = document.getElementById('sb-section-admin');
+  var sbBtn     = document.getElementById('btn-sb-admin');
+
+  function sync() {
+    var visible = adminBar.style.display !== 'none';
+    var active  = adminBar.classList.contains('expanded');
+    if (oldBtn)    oldBtn.style.display    = visible ? '' : 'none';
+    if (sbSection) sbSection.style.display = visible ? '' : 'none';
+    if (sbBtn)     sbBtn.classList.toggle('is-active', active);
+  }
+
+  var obs = new MutationObserver(sync);
+  obs.observe(adminBar, { attributes: true, attributeFilter: ['style', 'class'] });
 }());
 
 // ── Global Snapshot Strip — updates every 10 s ────────────────────────────────
@@ -11580,11 +11628,10 @@ window.ArgusSidebarPanels = (function () {
       _set('snap-val-events', evEl ? evEl.textContent || '—' : '—');
     } catch (_) {}
 
-    // Aircraft
+    // Aircraft — 10s cycle is fine, count is stable between fetches
     try {
       var reg = window.ArgusEntityRegistry && window.ArgusEntityRegistry.getAudit();
       _set('snap-val-aircraft', reg ? reg.aircraftCount : '—');
-      _set('snap-val-vessels',  reg ? reg.shipCount     : '—');
     } catch (_) {}
 
     // Active disasters (NOAA cache)
@@ -11594,9 +11641,27 @@ window.ArgusSidebarPanels = (function () {
     } catch (_) {}
   }
 
+  // Vessel count on its own 5-minute snapshot — AIS stream changes constantly;
+  // snapshotting every 5 min gives a stable number without thrashing the display.
+  // Reads both VesselAPI ships (shipCount) and live AIS stream vessels (aisCount).
+  function _updateVesselSnap() {
+    try {
+      var reg = window.ArgusEntityRegistry && window.ArgusEntityRegistry.getAudit();
+      if (reg) {
+        var total = (reg.shipCount || 0) + (reg.aisCount || 0);
+        _set('snap-val-vessels', total > 0 ? total : '—');
+      } else {
+        _set('snap-val-vessels', '—');
+      }
+    } catch (_) {}
+  }
+
   // First update after data systems have had time to populate
   setTimeout(_updateSnap, 8000);
   setInterval(_updateSnap, 10000);
+
+  // Vessel snapshot: first read at 60s (AIS needs time to connect), then every 5 min
+  setTimeout(function () { _updateVesselSnap(); setInterval(_updateVesselSnap, 300000); }, 60000);
 }());
 </script>
 </body>

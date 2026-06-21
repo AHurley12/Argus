@@ -8002,22 +8002,22 @@ window.ArgusAdmin = (function() {
         }).join('');
       }
 
-      // ── § 3  PENDING — HUMAN SUBMITTED ───────────────────────────────────
+      // ── § 3  APPROVED / HELD ──────────────────────────────────────────────
+      if (qApprovedHeld.length) {
+        html += '<div class="eq-section-hdr" style="color:#3a8ac4;margin-top:10px">◈ ACTIVE / HELD — ' + qApprovedHeld.length + ' IN QUEUE</div>';
+        html += qApprovedHeld.map(makeQueueCard).join('');
+      }
+
+      // ── § 4  PENDING — HUMAN SUBMITTED ───────────────────────────────────
       if (qPendingHuman.length) {
         html += '<div class="eq-section-hdr" style="color:#ff9933;margin-top:10px">◈ PENDING REVIEW — ' + qPendingHuman.length + ' SUBMITTED</div>';
         html += qPendingHuman.map(makeQueueCard).join('');
       }
 
-      // ── § 4  AI SUGGESTED ─────────────────────────────────────────────────
+      // ── § 5  AI SUGGESTED ─────────────────────────────────────────────────
       if (qPendingAI.length) {
         html += '<div class="eq-section-hdr" style="color:#cc88ff;margin-top:10px">◈ AI SUGGESTED — ' + qPendingAI.length + ' PENDING</div>';
         html += qPendingAI.map(makeQueueCard).join('');
-      }
-
-      // ── § 5  APPROVED / HELD ──────────────────────────────────────────────
-      if (qApprovedHeld.length) {
-        html += '<div class="eq-section-hdr" style="color:#3a8ac4;margin-top:10px">◈ ACTIVE / HELD — ' + qApprovedHeld.length + ' IN QUEUE</div>';
-        html += qApprovedHeld.map(makeQueueCard).join('');
       }
 
       // ── § 6  DISASTERS & ENVIRONMENTAL INTEL ─────────────────────────────

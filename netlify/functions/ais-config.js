@@ -18,8 +18,7 @@ exports.handler = async function (event) {
     'Access-Control-Allow-Origin':  '*',
     'Access-Control-Allow-Headers': 'Content-Type',
     'Content-Type': 'application/json',
-    // Short cache — key changes are rare but should propagate quickly
-    'Cache-Control': 'public, max-age=300',
+    'Cache-Control': 'no-store',
   };
 
   if (event.httpMethod === 'OPTIONS') {

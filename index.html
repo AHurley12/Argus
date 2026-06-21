@@ -140,7 +140,7 @@
       <span id="admin-toggle-label">⬡ ARGUS ADMIN</span>
       <span style="font-size:9px;letter-spacing:1px;color:#3a6a8a;" id="admin-queue-count"></span>
       <button id="btn-analyst-request" onclick="event.stopPropagation(); ArgusAnalyst.openModal()" aria-label="Submit analyst event request">⊕ SUBMIT EVENT</button>
-      <span id="admin-toggle-icon">▼</span>
+      <button id="admin-close-btn" onclick="event.stopPropagation(); ArgusAdmin.toggle()" title="Close admin panel" aria-label="Close admin panel">✕</button>
     </div>
     <div id="admin-tabs-row">
       <button class="admin-tab active" data-pane="eq"  onclick="ArgusAdmin.switchTab('eq')">EVENT QUEUE</button>
@@ -1464,9 +1464,29 @@ document.addEventListener('DOMContentLoaded', function() {
   function _isInfraMarker(m) {
     return !!m.userData.isGEM;
   }
+  // ACLED conflict events are excluded from the header count — they are background
+  // geopolitical intelligence, not discrete breaking events.
+  function _isAcledMarker(m) {
+    return !!m.userData.isACLED;
+  }
+  // EONET: only count high-severity events (severe/extreme).
+  // 'moderate' covers most wildfires, floods, storms, dust — too noisy for event count.
+  // 'severe'  = earthquakes ≥ 5.5 magnitude, active volcanic eruptions.
+  // 'extreme' = earthquakes ≥ 7.0 magnitude.
+  function _isLowPriorityEonet(m) {
+    if (!m.userData.isEONET) return false;
+    var sev = m.userData.severity;
+    return sev !== 'severe' && sev !== 'extreme';
+  }
   window.updateNodeCounts = function() {
-    var nodes    = window.eventMarkers
-      .filter(function(m) { return !m.userData.isAircraft && !m.userData.isShip && !_isFloodMarker(m) && !_isInfraMarker(m); });
+    var nodes = window.eventMarkers.filter(function(m) {
+      return !m.userData.isAircraft
+          && !m.userData.isShip
+          && !_isFloodMarker(m)
+          && !_isInfraMarker(m)
+          && !_isAcledMarker(m)
+          && !_isLowPriorityEonet(m);
+    });
     var critical = nodes.filter(function(m) {
       return (m.userData.severity || m.userData.risk) === 'CRITICAL';
     }).length;
@@ -3906,7 +3926,9 @@ function renderEvents(events, isLive) {
     evList.appendChild(div);
   });
   window.updateNodeCounts();
-  document.getElementById('ev-feed-count').textContent = window.eventMarkers.filter(function(m) { return !m.userData.isAircraft && !m.userData.isShip && !_isFloodMarker(m) && !_isInfraMarker(m); }).length;
+  document.getElementById('ev-feed-count').textContent = window.eventMarkers.filter(function(m) {
+    return !m.userData.isAircraft && !m.userData.isShip && !_isFloodMarker(m) && !_isInfraMarker(m) && !_isAcledMarker(m) && !_isLowPriorityEonet(m);
+  }).length;
 }
 // Wrap renderEvents to cache the current event list for cross-module access
 window.renderEvents = function(events, isLive) {
@@ -7661,10 +7683,7 @@ window.ArgusAdmin = (function() {
     if (!ALLOWED.includes(tier)) return;
     var bar = document.getElementById('admin-bar');
     bar.style.display = 'block';
-    if (expanded) {
-      bar.classList.replace('collapsed','expanded');
-      document.getElementById('admin-toggle-icon').textContent = '▲';
-    }
+    if (expanded) bar.classList.replace('collapsed','expanded');
     loadQueue();
     loadUsers();
     loadRequests();
@@ -7672,12 +7691,10 @@ window.ArgusAdmin = (function() {
 
   // ── Toggle collapse ────────────────────────────────────────────────────────
   function toggle() {
-    var bar  = document.getElementById('admin-bar');
-    var icon = document.getElementById('admin-toggle-icon');
+    var bar = document.getElementById('admin-bar');
     expanded = !expanded;
     bar.classList.toggle('collapsed', !expanded);
     bar.classList.toggle('expanded',   expanded);
-    icon.textContent = expanded ? '▲' : '▼';
     localStorage.setItem('argus_admin_open', expanded ? '1' : '0');
     if (expanded) { loadQueue(); loadUsers(); }
   }
@@ -7740,7 +7757,6 @@ window.ArgusAdmin = (function() {
       var now = new Date();
 
       // ── Client-side Jaccard similarity map for pending rows ───────────────
-      // dupeMap[id] = { matchId, matchTitle } — marks the NEWER of each pair
       function _jaccTok(s) {
         return (s || '').toLowerCase().replace(/[^a-z0-9\s]/g,'').split(/\s+/).filter(Boolean);
       }
@@ -7759,7 +7775,6 @@ window.ArgusAdmin = (function() {
           var tA = _jaccTok((pendingRows[pi].data  && pendingRows[pi].data.title)  || '');
           var tB = _jaccTok((pendingRows[pj].data  && pendingRows[pj].data.title)  || '');
           if (_jaccScore(tA, tB) >= 0.7) {
-            // Older row (earlier created_at) is the canonical; newer gets the badge
             var tsA = new Date(pendingRows[pi].created_at).getTime();
             var tsB = new Date(pendingRows[pj].created_at).getTime();
             var older = tsA <= tsB ? pendingRows[pi] : pendingRows[pj];
@@ -7773,7 +7788,6 @@ window.ArgusAdmin = (function() {
       }
 
       var pending    = rows.filter(function(r) { return r.status === 'pending'; }).length;
-      var approved   = rows.filter(function(r) { return r.status === 'approved'; }).length;
       var autoSugg   = rows.filter(function(r) { return r.status === 'pending' && r.source === 'AUTO_SUGGEST'; }).length;
       var dueReview  = rows.filter(function(r) { return r.status === 'approved' && r.next_review && new Date(r.next_review) <= now; }).length;
       status.textContent = rows.length + ' active event' + (rows.length !== 1 ? 's' : '') +
@@ -7782,25 +7796,22 @@ window.ArgusAdmin = (function() {
         (dueReview ? ' · ' + dueReview + ' DUE REVIEW'  : '');
       document.getElementById('admin-queue-count').textContent = rows.length ? '· ' + rows.length + ' ACTIVE' : '';
 
-      var dbHtml = !rows.length
-        ? '<div style="font-size:10px;color:#1a4a70;padding:12px 0;text-align:center;letter-spacing:2px;">QUEUE EMPTY</div>'
-        : rows.map(function(ev) {
+      // ── Shared card builder ───────────────────────────────────────────────
+      function makeQueueCard(ev) {
         var scores    = scoreEvent(ev);
         var _rawCountry = (ev.location && ev.location.country) ? ev.location.country : '';
         var _country    = /plan|corporate|paid|subscri|upgrade|premium|available/i.test(_rawCountry) ? '' : _rawCountry;
         var loc         = ev.location ? (_country + (ev.location.lat ? ' (' + parseFloat(ev.location.lat).toFixed(1) + ', ' + parseFloat(ev.location.lon).toFixed(1) + ')' : '')) || '—' : '—';
         var kw        = (ev.data && ev.data.keywords) ? ev.data.keywords.slice(0,4).join(', ') : '—';
-        var ts        = ev.timestamp ? new Date(ev.timestamp).toUTCString().slice(0,22) : '—';
         var isDue     = ev.status === 'approved' && ev.next_review && new Date(ev.next_review) <= now;
         var nextRev   = ev.next_review ? ' · Review: ' + new Date(ev.next_review).toLocaleDateString() : '';
         var statusCol = ev.status === 'approved' ? (isDue ? '#ff9900' : '#00cc66') : ev.status === 'held' ? '#ff9900' : '#ff9933';
         var statusLbl = ev.status === 'approved' ? (isDue ? '⚠ REVIEW DUE' : '✓ ACTIVE') : ev.status === 'held' ? '⏸ HELD' : '⏳ PENDING REVIEW';
-        var isPending    = ev.status === 'pending';
+        var isPending     = ev.status === 'pending';
         var isAutoSuggest = ev.source === 'AUTO_SUGGEST';
 
-        // Edit fields — only shown for pending events so admin can verify/fix coordinates + risk
-        var editLat = ev.location && ev.location.lat  != null ? parseFloat(ev.location.lat).toFixed(4)  : '';
-        var editLon = ev.location && ev.location.lon  != null ? parseFloat(ev.location.lon).toFixed(4)  : '';
+        var editLat = ev.location && ev.location.lat != null ? parseFloat(ev.location.lat).toFixed(4) : '';
+        var editLon = ev.location && ev.location.lon != null ? parseFloat(ev.location.lon).toFixed(4) : '';
         var editSev = (ev.data && ev.data.severity) || 'WATCH';
         var noCoordWarning = isPending && isAutoSuggest && !editLat
           ? '<div style="font-size:9px;color:#ff9900;letter-spacing:1px;margin-bottom:4px;">⚠ NO COORDINATES — set lat/lon before approving</div>'
@@ -7808,23 +7819,17 @@ window.ArgusAdmin = (function() {
         var editFields = isPending
           ? noCoordWarning +
             '<div class="eq-edit-row">' +
-              '<div class="eq-edit-field">' +
-                '<div class="eq-edit-label">LAT</div>' +
-                '<input type="number" step="0.0001" id="eq-lat-' + ev.id + '" value="' + editLat + '" class="eq-coord-input" placeholder="e.g. 35.6892" />' +
-              '</div>' +
-              '<div class="eq-edit-field">' +
-                '<div class="eq-edit-label">LON</div>' +
-                '<input type="number" step="0.0001" id="eq-lon-' + ev.id + '" value="' + editLon + '" class="eq-coord-input" placeholder="e.g. 51.3890" />' +
-              '</div>' +
-              '<div class="eq-edit-field">' +
-                '<div class="eq-edit-label">RISK</div>' +
+              '<div class="eq-edit-field"><div class="eq-edit-label">LAT</div>' +
+                '<input type="number" step="0.0001" id="eq-lat-' + ev.id + '" value="' + editLat + '" class="eq-coord-input" placeholder="e.g. 35.6892" /></div>' +
+              '<div class="eq-edit-field"><div class="eq-edit-label">LON</div>' +
+                '<input type="number" step="0.0001" id="eq-lon-' + ev.id + '" value="' + editLon + '" class="eq-coord-input" placeholder="e.g. 51.3890" /></div>' +
+              '<div class="eq-edit-field"><div class="eq-edit-label">RISK</div>' +
                 '<select id="eq-sev-' + ev.id + '" class="eq-sev-select">' +
                   '<option value="CRITICAL"' + (editSev === 'CRITICAL' ? ' selected' : '') + '>CRITICAL</option>' +
                   '<option value="WARNING"'  + (editSev === 'WARNING'  ? ' selected' : '') + '>WARNING</option>'  +
                   '<option value="WATCH"'    + (editSev === 'WATCH'    ? ' selected' : '') + '>WATCH</option>'    +
                   '<option value="LOW"'      + (editSev === 'LOW'      ? ' selected' : '') + '>LOW</option>'      +
-                '</select>' +
-              '</div>' +
+                '</select></div>' +
             '</div>' +
             '<div class="eq-review-hint">✎ VERIFY COORDINATES &amp; RISK LEVEL BEFORE APPROVAL</div>'
           : '';
@@ -7833,7 +7838,6 @@ window.ArgusAdmin = (function() {
           ? '<button class="eq-btn approve" onclick="ArgusAdmin.approveEvent(\'' + ev.id + '\')">✓ APPROVE → PUBLISH</button>'
           : '<button class="eq-btn approve" onclick="ArgusAdmin.queueAction(\'' + ev.id + '\',\'approved\')">✓ +7 DAYS</button>';
 
-        // For auto-suggested events, show source article link if available
         var srcLink = (isAutoSuggest && ev.data && ev.data.link)
           ? '<a href="' + ev.data.link + '" target="_blank" rel="noopener" style="font-size:9px;color:#3a8ac4;letter-spacing:1px;text-decoration:none;display:block;margin-bottom:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + ev.data.link + '">↗ SOURCE ARTICLE</a>'
           : '';
@@ -7850,8 +7854,7 @@ window.ArgusAdmin = (function() {
         return '<div class="eq-card" id="eq-' + ev.id + '" data-status="' + ev.status + '" style="' + (isAutoSuggest ? 'border-left:2px solid rgba(140,50,255,0.5);' : '') + '">' +
           '<div class="eq-card-head">' +
             '<span class="eq-src">' + (ev.source || '?') + '</span>' +
-            autoSuggestBadge +
-            similarBadge +
+            autoSuggestBadge + similarBadge +
             '<span class="eq-cat" style="margin-left:' + (isAutoSuggest ? '0' : '') + '">' + (ev.category || '—') + '</span>' +
             '<span class="eq-ts" style="color:' + statusCol + '">' + statusLbl + nextRev + '</span>' +
           '</div>' +
@@ -7870,9 +7873,14 @@ window.ArgusAdmin = (function() {
             (!isPending ? '<button class="eq-btn permanent" onclick="ArgusAdmin.permanentAction(\'' + ev.id + '\')"><span style="width:6px;height:6px;border-radius:50%;background:#ff9900;display:inline-block;margin-right:5px;"></span>UPDATE SITE</button>' : '') +
           '</div>' +
         '</div>';
-      }).join('');
+      }
 
-      // ── Live feed section ────────────────────────────────────────────────
+      // ── Split queue rows into display groups ──────────────────────────────
+      var qPendingHuman = rows.filter(function(ev) { return ev.status === 'pending' && ev.source !== 'AUTO_SUGGEST'; });
+      var qPendingAI    = rows.filter(function(ev) { return ev.status === 'pending' && ev.source === 'AUTO_SUGGEST'; });
+      var qApprovedHeld = rows.filter(function(ev) { return ev.status === 'approved' || ev.status === 'held'; });
+
+      // ── Shared helpers ────────────────────────────────────────────────────
       var sevColor = { CRITICAL: '#ff3333', WARNING: '#ff9900', WATCH: '#ffcc00', LOW: '#00aaff' };
       var sevOrder = { CRITICAL: 0, WARNING: 1, WATCH: 2, LOW: 3 };
 
@@ -7891,131 +7899,154 @@ window.ArgusAdmin = (function() {
         '</div>';
       }
 
-      // 1 ── NewsData API articles (primary feed, id < 9000)
-      var newsItems = (window._currentEvents || [])
-        .filter(function(e) { return e.id < 9000; })
-        .sort(function(a, b) { return (sevOrder[b.severity] !== undefined ? sevOrder[b.severity] : 2) - (sevOrder[a.severity] !== undefined ? sevOrder[a.severity] : 2); })
-        .map(function(e) {
-          return { src: 'NEWSDATA', sev: (e.severity || 'WATCH').toUpperCase(),
-            type: e.type || 'INTEL', title: e.title || '—',
-            loc: e.region || '', lat: e.lat, lon: e.lon };
-        });
+      // ── Build data sources ────────────────────────────────────────────────
 
-      // 1b ── Published permanent events already on globe (_permanentPins in memory)
-      //       These are events in argus_permanent_events that may not have a queue entry
+      // Hard-coded static fixtures (no DB backing)
+      var STATIC_IDS = { 'bab-mandeb':true, 'red-sea':true, 'panama':true, 'black-sea':true, 'taiwan':true };
+      var staticItems = (window.eventMarkers || [])
+        .filter(function(m) { var d = m.userData; return d && d.id && STATIC_IDS[d.id] && !d.isPulseRing; })
+        .map(function(m) {
+          var d = m.userData;
+          return { src: 'STATIC', sev: (d.severity || 'WATCH').toUpperCase(),
+            type: d.type || 'EVENT', title: d.title || '—',
+            lat: d.lat || null, lon: d.lon || null, staticId: d.id };
+        })
+        .sort(function(a, b) { return (sevOrder[a.sev] || 2) - (sevOrder[b.sev] || 2); });
+
+      // Published permanent events on globe
       var publishedItems = (window._permanentPins || [])
         .map(function(p) {
           var d = p.mesh ? p.mesh.userData : {};
           return { src: d.source || '★ ADMIN', sev: (d.severity || 'WARNING').toUpperCase(),
             type: d.type || 'EVENT', title: d.title || p.title || '—',
-            loc: '', lat: null, lon: null, permId: p.permId };
+            lat: null, lon: null, permId: p.permId };
         })
         .sort(function(a, b) { return (sevOrder[a.sev] || 2) - (sevOrder[b.sev] || 2); });
 
-      // 1c ── Hard-coded static fixture markers (Taiwan Strait, Panama Canal, Black Sea, etc.)
-      //       These are eventLocations[] plotted at globe init with no DB backing
-      var STATIC_IDS = { 'bab-mandeb':true, 'red-sea':true, 'panama':true, 'black-sea':true, 'taiwan':true };
-      var staticItems = (window.eventMarkers || [])
-        .filter(function(m) {
-          var d = m.userData;
-          return d && d.id && STATIC_IDS[d.id] && !d.isPulseRing;
-        })
-        .map(function(m) {
-          var d = m.userData;
-          return { src: 'STATIC', sev: (d.severity || 'WATCH').toUpperCase(),
-            type: d.type || 'EVENT', title: d.title || '—',
-            loc: '', lat: d.lat || null, lon: d.lon || null, staticId: d.id };
-        })
-        .sort(function(a, b) { return (sevOrder[a.sev] || 2) - (sevOrder[b.sev] || 2); });
-
-      // 2 ── GDACS global disaster globe markers
+      // GDACS disaster globe markers
       var gdacsItems = (window.eventMarkers || [])
         .filter(function(m) { return m.userData && m.userData._gdacsMarker && !m.userData.isPulseRing; })
         .map(function(m) {
-          var d   = m.userData;
-          // Map canonical severity (red/orange/green) → legacy panel display string
+          var d = m.userData;
           var sevMap = { red: 'CRITICAL', orange: 'WARNING', green: 'WATCH' };
           var sev = (d.severity && sevMap[d.severity]) || (d.severity || 'WARNING').toUpperCase();
-          return { src: 'GDACS', sev: sev,
-            type: (d.type || 'disaster').replace(/_/g, ' '),
-            title: d.title || '—',
-            loc: '', lat: null, lon: null };
+          return { src: 'GDACS', sev: sev, type: (d.type || 'disaster').replace(/_/g, ' '), title: d.title || '—', lat: null, lon: null };
         })
         .sort(function(a, b) { return (sevOrder[a.sev] || 2) - (sevOrder[b.sev] || 2); });
 
-      // 3 ── ReliefWeb active crises
+      // ReliefWeb active crises
       var rwItems = (window._rwCrisisEvents || [])
         .sort(function(a, b) { return (sevOrder[a.severity] || 2) - (sevOrder[b.severity] || 2); })
         .map(function(e) {
           return { src: 'RELIEFWEB', sev: (e.severity || 'WARNING').toUpperCase(),
-            type: e.type || 'CRISIS', title: e.title || '—',
-            loc: e.region || '', lat: null, lon: null };
+            type: e.type || 'CRISIS', title: e.title || '—', loc: e.region || '', lat: null, lon: null };
         });
 
-      // 4 ── USGS seismic — kept separate at bottom
+      // USGS seismic
       var seismicItems = (window._usgsEvents || [])
         .sort(function(a, b) { return (sevOrder[a.severity] || 2) - (sevOrder[b.severity] || 2); })
         .map(function(e) {
           return { src: 'USGS', sev: (e.severity || 'WATCH').toUpperCase(),
-            type: 'SEISMIC', title: e.title || '—',
-            loc: e.region || '', lat: e.lat, lon: e.lon };
+            type: 'SEISMIC', title: e.title || '—', loc: e.region || '', lat: e.lat, lon: e.lon };
         });
 
-      var liveHtml = '';
-      var totalLive = newsItems.length + publishedItems.length + staticItems.length + gdacsItems.length + rwItems.length;
-      if (totalLive || seismicItems.length) {
-        liveHtml = '<div class="eq-live-section">';
+      // NewsData API articles
+      var newsItems = (window._currentEvents || [])
+        .filter(function(e) { return e.id < 9000; })
+        .sort(function(a, b) { return (sevOrder[b.severity] !== undefined ? sevOrder[b.severity] : 2) - (sevOrder[a.severity] !== undefined ? sevOrder[a.severity] : 2); })
+        .map(function(e) {
+          return { src: 'NEWSDATA', sev: (e.severity || 'WATCH').toUpperCase(),
+            type: e.type || 'INTEL', title: e.title || '—', loc: e.region || '', lat: e.lat, lon: e.lon };
+        });
 
-        if (newsItems.length) {
-          liveHtml += '<div class="eq-live-hdr" style="color:#0af">◈ NEWSDATA API — ' + newsItems.length + ' ARTICLES</div>' +
-            newsItems.map(makeLiveRow).join('');
-        }
+      // ── Assemble in priority order ────────────────────────────────────────
+      var html = '';
 
-        if (publishedItems.length) {
-          liveHtml += '<div class="eq-live-hdr" style="margin-top:8px;color:#00cc66">◈ PUBLISHED EVENTS — ' + publishedItems.length + ' ON GLOBE</div>' +
-            publishedItems.map(makeLiveRow).join('');
-        }
-
-        if (staticItems.length) {
-          liveHtml += '<div class="eq-live-hdr" style="margin-top:8px;color:#ffcc00">◈ STATIC FIXTURES — ' + staticItems.length + ' HARD-CODED</div>' +
-            staticItems.map(function(item) {
-              var col = sevColor[item.sev] || '#ffcc00';
-              var title = (item.title + '').slice(0, 90);
-              var sid = item.staticId;
-              return '<div class="eq-live-row" id="sf-row-' + sid + '" style="flex-wrap:wrap;gap:4px;">' +
-                '<span class="eq-live-dot" style="background:' + col + '"></span>' +
-                '<span class="eq-live-src">STATIC</span>' +
-                '<span style="font-size:7px;letter-spacing:1px;color:#2a5a7a;white-space:nowrap">' + item.type + '</span>' +
-                '<span class="eq-live-title" style="flex:1">' + title + '</span>' +
-                '<span style="display:flex;gap:4px;margin-left:auto;flex-shrink:0;">' +
-                  '<button class="eq-btn" style="border-color:#00aa66;color:#00aa66;font-size:7px;padding:2px 6px;" ' +
-                    'onclick="ArgusAdmin.renewStaticFixture(\'' + sid + '\')">✓ +7 DAYS</button>' +
-                  '<button class="eq-btn deny" style="font-size:7px;padding:2px 6px;" ' +
-                    'onclick="ArgusAdmin.deleteStaticFixture(\'' + sid + '\')">✕ DELETE</button>' +
-                '</span>' +
-              '</div>';
-            }).join('');
-        }
-
-        if (gdacsItems.length) {
-          liveHtml += '<div class="eq-live-hdr" style="margin-top:8px">◈ UN GDACS — ' + gdacsItems.length + ' DISASTERS</div>' +
-            gdacsItems.map(makeLiveRow).join('');
-        }
-
-        if (rwItems.length) {
-          liveHtml += '<div class="eq-live-hdr" style="margin-top:8px">◈ UN RELIEFWEB — ' + rwItems.length + ' CRISES</div>' +
-            rwItems.map(makeLiveRow).join('');
-        }
-
-        if (seismicItems.length) {
-          liveHtml += '<div class="eq-live-hdr" style="margin-top:10px;color:#3a6a8a">◈ SEISMIC ACTIVITY (USGS) — ' + seismicItems.length + ' EVENTS</div>' +
-            seismicItems.map(makeLiveRow).join('');
-        }
-
-        liveHtml += '</div>';
+      // ── § 1  STATIC PLOTTED ───────────────────────────────────────────────
+      if (staticItems.length) {
+        html += '<div class="eq-section-hdr" style="color:#ffcc00">◈ STATIC PLOTTED — ' + staticItems.length + ' HARD-CODED</div>';
+        html += staticItems.map(function(item) {
+          var col = sevColor[item.sev] || '#ffcc00';
+          var sid = item.staticId;
+          return '<div class="eq-live-row" id="sf-row-' + sid + '" style="flex-wrap:wrap;gap:4px;">' +
+            '<span class="eq-live-dot" style="background:' + col + '"></span>' +
+            '<span class="eq-live-src">STATIC</span>' +
+            '<span style="font-size:7px;letter-spacing:1px;color:#2a5a7a;white-space:nowrap">' + item.type + '</span>' +
+            '<span class="eq-live-title" style="flex:1">' + (item.title + '').slice(0, 90) + '</span>' +
+            '<span style="display:inline-flex;gap:4px;margin-left:auto;flex-shrink:0;align-items:center;">' +
+              '<button class="eq-btn" style="border-color:#00aa66;color:#00aa66;font-size:7px;padding:2px 6px;" ' +
+                'onclick="ArgusAdmin.renewStaticFixture(\'' + sid + '\')">✓ +7 DAYS</button>' +
+              '<button class="eq-btn deny" id="rms-' + sid + '" style="font-size:7px;padding:2px 6px;" ' +
+                'onclick="ArgusAdmin._inlineConfirmStatic(this,\'' + sid + '\')">✕ REMOVE</button>' +
+            '</span>' +
+          '</div>';
+        }).join('');
       }
 
-      list.innerHTML = dbHtml + liveHtml;
+      // ── § 2  PUBLISHED EVENTS ─────────────────────────────────────────────
+      if (publishedItems.length) {
+        html += '<div class="eq-section-hdr" style="color:#00cc66;margin-top:' + (staticItems.length ? '10px' : '0') + '">◈ PUBLISHED EVENTS — ' + publishedItems.length + ' ON GLOBE</div>';
+        html += publishedItems.map(function(item) {
+          var col = sevColor[item.sev] || '#00aaff';
+          var pid = item.permId;
+          return '<div class="eq-live-row" style="flex-wrap:wrap;gap:4px;">' +
+            '<span class="eq-live-dot" style="background:' + col + '"></span>' +
+            '<span class="eq-live-src">' + item.src + '</span>' +
+            '<span style="font-size:7px;letter-spacing:1px;color:#2a5a7a;white-space:nowrap">' + item.type + '</span>' +
+            '<span class="eq-live-title" style="flex:1">' + (item.title + '').slice(0, 90) + '</span>' +
+            '<span style="display:inline-flex;gap:4px;margin-left:auto;flex-shrink:0;align-items:center;">' +
+              (pid ? '<button class="eq-btn deny" id="rmb-' + pid + '" style="font-size:7px;padding:2px 6px;" ' +
+                'onclick="ArgusAdmin._inlineConfirmPerm(this,\'' + pid + '\')">✕ REMOVE</button>' : '') +
+            '</span>' +
+          '</div>';
+        }).join('');
+      }
+
+      // ── § 3  PENDING — HUMAN SUBMITTED ───────────────────────────────────
+      if (qPendingHuman.length) {
+        html += '<div class="eq-section-hdr" style="color:#ff9933;margin-top:10px">◈ PENDING REVIEW — ' + qPendingHuman.length + ' SUBMITTED</div>';
+        html += qPendingHuman.map(makeQueueCard).join('');
+      }
+
+      // ── § 4  AI SUGGESTED ─────────────────────────────────────────────────
+      if (qPendingAI.length) {
+        html += '<div class="eq-section-hdr" style="color:#cc88ff;margin-top:10px">◈ AI SUGGESTED — ' + qPendingAI.length + ' PENDING</div>';
+        html += qPendingAI.map(makeQueueCard).join('');
+      }
+
+      // ── § 5  APPROVED / HELD ──────────────────────────────────────────────
+      if (qApprovedHeld.length) {
+        html += '<div class="eq-section-hdr" style="color:#3a8ac4;margin-top:10px">◈ ACTIVE / HELD — ' + qApprovedHeld.length + ' IN QUEUE</div>';
+        html += qApprovedHeld.map(makeQueueCard).join('');
+      }
+
+      // ── § 6  DISASTERS & ENVIRONMENTAL INTEL ─────────────────────────────
+      var hasDisasters = gdacsItems.length || rwItems.length || seismicItems.length || newsItems.length;
+      if (hasDisasters) {
+        html += '<div class="eq-section-hdr" style="color:#3a6a8a;margin-top:10px">◈ DISASTERS &amp; ENVIRONMENTAL INTEL</div>';
+        if (gdacsItems.length) {
+          html += '<div class="eq-live-hdr" style="margin-top:6px">UN GDACS — ' + gdacsItems.length + ' ALERTS</div>' +
+            gdacsItems.map(makeLiveRow).join('');
+        }
+        if (rwItems.length) {
+          html += '<div class="eq-live-hdr" style="margin-top:6px">UN RELIEFWEB — ' + rwItems.length + ' CRISES</div>' +
+            rwItems.map(makeLiveRow).join('');
+        }
+        if (seismicItems.length) {
+          html += '<div class="eq-live-hdr" style="margin-top:6px;color:#3a6a8a">USGS SEISMIC — ' + seismicItems.length + ' EVENTS</div>' +
+            seismicItems.map(makeLiveRow).join('');
+        }
+        if (newsItems.length) {
+          html += '<div class="eq-live-hdr" style="margin-top:6px;color:#0af">NEWSDATA — ' + newsItems.length + ' ARTICLES</div>' +
+            newsItems.map(makeLiveRow).join('');
+        }
+      }
+
+      if (!html) {
+        html = '<div style="font-size:10px;color:#1a4a70;padding:12px 0;text-align:center;letter-spacing:2px;">QUEUE EMPTY</div>';
+      }
+
+      list.innerHTML = html;
     })
     .catch(function(e) { status.textContent = 'Error loading queue: ' + e.message; });
   }
@@ -8324,10 +8355,7 @@ window.ArgusAdmin = (function() {
     if (!ALLOWED.includes(tier)) return;
     var bar = document.getElementById('admin-bar');
     bar.style.display = 'block';
-    if (expanded) {
-      bar.classList.replace('collapsed','expanded');
-      document.getElementById('admin-toggle-icon').textContent = '▲';
-    }
+    if (expanded) bar.classList.replace('collapsed','expanded');
     loadQueue();
     loadUsers();
     loadRequests();
@@ -8613,11 +8641,39 @@ window.ArgusAdmin = (function() {
     .catch(function(e) { alert('Error: ' + e.message); });
   }
 
+  // ── Inline two-step confirm for permanent event remove buttons ───────────
+  // Shows CONFIRM? / YES / CANCEL inline instead of a browser dialog.
+  // permId is embedded in the markup; btn is the remove button element.
+  function _inlineConfirmPerm(btn, permId) {
+    btn.style.display = 'none';
+    var parent = btn.parentNode;
+    var pair = document.createElement('span');
+    pair.style.cssText = 'display:inline-flex;align-items:center;gap:4px;';
+    pair.innerHTML =
+      '<span style="font-size:7px;color:#ff9933;letter-spacing:1px;white-space:nowrap;">CONFIRM?</span>' +
+      '<button class="eq-btn deny" style="font-size:7px;padding:2px 6px;" onclick="ArgusAdmin.deletePermanentEvent(\'' + permId + '\',true)">✓ YES</button>' +
+      '<button class="eq-btn" style="font-size:7px;padding:2px 6px;" onclick="this.parentNode.remove();document.getElementById(\'rmb-' + permId + '\').style.display=\'\'">CANCEL</button>';
+    parent.insertBefore(pair, btn.nextSibling);
+  }
+
+  // ── Inline two-step confirm for static fixture delete buttons ────────────
+  function _inlineConfirmStatic(btn, staticId) {
+    btn.style.display = 'none';
+    var parent = btn.parentNode;
+    var pair = document.createElement('span');
+    pair.style.cssText = 'display:inline-flex;align-items:center;gap:4px;';
+    pair.innerHTML =
+      '<span style="font-size:7px;color:#ff9933;letter-spacing:1px;white-space:nowrap;">CONFIRM?</span>' +
+      '<button class="eq-btn deny" style="font-size:7px;padding:2px 6px;" onclick="ArgusAdmin.deleteStaticFixture(\'' + staticId + '\')">✓ YES</button>' +
+      '<button class="eq-btn" style="font-size:7px;padding:2px 6px;" onclick="this.parentNode.remove();document.getElementById(\'rms-' + staticId + '\').style.display=\'\'">CANCEL</button>';
+    parent.insertBefore(pair, btn.nextSibling);
+  }
+
   // ── Delete permanent event — admin/owner only ─────────────────────────────
-  function deletePermanentEvent(permId) {
+  function deletePermanentEvent(permId, skipConfirm) {
     var tier = window.ArgusSession ? window.ArgusSession.tier : 'viewer';
     if (tier !== 'admin' && tier !== 'owner') { alert('Insufficient permissions.'); return; }
-    if (!confirm('Remove this event from the globe permanently?')) return;
+    if (!skipConfirm && !confirm('Remove this event from the globe permanently?')) return;
 
     sbFetch('/rest/v1/argus_permanent_events?id=eq.' + permId, {
       method: 'DELETE',
@@ -8703,7 +8759,7 @@ window.ArgusAdmin = (function() {
     setTimeout(function() { card.classList.remove('is-dupe-highlight'); }, 2800);
   }
 
-  return { toggle: toggle, switchTab: switchTab, loadUsers: loadUsers, loadQueue: loadQueue, queueAction: queueAction, approveEvent: approveEvent, setTier: setTier, loadRequests: loadRequests, requestAction: requestAction, permanentAction: permanentAction, _reloadPermanent: _reloadPermanent, _plotAnalystPin: _plotAnalystPin, removeAnalystPin: removeAnalystPin, loadHistory: loadHistory, clearHistory: clearHistory, deletePermanentEvent: deletePermanentEvent, deletePermanentByTitle: deletePermanentByTitle, deleteStaticFixture: deleteStaticFixture, renewStaticFixture: renewStaticFixture, highlightDupe: highlightDupe };
+  return { toggle: toggle, switchTab: switchTab, loadUsers: loadUsers, loadQueue: loadQueue, queueAction: queueAction, approveEvent: approveEvent, setTier: setTier, loadRequests: loadRequests, requestAction: requestAction, permanentAction: permanentAction, _reloadPermanent: _reloadPermanent, _plotAnalystPin: _plotAnalystPin, removeAnalystPin: removeAnalystPin, loadHistory: loadHistory, clearHistory: clearHistory, deletePermanentEvent: deletePermanentEvent, deletePermanentByTitle: deletePermanentByTitle, deleteStaticFixture: deleteStaticFixture, renewStaticFixture: renewStaticFixture, highlightDupe: highlightDupe, _inlineConfirmPerm: _inlineConfirmPerm, _inlineConfirmStatic: _inlineConfirmStatic, boot: boot };
 })();
 </script>
 

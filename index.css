@@ -2084,13 +2084,19 @@
     color: #ff9900;
     font-weight: 700;
   }
-  #admin-toggle-icon {
-    font-size: 9px;
+  #admin-close-btn {
+    background: none;
+    border: 1px solid rgba(58,106,138,0.4);
     color: #3a6a8a;
-    transition: transform 0.3s;
-    padding-left: 10px;
+    font-size: 10px;
+    font-family: var(--font-mono);
+    padding: 2px 7px;
+    border-radius: 2px;
+    cursor: pointer;
+    transition: color 0.15s, border-color 0.15s;
+    line-height: 1;
   }
-  #admin-bar.expanded #admin-toggle-icon { transform: rotate(180deg); }
+  #admin-close-btn:hover { color: #f0f8ff; border-color: rgba(240,248,255,0.4); }
   /* Submit Event button lives inside the toggle row */
   #btn-analyst-request {
     background: none;
@@ -2220,6 +2226,16 @@
   }
 
   /* ── Live feed compact rows ── */
+  /* Section partition headers — major divisions within the event queue pane */
+  .eq-section-hdr {
+    font-size: 8px;
+    letter-spacing: 2px;
+    font-weight: 700;
+    padding: 6px 0 5px;
+    border-top: 1px solid #0a1e35;
+    margin-bottom: 4px;
+    text-transform: uppercase;
+  }
   .eq-live-section { margin-top: 10px; }
   .eq-live-hdr {
     font-size: 8px; letter-spacing: 3px; color: #1a4a70;

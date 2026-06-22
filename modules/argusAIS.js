@@ -713,41 +713,42 @@ function connectAISStream() {
     // Regional targeting gives proportional global coverage while avoiding the
     // European AIS receiver density bias that a single global bbox produces.
     // Format: [[minLat, minLon], [maxLat, maxLon]]
+    // NOTE: Free tier test — using original 10 boxes only (1009 = subscription too large or banned).
+    // If this connects cleanly, restore extra boxes gradually or upgrade plan.
+    // Commented boxes were added progressively — re-enable once we confirm tier limit.
     ws.send(JSON.stringify({
       APIKey: AISSTREAM_KEY,
       BoundingBoxes: [
-        // ── Original 10 ──────────────────────────────────────────────────────
         [[ 50, -10], [ 70,  30]],  // North Sea & Baltic
         [[ 30,  -6], [ 46,  36]],  // Mediterranean
-        [[ 12,  32], [ 32,  50]],  // Suez Canal & Red Sea           ← chokepoint
-        [[ -2,  95], [  8, 110]],  // Strait of Malacca              ← busiest strait
+        [[ 12,  32], [ 32,  50]],  // Suez Canal & Red Sea
+        [[ -2,  95], [  8, 110]],  // Strait of Malacca
         [[  5, -85], [ 25, -60]],  // Panama Canal & Caribbean
-        [[ 23,  48], [ 30,  60]],  // Persian Gulf                   ← energy
-        [[  0, 105], [ 25, 125]],  // South China Sea                ← contested
-        [[-12,  35], [ 15,  55]],  // East Africa & Horn             ← piracy zone
+        [[ 23,  48], [ 30,  60]],  // Persian Gulf
+        [[  0, 105], [ 25, 125]],  // South China Sea
+        [[-12,  35], [ 15,  55]],  // East Africa & Horn
         [[ 30, -60], [ 60, -10]],  // North Atlantic
         [[ 20,-135], [ 50,-115]],  // US West Coast & Pacific
-        // ── 12 prior additions ───────────────────────────────────────────────
+        /* DISABLED — restore if plan allows more boxes:
         [[ 25, -98], [ 45, -65]],  // US East Coast & Gulf of Mexico
-        [[ 10,  55], [ 28,  78]],  // Arabian Sea                    ← India-Gulf corridor
+        [[ 10,  55], [ 28,  78]],  // Arabian Sea
         [[ -5,  65], [ 25,  90]],  // Bay of Bengal & Indian Ocean N
-        [[-35,  15], [-25,  40]],  // Cape of Good Hope              ← diversion route
+        [[-35,  15], [-25,  40]],  // Cape of Good Hope
         [[-10, 105], [  8, 130]],  // Indonesia / Java / Banda Sea
-        [[ 30, 125], [ 45, 145]],  // Japan & Korea                  ← major export hub
-        [[ 40,  27], [ 48,  42]],  // Black Sea                      ← Russia/Ukraine/Turkey
-        [[-10, -18], [ 10,  15]],  // West Africa / Gulf of Guinea   ← oil
+        [[ 30, 125], [ 45, 145]],  // Japan & Korea
+        [[ 40,  27], [ 48,  42]],  // Black Sea
+        [[-10, -18], [ 10,  15]],  // West Africa / Gulf of Guinea
         [[-45, 110], [-10, 155]],  // Australia
         [[-35, -55], [ -5, -30]],  // South Atlantic / Brazil coast
-        [[-60, -70], [-45, -50]],  // Cape Horn / Drake Passage      ← Falklands/Southern Ocean
-        [[-30,  80], [ 10, 110]],  // Indian Ocean (central)         ← long-haul fill
-        // ── 4 new coverage-gap fills ─────────────────────────────────────────
-        [[ 42, 145], [ 55, 180]],  // North Pacific routing corridor (Japan→NA great-circle, dateline crossing)
-        [[-40, -85], [ -5, -70]],  // South America Pacific coast (Chile, Peru, Ecuador ports + Pacific routes)
-        [[ 68,  25], [ 78,  80]],  // Arctic / Northern Sea Route (Svalbard → Kara Sea, growing strategic corridor)
-        [[ 15,-175], [ 30,-140]],  // Central Pacific / OPAC routes (Hawaii corridor, no prior AIS coverage)
-        // ── 2 mid-ocean transatlantic/transpacific fills ──────────────────────
-        [[-25, -45], [  5, -10]],  // South Atlantic transatlantic (Brazil → Cape Verde → West Africa route)
-        [[  0,-175], [ 22,-130]],  // Mid-Pacific (fills gap between Hawaii corridor and US West Coast box)
+        [[-60, -70], [-45, -50]],  // Cape Horn / Drake Passage
+        [[-30,  80], [ 10, 110]],  // Indian Ocean (central)
+        [[ 42, 145], [ 55, 180]],  // North Pacific routing corridor
+        [[-40, -85], [ -5, -70]],  // South America Pacific coast
+        [[ 68,  25], [ 78,  80]],  // Arctic / Northern Sea Route
+        [[ 15,-175], [ 30,-140]],  // Central Pacific / OPAC routes
+        [[-25, -45], [  5, -10]],  // South Atlantic transatlantic
+        [[  0,-175], [ 22,-130]],  // Mid-Pacific
+        */
       ],
       FilterMessageTypes: ['PositionReport', 'ShipStaticData'],
     }));
@@ -763,7 +764,7 @@ function connectAISStream() {
   };
 
   ws.onclose = function (e) {
-    console.warn('[ArgusAIS] AISstream disconnected (code ' + e.code + ') — reconnecting in 5 s');
+    console.warn('[ArgusAIS] AISstream disconnected (code=' + e.code + ', reason="' + (e.reason || 'none') + '", clean=' + e.wasClean + ') — reconnecting in 5 s');
     wsAIS = null;
     if (reconnTimer) clearTimeout(reconnTimer);
     reconnTimer = setTimeout(connectAISStream, 5000);

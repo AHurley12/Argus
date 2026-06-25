@@ -193,6 +193,11 @@
               title="Toggle NOAA weather layer (key W)">
         <span class="sb-icon">⊛</span><span>WX</span>
       </button>
+      <button id="btn-sb-energy" class="sb-btn"
+              onclick="window._toggleEnergyLayer && window._toggleEnergyLayer()"
+              title="Energy infrastructure layer — coal, nuclear, hydro, wind, LNG (key I)">
+        <span class="sb-icon">⚡</span><span>INFRA</span>
+      </button>
     </div>
 
     <!-- Panel toggles: Events/News · Market -->
@@ -257,6 +262,16 @@
     </div>
 
   </nav>
+
+  <!-- ── Energy Infrastructure Filter Panel ──────────────────────────────────── -->
+  <div id="energy-filter-panel" style="display:none;position:fixed;left:68px;top:12px;z-index:900;background:rgba(4,13,24,0.96);border:1px solid #0f2744;padding:10px 12px;min-width:130px">
+    <div style="font-size:8px;letter-spacing:2px;color:#0099ff;margin-bottom:8px;font-weight:700">ENERGY LAYERS</div>
+    <label class="energy-cb-row"><input type="checkbox" id="energy-cb-coal"    checked onchange="window._applyEnergyTypeFilter&&_applyEnergyTypeFilter()"><span>COAL</span></label>
+    <label class="energy-cb-row"><input type="checkbox" id="energy-cb-nuclear" checked onchange="window._applyEnergyTypeFilter&&_applyEnergyTypeFilter()"><span>NUCLEAR</span></label>
+    <label class="energy-cb-row"><input type="checkbox" id="energy-cb-hydro"   checked onchange="window._applyEnergyTypeFilter&&_applyEnergyTypeFilter()"><span>HYDRO</span></label>
+    <label class="energy-cb-row"><input type="checkbox" id="energy-cb-wind"    checked onchange="window._applyEnergyTypeFilter&&_applyEnergyTypeFilter()"><span>WIND</span></label>
+    <label class="energy-cb-row"><input type="checkbox" id="energy-cb-lng"     checked onchange="window._applyEnergyTypeFilter&&_applyEnergyTypeFilter()"><span>LNG</span></label>
+  </div>
 
   <!-- ── Global Snapshot Strip ──────────────────────────────────────────────── -->
   <div id="argus-snapshot-strip" aria-label="Global intelligence snapshot">
@@ -829,6 +844,7 @@ window.ArgusLayerState = {
   aircraft:    false,
   aisVessels:  true,   // mirrors aisOn default (true) in ArgusAIS
   weather:     false,  // animated NOAA pulse + cyclone sprite layer
+  energy:      false,  // GEM energy infrastructure layer — independent of events
 };
 
 document.addEventListener('DOMContentLoaded', function() {
@@ -1060,6 +1076,7 @@ document.addEventListener('DOMContentLoaded', function() {
       window.eventMarkers.forEach(function(m) {
         if (m.userData && m.userData.isGDACS && _eHazardCats[m.userData.type]) return;
         if (m.userData && m.userData.isEONET) return;  // EONET follows W key, not E key
+        if (m.userData && m.userData._gemMarker) return; // GEM energy follows I key, not E key
         m.visible = evOn;
       });
       // Also toggle pulse rings that belong to non-weather events
@@ -1067,10 +1084,8 @@ document.addEventListener('DOMContentLoaded', function() {
       if (_emg) _emg.children.forEach(function(obj) {
         if (obj.userData && obj.userData.isPulseRing && !obj.userData._noaaMarker) obj.visible = evOn;
       });
-      // ACLED + GEM InstancedMesh visual layers — ghost meshes above handle raycasting
-      if (window.ArgusACLED  && window.ArgusACLED.setVisible)  window.ArgusACLED.setVisible(evOn);
-      if (window.ArgusGEM    && window.ArgusGEM.setVisible)    window.ArgusGEM.setVisible(evOn);
-      // EONET follows W key entirely — setEventsVisible is a no-op, omitted here
+      // ACLED InstancedMesh — GEM energy is on its own toggle (I key)
+      if (window.ArgusACLED && window.ArgusACLED.setVisible) window.ArgusACLED.setVisible(evOn);
       if (!evOn) clearHoverTooltip();
     }
     if (e.key.toLowerCase() === 'w') {
@@ -1087,7 +1102,32 @@ document.addEventListener('DOMContentLoaded', function() {
     if (e.key.toLowerCase() === 'm') {
       if (window.ArgusAIS) window.ArgusAIS.toggle();
     }
+    if (e.key.toLowerCase() === 'i') {
+      _toggleEnergyLayer();
+    }
   });
+
+  // ── Energy infrastructure toggle — I key + sidebar INFRA button ───────────────
+  function _toggleEnergyLayer() {
+    var on = !window.ArgusLayerState.energy;
+    window.ArgusLayerState.energy = on;
+    if (window.ArgusGEM && window.ArgusGEM.setVisible) window.ArgusGEM.setVisible(on);
+    var btn = document.getElementById('btn-sb-energy');
+    if (btn) btn.classList.toggle('is-active', on);
+    var panel = document.getElementById('energy-filter-panel');
+    if (panel) panel.style.display = on ? 'block' : 'none';
+    if (!on) clearHoverTooltip();
+  }
+
+  // ── Energy type filter checkboxes ─────────────────────────────────────────────
+  function _applyEnergyTypeFilter() {
+    var types = [];
+    ['coal','nuclear','hydro','wind','lng'].forEach(function(t) {
+      var cb = document.getElementById('energy-cb-' + t);
+      if (cb && cb.checked) types.push(t);
+    });
+    if (window.ArgusGEM && window.ArgusGEM.setTypeFilter) window.ArgusGEM.setTypeFilter(types);
+  }
 
   // ── Weather layer toggle — shared by W key and #btn-track-weather ────────────
   function _toggleWeatherLayer() {
@@ -1106,8 +1146,10 @@ document.addEventListener('DOMContentLoaded', function() {
     if (btn) btn.classList.toggle('is-active', wOn);
     if (!wOn) clearHoverTooltip();
   }
-  // Expose so onclick attribute can reach it
-  window._toggleWeatherLayer = _toggleWeatherLayer;
+  // Expose so onclick attributes can reach them
+  window._toggleWeatherLayer     = _toggleWeatherLayer;
+  window._toggleEnergyLayer      = _toggleEnergyLayer;
+  window._applyEnergyTypeFilter  = _applyEnergyTypeFilter;
 
   // ── Lights ──────────────────────────────────────────────────────────────────
   scene.add(new THREE.AmbientLight(0x2a4560, 1.6));
@@ -5774,6 +5816,19 @@ window.ArgusUI = (function() {
           html += '<div class="detail__row"><span class="detail__label">DATA PERIOD</span><span class="detail__value">' + prod.period + '</span></div>';
         } else {
           html += '<div class="detail__placeholder">Production data loading…</div>';
+        }
+      }
+      // ── Energy Infrastructure Breakdown (GEM) ──────────────────────────────
+      if (window.ArgusGEM && window.ArgusGEM.getCountryEnergy && window.energyInfrastructureCache && window.energyInfrastructureCache.size) {
+        var _eg = window.ArgusGEM.getCountryEnergy(d.name);
+        if (_eg && _eg.totalAssets > 0) {
+          html += '<div class="detail__section-header" style="color:#00ffcc">ENERGY INFRASTRUCTURE <span style="color:#2a4a6a;font-size:7px;font-weight:300;float:right">GLOBAL ENERGY MONITOR</span></div>';
+          var _fmtMW = function(mw) { return mw >= 1000 ? (mw/1000).toFixed(1) + ' GW' : Math.round(mw) + ' MW'; };
+          if (_eg.coalMW)    html += '<div class="detail__row"><span class="detail__label"><span style="color:#aaaaaa">▪</span> COAL</span><span class="detail__value" style="color:#aaaaaa">' + _fmtMW(_eg.coalMW) + '</span></div>';
+          if (_eg.nuclearMW) html += '<div class="detail__row"><span class="detail__label"><span style="color:#8888ff">▪</span> NUCLEAR</span><span class="detail__value" style="color:#8888ff">' + _fmtMW(_eg.nuclearMW) + '</span></div>';
+          if (_eg.hydroMW)   html += '<div class="detail__row"><span class="detail__label"><span style="color:#4488ff">▪</span> HYDRO</span><span class="detail__value" style="color:#4488ff">' + _fmtMW(_eg.hydroMW) + '</span></div>';
+          if (_eg.windMW)    html += '<div class="detail__row"><span class="detail__label"><span style="color:#88ffcc">▪</span> WIND</span><span class="detail__value" style="color:#88ffcc">' + _fmtMW(_eg.windMW) + '</span></div>';
+          if (_eg.lngAssets) html += '<div class="detail__row"><span class="detail__label"><span style="color:#00ffff">▪</span> LNG TERMINALS</span><span class="detail__value" style="color:#00ffff">' + _eg.lngAssets + ' FACILITIES</span></div>';
         }
       }
 

@@ -1,30 +1,27 @@
 'use strict';
 // modules/argusGem.js
-// Global Energy Monitor (GEM) infrastructure intelligence overlay.
+// Energy Infrastructure Intelligence Layer — unified ingestion pipeline.
 //
 // Architecture:
 //   STATIC INFRASTRUCTURE INTELLIGENCE. Not realtime. Not event-driven.
-//   GEM data (LNG terminals, pipelines, power infrastructure, energy chokepoints)
-//   changes rarely — treated as persistent strategic reference data.
+//   Covers: coal, nuclear, hydro, wind, lng (+ pipeline, solar, oil, gas).
+//   Changes rarely — treated as persistent strategic reference data.
 //
 //   Fetches once on startup (or when cache is stale). Refreshes daily.
 //   No polling loops after initial load. No animation. No rerenders.
 //
-// Cache isolation:
-//   energyInfrastructureCache  Map<infraId, normalizedInfra> — separate from all other caches.
-//   localStorage with 24h TTL (avoids network on every page load).
+// Visibility:
+//   Controlled by window.ArgusLayerState.energy — INDEPENDENT of the
+//   E-key event layer (ACLED/GDACS). Energy infra is not event data.
+//   Per-type filtering (coal/nuclear/hydro/wind/lng) via setTypeFilter().
 //
-// Render:
-//   Static infrastructure markers on globe eventMarkerGroup.
-//   Placed once — not continuously rerendered.
-//   Infrastructure type color coding: LNG (cyan), pipeline (green), power (yellow).
-//   Visibility tied to window.ArgusLayerState.events.
+// Cache:
+//   window.energyInfrastructureCache  Map<infraId, EnergyAsset>
+//   localStorage with 24h TTL.
 //
 // Globals:
-//   window.energyInfrastructureCache — Map<id, infra> per architecture spec
-//   window.ArgusGEM                  — { start, stop, refresh, status }
-//
-// Load order: after cache.js (window._argusReqCache) and globe init
+//   window.energyInfrastructureCache — Map<id, EnergyAsset>
+//   window.ArgusGEM                  — { start, stop, refresh, status, setVisible, setTypeFilter, getCountryEnergy }
 
 window.ArgusGEM = (function () {
   'use strict';
@@ -32,23 +29,29 @@ window.ArgusGEM = (function () {
   var GEM_FN     = '/.netlify/functions/fetch-gem';
   var CACHE_KEY  = 'argus_gem_v1';
   var CACHE_TS   = 'argus_gem_ts_v1';
-  var CACHE_TTL  = 24 * 60 * 60 * 1000;  // 24h localStorage TTL
-  var REFRESH_MS = 24 * 60 * 60 * 1000;  // daily refresh check
+  var CACHE_TTL  = 24 * 60 * 60 * 1000;
+  var REFRESH_MS = 24 * 60 * 60 * 1000;
 
   // ── Isolated infrastructure cache ────────────────────────────────────────────
+  // Each entry conforms to the EnergyAsset schema:
+  //   { id, name, type, country, lat, lon, capacityMW, status, source, _canonType }
   var energyInfrastructureCache = new Map();
 
   // ── Render state ─────────────────────────────────────────────────────────────
-  var _placedIds   = new Set();
-  var _rendered    = false;  // one-shot render flag
+  var _placedIds    = new Set();
+  var _rendered     = false;
+  var _energyOn     = false;   // mirrors ArgusLayerState.energy
+
+  // ── Per-type filter ───────────────────────────────────────────────────────────
+  // Only the 5 canonical types are filterable. Other types (pipeline, solar, oil)
+  // always render when the layer is on.
+  var _activeTypes = new Set(['coal', 'nuclear', 'hydro', 'wind', 'lng']);
 
   // ── Instanced visual mesh ─────────────────────────────────────────────────────
-  // Ghost meshes (material.visible=false) stay in eventMarkerGroup for raycasting.
-  // A single InstancedMesh handles all visual rendering — 500 draw calls → 1.
   var _imesh  = null;
   var _iDummy = new THREE.Object3D();
   var _iColor = new THREE.Color();
-  var _IMAX   = 600;  // pre-allocated instance capacity
+  var _IMAX   = 600;
 
   // ── Audit ────────────────────────────────────────────────────────────────────
   var _audit = { fetches: 0, placed: 0, lastFetchMs: 0, lastError: null };
@@ -56,20 +59,20 @@ window.ArgusGEM = (function () {
   // ── Refresh timer ─────────────────────────────────────────────────────────────
   var _refreshTimer = null;
 
-  // ── Infrastructure type → THREE.js hex color ─────────────────────────────────
+  // ── Type → color ──────────────────────────────────────────────────────────────
   var TYPE_COLORS = {
-    'lng':            0x00ffff,  // cyan — LNG terminals
+    'lng':            0x00ffff,
     'lng terminal':   0x00ffff,
-    'pipeline':       0x00ff88,  // green — gas pipelines
+    'pipeline':       0x00ff88,
     'gas':            0x00cc66,
-    'power':          0xffee00,  // yellow — power plants
-    'coal':           0xaaaaaa,  // gray — coal infrastructure
-    'oil':            0xff8800,  // orange — oil infrastructure
-    'nuclear':        0x8888ff,  // lavender — nuclear
-    'solar':          0xffdd00,  // solar yellow
-    'wind':           0x88ffcc,  // teal — wind
-    'hydro':          0x4488ff,  // blue — hydro
-    'infrastructure': 0x88aacc,  // default steel blue
+    'power':          0xffee00,
+    'coal':           0xaaaaaa,
+    'oil':            0xff8800,
+    'nuclear':        0x8888ff,
+    'solar':          0xffdd00,
+    'wind':           0x88ffcc,
+    'hydro':          0x4488ff,
+    'infrastructure': 0x88aacc,
   };
 
   function _infraColor(type) {
@@ -82,10 +85,35 @@ window.ArgusGEM = (function () {
     return TYPE_COLORS['infrastructure'];
   }
 
+  // ── Canonical type normalization ──────────────────────────────────────────────
+  // Maps raw GEM type strings → one of the 5 filterable canonical types, or null.
+  function _canonicalType(raw) {
+    var t = (raw || '').toLowerCase();
+    if (t.indexOf('lng') >= 0)   return 'lng';
+    if (t.indexOf('coal') >= 0)  return 'coal';
+    if (t.indexOf('nuclear') >= 0 || t.indexOf('atom') >= 0) return 'nuclear';
+    if (t.indexOf('hydro') >= 0) return 'hydro';
+    if (t.indexOf('wind') >= 0)  return 'wind';
+    return null;  // pipeline, solar, oil, gas, etc. — unfilterable, always shown
+  }
+
+  // ── Capacity normalization to MW ──────────────────────────────────────────────
+  function _toCapacityMW(infra) {
+    var cap = parseFloat(infra.capacity);
+    if (isNaN(cap) || cap <= 0) return null;
+    var unit = (infra.unit || '').toLowerCase();
+    if (unit.indexOf('gw') >= 0) return cap * 1000;
+    return cap;  // assume MW if no unit or unit is MW/other
+  }
+
+  // ── Type-filter visibility check ──────────────────────────────────────────────
+  function _isTypeVisible(canonType) {
+    if (!canonType) return true;  // non-filterable types always shown when layer is on
+    return _activeTypes.has(canonType);
+  }
+
   // ── InstancedMesh rebuild ──────────────────────────────────────────────────────
-  // Called after every _renderInfrastructure(). Builds one InstancedMesh for all
-  // GEM markers, using per-instance color. Ghost meshes handle raycasting only.
-  function _rebuildInstanced(AG, altR, visible) {
+  function _rebuildInstanced(AG, altR) {
     if (!AG || !AG.eventMarkerGroup) return;
 
     if (!_imesh) {
@@ -98,7 +126,6 @@ window.ArgusGEM = (function () {
       _imesh.count         = 0;
       _imesh.visible       = false;
 
-      // Pre-allocate instanceColor buffer
       var cols = new Float32Array(_IMAX * 3);
       for (var ci = 0; ci < _IMAX * 3; ci++) cols[ci] = 1.0;
       _imesh.instanceColor = new THREE.InstancedBufferAttribute(cols, 3);
@@ -106,35 +133,62 @@ window.ArgusGEM = (function () {
       AG.eventMarkerGroup.add(_imesh);
     }
 
-    // Zero-scale dummy for unused slots
+    // Zero-scale dummy for unused / filtered-out slots
     _iDummy.scale.set(0, 0, 0);
     _iDummy.position.set(0, 0, 0);
     _iDummy.rotation.set(0, 0, 0);
     _iDummy.updateMatrix();
+    var zeroMat = _iDummy.matrix;
 
     var n = 0;
     energyInfrastructureCache.forEach(function (infra) {
       if (n >= _IMAX) return;
-      var pos = AG.latLonToVector(infra.lat, infra.lon, altR);
-      _iDummy.position.copy(pos);
-      _iDummy.scale.set(1, 1, 1);
-      _iDummy.updateMatrix();
-      _imesh.setMatrixAt(n, _iDummy.matrix);
 
-      _iColor.setHex(_infraColor(infra.type));
-      var off = n * 3;
-      _imesh.instanceColor.array[off]     = _iColor.r;
-      _imesh.instanceColor.array[off + 1] = _iColor.g;
-      _imesh.instanceColor.array[off + 2] = _iColor.b;
+      // Respect per-type filter — zero-scale hidden types rather than skip
+      // so instance indices stay stable and count remains accurate.
+      if (_energyOn && _isTypeVisible(infra._canonType)) {
+        var pos = AG.latLonToVector(infra.lat, infra.lon, altR);
+        _iDummy.position.copy(pos);
+        _iDummy.scale.set(1, 1, 1);
+        _iDummy.updateMatrix();
+        _imesh.setMatrixAt(n, _iDummy.matrix);
+
+        _iColor.setHex(_infraColor(infra.type));
+        var off = n * 3;
+        _imesh.instanceColor.array[off]     = _iColor.r;
+        _imesh.instanceColor.array[off + 1] = _iColor.g;
+        _imesh.instanceColor.array[off + 2] = _iColor.b;
+      } else {
+        _imesh.setMatrixAt(n, zeroMat);
+      }
       n++;
     });
 
     _imesh.count = n;
     _imesh.instanceMatrix.needsUpdate = true;
     _imesh.instanceColor.needsUpdate  = true;
-    _imesh.visible = !!(visible);
+    _imesh.visible = _energyOn && n > 0;
 
-    console.log('[ArgusGEM] instanced mesh rebuilt —', n, 'infra markers in 1 draw call');
+    console.log('[ArgusGEM] instanced mesh rebuilt —', n, 'slots, energy layer:', _energyOn ? 'ON' : 'OFF');
+  }
+
+  // ── Update ghost mesh visibility after filter change ──────────────────────────
+  function _refreshGhostVisibility() {
+    var emg = window.ArgusGlobe && window.ArgusGlobe.eventMarkerGroup;
+    if (!emg) return;
+    emg.children.forEach(function (o) {
+      if (!o.userData || !o.userData._gemMarker) return;
+      o.visible = _energyOn && _isTypeVisible(o.userData._canonType);
+    });
+  }
+
+  // ── Rebuild instanced + ghost after any state change ─────────────────────────
+  function _refreshVisibility() {
+    var AG = window.ArgusGlobe;
+    if (!AG) return;
+    var altR = (AG.R && AG.R.MARKER) || 101;
+    _rebuildInstanced(AG, altR);
+    _refreshGhostVisibility();
   }
 
   // ── Render infrastructure from cache (one-shot, not a loop) ──────────────────
@@ -143,12 +197,11 @@ window.ArgusGEM = (function () {
     if (!AG || !AG.eventMarkerGroup || !AG.latLonToVector) return;
     if (!energyInfrastructureCache.size) return;
 
-    var R       = AG.R || {};
-    var altR    = R.MARKER || 101;
-    var visible = !!(window.ArgusLayerState && window.ArgusLayerState.events);
-    var added   = 0;
+    var altR  = (AG.R && AG.R.MARKER) || 101;
+    _energyOn = !!(window.ArgusLayerState && window.ArgusLayerState.energy);
+    var added = 0;
 
-    // ── Remove stale markers (items evicted from cache) ──────────────────────
+    // Remove stale markers
     var toRemove = [];
     AG.eventMarkerGroup.children.forEach(function (o) {
       if (o.userData && o.userData._gemMarker && !energyInfrastructureCache.has(o.userData._gemId)) {
@@ -167,30 +220,30 @@ window.ArgusGEM = (function () {
       });
     }
 
-    // ── Add ghost meshes for new markers (raycasting only, no draw calls) ─────
-    // BoxGeometry — visually distinct from event spheres and GDACS octahedra.
-    // material.visible=false → zero draw calls; InstancedMesh handles all rendering.
+    // Add ghost meshes for new markers (raycasting only)
     energyInfrastructureCache.forEach(function (infra) {
       if (_placedIds.has(infra.id)) return;
 
-      var col = _infraColor(infra.type);
-      var pos = AG.latLonToVector(infra.lat, infra.lon, altR);
+      var col     = _infraColor(infra.type);
+      var pos     = AG.latLonToVector(infra.lat, infra.lon, altR);
+      var visible = _energyOn && _isTypeVisible(infra._canonType);
 
       var mesh = new THREE.Mesh(
         new THREE.BoxGeometry(1.2, 1.2, 1.2),
         new THREE.MeshBasicMaterial({ color: col, visible: false })
       );
       mesh.position.copy(pos);
-      mesh.visible = visible;  // ghost mesh controls raycasting visibility only
+      mesh.visible = visible;
 
-      var capacityStr = infra.capacity
-        ? ' · Capacity: ' + infra.capacity + (infra.unit ? ' ' + infra.unit : '')
-        : '';
+      var capacityStr = infra.capacityMW != null
+        ? ' · Capacity: ' + infra.capacityMW + ' MW'
+        : (infra.capacity ? ' · Capacity: ' + infra.capacity + (infra.unit ? ' ' + infra.unit : '') : '');
       var statusStr = infra.status ? ' · Status: ' + infra.status : '';
 
       mesh.userData = {
         _gemMarker:  true,
         _gemId:      infra.id,
+        _canonType:  infra._canonType,
         type:        infra.type,
         isGEM:       true,
         isCountry:   false,
@@ -210,22 +263,21 @@ window.ArgusGEM = (function () {
     _audit.placed += added;
     _rendered = true;
 
-    // Rebuild InstancedMesh whenever the infra set changes (or on first render).
-    _rebuildInstanced(AG, altR, visible);
+    _rebuildInstanced(AG, altR);
 
-    if (added > 0) {
-      if (typeof window.updateNodeCounts === 'function') window.updateNodeCounts();
+    if (added > 0 && typeof window.updateNodeCounts === 'function') {
+      window.updateNodeCounts();
     }
   }
 
-  // ── Load response into cache ───────────────────────────────────────────────────
+  // ── Load + normalize response into EnergyAsset schema ────────────────────────
   function _loadResponse(json) {
     if (!json || !Array.isArray(json.infrastructure)) return;
 
     var incomingIds = new Set();
     for (var i = 0; i < json.infrastructure.length; i++) {
-      var infra = json.infrastructure[i];
-      if (infra && infra.id && infra.lat != null && infra.lon != null) incomingIds.add(infra.id);
+      var raw = json.infrastructure[i];
+      if (raw && raw.id && raw.lat != null && raw.lon != null) incomingIds.add(raw.id);
     }
 
     // Evict removed infrastructure
@@ -233,15 +285,34 @@ window.ArgusGEM = (function () {
       if (!incomingIds.has(id)) energyInfrastructureCache.delete(id);
     });
 
-    // Upsert — mutate in place if key exists
+    // Upsert with normalized EnergyAsset fields
     for (var j = 0; j < json.infrastructure.length; j++) {
       var item = json.infrastructure[j];
       if (!item || !item.id || item.lat == null || item.lon == null) continue;
-      energyInfrastructureCache.set(item.id, item);
+
+      // Normalize into EnergyAsset schema
+      var asset = {
+        id:         item.id,
+        name:       item.name || '',
+        type:       item.type || 'infrastructure',
+        country:    item.country || '',
+        lat:        item.lat,
+        lon:        item.lon,
+        capacityMW: _toCapacityMW(item),
+        status:     item.status || null,
+        source:     'Global Energy Monitor',
+        // Internal fields retained for backward compat
+        capacity:   item.capacity,
+        unit:       item.unit,
+        fuel:       item.fuel,
+        _canonType: _canonicalType(item.type),
+      };
+
+      energyInfrastructureCache.set(asset.id, asset);
     }
   }
 
-  // ── Fetch (not a tight poll — daily check only) ───────────────────────────────
+  // ── Fetch ─────────────────────────────────────────────────────────────────────
   function _fetch() {
     var reqCache = window._argusReqCache;
     if (!reqCache) return;
@@ -253,20 +324,19 @@ window.ArgusGEM = (function () {
         _audit.lastFetchMs = Date.now();
         _audit.lastError   = null;
 
-        if (json && json.disabled) return;  // feature gated on backend
+        if (json && json.disabled) return;
 
         _loadResponse(json);
 
         try {
           localStorage.setItem(CACHE_KEY, JSON.stringify(json));
           localStorage.setItem(CACHE_TS,  String(Date.now()));
-        } catch (e) { /* localStorage full */ }
+        } catch (e) {}
 
         _renderInfrastructure();
       })
       .catch(function (err) {
         _audit.lastError = err.message;
-        // Silent — GEM is optional infrastructure intelligence
       });
   }
 
@@ -274,7 +344,6 @@ window.ArgusGEM = (function () {
   function start() {
     if (_refreshTimer) return;
 
-    // Warm from localStorage if fresh — GEM data rarely changes
     try {
       var cached = localStorage.getItem(CACHE_KEY);
       var ts     = parseInt(localStorage.getItem(CACHE_TS) || '0');
@@ -283,23 +352,18 @@ window.ArgusGEM = (function () {
         if (parsed && !parsed.disabled) {
           _loadResponse(parsed);
           setTimeout(_renderInfrastructure, 5000);
-          // Daily refresh check — just check cache age, only re-fetch if stale
           _refreshTimer = setInterval(function () {
-            var age = Date.now() - parseInt(localStorage.getItem(CACHE_TS) || '0');
-            if (age > CACHE_TTL) _fetch();
+            if (Date.now() - parseInt(localStorage.getItem(CACHE_TS) || '0') > CACHE_TTL) _fetch();
           }, REFRESH_MS);
           return;
         }
       }
-    } catch (e) { /* fall through */ }
+    } catch (e) {}
 
-    // Initial fetch deferred 60s — lower priority than ACLED and NOAA starts
     setTimeout(_fetch, 60 * 1000);
 
-    // Daily refresh check
     _refreshTimer = setInterval(function () {
-      var age = Date.now() - parseInt(localStorage.getItem(CACHE_TS) || '0');
-      if (age > CACHE_TTL) _fetch();
+      if (Date.now() - parseInt(localStorage.getItem(CACHE_TS) || '0') > CACHE_TTL) _fetch();
     }, REFRESH_MS);
   }
 
@@ -320,19 +384,48 @@ window.ArgusGEM = (function () {
       });
     }
     if (_imesh) _imesh.visible = false;
+    _energyOn = false;
     energyInfrastructureCache.clear();
     _placedIds.clear();
     _rendered = false;
   }
 
-  function refresh() {
-    _fetch();
+  function refresh() { _fetch(); }
+
+  // ── setVisible — called by the energy layer toggle ────────────────────────────
+  // Decoupled from ArgusLayerState.events / E key.
+  function setVisible(v) {
+    _energyOn = !!v;
+    _refreshVisibility();
   }
 
-  // Called by index.html event layer toggles (E key, modal close) to show/hide
-  // the InstancedMesh. Ghost meshes are managed via window.eventMarkers.forEach().
-  function setVisible(v) {
-    if (_imesh) _imesh.visible = !!v;
+  // ── setTypeFilter — update which canonical types are shown ────────────────────
+  // types: Array of strings from ['coal','nuclear','hydro','wind','lng']
+  function setTypeFilter(types) {
+    _activeTypes = new Set(Array.isArray(types) ? types : []);
+    _refreshVisibility();
+  }
+
+  // ── getCountryEnergy — aggregate energy assets for a country ──────────────────
+  // countryName: display name string (case-insensitive match against infra.country)
+  // Returns { coalMW, nuclearMW, hydroMW, windMW, lngAssets, totalAssets }
+  function getCountryEnergy(countryName) {
+    var result = { coalMW: 0, nuclearMW: 0, hydroMW: 0, windMW: 0, lngAssets: 0, totalAssets: 0 };
+    if (!countryName) return result;
+    var needle = countryName.toLowerCase();
+    energyInfrastructureCache.forEach(function (infra) {
+      if (!infra.country || infra.country.toLowerCase().indexOf(needle) < 0) return;
+      result.totalAssets++;
+      var mw = infra.capacityMW;
+      switch (infra._canonType) {
+        case 'coal':    if (mw) result.coalMW    += mw; break;
+        case 'nuclear': if (mw) result.nuclearMW += mw; break;
+        case 'hydro':   if (mw) result.hydroMW   += mw; break;
+        case 'wind':    if (mw) result.windMW     += mw; break;
+        case 'lng':     result.lngAssets++;               break;
+      }
+    });
+    return result;
   }
 
   function status() {
@@ -340,8 +433,9 @@ window.ArgusGEM = (function () {
       cacheSize:   energyInfrastructureCache.size,
       placed:      _placedIds.size,
       rendered:    _rendered,
+      energyOn:    _energyOn,
+      activeTypes: Array.from(_activeTypes),
       fetches:     _audit.fetches,
-      placed:      _audit.placed,
       lastFetchMs: _audit.lastFetchMs,
       lastError:   _audit.lastError,
     };
@@ -360,6 +454,6 @@ window.ArgusGEM = (function () {
 
   if (window.ArgusModuleAudit) window.ArgusModuleAudit.register('ArgusGEM');
 
-  return { start: start, stop: stop, refresh: refresh, status: status, setVisible: setVisible };
+  return { start: start, stop: stop, refresh: refresh, status: status, setVisible: setVisible, setTypeFilter: setTypeFilter, getCountryEnergy: getCountryEnergy };
 
 }());

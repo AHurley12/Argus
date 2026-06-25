@@ -2536,6 +2536,22 @@
     background: rgba(255,255,255,0.06);
   }
 
+  /* Energy infrastructure button */
+  #btn-sb-energy.is-active { color: #00ffcc; border-left-color: #00ffcc; background: rgba(0,255,204,0.07); }
+
+  /* Energy filter panel checkboxes */
+  .energy-cb-row {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    margin-bottom: 6px;
+    cursor: pointer;
+    font-size: 8px;
+    letter-spacing: 1.5px;
+    color: #c5d7e8;
+  }
+  .energy-cb-row input[type="checkbox"] { accent-color: #00ffcc; cursor: pointer; }
+
   /* Analytics Lab button */
   #btn-sb-ax-lab { margin-top: 2px; }
   #btn-sb-ax-lab.is-active { color: #4fc3ff; border-left-color: #4fc3ff; background: rgba(79,195,255,0.08); }

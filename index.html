@@ -4735,14 +4735,22 @@ async function fetchAndClassify() {
     '&language=en' +
     '&size=10';
 
-  var res = await fetch('https://wbvzlxtroewxrmonxodx.supabase.co/functions/v1/data-proxy', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndidnpseHRyb2V3eHJtb254b2R4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM3OTQzNzMsImV4cCI6MjA4OTM3MDM3M30.0zp-wQ3wKpYc0f7LqFCOEea_d9HJuWnUSWgF4BAW82w'
-    },
-    body: JSON.stringify({ source: 'newsdata', url: newsUrl })
-  });
+  var _fetchCtrl = new AbortController();
+  var _fetchTimer = setTimeout(function() { _fetchCtrl.abort(); }, 12000);
+  var res;
+  try {
+    res = await fetch('https://wbvzlxtroewxrmonxodx.supabase.co/functions/v1/data-proxy', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndidnpseHRyb2V3eHJtb254b2R4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM3OTQzNzMsImV4cCI6MjA4OTM3MDM3M30.0zp-wQ3wKpYc0f7LqFCOEea_d9HJuWnUSWgF4BAW82w'
+      },
+      body: JSON.stringify({ source: 'newsdata', url: newsUrl }),
+      signal: _fetchCtrl.signal
+    });
+  } finally {
+    clearTimeout(_fetchTimer);
+  }
   if (!res.ok) {
     var body = await res.text().catch(function() { return ''; });
     throw new Error('NewsData ' + res.status + ': ' + body.slice(0, 120));

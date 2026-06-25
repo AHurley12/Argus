@@ -4438,7 +4438,7 @@ function _saveAIBucket() {
     keys.slice(0, keys.length - _AI_BUCKET_MAX).forEach(function(k) { delete _AI_CLASS_BUCKET[k]; });
   }
   // Defer serialization — bucket can be several hundred KB after a full session
-  window._lsWrite(_AI_CLASS_CACHE_KEY, _AI_CLASS_BUCKET);
+  try { localStorage.setItem(_AI_CLASS_CACHE_KEY, JSON.stringify(_AI_CLASS_BUCKET)); } catch(e) {}
 }
 
 // ── Daily call budget helpers ─────────────────────────────────────────────────
@@ -4943,8 +4943,8 @@ async function loadLiveEvents() {
   // Fetch fresh data (background update if stale cache was already shown above)
   try {
     var liveEvents = await fetchAndClassify();
-    window._lsWrite(FEED_CACHE_KEY, liveEvents);
-    window._lsWrite(FEED_CACHE_TS, String(Date.now()));
+    try { localStorage.setItem(FEED_CACHE_KEY, JSON.stringify(liveEvents)); } catch(e) {}
+    try { localStorage.setItem(FEED_CACHE_TS, String(Date.now())); } catch(e) {}
     renderEvents(liveEvents, true);
     window._liveEventContext = liveEvents.map(function(e) { return '• ' + e.title + ' [' + e.severity + ']'; }).join('\n');
     console.log('ARGUS: ' + liveEvents.length + ' live events loaded');

@@ -16,8 +16,9 @@ var PILLAR_WEIGHTS = {
 // inverted: true if higher raw value = lower risk (e.g. a prosperity index)
 var INDICATORS = {
   economic: [
-    { key: 'baseline',    weight: 0.65, min: 0, max: 100, inverted: false },
-    { key: 'econSignal',  weight: 0.35, min: 0, max: 100, inverted: false },
+    { key: 'giniScore',  weight: 0.500, min: 0, max: 100, inverted: false },  // structural inequality (primary)
+    { key: 'baseline',   weight: 0.375, min: 0, max: 100, inverted: false },  // structural macro proxy
+    { key: 'gdeltScore', weight: 0.125, min: 0, max: 100, inverted: false },  // dampened event signal (secondary)
   ],
   humanitarian: [
     { key: 'baseline',    weight: 0.55, min: 0, max: 100, inverted: false },

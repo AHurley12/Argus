@@ -44,6 +44,7 @@ async function fetchDynamicRisk() {
       cd._band           = s.band           || null;
       cd._adjustedRisk   = s.adjustedRisk   || null;
       cd._compositeScore = s.compositeScore || null;
+      cd._econBreakdown  = s.economicBreakdown || null;
     });
 
     // ── Update globe marker colors ────────────────────────────────────────────
@@ -61,6 +62,7 @@ async function fetchDynamicRisk() {
       mesh.userData._band           = s.band           || null;
       mesh.userData._adjustedRisk   = s.adjustedRisk   || null;
       mesh.userData._compositeScore = s.compositeScore || null;
+      mesh.userData._econBreakdown  = s.economicBreakdown || null;
 
       mesh.material.color.set(RISK_TIER_COLOR[dynamicTier]);
       mesh.userData._dynamicTier = dynamicTier;
@@ -77,6 +79,7 @@ async function fetchDynamicRisk() {
       mesh.userData._band           = s.band           || null;
       mesh.userData._adjustedRisk   = s.adjustedRisk   || null;
       mesh.userData._compositeScore = s.compositeScore || null;
+      mesh.userData._econBreakdown  = s.economicBreakdown || null;
     });
 
     // Expose shared store so any module can access scores and freshness timestamp

@@ -59,7 +59,8 @@
   function _applyBatch(vessels, nowMs) {
     var sorted = vessels.slice().sort(function (a, b) { return (b.sog || 0) - (a.sog || 0); });
     var cap    = Math.min(sorted.length, MAX_SUPP);
-    _map.clear();
+    // Remove only this provider's entries — leave VesselFinder and other providers intact
+    _map.forEach(function (v, id) { if (v.source === 'digitraffic') _map.delete(id); });
     for (var i = 0; i < cap; i++) {
       var v = sorted[i];
       if (!v.lastUpdate) v.lastUpdate = nowMs;

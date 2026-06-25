@@ -145,6 +145,58 @@
     };
   }
 
+  // VesselFinder Vessels API — raw AIS object extracted from the outer [[{AIS:{}}]] nesting
+  // by the Netlify proxy. Field names are all-caps per VesselFinder spec.
+  //
+  // AIS layer fields:    LATITUDE, LONGITUDE, SPEED, COURSE, HEADING, NAVSTAT
+  // Identity fields:     MMSI, IMO, NAME, CALLSIGN, TYPE
+  // Dimension fields:    A+B = length (bow+stern halves), C+D = width (port+starboard)
+  // Voyage fields:       DEST, ETA, TIMESTAMP (UTC string "YYYY-MM-DD HH:mm UTC")
+  function fromVesselFinder(raw) {
+    var mmsiStr = _mmsi(raw.MMSI);
+    var lat     = _lat(raw.LATITUDE);
+    var lon     = _lon(raw.LONGITUDE);
+    if (!mmsiStr || lat === null || lon === null) return null;
+
+    var vType  = parseInt(raw.TYPE, 10) || null;
+    var dimA   = parseFloat(raw.A) || 0;
+    var dimB   = parseFloat(raw.B) || 0;
+    var dimC   = parseFloat(raw.C) || 0;
+    var dimD   = parseFloat(raw.D) || 0;
+
+    var lastUpdate;
+    if (raw.TIMESTAMP) {
+      var ts = new Date(String(raw.TIMESTAMP).replace(' UTC', 'Z').replace(' ', 'T'));
+      lastUpdate = isNaN(ts.getTime()) ? _now() : ts.getTime();
+    } else {
+      lastUpdate = _now();
+    }
+
+    return {
+      id:           'vesselfinder:' + mmsiStr,
+      mmsi:         mmsiStr,
+      imo:          _str(raw.IMO),
+      name:         _str(raw.NAME) || 'VESSEL',
+      callsign:     _str(raw.CALLSIGN),
+      lat:          lat,
+      lon:          lon,
+      sog:          _sog(raw.SPEED),
+      cog:          _cog(raw.COURSE),
+      heading:      _head(raw.HEADING),
+      navStatus:    raw.NAVSTAT != null ? parseInt(raw.NAVSTAT, 10) : null,
+      vesselType:   vType,
+      typeCategory: classifyType(vType, raw.NAME),
+      destination:  _str(raw.DEST),
+      eta:          _str(raw.ETA),
+      length:       (dimA + dimB) > 0 ? (dimA + dimB) : null,
+      width:        (dimC + dimD) > 0 ? (dimC + dimD) : null,
+      flag:         null,
+      source:       'vesselfinder',
+      lastUpdate:   lastUpdate,
+      raw:          raw,
+    };
+  }
+
   // Generic adapter — maps common field name variants defensively.
   // Use for any future provider until a dedicated adapter is written.
   function fromGeneric(raw, sourceId) {
@@ -201,6 +253,7 @@
     classifyType:      classifyType,
     fromDigitraffic:   fromDigitraffic,
     fromAISHub:        fromAISHub,
+    fromVesselFinder:  fromVesselFinder,
     fromGeneric:       fromGeneric,
     toShipBufferEntry: toShipBufferEntry,
   };

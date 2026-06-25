@@ -5051,36 +5051,93 @@ window.ArgusUI = (function() {
 
   // Build three pillar rows with anomaly flag inline.
   // Returns an HTML string suitable for injection into detail panel body.
-  function _pillarSectionHtml(pillars, compositeScore) {
+  // _pillarSectionHtml — three pillar rows with Gini sub-row inline under Economic.
+  // econBreakdown is optional; omit for chokepoint contexts.
+  function _pillarSectionHtml(pillars, compositeScore, econBreakdown) {
     var PCOL = { 75:'#ff0044', 50:'#ff9933', 25:'#ffcc00', 0:'#00ff88' };
     function pCol(s) { return s >= 75 ? PCOL[75] : s >= 50 ? PCOL[50] : s >= 25 ? PCOL[25] : PCOL[0]; }
     function pFlag(s) {
-      if (s >= 95) return ' <span style="color:#ff0044;font-size:8px;letter-spacing:0.5px">⚠⚠ CRITICAL ANOMALY</span>';
-      if (s >= 85) return ' <span style="color:#ff9933;font-size:8px;letter-spacing:0.5px">⚠ ELEVATED ANOMALY</span>';
+      if (s >= 95) return ' <span style="color:#ff0044;font-size:8px;letter-spacing:0.5px">⚠⚠ CRITICAL</span>';
+      if (s >= 85) return ' <span style="color:#ff9933;font-size:8px;letter-spacing:0.5px">⚠ ELEVATED</span>';
       return '';
     }
     var html = '';
-    [['ECONOMIC (40%)', pillars.economic], ['HUMANITARIAN (30%)', pillars.humanitarian], ['SECURITY (30%)', pillars.security]].forEach(function(p) {
-      var s = p[1] || 0;
+    var rows = [
+      ['ECONOMIC',     '40%', pillars.economic],
+      ['HUMANITARIAN', '30%', pillars.humanitarian],
+      ['SECURITY',     '30%', pillars.security],
+    ];
+    rows.forEach(function(p, idx) {
+      var s = p[2] || 0;
       html += '<div class="detail__row">' +
-        '<span class="detail__label" style="font-size:8px">' + p[0] + '</span>' +
+        '<span class="detail__label" style="font-size:8px">' + p[0] +
+        ' <span style="color:#1e3a52;font-weight:400">' + p[1] + '</span></span>' +
         '<span class="detail__value" style="color:' + pCol(s) + '">' + s + pFlag(s) + '</span></div>';
+      // Gini sub-row — indented directly under Economic
+      if (idx === 0 && econBreakdown && econBreakdown.rawGini != null) {
+        var gi  = econBreakdown.rawGini.toFixed(1);
+        var is  = econBreakdown.inequalityScore;
+        var isc = is >= 75 ? '#ff0044' : is >= 50 ? '#ff9933' : is >= 25 ? '#ffcc00' : '#00ff88';
+        var est = econBreakdown.giniSource !== 'country' ? '<span style="opacity:0.45"> est</span>' : '';
+        html += '<div style="display:flex;justify-content:space-between;padding:2px 0 5px 10px;border-left:1px solid #0f2a40">' +
+          '<span style="font-size:7px;color:#2a5070">Gini ' + gi + est + ' · Inequality Risk</span>' +
+          '<span style="font-size:7px;color:' + isc + ';font-weight:600">' + is + ' / 100</span>' +
+          '</div>';
+      }
     });
     if (compositeScore != null) {
-      html += '<div class="detail__row" style="border-top:1px solid rgba(255,255,255,0.04);padding-top:4px;margin-top:2px">' +
-        '<span class="detail__label" style="font-size:7px;color:#2a4a6a">COMPOSITE (pre-adjust)</span>' +
-        '<span class="detail__value" style="color:#4a7da8;font-size:9px">' + compositeScore + '</span></div>';
+      html += '<div class="detail__row" style="border-top:1px solid rgba(255,255,255,0.03);padding-top:4px;margin-top:2px">' +
+        '<span class="detail__label" style="font-size:7px;color:#1e3a52">COMPOSITE (pre-adj)</span>' +
+        '<span class="detail__value" style="color:#2a5070;font-size:9px">' + compositeScore + '</span></div>';
     }
     return html;
   }
 
-  // Freshness footer row for risk data sections.
+  // Generates a data-driven, country-specific economic context sentence.
+  // Uses actual Gini deviation from global median — not boilerplate.
+  function _econContextText(eb) {
+    if (!eb || eb.rawGini == null) return '';
+    var gini       = eb.rawGini;
+    var giniStr    = gini.toFixed(1);
+    var GLOBAL_MED = 38.0;
+    var gap        = gini - GLOBAL_MED;
+    var gapAbs     = Math.abs(gap).toFixed(1);
+    var gapSign    = gap >= 0 ? '+' : '−';
+    var srcNote    = eb.giniSource !== 'country' ? ' (est.)' : '';
+    var escalated  = gini >= 50;
+    var regMed     = eb.regionalMedian;
+    var regGap     = (regMed && eb.giniSource === 'country') ? (gini - regMed) : null;
+    var regStr     = regGap != null
+      ? ', ' + Math.abs(regGap).toFixed(1) + ' ' + (regGap >= 0 ? 'above' : 'below') + ' regional median (' + regMed.toFixed(1) + ')'
+      : '';
+    var gdeltPts   = eb.gdeltScore != null ? Math.round(eb.gdeltScore * 0.125) : 0;
+    var gdeltStr   = gdeltPts > 2 ? ' GDELT event signal adds ' + gdeltPts + ' pts near-term.' : '';
+
+    if (gini >= 55) {
+      return 'Structural inequality is the dominant economic driver. Gini ' + giniStr + srcNote +
+             ' sits ' + gapSign + gapAbs + ' vs global median (38.0)' + regStr +
+             (escalated ? '. Severity escalation applied.' : '') + gdeltStr;
+    }
+    if (gini >= 45) {
+      return 'Elevated structural inequality (Gini ' + giniStr + srcNote + ', ' + gapSign + gapAbs +
+             ' vs global median)' + (escalated ? ' with severity escalation' : '') +
+             ' is the primary economic driver alongside macroeconomic baseline.' + gdeltStr;
+    }
+    if (gap > 0) {
+      return 'Structural inequality slightly above average (Gini ' + giniStr + srcNote + ', ' + gapSign + gapAbs +
+             ' vs global median 38.0). Economic risk reflects macroeconomic baseline conditions.' + gdeltStr;
+    }
+    return 'Structural equality is below the global average (Gini ' + giniStr + srcNote + ', ' + gapSign + gapAbs +
+           ' vs global median 38.0). Economic risk is driven by macroeconomic baseline.' + gdeltStr;
+  }
+
+  // Freshness footer — sources updated to reflect Gini as primary economic input.
   function _freshnessBadge() {
     if (!window._argusRiskStore) return '';
     var stale = Date.now() - window._argusRiskStore.fetchedAt > 5 * 60 * 1000;
-    return '<div style="font-size:7px;color:' + (stale ? '#ff9933' : '#2a4a68') + ';margin-top:5px;letter-spacing:1px">' +
-      (stale ? '⚠ RISK DATA STALE · ' : '◈ RISK DATA · ') +
-      _relativeTime(window._argusRiskStore.fetchedAt) + ' · GDELT/SUPABASE</div>';
+    return '<div style="font-size:7px;color:' + (stale ? '#ff9933' : '#1e3a52') + ';margin-top:6px;letter-spacing:0.8px">' +
+      (stale ? '⚠ STALE · ' : '◈ ') +
+      _relativeTime(window._argusRiskStore.fetchedAt) + ' · Gini · GDELT / SUPABASE</div>';
   }
 
   var aiOpen = false;
@@ -5533,23 +5590,40 @@ window.ArgusUI = (function() {
       html += '<div style="margin-top:10px"><div class="detail__label" style="margin-bottom:7px">TOP IMPORTS</div>' +
         '<div class="tag-list">' + d.topI.map(function(e) { return '<span class="tag" style="color:#0099ff;border-color:#0099ff44;background:rgba(0,153,255,0.08)">' + e + '</span>'; }).join('') + '</div></div>';
       html += '<div class="detail__section-header">RISK ASSESSMENT</div>';
-      html += '<div class="detail__row"><span class="detail__label">BASELINE SCORE<br><span style="font-size:7px;color:#4a7da8;letter-spacing:0;font-weight:300">Human rights 70% · Supply chain 30%<br>FH · RSF · ILGA · Gini · Trade</span></span><span class="detail__value" style="color:' + col + '">' + d.score + ' / 100</span></div>';
       if (d._dynamicScore != null) {
-        var dsCol = d._dynamicScore >= 75 ? '#ff0044' : d._dynamicScore >= 50 ? '#ff9933' : d._dynamicScore >= 25 ? '#ffcc00' : '#00ff88';
+        var dsCol  = d._dynamicScore >= 75 ? '#ff0044' : d._dynamicScore >= 50 ? '#ff9933' : d._dynamicScore >= 25 ? '#ffcc00' : '#00ff88';
         var dsBand = d._band || (d._dynamicScore >= 75 ? 'Red' : d._dynamicScore >= 50 ? 'Orange' : d._dynamicScore >= 25 ? 'Yellow' : 'Green');
-        html += '<div class="detail__row"><span class="detail__label">ADJUSTED RISK SCORE<br>' +
-          '<span style="font-size:7px;color:#4a7da8;letter-spacing:0;font-weight:300">Three-pillar · GDELT-enhanced · ' + _relativeTime(window._argusRiskStore && window._argusRiskStore.fetchedAt) + '</span></span>' +
-          '<span class="detail__value"><span style="color:' + dsCol + ';font-weight:700">' + d._dynamicScore + '</span>' +
-          '<span style="color:#4a7da8;font-size:9px"> / 100 · ' + dsBand + '</span></span></div>';
+        // Primary score row
+        html += '<div class="detail__row">' +
+          '<span class="detail__label">ADJUSTED RISK SCORE<br>' +
+          '<span style="font-size:7px;color:#2a5070;letter-spacing:0;font-weight:300">Three-pillar · Gini-weighted</span></span>' +
+          '<span class="detail__value">' +
+          '<span style="color:' + dsCol + ';font-weight:700">' + d._dynamicScore + ' / 100</span>' +
+          '<span style="color:#1e3a52;font-size:8px;margin-left:6px">· ' + dsBand.toUpperCase() + '</span>' +
+          '</span></div>';
+        // Pillar breakdown — Gini sub-row wired inline under Economic
         if (d._pillars) {
-          html += '<div class="detail__section-header" style="margin-top:8px;margin-bottom:4px">RISK PILLAR BREAKDOWN</div>';
-          html += _pillarSectionHtml(d._pillars, d._compositeScore);
+          html += '<div class="detail__section-header" style="margin-top:8px;margin-bottom:4px">PILLAR BREAKDOWN</div>';
+          html += _pillarSectionHtml(d._pillars, d._compositeScore, d._econBreakdown);
         }
+        // Economic context — data-driven, country-specific
+        if (d._econBreakdown) {
+          var ctxt = _econContextText(d._econBreakdown);
+          if (ctxt) {
+            html += '<div style="font-size:7px;color:#3a6080;margin-top:8px;line-height:1.6;padding:6px 4px;border-top:1px solid rgba(255,255,255,0.03)">' + ctxt + '</div>';
+          }
+        }
+        // Activity row
         if (d._articleCount > 0) {
-          html += '<div class="detail__row"><span class="detail__label">LIVE SIGNAL</span>' +
-            '<span class="detail__value" style="color:#7ab8d4">' + d._articleCount + ' articles · event ' + (d._eventScore || 0) + ' · vol ' + (d._volatility || 0) + '</span></div>';
+          html += '<div class="detail__row" style="margin-top:4px">' +
+            '<span class="detail__label" style="color:#1e3a52">ACTIVITY</span>' +
+            '<span class="detail__value" style="color:#2a5070">' + d._articleCount + ' articles · event ' + (d._eventScore || 0) + ' · vol ' + (d._volatility || 0) + '</span></div>';
         }
         html += _freshnessBadge();
+      } else {
+        // No dynamic score yet — show static baseline only
+        html += '<div class="detail__row"><span class="detail__label">BASELINE SCORE</span>' +
+          '<span class="detail__value" style="color:' + col + '">' + d.score + ' / 100</span></div>';
       }
       // ── helpers ────────────────────────────────────────────────────────────
       function parseMoney(str) {
@@ -11334,6 +11408,7 @@ if (document.readyState === 'loading') {
 <script src="/core/providers/maritime/normalizeVessel.js?v=1"></script>
 <script src="/core/providers/maritime/maritimeProviderRegistry.js?v=1"></script>
 <script src="/core/providers/maritime/maritimeProviderCache.js?v=1"></script>
+<script src="/core/providers/maritime/vesselFinderProvider.js?v=1"></script>
 
 
 

@@ -11,8 +11,10 @@
 // Results cached in Supabase global_events (key: "risk_scores"), TTL 5 minutes.
 
 const { createClient } = require('@supabase/supabase-js');
-const baseline   = require('../../data/baseline.json');
-const riskEngine = require('../../core/risk/riskEngine');
+const baseline      = require('../../data/baseline.json');
+const riskEngine    = require('../../core/risk/riskEngine');
+const normalizeGini = require('../../core/risk/normalizeGini');
+const giniData      = require('../../data/gini.json');
 
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
@@ -153,10 +155,20 @@ exports.handler = async function(event) {
         rawSecurity += getSecurityWeight(a.title) * d;
       });
 
-      // Normalise signals 0–100 (calibrated: ~1–2 high-weight fresh articles = 100)
-      var econSignal     = norm(rawEcon,     6);
+      // Normalise GDELT signals 0–100
+      var econSignalRaw  = norm(rawEcon,     6);
       var humanSignal    = norm(rawHuman,   10);
       var securitySignal = norm(rawSecurity, 8);
+
+      // ── Economic Pillar sub-components ────────────────────────────────────────
+      // giniScore:  structural inequality (Gini → 0–100)    [50.0% pillar weight]
+      // baseline:   structural macro proxy                   [37.5% pillar weight, via values dict]
+      // gdeltScore: square-dampened GDELT event signal       [12.5% pillar weight]
+      //   Square dampening (x²/100): convex curve — raw=90→81, raw=50→25, raw=10→1.
+      //   Punishes spikes; low chronic signals remain proportionally low.
+      var giniResult = normalizeGini.compute(iso3, giniData);
+      var giniScore  = giniResult.score;
+      var gdeltScore = Math.round(Math.pow(econSignalRaw / 100, 2) * 100);
 
       // ── Volatility: 24h article density relative to 48h window ─────────────
       var recent24h = countryArticles.filter(function(a) {
@@ -168,8 +180,10 @@ exports.handler = async function(event) {
 
       // ── Run three-pillar risk engine ────────────────────────────────────────
       var result = riskEngine.assessRisk({
-        baseline:       base,
-        econSignal:     econSignal,
+        giniScore:      giniScore,        // economic pillar: inequality indicator
+        gdeltScore:     gdeltScore,       // economic pillar: dampened event signal
+        rawGini:        giniResult.rawGini,  // escalation threshold in riskEngine
+        baseline:       base,             // economic (macro proxy) + humanitarian + security
         humanSignal:    humanSignal,
         securitySignal: securitySignal,
         volatility:     volatility,
@@ -180,7 +194,7 @@ exports.handler = async function(event) {
         // Legacy fields — kept for backwards-compatible client consumption
         dynamicScore: result.finalScore,
         baseline:     base,
-        eventScore:   Math.round((econSignal + humanSignal + securitySignal) / 3),
+        eventScore:   Math.round((econSignalRaw + humanSignal + securitySignal) / 3),
         volatility:   Math.round(volatility),
         articleCount: countryArticles.length,
         tier:         result.tier,
@@ -193,6 +207,13 @@ exports.handler = async function(event) {
         compositeScore: result.compositeScore,
         adjustedRisk:   result.adjustedRisk,
         band:           result.band,
+        economicBreakdown: {
+          inequalityScore: giniScore,
+          gdeltScore:      gdeltScore,
+          rawGini:         giniResult.rawGini,
+          giniSource:      giniResult.source,
+          regionalMedian:  normalizeGini.getRegionalMedian(iso3),
+        },
       };
     });
 
@@ -209,13 +230,12 @@ exports.handler = async function(event) {
     console.error('calculate-risk error:', err.message);
     // Baseline-only fallback — never hard fail
     const fallback = Object.keys(baseline).map(function(iso3) {
-      var base   = baseline[iso3];
-      var result = riskEngine.assessRisk({
-        baseline:       base,
-        econSignal:     0,
-        humanSignal:    0,
-        securitySignal: 0,
-        volatility:     0,
+      var base       = baseline[iso3];
+      var giniResult = normalizeGini.compute(iso3, giniData);
+      var result     = riskEngine.assessRisk({
+        giniScore:  giniResult.score, gdeltScore: 0,
+        rawGini:    giniResult.rawGini,
+        baseline:   base, humanSignal: 0, securitySignal: 0, volatility: 0,
       });
       return {
         iso3:         iso3,
@@ -229,6 +249,13 @@ exports.handler = async function(event) {
         compositeScore: result.compositeScore,
         adjustedRisk:   result.adjustedRisk,
         band:           result.band,
+        economicBreakdown: {
+          inequalityScore: giniResult.score,
+          gdeltScore:      0,
+          rawGini:         giniResult.rawGini,
+          giniSource:      giniResult.source,
+          regionalMedian:  normalizeGini.getRegionalMedian(iso3),
+        },
       };
     });
     return { statusCode: 200, headers, body: JSON.stringify({ source: 'fallback', scores: fallback }) };

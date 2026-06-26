@@ -171,7 +171,8 @@
       "Bash(git:*)",
       "Bash(npx:*)",
       "mcp__claude_ai_Netlify__netlify-deploy-services-updater",
-      "Bash(python -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\(json.dumps\\(d.get\\('scripts', {}\\), indent=2\\)\\)\")"
+      "Bash(python -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\(json.dumps\\(d.get\\('scripts', {}\\), indent=2\\)\\)\")",
+      "mcp__claude_ai_Netlify__netlify-project-services-updater"
     ]
   }
 }

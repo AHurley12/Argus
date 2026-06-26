@@ -33,7 +33,7 @@ const GEM_DATASET_URLS = (process.env.GEM_DATASET_URL || '')
   .map(s => s.trim())
   .filter(Boolean);
 
-const CACHE_KEY    = 'gem_infrastructure_v2';   // bumped — normalization schema changed
+const CACHE_KEY    = 'gem_infrastructure_v3';   // bumped — type-balanced sampling
 const CACHE_TTL_MS = GEM_REFRESH_HOURS * 60 * 60 * 1000;
 
 // Cap per-source to avoid hitting Supabase payload limits.
@@ -204,13 +204,24 @@ async function fetchAndNormalize(url, sourceTag) {
   const records = Array.isArray(rawData) ? rawData
     : (rawData && Array.isArray(rawData.data) ? rawData.data : []);
 
-  const normalized = [];
-  for (let i = 0; i < records.length && normalized.length < MAX_PER_SOURCE; i++) {
+  // Type-balanced sampling: cap each fuel category independently so no single type
+  // (e.g. gas, which dominates WRI's alphabetical ordering) crowds out others.
+  // MAX_PER_TYPE controls how many records of each type are kept per source.
+  // The total per source is bounded by MAX_PER_TYPE * number-of-types.
+  const MAX_PER_TYPE = 500;
+  const typeBuckets  = {};
+  const normalized   = [];
+
+  for (let i = 0; i < records.length; i++) {
     const norm = normalizeInfra(records[i], i, sourceTag);
-    if (norm) normalized.push(norm);
+    if (!norm) continue;
+    const bucket = norm.type || 'infrastructure';
+    typeBuckets[bucket] = (typeBuckets[bucket] || 0) + 1;
+    if (typeBuckets[bucket] > MAX_PER_TYPE) continue;
+    normalized.push(norm);
   }
 
-  console.log('[fetch-gem] source', sourceTag, '→', normalized.length, 'records (from', records.length, 'raw)');
+  console.log('[fetch-gem] source', sourceTag, '→', normalized.length, 'records (from', records.length, 'raw), buckets:', JSON.stringify(typeBuckets));
   return normalized;
 }
 

@@ -5319,6 +5319,59 @@ window.ArgusUI = (function() {
     tagEl.textContent  = '';
     nameEl.textContent = '';
 
+    // ── GEM energy infrastructure detail ────────────────────────────────────────
+    if (d.isGEM || d._gemMarker) {
+      var _GEM_COL = {
+        nuclear: '#cc44ff', coal: '#888888', gas: '#e0e0e0',
+        lng:     '#999999', hydro: '#44aaff', wind: '#eeeeee', solar: '#ffdd00',
+        oil:     '#ff8800', biomass: '#88bb44'
+      };
+      var gemCol  = _GEM_COL[d._canonType] || '#0099ff';
+      var gemType = (d._canonType || d.type || 'infrastructure').toUpperCase();
+
+      badge.textContent       = gemType;
+      badge.style.color       = gemCol;
+      badge.style.borderColor = gemCol + '44';
+      badge.style.background  = gemCol + '14';
+
+      var _fmtCap = function(cap, unit) {
+        var n = parseFloat(cap);
+        if (!isFinite(n) || n <= 0) return '—';
+        var u = (unit || 'MW').toUpperCase();
+        if (u === 'MW' && n >= 1000) return (n / 1000).toFixed(2) + ' GW';
+        return n.toLocaleString() + ' ' + u;
+      };
+
+      var capStr    = d._gemCapacity != null ? _fmtCap(d._gemCapacity, d._gemUnit) : '—';
+      var statusStr = d._gemStatus  ? d._gemStatus.toUpperCase()  : '—';
+      var fuelStr   = d._gemFuel    ? d._gemFuel.toUpperCase()    : gemType;
+      var ownerStr  = d._gemOwner   || null;
+
+      var _row = function(label, val, col) {
+        return '<div class="detail__row"><span class="detail__label">' + label +
+          '</span><span class="detail__value"' + (col ? ' style="color:' + col + '"' : '') +
+          '>' + val + '</span></div>';
+      };
+
+      var html = '<div class="detail__section-header">FACILITY PROFILE</div>';
+      html += _row('COUNTRY',  d._gemCountry || '—', '');
+      html += _row('FUEL TYPE', fuelStr, gemCol);
+      html += _row('NAMEPLATE CAPACITY', capStr, '#00ff88');
+      html += _row('STATUS', statusStr, statusStr === 'OPERATING' || statusStr === 'OPERATIONAL' ? '#00ff88' : '#ffcc00');
+      if (ownerStr) html += _row('OPERATOR', ownerStr, '');
+      html += '<div class="detail__row" style="margin-top:10px;border-top:1px solid #0f2744;padding-top:8px">' +
+        '<span class="detail__label" style="color:#2a4a6a">SOURCE</span>' +
+        '<span class="detail__value" style="color:#2a4a6a;font-size:9px">GLOBAL ENERGY MONITOR</span></div>';
+
+      bodyEl.innerHTML = html;
+      openDetail(gemCol);
+      ArgusAnim.cipherDecode(tagEl,  'ENERGY INFRASTRUCTURE', 320);
+      ArgusAnim.cipherDecode(nameEl, d.title || d._gemName, 560);
+      ArgusAnim.cipherDecode(badge,  gemType, 260);
+      ArgusAnim.staggerRows(bodyEl);
+      return;
+    }
+
     // ── Aircraft detail ─────────────────────────────────────────────────────────
     if (d.isAircraft) {
       var FT_LABEL = {

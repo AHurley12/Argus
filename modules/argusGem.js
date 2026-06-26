@@ -27,8 +27,8 @@ window.ArgusGEM = (function () {
   'use strict';
 
   var GEM_FN     = '/.netlify/functions/fetch-gem';
-  var CACHE_KEY  = 'argus_gem_v2';
-  var CACHE_TS   = 'argus_gem_ts_v2';
+  var CACHE_KEY  = 'argus_gem_v3';
+  var CACHE_TS   = 'argus_gem_ts_v3';
   var CACHE_TTL  = 24 * 60 * 60 * 1000;
   var REFRESH_MS = 24 * 60 * 60 * 1000;
 
@@ -122,7 +122,7 @@ window.ArgusGEM = (function () {
     if (!AG || !AG.eventMarkerGroup) return;
 
     if (!_imesh) {
-      var geo = new THREE.BoxGeometry(1.2, 1.2, 1.2);
+      var geo = new THREE.BoxGeometry(0.9, 0.9, 0.9);
       var mat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.70 });
       _imesh = new THREE.InstancedMesh(geo, mat, _IMAX);
       _imesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
@@ -234,7 +234,7 @@ window.ArgusGEM = (function () {
       var visible = _energyOn && _isTypeVisible(infra._canonType);
 
       var mesh = new THREE.Mesh(
-        new THREE.BoxGeometry(1.2, 1.2, 1.2),
+        new THREE.BoxGeometry(0.9, 0.9, 0.9),
         new THREE.MeshBasicMaterial({ color: col, visible: false })
       );
       mesh.position.copy(pos);
@@ -246,17 +246,26 @@ window.ArgusGEM = (function () {
       var statusStr = infra.status ? ' · Status: ' + infra.status : '';
 
       mesh.userData = {
-        _gemMarker:  true,
-        _gemId:      infra.id,
-        _canonType:  infra._canonType,
-        type:        infra.type,
-        isGEM:       true,
-        isCountry:   false,
-        title:       (infra.name || infra.type) + (infra.country ? ' — ' + infra.country : ''),
-        impact:      (infra.type || 'Infrastructure') + capacityStr + statusStr +
-                     (infra.fuel ? ' · Fuel: ' + infra.fuel : ''),
-        source:      'Global Energy Monitor',
-        countryCode: null,
+        _gemMarker:   true,
+        _gemId:       infra.id,
+        _canonType:   infra._canonType,
+        type:         infra.type,
+        isGEM:        true,
+        isCountry:    false,
+        // Structured fields for the detail panel
+        _gemName:     infra.name     || '',
+        _gemCountry:  infra.country  || '',
+        _gemFuel:     infra.fuel     || '',
+        _gemCapacity: infra.capacityMW != null ? infra.capacityMW : (infra.capacity || null),
+        _gemUnit:     infra.capacityMW != null ? 'MW' : (infra.unit || 'MW'),
+        _gemStatus:   infra.status   || '',
+        _gemOwner:    infra.owner    || '',
+        // Legacy flat fields (used by hover tooltip and fallback paths)
+        title:        (infra.name || infra.type) + (infra.country ? ' — ' + infra.country : ''),
+        impact:       (infra.type || 'Infrastructure') + capacityStr + statusStr +
+                      (infra.fuel ? ' · Fuel: ' + infra.fuel : ''),
+        source:       'Global Energy Monitor',
+        countryCode:  null,
       };
 
       AG.eventMarkerGroup.add(mesh);

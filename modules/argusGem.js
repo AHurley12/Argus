@@ -45,7 +45,7 @@ window.ArgusGEM = (function () {
   // ── Per-type filter ───────────────────────────────────────────────────────────
   // Only the 5 canonical types are filterable. Other types (pipeline, solar, oil)
   // always render when the layer is on.
-  var _activeTypes = new Set(['coal', 'nuclear', 'hydro', 'wind', 'lng']);
+  var _activeTypes = new Set(['coal', 'nuclear', 'hydro', 'wind', 'lng', 'gas', 'solar']);
 
   // ── Instanced visual mesh ─────────────────────────────────────────────────────
   var _imesh  = null;
@@ -60,18 +60,21 @@ window.ArgusGEM = (function () {
   var _refreshTimer = null;
 
   // ── Type → color ──────────────────────────────────────────────────────────────
+  // Canonical color spec:
+  //   nuclear → purple   lng → grey    gas → white   coal → dark grey
+  //   wind    → white    hydro → light blue           solar → yellow
   var TYPE_COLORS = {
-    'lng':            0x00ffff,
-    'lng terminal':   0x00ffff,
-    'pipeline':       0x00ff88,
-    'gas':            0x00cc66,
+    'lng':            0x999999,  // grey
+    'lng terminal':   0x999999,  // grey
+    'pipeline':       0xcccccc,  // light grey (infrastructure)
+    'gas':            0xffffff,  // white
     'power':          0xffee00,
-    'coal':           0xaaaaaa,
+    'coal':           0x555555,  // dark grey
     'oil':            0xff8800,
-    'nuclear':        0x8888ff,
-    'solar':          0xffdd00,
-    'wind':           0x88ffcc,
-    'hydro':          0x4488ff,
+    'nuclear':        0xcc44ff,  // purple
+    'solar':          0xffdd00,  // yellow
+    'wind':           0xeeeeee,  // off-white (distinct from gas pure white)
+    'hydro':          0x44aaff,  // light blue
     'infrastructure': 0x88aacc,
   };
 
@@ -86,15 +89,17 @@ window.ArgusGEM = (function () {
   }
 
   // ── Canonical type normalization ──────────────────────────────────────────────
-  // Maps raw GEM type strings → one of the 5 filterable canonical types, or null.
+  // Maps raw GEM type strings → filterable canonical type, or null.
   function _canonicalType(raw) {
     var t = (raw || '').toLowerCase();
-    if (t.indexOf('lng') >= 0)   return 'lng';
+    if (t.indexOf('lng') >= 0)   return 'lng';     // lng before gas (lng contains no "gas")
     if (t.indexOf('coal') >= 0)  return 'coal';
     if (t.indexOf('nuclear') >= 0 || t.indexOf('atom') >= 0) return 'nuclear';
     if (t.indexOf('hydro') >= 0) return 'hydro';
     if (t.indexOf('wind') >= 0)  return 'wind';
-    return null;  // pipeline, solar, oil, gas, etc. — unfilterable, always shown
+    if (t.indexOf('solar') >= 0) return 'solar';
+    if (t.indexOf('gas') >= 0)   return 'gas';
+    return null;  // pipeline, oil, power, etc. — non-filterable, always shown when layer on
   }
 
   // ── Capacity normalization to MW ──────────────────────────────────────────────
@@ -408,9 +413,9 @@ window.ArgusGEM = (function () {
 
   // ── getCountryEnergy — aggregate energy assets for a country ──────────────────
   // countryName: display name string (case-insensitive match against infra.country)
-  // Returns { coalMW, nuclearMW, hydroMW, windMW, lngAssets, totalAssets }
+  // Returns { coalMW, nuclearMW, hydroMW, windMW, gasMW, lngAssets, solarMW, totalAssets }
   function getCountryEnergy(countryName) {
-    var result = { coalMW: 0, nuclearMW: 0, hydroMW: 0, windMW: 0, lngAssets: 0, totalAssets: 0 };
+    var result = { coalMW: 0, nuclearMW: 0, hydroMW: 0, windMW: 0, gasMW: 0, lngAssets: 0, solarMW: 0, totalAssets: 0 };
     if (!countryName) return result;
     var needle = countryName.toLowerCase();
     energyInfrastructureCache.forEach(function (infra) {
@@ -422,6 +427,8 @@ window.ArgusGEM = (function () {
         case 'nuclear': if (mw) result.nuclearMW += mw; break;
         case 'hydro':   if (mw) result.hydroMW   += mw; break;
         case 'wind':    if (mw) result.windMW     += mw; break;
+        case 'gas':     if (mw) result.gasMW      += mw; break;
+        case 'solar':   if (mw) result.solarMW    += mw; break;
         case 'lng':     result.lngAssets++;               break;
       }
     });

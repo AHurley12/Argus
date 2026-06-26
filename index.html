@@ -264,13 +264,15 @@
   </nav>
 
   <!-- ── Energy Infrastructure Filter Panel ──────────────────────────────────── -->
-  <div id="energy-filter-panel" style="display:none;position:fixed;left:68px;top:12px;z-index:900;background:rgba(4,13,24,0.96);border:1px solid #0f2744;padding:10px 12px;min-width:130px">
+  <div id="energy-filter-panel" style="display:none;position:fixed;left:68px;top:12px;z-index:900;background:rgba(4,13,24,0.96);border:1px solid #0f2744;padding:10px 12px;min-width:140px">
     <div style="font-size:8px;letter-spacing:2px;color:#0099ff;margin-bottom:8px;font-weight:700">ENERGY LAYERS</div>
-    <label class="energy-cb-row"><input type="checkbox" id="energy-cb-coal"    checked onchange="window._applyEnergyTypeFilter&&_applyEnergyTypeFilter()"><span>COAL</span></label>
-    <label class="energy-cb-row"><input type="checkbox" id="energy-cb-nuclear" checked onchange="window._applyEnergyTypeFilter&&_applyEnergyTypeFilter()"><span>NUCLEAR</span></label>
-    <label class="energy-cb-row"><input type="checkbox" id="energy-cb-hydro"   checked onchange="window._applyEnergyTypeFilter&&_applyEnergyTypeFilter()"><span>HYDRO</span></label>
-    <label class="energy-cb-row"><input type="checkbox" id="energy-cb-wind"    checked onchange="window._applyEnergyTypeFilter&&_applyEnergyTypeFilter()"><span>WIND</span></label>
-    <label class="energy-cb-row"><input type="checkbox" id="energy-cb-lng"     checked onchange="window._applyEnergyTypeFilter&&_applyEnergyTypeFilter()"><span>LNG</span></label>
+    <label class="energy-cb-row"><input type="checkbox" id="energy-cb-nuclear" checked onchange="window._applyEnergyTypeFilter&&_applyEnergyTypeFilter()"><span class="ecb-dot" style="background:#cc44ff"></span><span>NUCLEAR</span></label>
+    <label class="energy-cb-row"><input type="checkbox" id="energy-cb-coal"    checked onchange="window._applyEnergyTypeFilter&&_applyEnergyTypeFilter()"><span class="ecb-dot" style="background:#555555;border:1px solid #888"></span><span>COAL</span></label>
+    <label class="energy-cb-row"><input type="checkbox" id="energy-cb-gas"     checked onchange="window._applyEnergyTypeFilter&&_applyEnergyTypeFilter()"><span class="ecb-dot" style="background:#ffffff;border:1px solid #555"></span><span>GAS</span></label>
+    <label class="energy-cb-row"><input type="checkbox" id="energy-cb-lng"     checked onchange="window._applyEnergyTypeFilter&&_applyEnergyTypeFilter()"><span class="ecb-dot" style="background:#999999"></span><span>LNG</span></label>
+    <label class="energy-cb-row"><input type="checkbox" id="energy-cb-hydro"   checked onchange="window._applyEnergyTypeFilter&&_applyEnergyTypeFilter()"><span class="ecb-dot" style="background:#44aaff"></span><span>HYDRO</span></label>
+    <label class="energy-cb-row"><input type="checkbox" id="energy-cb-wind"    checked onchange="window._applyEnergyTypeFilter&&_applyEnergyTypeFilter()"><span class="ecb-dot" style="background:#eeeeee;border:1px solid #555"></span><span>WIND</span></label>
+    <label class="energy-cb-row"><input type="checkbox" id="energy-cb-solar"   checked onchange="window._applyEnergyTypeFilter&&_applyEnergyTypeFilter()"><span class="ecb-dot" style="background:#ffdd00"></span><span>SOLAR</span></label>
   </div>
 
   <!-- ── Global Snapshot Strip ──────────────────────────────────────────────── -->
@@ -1124,7 +1126,7 @@ document.addEventListener('DOMContentLoaded', function() {
   // ── Energy type filter checkboxes ─────────────────────────────────────────────
   function _applyEnergyTypeFilter() {
     var types = [];
-    ['coal','nuclear','hydro','wind','lng'].forEach(function(t) {
+    ['nuclear','coal','gas','lng','hydro','wind','solar'].forEach(function(t) {
       var cb = document.getElementById('energy-cb-' + t);
       if (cb && cb.checked) types.push(t);
     });
@@ -5826,11 +5828,13 @@ window.ArgusUI = (function() {
         if (_eg && _eg.totalAssets > 0) {
           html += '<div class="detail__section-header" style="color:#00ffcc">ENERGY INFRASTRUCTURE <span style="color:#2a4a6a;font-size:7px;font-weight:300;float:right">GLOBAL ENERGY MONITOR</span></div>';
           var _fmtMW = function(mw) { return mw >= 1000 ? (mw/1000).toFixed(1) + ' GW' : Math.round(mw) + ' MW'; };
-          if (_eg.coalMW)    html += '<div class="detail__row"><span class="detail__label"><span style="color:#aaaaaa">▪</span> COAL</span><span class="detail__value" style="color:#aaaaaa">' + _fmtMW(_eg.coalMW) + '</span></div>';
-          if (_eg.nuclearMW) html += '<div class="detail__row"><span class="detail__label"><span style="color:#8888ff">▪</span> NUCLEAR</span><span class="detail__value" style="color:#8888ff">' + _fmtMW(_eg.nuclearMW) + '</span></div>';
-          if (_eg.hydroMW)   html += '<div class="detail__row"><span class="detail__label"><span style="color:#4488ff">▪</span> HYDRO</span><span class="detail__value" style="color:#4488ff">' + _fmtMW(_eg.hydroMW) + '</span></div>';
-          if (_eg.windMW)    html += '<div class="detail__row"><span class="detail__label"><span style="color:#88ffcc">▪</span> WIND</span><span class="detail__value" style="color:#88ffcc">' + _fmtMW(_eg.windMW) + '</span></div>';
-          if (_eg.lngAssets) html += '<div class="detail__row"><span class="detail__label"><span style="color:#00ffff">▪</span> LNG TERMINALS</span><span class="detail__value" style="color:#00ffff">' + _eg.lngAssets + ' FACILITIES</span></div>';
+          if (_eg.nuclearMW) html += '<div class="detail__row"><span class="detail__label"><span style="color:#cc44ff">▪</span> NUCLEAR</span><span class="detail__value" style="color:#cc44ff">' + _fmtMW(_eg.nuclearMW) + '</span></div>';
+          if (_eg.coalMW)    html += '<div class="detail__row"><span class="detail__label"><span style="color:#888888">▪</span> COAL</span><span class="detail__value" style="color:#888888">' + _fmtMW(_eg.coalMW) + '</span></div>';
+          if (_eg.gasMW)     html += '<div class="detail__row"><span class="detail__label"><span style="color:#e0e0e0">▪</span> GAS</span><span class="detail__value" style="color:#e0e0e0">' + _fmtMW(_eg.gasMW) + '</span></div>';
+          if (_eg.lngAssets) html += '<div class="detail__row"><span class="detail__label"><span style="color:#999999">▪</span> LNG TERMINALS</span><span class="detail__value" style="color:#999999">' + _eg.lngAssets + ' FACILITIES</span></div>';
+          if (_eg.hydroMW)   html += '<div class="detail__row"><span class="detail__label"><span style="color:#44aaff">▪</span> HYDRO</span><span class="detail__value" style="color:#44aaff">' + _fmtMW(_eg.hydroMW) + '</span></div>';
+          if (_eg.windMW)    html += '<div class="detail__row"><span class="detail__label"><span style="color:#eeeeee">▪</span> WIND</span><span class="detail__value" style="color:#eeeeee">' + _fmtMW(_eg.windMW) + '</span></div>';
+          if (_eg.solarMW)   html += '<div class="detail__row"><span class="detail__label"><span style="color:#ffdd00">▪</span> SOLAR</span><span class="detail__value" style="color:#ffdd00">' + _fmtMW(_eg.solarMW) + '</span></div>';
         }
       }
 
@@ -6625,17 +6629,19 @@ window.ArgusEvents = (function() {
   function closeModal() {
     document.getElementById('es-modal-overlay').classList.remove('is-open');
     // Restore layer visibility to whatever the layer state says
-    var evOn = !window.ArgusLayerState || window.ArgusLayerState.events;
-    var wOn  = !window.ArgusLayerState || window.ArgusLayerState.weather;
+    var evOn  = !window.ArgusLayerState || window.ArgusLayerState.events;
+    var wOn   = !window.ArgusLayerState || window.ArgusLayerState.weather;
+    var enOn  = !!(window.ArgusLayerState && window.ArgusLayerState.energy);
     var _mHazardCats = { earthquake: 1, flood: 1, drought: 1, wildfire: 1 };
     if (window.eventMarkers)   window.eventMarkers.forEach(function(m) {
       if (m.userData && m.userData.isGDACS && _mHazardCats[m.userData.type]) return;
       if (m.userData && m.userData.isEONET) return;  // EONET follows W key
+      if (m.userData && m.userData._gemMarker) return;  // GEM energy follows I key, not E key
       m.visible = evOn;
     });
     if (window.weatherMarkers) window.weatherMarkers.forEach(function(m) { m.visible = wOn; });
     if (window.ArgusACLED  && window.ArgusACLED.setVisible)  window.ArgusACLED.setVisible(evOn);
-    if (window.ArgusGEM    && window.ArgusGEM.setVisible)    window.ArgusGEM.setVisible(evOn);
+    if (window.ArgusGEM    && window.ArgusGEM.setVisible)    window.ArgusGEM.setVisible(enOn);  // energy state, not event state
     if (window.ArgusGDACS  && window.ArgusGDACS.setVisible)  window.ArgusGDACS.setVisible(wOn);
     if (window.ArgusEONET  && window.ArgusEONET.setVisible)  window.ArgusEONET.setVisible(wOn);
   }
@@ -7664,17 +7670,19 @@ window.ArgusAnalyst = (function() {
       document.getElementById(id).value = '';
     });
     // Restore layer visibility to whatever the layer state says
-    var evOn = !window.ArgusLayerState || window.ArgusLayerState.events;
-    var wOn  = !window.ArgusLayerState || window.ArgusLayerState.weather;
+    var evOn  = !window.ArgusLayerState || window.ArgusLayerState.events;
+    var wOn   = !window.ArgusLayerState || window.ArgusLayerState.weather;
+    var enOn  = !!(window.ArgusLayerState && window.ArgusLayerState.energy);
     var _m2HazardCats = { earthquake: 1, flood: 1, drought: 1, wildfire: 1 };
     if (window.eventMarkers)   window.eventMarkers.forEach(function(m) {
       if (m.userData && m.userData.isGDACS && _m2HazardCats[m.userData.type]) return;
       if (m.userData && m.userData.isEONET) return;  // EONET follows W key
+      if (m.userData && m.userData._gemMarker) return;  // GEM energy follows I key, not E key
       m.visible = evOn;
     });
     if (window.weatherMarkers) window.weatherMarkers.forEach(function(m) { m.visible = wOn; });
     if (window.ArgusACLED  && window.ArgusACLED.setVisible)  window.ArgusACLED.setVisible(evOn);
-    if (window.ArgusGEM    && window.ArgusGEM.setVisible)    window.ArgusGEM.setVisible(evOn);
+    if (window.ArgusGEM    && window.ArgusGEM.setVisible)    window.ArgusGEM.setVisible(enOn);  // energy state, not event state
     if (window.ArgusGDACS  && window.ArgusGDACS.setVisible)  window.ArgusGDACS.setVisible(wOn);
     if (window.ArgusEONET  && window.ArgusEONET.setVisible)  window.ArgusEONET.setVisible(wOn);
   }

@@ -2551,6 +2551,7 @@
     color: #c5d7e8;
   }
   .energy-cb-row input[type="checkbox"] { accent-color: #00ffcc; cursor: pointer; }
+  .ecb-dot { display: inline-block; width: 7px; height: 7px; border-radius: 1px; flex-shrink: 0; }
 
   /* Analytics Lab button */
   #btn-sb-ax-lab { margin-top: 2px; }

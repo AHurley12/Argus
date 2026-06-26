@@ -169,7 +169,9 @@
       "Bash(git -C \"C:/Users/aidan/Desktop/Argus\" add index.html netlify/functions/fetch-td-history.js)",
       "Bash(git -C C:/Users/aidan/Desktop/Argus commit -m ':*)",
       "Bash(git:*)",
-      "Bash(npx:*)"
+      "Bash(npx:*)",
+      "mcp__claude_ai_Netlify__netlify-deploy-services-updater",
+      "Bash(python -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\(json.dumps\\(d.get\\('scripts', {}\\), indent=2\\)\\)\")"
     ]
   }
 }

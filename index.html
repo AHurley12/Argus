@@ -1927,6 +1927,8 @@ document.addEventListener('DOMContentLoaded', function() {
     if (d.isGDACS && _gdacsHazard[d.type]) return !!ls.weather;
     // ALL EONET markers are on the W key (environmental/disaster data only)
     if (d.isEONET) return !!ls.weather;
+    // GEM energy infrastructure markers are on the I key — NOT the E key event system
+    if (d._gemMarker || d.isGEM) return !!ls.energy;
     return ls.events;
   }
 
@@ -2015,9 +2017,11 @@ document.addEventListener('DOMContentLoaded', function() {
     // from 1,600 to typically 20-50 objects. Layer gates keep disabled layers
     // out of the candidate list entirely.
     var _candidates = _frustumFilter([
-      // Include eventMarkers when events OR weather is on: GDACS hazard ghost meshes live in
-      // eventMarkers but are gated by weather. canInteract() re-validates the correct gate per type.
-      (!ls || ls.events || ls.weather) ? window.eventMarkers   : null,
+      // Non-GEM eventMarkers: gated by events OR weather (GDACS hazard meshes live here)
+      // canInteract() re-validates the correct per-type gate so no false positives escape.
+      (!ls || ls.events || ls.weather) ? (window.eventMarkers || []).filter(function(m) { return !(m.userData && m.userData._gemMarker); }) : null,
+      // GEM energy infrastructure markers: gated by I-key energy layer, NOT the E-key event system
+      (!ls || ls.energy) ? (window.eventMarkers || []).filter(function(m) { return m.userData && m.userData._gemMarker; }) : null,
       (!ls || ls.weather)     ? window.weatherMarkers          : null,
       (!ls || ls.chokepoints) ? window.chokepointMarkers       : null,
       (!ls || ls.aircraft)    ? (window._aircraftMarkers || []) : null,
@@ -2118,10 +2122,11 @@ document.addEventListener('DOMContentLoaded', function() {
       console.log('[GDACS RAYCAST]', { eventsOn: !!(window.ArgusLayerState && window.ArgusLayerState.events), weatherOn: !!(window.ArgusLayerState && window.ArgusLayerState.weather) });
     }
     var _evTargets = []
-      // Include eventMarkers when events OR weather is on — GDACS hazard ghost meshes
-      // (earthquake/flood/drought/wildfire) live here but are controlled by the W key.
+      // Non-GEM eventMarkers: gated by events OR weather (GDACS hazard meshes live here)
       // canInteract() enforces the correct per-type gate so no false positives escape.
-      .concat((!cls || cls.events || cls.weather) ? window.eventMarkers : [])
+      .concat((!cls || cls.events || cls.weather) ? (window.eventMarkers || []).filter(function(m) { return !(m.userData && m.userData._gemMarker); }) : [])
+      // GEM energy infrastructure markers: gated by I-key energy layer, NOT the E-key event system
+      .concat((!cls || cls.energy) ? (window.eventMarkers || []).filter(function(m) { return m.userData && m.userData._gemMarker; }) : [])
       .concat((!cls || cls.weather)     ? window.weatherMarkers         : [])
       .concat((!cls || cls.aircraft)    ? window._aircraftMarkers || [] : [])
       .concat((!cls || cls.vessels)     ? window._vesselMarkers   || [] : [])

@@ -27,8 +27,8 @@ window.ArgusGEM = (function () {
   'use strict';
 
   var GEM_FN     = '/.netlify/functions/fetch-gem';
-  var CACHE_KEY  = 'argus_gem_v1';
-  var CACHE_TS   = 'argus_gem_ts_v1';
+  var CACHE_KEY  = 'argus_gem_v2';
+  var CACHE_TS   = 'argus_gem_ts_v2';
   var CACHE_TTL  = 24 * 60 * 60 * 1000;
   var REFRESH_MS = 24 * 60 * 60 * 1000;
 
@@ -51,7 +51,7 @@ window.ArgusGEM = (function () {
   var _imesh  = null;
   var _iDummy = new THREE.Object3D();
   var _iColor = new THREE.Color();
-  var _IMAX   = 600;
+  var _IMAX   = 3000;
 
   // ── Audit ────────────────────────────────────────────────────────────────────
   var _audit = { fetches: 0, placed: 0, lastFetchMs: 0, lastError: null };

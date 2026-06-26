@@ -1,47 +1,48 @@
 // netlify/functions/fetch-gem.js
-// Global Energy Monitor (GEM) infrastructure intelligence proxy.
+// Energy infrastructure intelligence proxy.
 //
-// GEM provides static strategic infrastructure data: LNG terminals, gas pipelines,
-// power plants, coal mines, and energy chokepoints. This data changes rarely
-// (new projects, retirements) and is treated as strategic reference data.
-//
-// Refresh cadence: 24h default (configurable via GEM_REFRESH_INTERVAL_HOURS).
-// Weekly is acceptable for stable datasets.
-//
-// GEM_DATASET_URL should point to a JSON or CSV dataset from globalenergymonitor.org
-// or a derivative hosted endpoint. The function handles both formats.
+// Ingests multiple CSV/JSON datasets into one unified EnergyAsset collection.
+// Supports GEM trackers (gas-plant, coal-plant, lng-terminals) and the
+// WRI Global Power Plant Database.
 //
 // Response shape:
-//   { infrastructure: [...normalizedInfra], source: 'gem', ts: epoch, count: N }
+//   { infrastructure: [...EnergyAsset], source: 'gem', ts: epoch, count: N }
 //
-// Infrastructure schema:
-//   { id, lat, lon, type, name, country, capacity, status, unit, fuel }
+// EnergyAsset schema:
+//   { id, lat, lon, type, name, country, capacity, unit, status, fuel }
+//   type is a semantic fuel category: gas, coal, nuclear, hydro, wind, solar, lng, oil
+//   NOT a turbine technology code (CC, GT, OCGT).
 //
-// Env: GEM_DATASET_URL, GEM_REFRESH_INTERVAL_HOURS, ENABLE_GEM,
-//      SUPABASE_URL, SUPABASE_SERVICE_KEY
+// Env:
+//   ENABLE_GEM                    — "true" to activate (default: false)
+//   GEM_DATASET_URL               — comma-separated list of CSV/JSON URLs
+//   GEM_REFRESH_INTERVAL_HOURS    — cache TTL in hours (default: 24)
+//   SUPABASE_URL, SUPABASE_SERVICE_KEY
 
 const { createClient } = require('@supabase/supabase-js');
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY;
 
-// GEM is opt-in — requires explicit dataset URL configuration
-const ENABLE_GEM                 = (process.env.ENABLE_GEM || 'false').toLowerCase() !== 'false';
-const GEM_DATASET_URL            = process.env.GEM_DATASET_URL || '';
-const GEM_REFRESH_INTERVAL_HOURS = parseInt(process.env.GEM_REFRESH_INTERVAL_HOURS || '24');
+const ENABLE_GEM              = (process.env.ENABLE_GEM || 'false').toLowerCase() !== 'false';
+const GEM_REFRESH_HOURS       = parseInt(process.env.GEM_REFRESH_INTERVAL_HOURS || '24');
 
-// Optional fuel-type filter — comma-separated keywords, case-insensitive.
-// E.g. GEM_FUEL_FILTER=lng,liquefied keeps only LNG-related records.
-// Leave unset to ingest all records from the dataset.
-const GEM_FUEL_FILTER = (process.env.GEM_FUEL_FILTER || '')
+// Comma-separated list of dataset URLs — all fetched and merged into one cache.
+const GEM_DATASET_URLS = (process.env.GEM_DATASET_URL || '')
   .split(',')
-  .map(s => s.trim().toLowerCase())
+  .map(s => s.trim())
   .filter(Boolean);
 
-const CACHE_KEY    = 'gem_infrastructure_v1';
-const CACHE_TTL_MS = GEM_REFRESH_INTERVAL_HOURS * 60 * 60 * 1000;
+const CACHE_KEY    = 'gem_infrastructure_v2';   // bumped — normalization schema changed
+const CACHE_TTL_MS = GEM_REFRESH_HOURS * 60 * 60 * 1000;
 
-const MAX_INFRA = 2000;
+// Cap per-source to avoid hitting Supabase payload limits.
+// Total max = MAX_PER_SOURCE * number of sources.
+const MAX_PER_SOURCE = 3000;
+
+// Minimum nameplate capacity (MW). Filters out micro-generators and data noise.
+// Applied only when a numeric capacity is present — plants with no capacity pass through.
+const MIN_CAPACITY_MW = 50;
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin':  '*',
@@ -49,14 +50,34 @@ const CORS_HEADERS = {
   'Content-Type': 'application/json',
 };
 
+// ── Fuel → semantic type mapping ───────────────────────────────────────────────
+// Converts raw fuel/primary_fuel field values to canonical energy type strings.
+// These strings are what argusGem.js _canonicalType() matches against.
+// Order matters: lng must precede gas (lng contains "gas" in some datasets).
+function fuelToType(fuel) {
+  if (!fuel) return null;
+  const f = fuel.toLowerCase().trim();
+  if (f.includes('lng') || f.includes('liquefied'))           return 'lng';
+  if (f.includes('gas') || f.includes('natural gas'))         return 'gas';
+  if (f.includes('coal') || f.includes('lignite'))            return 'coal';
+  if (f.includes('nuclear') || f.includes('uranium'))         return 'nuclear';
+  if (f.includes('hydro') || f.includes('water'))             return 'hydro';
+  if (f.includes('wind'))                                      return 'wind';
+  if (f.includes('solar') || f.includes('photovoltaic') || f.includes(' pv')) return 'solar';
+  if (f.includes('oil') || f.includes('petroleum') || f.includes('diesel')) return 'oil';
+  if (f.includes('biomass') || f.includes('waste'))           return 'biomass';
+  return null;
+}
+
 // ── Infrastructure normalization ───────────────────────────────────────────────
-// Accepts flexible schema — GEM datasets vary by tracker type (LNG, Gas, Power, etc.)
-// Tries multiple common field name conventions.
-function normalizeInfra(raw, index) {
+// Accepts both GEM tracker CSVs and WRI Global Power Plant Database.
+// Type is derived from fuel first — NOT from technology codes (CC, GT, OCGT, ST).
+function normalizeInfra(raw, index, sourceTag) {
+  // Coordinates — handle GEM and WRI field name variants.
+  // GEM gas-plant CSVs use "lng" as the longitude column name.
   const lat = parseFloat(
     raw.lat || raw.latitude || raw.Lat || raw.Latitude || raw.LATITUDE || ''
   );
-  // GEM gas-plant CSV uses field name "lng" for longitude — handle alongside all other conventions
   const lon = parseFloat(
     raw.lon || raw.lng || raw.longitude || raw.Long || raw.Longitude || raw.LONGITUDE || ''
   );
@@ -69,57 +90,69 @@ function normalizeInfra(raw, index) {
     raw.ProjectName || raw.PLANT_NAME || ''
   ).slice(0, 100);
 
-  // Stable ID: prefer GEM location ID, then unit ID, then constructed fallback
-  const rawId = raw.id || raw['GEM location ID'] || raw['GEM unit/phase ID'] ||
+  // ID: prefer GEM/WRI stable IDs, fallback to constructed key
+  const rawId = raw.id || raw.gppd_idnr || raw['GEM location ID'] || raw['GEM unit/phase ID'] ||
                 raw.Wiki || raw.ProjectID || raw.PLANT_ID || raw.GEM_ID || null;
-  const id = rawId ? String(rawId) : (name + '_' + index);
+  const id = (rawId ? String(rawId) : (name + '_' + index)) + (sourceTag ? '_' + sourceTag : '');
 
-  const fuel = (raw.fuel || raw.Fuel || raw.FuelType || raw['Fuel type'] ||
-                raw.fuel_type || null);
+  // Fuel: WRI uses "primary_fuel", GEM uses "fuel"/"Fuel"/"FuelType" etc.
+  const fuel = raw.primary_fuel || raw.fuel || raw.Fuel || raw.FuelType ||
+               raw['Fuel type'] || raw.fuel_type || null;
+
+  // ── Type: fuel is the primary source, technology code is fallback only ────────
+  // This is the critical fix: GEM gas-plant "technology" column contains turbine
+  // codes (CC, GT, OCGT) that don't map to canonical energy types. WRI "primary_fuel"
+  // contains semantic values (Gas, Coal, Nuclear) that map correctly.
+  const fuelDerived = fuelToType(fuel);
+  const techFallback = raw.technology || raw.Technology || raw.type || raw.Type ||
+                       raw.tracker || raw.Tracker || null;
+  const type = (fuelDerived || (techFallback ? techFallback.slice(0, 60) : 'infrastructure'));
+
+  // Capacity: WRI uses "capacity_mw" (always MW). GEM uses "capacity"/"Capacity" etc.
+  const hasWriCap   = raw.capacity_mw != null && raw.capacity_mw !== '';
+  const capacityRaw = hasWriCap
+    ? raw.capacity_mw
+    : (raw.capacity || raw.Capacity || raw.CapacityMW || raw['Capacity (MW)'] ||
+       raw['Capacity (MTPA)'] || null);
+  const unit = hasWriCap ? 'MW' : (raw.unit || raw.Unit || null);
+
+  // Minimum capacity filter — skip micro-generators when capacity is known.
+  // Plants with no capacity data are kept (we don't want to lose LNG terminals etc.)
+  if (capacityRaw != null && capacityRaw !== '') {
+    const capMW = parseFloat(capacityRaw);
+    if (isFinite(capMW) && capMW < MIN_CAPACITY_MW) return null;
+  }
+
+  // Country: WRI uses "country_long" (full name), GEM uses "country"/"Country"
+  const country = raw.country_long || raw.country || raw.Country || raw.COUNTRY || raw.nation || null;
 
   return {
-    id:       id,
-    lat:      lat,
-    lon:      lon,
-    // Prefer technology type (e.g. "CC", "FSRU") then tracker/type fields
-    type:     (raw.technology || raw.Technology || raw.type || raw.Type ||
-               raw.tracker || raw.Tracker || 'infrastructure').slice(0, 60),
-    name:     name,
-    country:  (raw.country || raw.Country || raw.COUNTRY || raw.nation || null),
-    region:   (raw.region   || raw.Region   || raw.Subregion || null),
-    capacity: raw.capacity || raw.Capacity || raw.CapacityMW || raw['Capacity (MW)'] ||
-              raw['Capacity (MTPA)'] || null,
-    status:   raw.status || raw.Status || raw.STATUS || null,
-    unit:     raw.unit || raw.Unit || null,
-    fuel:     fuel,
-    owner:    (raw.owner || raw.Owner || raw.parent || raw.Parent || null),
-    startYear: raw.start_year || raw['Start year'] || raw.StartYear || null,
+    id,
+    lat,
+    lon,
+    type,
+    name,
+    country,
+    region:    raw.region || raw.Region || raw.Subregion || null,
+    capacity:  capacityRaw,
+    unit,
+    status:    raw.status || raw.Status || raw.STATUS || null,
+    fuel,
+    owner:     raw.owner || raw.Owner || raw.parent || raw.Parent || null,
+    startYear: raw.start_year || raw.commissioning_year || raw['Start year'] || raw.StartYear || null,
   };
 }
 
-// Returns true if the record passes the GEM_FUEL_FILTER (or if no filter is set).
-function passesFuelFilter(norm) {
-  if (!GEM_FUEL_FILTER.length) return true;
-  const fuelLower = (norm.fuel || '').toLowerCase();
-  return GEM_FUEL_FILTER.some(kw => fuelLower.includes(kw));
-}
-
 // ── Minimal CSV parser ─────────────────────────────────────────────────────────
-// Handles quoted fields and standard RFC 4180. Sufficient for GEM spreadsheet exports.
 function splitCSVLine(line) {
   const result = [];
   let current  = '';
   let inQuotes = false;
-
   for (let i = 0; i < line.length; i++) {
     const ch = line[i];
     if (ch === '"') {
-      if (inQuotes && line[i + 1] === '"') {
-        current += '"';
-        i++;
-      } else {
-        inQuotes = !inQuotes;
-      }
+      if (inQuotes && line[i + 1] === '"') { current += '"'; i++; }
+      else { inQuotes = !inQuotes; }
     } else if (ch === ',' && !inQuotes) {
       result.push(current.trim());
       current = '';
@@ -132,25 +165,70 @@ function splitCSVLine(line) {
 }
 
 function parseCSV(text) {
-  const lines = text.split(/\r?\n/);
+  const lines   = text.split(/\r?\n/);
   if (!lines.length) return [];
-
   const headers = splitCSVLine(lines[0]);
   const records = [];
-
   for (let i = 1; i < lines.length; i++) {
     if (!lines[i].trim()) continue;
     const values = splitCSVLine(lines[i]);
     if (values.length < 2) continue;
-
     const record = {};
     for (let j = 0; j < headers.length; j++) {
       record[headers[j]] = values[j] !== undefined ? values[j] : '';
     }
     records.push(record);
   }
-
   return records;
+}
+
+// ── Fetch one dataset URL and return normalized records ────────────────────────
+async function fetchAndNormalize(url, sourceTag) {
+  let rawData;
+  try {
+    const resp = await fetch(url, {
+      headers: {
+        'Accept':     'application/json, text/csv, */*',
+        'User-Agent': 'ArgusIntelligence/1.0',
+      },
+      signal: AbortSignal.timeout ? AbortSignal.timeout(30000) : undefined,
+    });
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    const ct = resp.headers.get('content-type') || '';
+    rawData = ct.includes('json') ? await resp.json() : parseCSV(await resp.text());
+  } catch (err) {
+    console.error('[fetch-gem] dataset fetch failed (' + sourceTag + '):', err.message);
+    return [];
+  }
+
+  const records = Array.isArray(rawData) ? rawData
+    : (rawData && Array.isArray(rawData.data) ? rawData.data : []);
+
+  const normalized = [];
+  for (let i = 0; i < records.length && normalized.length < MAX_PER_SOURCE; i++) {
+    const norm = normalizeInfra(records[i], i, sourceTag);
+    if (norm) normalized.push(norm);
+  }
+
+  console.log('[fetch-gem] source', sourceTag, '→', normalized.length, 'records (from', records.length, 'raw)');
+  return normalized;
+}
+
+// ── Ingest audit ───────────────────────────────────────────────────────────────
+function auditIngest(infrastructure) {
+  const counts = {};
+  for (const rec of infrastructure) {
+    const t = rec.type || 'unknown';
+    counts[t] = (counts[t] || 0) + 1;
+  }
+  console.log('[fetch-gem] type distribution:', JSON.stringify(counts));
+
+  const unknownCount = (counts['infrastructure'] || 0) + (counts['unknown'] || 0);
+  const pct = infrastructure.length > 0 ? (unknownCount / infrastructure.length * 100).toFixed(1) : 0;
+  if (unknownCount > 0 && parseFloat(pct) > 10) {
+    console.warn('[fetch-gem] WARNING: ' + pct + '% assets unclassified — check fuel field coverage');
+  }
+  return counts;
 }
 
 exports.handler = async function(event) {
@@ -158,7 +236,6 @@ exports.handler = async function(event) {
     return { statusCode: 204, headers: CORS_HEADERS, body: '' };
   }
 
-  // Feature gate — GEM is opt-in, requires explicit dataset URL
   if (!ENABLE_GEM) {
     return {
       statusCode: 200,
@@ -167,7 +244,7 @@ exports.handler = async function(event) {
     };
   }
 
-  if (!GEM_DATASET_URL) {
+  if (!GEM_DATASET_URLS.length) {
     console.warn('[fetch-gem] GEM_DATASET_URL not configured');
     return {
       statusCode: 503,
@@ -179,7 +256,6 @@ exports.handler = async function(event) {
   const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
   // ── Supabase cache read ────────────────────────────────────────────────────
-  // Long TTL (24h default) — GEM data changes rarely
   try {
     const { data: row } = await supabase
       .from('argus_cache')
@@ -199,59 +275,34 @@ exports.handler = async function(event) {
     }
   } catch (_) { /* cache miss — proceed */ }
 
-  // ── GEM Dataset fetch ──────────────────────────────────────────────────────
-  let rawData;
-  try {
-    const resp = await fetch(GEM_DATASET_URL, {
-      headers: {
-        'Accept':     'application/json, text/csv, */*',
-        'User-Agent': 'ArgusIntelligence/1.0',
-      },
-      signal: AbortSignal.timeout ? AbortSignal.timeout(30000) : undefined,
-    });
-    if (!resp.ok) throw new Error('GEM dataset HTTP ' + resp.status);
+  // ── Fetch all sources in parallel ──────────────────────────────────────────
+  const sourceResults = await Promise.all(
+    GEM_DATASET_URLS.map(function(url, i) {
+      return fetchAndNormalize(url, 's' + i);
+    })
+  );
 
-    const contentType = resp.headers.get('content-type') || '';
-    if (contentType.includes('json')) {
-      rawData = await resp.json();
-    } else {
-      // Assume CSV (GEM's standard export format)
-      const text = await resp.text();
-      rawData = parseCSV(text);
-    }
-  } catch (err) {
-    console.error('[fetch-gem] dataset fetch failed:', err.message);
-    return {
-      statusCode: 502,
-      headers: CORS_HEADERS,
-      body: JSON.stringify({ error: 'GEM dataset unavailable', infrastructure: [] }),
-    };
-  }
-
-  // Unwrap array from potential wrapper objects
-  const records = Array.isArray(rawData) ? rawData
-    : (rawData && Array.isArray(rawData.data) ? rawData.data : []);
-
+  // Merge, deduplicate by id
+  const seen          = new Set();
   const infrastructure = [];
-  const seen           = new Set();
-
-  for (let i = 0; i < records.length && infrastructure.length < MAX_INFRA; i++) {
-    const norm = normalizeInfra(records[i], i);
-    if (!norm) continue;
-    if (!passesFuelFilter(norm)) continue;
-    if (seen.has(norm.id)) continue;
-    seen.add(norm.id);
-    infrastructure.push(norm);
+  for (const batch of sourceResults) {
+    for (const rec of batch) {
+      if (!seen.has(rec.id)) {
+        seen.add(rec.id);
+        infrastructure.push(rec);
+      }
+    }
   }
 
-  const fuelFilterApplied = GEM_FUEL_FILTER.length ? GEM_FUEL_FILTER.join(',') : null;
+  const typeCounts = auditIngest(infrastructure);
 
   const payload = {
     infrastructure,
     source:      'gem',
-    fuelFilter:  fuelFilterApplied,
+    typeCounts,
     ts:          Date.now(),
-    count:  infrastructure.length,
+    count:       infrastructure.length,
+    sources:     GEM_DATASET_URLS.length,
   };
 
   // ── Supabase cache write ───────────────────────────────────────────────────
@@ -266,7 +317,7 @@ exports.handler = async function(event) {
     console.warn('[fetch-gem] cache write failed:', err.message);
   }
 
-  console.log('[fetch-gem] returned', infrastructure.length, 'infrastructure records');
+  console.log('[fetch-gem] complete —', infrastructure.length, 'total records from', GEM_DATASET_URLS.length, 'source(s)');
 
   return {
     statusCode: 200,

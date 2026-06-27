@@ -27,8 +27,8 @@ window.ArgusGEM = (function () {
   'use strict';
 
   var GEM_FN     = '/.netlify/functions/fetch-gem';
-  var CACHE_KEY  = 'argus_gem_v3';
-  var CACHE_TS   = 'argus_gem_ts_v3';
+  var CACHE_KEY  = 'argus_gem_v5';
+  var CACHE_TS   = 'argus_gem_ts_v5';
   var CACHE_TTL  = 24 * 60 * 60 * 1000;
   var REFRESH_MS = 24 * 60 * 60 * 1000;
 
@@ -43,15 +43,14 @@ window.ArgusGEM = (function () {
   var _energyOn     = false;   // mirrors ArgusLayerState.energy
 
   // ── Per-type filter ───────────────────────────────────────────────────────────
-  // Only the 5 canonical types are filterable. Other types (pipeline, solar, oil)
-  // always render when the layer is on.
-  var _activeTypes = new Set(['coal', 'nuclear', 'hydro', 'wind', 'lng', 'gas', 'solar']);
+  // All canonical types are filterable via the energy layer panel.
+  var _activeTypes = new Set(['coal', 'nuclear', 'hydro', 'wind', 'lng', 'gas', 'solar', 'oil', 'bioenergy', 'geothermal']);
 
   // ── Instanced visual mesh ─────────────────────────────────────────────────────
   var _imesh  = null;
   var _iDummy = new THREE.Object3D();
   var _iColor = new THREE.Color();
-  var _IMAX   = 3000;
+  var _IMAX   = 5000;
 
   // ── Audit ────────────────────────────────────────────────────────────────────
   var _audit = { fetches: 0, placed: 0, lastFetchMs: 0, lastError: null };
@@ -70,11 +69,13 @@ window.ArgusGEM = (function () {
     'gas':            0xffffff,  // white
     'power':          0xffee00,
     'coal':           0x555555,  // dark grey
-    'oil':            0xff8800,
+    'oil':            0x884400,  // brown
     'nuclear':        0xcc44ff,  // purple
     'solar':          0xffdd00,  // yellow
     'wind':           0xeeeeee,  // off-white (distinct from gas pure white)
     'hydro':          0x44aaff,  // light blue
+    'bioenergy':      0x66bb44,  // green
+    'geothermal':     0xff6600,  // orange
     'infrastructure': 0x88aacc,
   };
 
@@ -89,17 +90,21 @@ window.ArgusGEM = (function () {
   }
 
   // ── Canonical type normalization ──────────────────────────────────────────────
-  // Maps raw GEM type strings → filterable canonical type, or null.
+  // Maps raw GEM/GIPT type strings → filterable canonical type, or null.
+  // Order mirrors fuelToType() in fetch-gem.js — keep both in sync.
   function _canonicalType(raw) {
     var t = (raw || '').toLowerCase();
-    if (t.indexOf('lng') >= 0)   return 'lng';     // lng before gas (lng contains no "gas")
-    if (t.indexOf('coal') >= 0)  return 'coal';
+    if (t.indexOf('lng') >= 0)                              return 'lng';
+    if (t.indexOf('geothermal') >= 0)                       return 'geothermal';
+    if (t.indexOf('bioenergy') >= 0 || t.indexOf('biomass') >= 0) return 'bioenergy';
+    if (t.indexOf('coal') >= 0)                             return 'coal';
     if (t.indexOf('nuclear') >= 0 || t.indexOf('atom') >= 0) return 'nuclear';
-    if (t.indexOf('hydro') >= 0) return 'hydro';
-    if (t.indexOf('wind') >= 0)  return 'wind';
-    if (t.indexOf('solar') >= 0) return 'solar';
-    if (t.indexOf('gas') >= 0)   return 'gas';
-    return null;  // pipeline, oil, power, etc. — non-filterable, always shown when layer on
+    if (t.indexOf('hydro') >= 0)                            return 'hydro';
+    if (t.indexOf('wind') >= 0)                             return 'wind';
+    if (t.indexOf('solar') >= 0)                            return 'solar';
+    if (t.indexOf('oil') >= 0)                              return 'oil';
+    if (t.indexOf('gas') >= 0)                              return 'gas';
+    return null;  // pipeline, power, infrastructure — always shown when layer on
   }
 
   // ── Capacity normalization to MW ──────────────────────────────────────────────
@@ -422,9 +427,11 @@ window.ArgusGEM = (function () {
 
   // ── getCountryEnergy — aggregate energy assets for a country ──────────────────
   // countryName: display name string (case-insensitive match against infra.country)
-  // Returns { coalMW, nuclearMW, hydroMW, windMW, gasMW, lngAssets, solarMW, totalAssets }
+  // Returns { coalMW, nuclearMW, hydroMW, windMW, gasMW, lngAssets, solarMW,
+  //           oilMW, bioenergyMW, geothermalMW, totalAssets }
   function getCountryEnergy(countryName) {
-    var result = { coalMW: 0, nuclearMW: 0, hydroMW: 0, windMW: 0, gasMW: 0, lngAssets: 0, solarMW: 0, totalAssets: 0 };
+    var result = { coalMW: 0, nuclearMW: 0, hydroMW: 0, windMW: 0, gasMW: 0, lngAssets: 0,
+                   solarMW: 0, oilMW: 0, bioenergyMW: 0, geothermalMW: 0, totalAssets: 0 };
     if (!countryName) return result;
     var needle = countryName.toLowerCase();
     energyInfrastructureCache.forEach(function (infra) {
@@ -432,13 +439,16 @@ window.ArgusGEM = (function () {
       result.totalAssets++;
       var mw = infra.capacityMW;
       switch (infra._canonType) {
-        case 'coal':    if (mw) result.coalMW    += mw; break;
-        case 'nuclear': if (mw) result.nuclearMW += mw; break;
-        case 'hydro':   if (mw) result.hydroMW   += mw; break;
-        case 'wind':    if (mw) result.windMW     += mw; break;
-        case 'gas':     if (mw) result.gasMW      += mw; break;
-        case 'solar':   if (mw) result.solarMW    += mw; break;
-        case 'lng':     result.lngAssets++;               break;
+        case 'coal':       if (mw) result.coalMW       += mw; break;
+        case 'nuclear':    if (mw) result.nuclearMW    += mw; break;
+        case 'hydro':      if (mw) result.hydroMW      += mw; break;
+        case 'wind':       if (mw) result.windMW       += mw; break;
+        case 'gas':        if (mw) result.gasMW        += mw; break;
+        case 'solar':      if (mw) result.solarMW      += mw; break;
+        case 'oil':        if (mw) result.oilMW        += mw; break;
+        case 'bioenergy':  if (mw) result.bioenergyMW  += mw; break;
+        case 'geothermal': if (mw) result.geothermalMW += mw; break;
+        case 'lng':        result.lngAssets++;                 break;
       }
     });
     return result;

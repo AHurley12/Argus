@@ -33,7 +33,7 @@ const GEM_DATASET_URLS = (process.env.GEM_DATASET_URL || '')
   .map(s => s.trim())
   .filter(Boolean);
 
-const CACHE_KEY    = 'gem_infrastructure_v3';   // bumped — type-balanced sampling
+const CACHE_KEY    = 'gem_infrastructure_v5';   // bumped — techToType classification fix
 const CACHE_TTL_MS = GEM_REFRESH_HOURS * 60 * 60 * 1000;
 
 // Cap per-source to avoid hitting Supabase payload limits.
@@ -53,25 +53,81 @@ const CORS_HEADERS = {
 // ── Fuel → semantic type mapping ───────────────────────────────────────────────
 // Converts raw fuel/primary_fuel field values to canonical energy type strings.
 // These strings are what argusGem.js _canonicalType() matches against.
-// Order matters: lng must precede gas (lng contains "gas" in some datasets).
+//
+// Order matters — specific rules before general ones:
+//   lng    before gas  (liquefied natural gas descriptions may mention "gas")
+//   coal subtypes before "coal" (bituminous/anthracite don't contain "coal")
+//   geothermal before hydro (disjoint, but explicit ordering is defensive)
+//   bioenergy before biomass/waste (catch GEM-specific "bioenergy" label)
+//
+// GIPT-specific fuel values observed:
+//   bituminous, sub-bituminous, anthracite → coal
+//   natural gas                            → gas
+//   uranium                                → nuclear
+//   geothermal                             → geothermal
+//   bioenergy, biomass, waste, biogas      → bioenergy
+//   oil, petroleum, diesel, fuel oil       → oil
 function fuelToType(fuel) {
   if (!fuel) return null;
   const f = fuel.toLowerCase().trim();
-  if (f.includes('lng') || f.includes('liquefied'))           return 'lng';
-  if (f.includes('gas') || f.includes('natural gas'))         return 'gas';
-  if (f.includes('coal') || f.includes('lignite'))            return 'coal';
-  if (f.includes('nuclear') || f.includes('uranium'))         return 'nuclear';
-  if (f.includes('hydro') || f.includes('water'))             return 'hydro';
-  if (f.includes('wind'))                                      return 'wind';
-  if (f.includes('solar') || f.includes('photovoltaic') || f.includes(' pv')) return 'solar';
-  if (f.includes('oil') || f.includes('petroleum') || f.includes('diesel')) return 'oil';
-  if (f.includes('biomass') || f.includes('waste'))           return 'biomass';
+  // LNG must precede gas
+  if (f.includes('lng') || f.includes('liquefied'))                              return 'lng';
+  // GIPT coal sub-types don't contain the word "coal"
+  if (f.includes('bituminous') || f.includes('anthracite') || f.includes('sub-bitu')) return 'coal';
+  // New canonical types
+  if (f.includes('geothermal'))                                                   return 'geothermal';
+  if (f.includes('bioenergy') || f.includes('biomass') || f.includes('biogas') ||
+      f.includes('landfill') || f.includes('waste'))                             return 'bioenergy';
+  // General fuel checks
+  if (f.includes('gas') || f.includes('natural gas'))                            return 'gas';
+  if (f.includes('coal') || f.includes('lignite'))                               return 'coal';
+  if (f.includes('nuclear') || f.includes('uranium'))                            return 'nuclear';
+  if (f.includes('hydro') || f.includes('water'))                                return 'hydro';
+  if (f.includes('wind'))                                                         return 'wind';
+  if (f.includes('solar') || f.includes('photovoltaic') || f.includes(' pv'))   return 'solar';
+  if (f.includes('oil') || f.includes('petroleum') || f.includes('diesel'))     return 'oil';
+  return null;
+}
+
+// ── Technology → semantic type mapping ────────────────────────────────────────
+// GIPT often has an empty Fuel column — the Technology column carries semantic info.
+// Maps GIPT Technology column values to canonical energy type strings.
+// Only covers unambiguous technology codes; ambiguous codes (ST) remain null.
+//
+// GIPT Technology values observed:
+//   Hydro:      conventional storage, run-of-river, pumped storage, conventional and …
+//   Wind:       onshore, offshore hard mount, offshore mount unknown, offshore floating
+//   Solar:      PV, Solar Thermal, Assumed PV
+//   Gas:        CC (combined cycle), GT (gas turbine), ICCC, ISCC, AFC
+//   Coal:       subcritical, supercritical, ultra-super, cfb, igcc, igcc/ccs, …/ccs
+//   Nuclear:    pressurized water reactor, boiling water reactor, gas-cooled reactor, …
+//   Geothermal: flash steam - *, dry steam, binary cycle
+function techToType(tech) {
+  if (!tech) return null;
+  const t = tech.toLowerCase().trim();
+  if (t.includes('run-of-river') || t.includes('pumped storage') ||
+      t.includes('conventional storage') || t.includes('conventional and'))    return 'hydro';
+  if (t.includes('onshore') || t.includes('offshore'))                         return 'wind';
+  if (t === 'pv' || t === 'solar thermal' || t.includes('photovoltaic') ||
+      t.includes('assumed pv'))                                                 return 'solar';
+  if (t === 'cc' || t === 'gt' || t === 'iccc' || t === 'iscc' || t === 'afc') return 'gas';
+  if (t === 'subcritical' || t === 'supercritical' || t.includes('ultra-super') ||
+      t === 'cfb' || t.includes('igcc') || t.includes('/ccs'))                 return 'coal';
+  if (t.includes('reactor') || t.includes('graphite') || t.includes('breeder') ||
+      t.includes('modular'))                                                    return 'nuclear';
+  if (t.includes('flash steam') || t.includes('dry steam') ||
+      t.includes('binary cycle'))                                               return 'geothermal';
   return null;
 }
 
 // ── Infrastructure normalization ───────────────────────────────────────────────
-// Accepts both GEM tracker CSVs and WRI Global Power Plant Database.
-// Type is derived from fuel first — NOT from technology codes (CC, GT, OCGT, ST).
+// Accepts GIPT (Global Integrated Power Tracker) and WRI Global Power Plant Database.
+//
+// Type derivation priority (first non-null wins):
+//   1. fuelToType(Fuel column)         — explicit fuel value (bituminous → coal, etc.)
+//   2. fuelToType(Tracker column)      — GEM tracker name encodes fuel semantically
+//   3. techToType(Technology column)   — GIPT tech code mapping (CC→gas, onshore→wind)
+//   4. Raw Technology string (capped)  — last resort; non-filterable in the UI
 function normalizeInfra(raw, index, sourceTag) {
   // Coordinates — handle GEM and WRI field name variants.
   // GEM gas-plant CSVs use "lng" as the longitude column name.
@@ -99,14 +155,16 @@ function normalizeInfra(raw, index, sourceTag) {
   const fuel = raw.primary_fuel || raw.fuel || raw.Fuel || raw.FuelType ||
                raw['Fuel type'] || raw.fuel_type || null;
 
-  // ── Type: fuel is the primary source, technology code is fallback only ────────
-  // This is the critical fix: GEM gas-plant "technology" column contains turbine
-  // codes (CC, GT, OCGT) that don't map to canonical energy types. WRI "primary_fuel"
-  // contains semantic values (Gas, Coal, Nuclear) that map correctly.
-  const fuelDerived = fuelToType(fuel);
-  const techFallback = raw.technology || raw.Technology || raw.type || raw.Type ||
-                       raw.tracker || raw.Tracker || null;
-  const type = (fuelDerived || (techFallback ? techFallback.slice(0, 60) : 'infrastructure'));
+  // Tracker: GIPT Tracker column names encode the fuel type semantically
+  // e.g. "Gas Tracker" → gas, "Hydropower Tracker" → hydro, "Wind Power Tracker" → wind
+  const tracker = raw.Tracker || raw.tracker || null;
+
+  // Technology: used as tertiary fallback via techToType() mapping
+  const techStr = raw.technology || raw.Technology || raw.type || raw.Type || null;
+
+  // ── Type derivation ─────────────────────────────────────────────────────────
+  const type = fuelToType(fuel) || fuelToType(tracker) || techToType(techStr) ||
+               (techStr ? techStr.slice(0, 60) : 'infrastructure');
 
   // Capacity: WRI uses "capacity_mw" (always MW). GEM uses "capacity"/"Capacity" etc.
   const hasWriCap   = raw.capacity_mw != null && raw.capacity_mw !== '';

@@ -266,13 +266,16 @@
   <!-- ── Energy Infrastructure Filter Panel ──────────────────────────────────── -->
   <div id="energy-filter-panel" style="display:none;position:fixed;left:68px;top:12px;z-index:900;background:rgba(4,13,24,0.96);border:1px solid #0f2744;padding:10px 12px;min-width:140px">
     <div style="font-size:8px;letter-spacing:2px;color:#0099ff;margin-bottom:8px;font-weight:700">ENERGY LAYERS</div>
-    <label class="energy-cb-row"><input type="checkbox" id="energy-cb-nuclear" checked onchange="window._applyEnergyTypeFilter&&_applyEnergyTypeFilter()"><span class="ecb-dot" style="background:#cc44ff"></span><span>NUCLEAR</span></label>
-    <label class="energy-cb-row"><input type="checkbox" id="energy-cb-coal"    checked onchange="window._applyEnergyTypeFilter&&_applyEnergyTypeFilter()"><span class="ecb-dot" style="background:#555555;border:1px solid #888"></span><span>COAL</span></label>
-    <label class="energy-cb-row"><input type="checkbox" id="energy-cb-gas"     checked onchange="window._applyEnergyTypeFilter&&_applyEnergyTypeFilter()"><span class="ecb-dot" style="background:#ffffff;border:1px solid #555"></span><span>GAS</span></label>
-    <label class="energy-cb-row"><input type="checkbox" id="energy-cb-lng"     checked onchange="window._applyEnergyTypeFilter&&_applyEnergyTypeFilter()"><span class="ecb-dot" style="background:#999999"></span><span>LNG</span></label>
-    <label class="energy-cb-row"><input type="checkbox" id="energy-cb-hydro"   checked onchange="window._applyEnergyTypeFilter&&_applyEnergyTypeFilter()"><span class="ecb-dot" style="background:#44aaff"></span><span>HYDRO</span></label>
-    <label class="energy-cb-row"><input type="checkbox" id="energy-cb-wind"    checked onchange="window._applyEnergyTypeFilter&&_applyEnergyTypeFilter()"><span class="ecb-dot" style="background:#eeeeee;border:1px solid #555"></span><span>WIND</span></label>
-    <label class="energy-cb-row"><input type="checkbox" id="energy-cb-solar"   checked onchange="window._applyEnergyTypeFilter&&_applyEnergyTypeFilter()"><span class="ecb-dot" style="background:#ffdd00"></span><span>SOLAR</span></label>
+    <label class="energy-cb-row"><input type="checkbox" id="energy-cb-nuclear"    checked onchange="window._applyEnergyTypeFilter&&_applyEnergyTypeFilter()"><span class="ecb-dot" style="background:#cc44ff"></span><span>NUCLEAR</span></label>
+    <label class="energy-cb-row"><input type="checkbox" id="energy-cb-coal"       checked onchange="window._applyEnergyTypeFilter&&_applyEnergyTypeFilter()"><span class="ecb-dot" style="background:#555555;border:1px solid #888"></span><span>COAL</span></label>
+    <label class="energy-cb-row"><input type="checkbox" id="energy-cb-gas"        checked onchange="window._applyEnergyTypeFilter&&_applyEnergyTypeFilter()"><span class="ecb-dot" style="background:#ffffff;border:1px solid #555"></span><span>GAS</span></label>
+    <label class="energy-cb-row"><input type="checkbox" id="energy-cb-lng"        checked onchange="window._applyEnergyTypeFilter&&_applyEnergyTypeFilter()"><span class="ecb-dot" style="background:#999999"></span><span>LNG</span></label>
+    <label class="energy-cb-row"><input type="checkbox" id="energy-cb-hydro"      checked onchange="window._applyEnergyTypeFilter&&_applyEnergyTypeFilter()"><span class="ecb-dot" style="background:#44aaff"></span><span>HYDRO</span></label>
+    <label class="energy-cb-row"><input type="checkbox" id="energy-cb-wind"       checked onchange="window._applyEnergyTypeFilter&&_applyEnergyTypeFilter()"><span class="ecb-dot" style="background:#eeeeee;border:1px solid #555"></span><span>WIND</span></label>
+    <label class="energy-cb-row"><input type="checkbox" id="energy-cb-solar"      checked onchange="window._applyEnergyTypeFilter&&_applyEnergyTypeFilter()"><span class="ecb-dot" style="background:#ffdd00"></span><span>SOLAR</span></label>
+    <label class="energy-cb-row"><input type="checkbox" id="energy-cb-oil"        checked onchange="window._applyEnergyTypeFilter&&_applyEnergyTypeFilter()"><span class="ecb-dot" style="background:#884400"></span><span>OIL</span></label>
+    <label class="energy-cb-row"><input type="checkbox" id="energy-cb-bioenergy"  checked onchange="window._applyEnergyTypeFilter&&_applyEnergyTypeFilter()"><span class="ecb-dot" style="background:#66bb44"></span><span>BIOENERGY</span></label>
+    <label class="energy-cb-row"><input type="checkbox" id="energy-cb-geothermal" checked onchange="window._applyEnergyTypeFilter&&_applyEnergyTypeFilter()"><span class="ecb-dot" style="background:#ff6600"></span><span>GEOTHERMAL</span></label>
   </div>
 
   <!-- ── Global Snapshot Strip ──────────────────────────────────────────────── -->
@@ -1126,7 +1129,7 @@ document.addEventListener('DOMContentLoaded', function() {
   // ── Energy type filter checkboxes ─────────────────────────────────────────────
   function _applyEnergyTypeFilter() {
     var types = [];
-    ['nuclear','coal','gas','lng','hydro','wind','solar'].forEach(function(t) {
+    ['nuclear','coal','gas','lng','hydro','wind','solar','oil','bioenergy','geothermal'].forEach(function(t) {
       var cb = document.getElementById('energy-cb-' + t);
       if (cb && cb.checked) types.push(t);
     });
@@ -5322,9 +5325,10 @@ window.ArgusUI = (function() {
     // ── GEM energy infrastructure detail ────────────────────────────────────────
     if (d.isGEM || d._gemMarker) {
       var _GEM_COL = {
-        nuclear: '#cc44ff', coal: '#888888', gas: '#e0e0e0',
-        lng:     '#999999', hydro: '#44aaff', wind: '#eeeeee', solar: '#ffdd00',
-        oil:     '#ff8800', biomass: '#88bb44'
+        nuclear:    '#cc44ff', coal:      '#888888', gas:        '#e0e0e0',
+        lng:        '#999999', hydro:     '#44aaff', wind:       '#eeeeee',
+        solar:      '#ffdd00', oil:       '#884400', bioenergy:  '#66bb44',
+        geothermal: '#ff6600'
       };
       var gemCol  = _GEM_COL[d._canonType] || '#0099ff';
       var gemType = (d._canonType || d.type || 'infrastructure').toUpperCase();

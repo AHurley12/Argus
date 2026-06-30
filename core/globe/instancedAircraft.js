@@ -28,7 +28,7 @@
 window.ArgusAircraftInstanced = (function () {
   'use strict';
 
-  var MAX      = 800;    // > AIRCRAFT_LIMIT(750) + DR headroom
+  var MAX      = 3000;   // must match AIRCRAFT_LIMIT in argusTracking.js
   var SCALE_AC = 1.75;   // matches placeAircraft sprite.scale.set(1.75, 1.75, 1)
   var ALTITUDE = 101.8;  // matches placeAircraft latLonToVector altitude
 
@@ -309,7 +309,9 @@ window.ArgusAircraftInstanced = (function () {
   }
 
   function getCount() {
-    return _normalIdx + _staleIdx;
+    // Use sprite array lengths — accurately reflects instances actually placed in mesh
+    // (_normalIdx/_staleIdx raw counters overflow past MAX and overreport).
+    return _normalSprites.length + _staleSprites.length;
   }
 
   function getAudit() { return { dirtyOpacity: _audit.dirtyOpacity, skippedOpacity: _audit.skippedOpacity }; }

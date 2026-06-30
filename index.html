@@ -1270,9 +1270,8 @@ document.addEventListener('DOMContentLoaded', function() {
         '<div style="color:#4a6080;font-size:8px;margin-top:1px">' + d.lat.toFixed(1) + '°N ' + Math.abs(d.lon).toFixed(1) + '°' + (d.lon >= 0 ? 'E' : 'W') + '</div></div>';
     }
     if (d.isCountry) {
-      // Use live dynamic tier/score if available; fall back to static baseline
-      var _bandMap = { Red:'CRITICAL', Orange:'WARNING', Yellow:'WATCH', Green:'LOW' };
-      var _dRisk  = d._band ? (_bandMap[d._band] || risk) : risk;
+      // Always use baseline risk for hover tooltip color — consistent with tab color
+      var _dRisk  = risk;
       var _dCol   = RISK_CSS[_dRisk] || col;
       var _dScore = d._dynamicScore != null ? d._dynamicScore : d.score;
       var _dFlag  = (d._pillars && Math.max(d._pillars.economic||0, d._pillars.humanitarian||0, d._pillars.security||0) >= 85) ? ' ⚠' : '';
@@ -1306,42 +1305,9 @@ document.addEventListener('DOMContentLoaded', function() {
       '<span style="color:' + col + ';font-size:9px;margin-left:6px">✦ ' + risk + '</span></div>';
   }
 
-  // ── Event Locations ──────────────────────────────────────────────────────────
-  var eventLocations = [
-    { lat: 12.5, lon: 43.3,  type: 'CONFLICT', severity: 'CRITICAL', title: 'Bab-el-Mandeb - Houthi Attacks',    id: 'bab-mandeb' },
-    { lat: 29.5, lon: 32.5,  type: 'CONFLICT', severity: 'CRITICAL', title: 'Red Sea - Suez Corridor',           id: 'red-sea'    },
-    { lat: 9.0,  lon: -79.5, type: 'DISASTER', severity: 'WATCH',    title: 'Panama Canal - Drought Crisis',     id: 'panama'     },
-    { lat: 45.0, lon: 30.5,  type: 'CONFLICT', severity: 'WARNING',  title: 'Black Sea - Corridor Blockade',     id: 'black-sea'  },
-    { lat: 24.5, lon: 121.0, type: 'DISASTER', severity: 'WATCH',    title: 'Taiwan Strait - Military Activity', id: 'taiwan'     },
-  ];
-
   var severityColor = { CRITICAL: 0xff0044, WARNING: 0xff9933, WATCH: 0xffcc00, LOW: 0x00ff88 };
 
   var eventMarkerGroup = new THREE.Group();
-  eventLocations.forEach(function(ev) {
-    var pos = latLonToVector(ev.lat, ev.lon);
-    var col = severityColor[ev.severity];
-
-    var mesh = new THREE.Mesh(
-      new THREE.SphereGeometry(1.68, 16, 16),
-      new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.39 })
-    );
-    mesh.position.copy(pos);
-    // Source discriminator — required by ArgusHardcodedQueue FIFO logic
-    mesh.userData = Object.assign({}, ev, { source: 'HARDCODED', _hcMarker: true, timestamp: Date.now() });
-    eventMarkerGroup.add(mesh);
-    window.eventMarkers.push(mesh);
-
-    var ring = new THREE.Mesh(
-      new THREE.RingGeometry(2.4, 3.6, 32),
-      new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.5, side: THREE.DoubleSide })
-    );
-    ring.position.copy(pos);
-    ring.lookAt(pos.clone().normalize().multiplyScalar(200));
-    ring.userData = { isPulseRing: true, phase: Math.random() * Math.PI * 2, _hcMarker: true };
-    eventMarkerGroup.add(ring);
-    window._pulseRings.push(ring);
-  });
   dataGroup.add(eventMarkerGroup);
 
   // Weather sprite group — animated NOAA pulse + cyclone sprites (argusWeatherLayer).
@@ -5666,9 +5632,8 @@ window.ArgusUI = (function() {
   }
 
   function showStaticDetail(d) {
-    // For countries, prefer the live dynamic tier/band if available
-    var _liveBandMap = { Red:'CRITICAL', Orange:'WARNING', Yellow:'WATCH', Green:'LOW' };
-    var _liveRisk = d.isCountry && d._band ? (_liveBandMap[d._band] || d.risk) : d.risk;
+    // Always use baseline risk for tab color — adjusted score is informational only
+    var _liveRisk = d.risk;
     // For chokepoints, derive live tier from computed risk
     if (d.isChokepoint && window._computeChokepointRisk) {
       var _cpLive = window._computeChokepointRisk(d.id);
@@ -7080,7 +7045,7 @@ ArgusMarket.init();
 <script src="/modules/argusAcled.js?v=perf-fix-8"></script>
 <script src="/modules/argusNoaa.js?v=perf-fix-9"></script>
 <script src="/modules/argusWeatherLayer.js?v=stable-v2"></script>
-<script src="/modules/argusGem.js?v=perf-fix-8"></script>
+<script src="/modules/argusGem.js?v=gipt-v2"></script>
 
   <!-- ── Global Exchanges Popup ─────────────────────────────────────────────── -->
 
@@ -8107,18 +8072,6 @@ window.ArgusAdmin = (function() {
 
       // ── Build data sources ────────────────────────────────────────────────
 
-      // Hard-coded static fixtures (no DB backing)
-      var STATIC_IDS = { 'bab-mandeb':true, 'red-sea':true, 'panama':true, 'black-sea':true, 'taiwan':true };
-      var staticItems = (window.eventMarkers || [])
-        .filter(function(m) { var d = m.userData; return d && d.id && STATIC_IDS[d.id] && !d.isPulseRing; })
-        .map(function(m) {
-          var d = m.userData;
-          return { src: 'STATIC', sev: (d.severity || 'WATCH').toUpperCase(),
-            type: d.type || 'EVENT', title: d.title || '—',
-            lat: d.lat || null, lon: d.lon || null, staticId: d.id };
-        })
-        .sort(function(a, b) { return (sevOrder[a.sev] || 2) - (sevOrder[b.sev] || 2); });
-
       // Published permanent events — read directly from DB, not from _permanentPins
       var publishedItems = permRows
         .map(function(p) {
@@ -8168,30 +8121,9 @@ window.ArgusAdmin = (function() {
       // ── Assemble in priority order ────────────────────────────────────────
       var html = '';
 
-      // ── § 1  STATIC PLOTTED ───────────────────────────────────────────────
-      if (staticItems.length) {
-        html += '<div class="eq-section-hdr" style="color:#ffcc00">◈ STATIC PLOTTED — ' + staticItems.length + ' HARD-CODED</div>';
-        html += staticItems.map(function(item) {
-          var col = sevColor[item.sev] || '#ffcc00';
-          var sid = item.staticId;
-          return '<div class="eq-live-row" id="sf-row-' + sid + '" style="flex-wrap:wrap;gap:4px;">' +
-            '<span class="eq-live-dot" style="background:' + col + '"></span>' +
-            '<span class="eq-live-src">STATIC</span>' +
-            '<span style="font-size:7px;letter-spacing:1px;color:#2a5a7a;white-space:nowrap">' + item.type + '</span>' +
-            '<span class="eq-live-title" style="flex:1">' + (item.title + '').slice(0, 90) + '</span>' +
-            '<span style="display:inline-flex;gap:4px;margin-left:auto;flex-shrink:0;align-items:center;">' +
-              '<button class="eq-btn" style="border-color:#00aa66;color:#00aa66;font-size:7px;padding:2px 6px;" ' +
-                'onclick="ArgusAdmin.renewStaticFixture(\'' + sid + '\')">✓ +7 DAYS</button>' +
-              '<button class="eq-btn deny" id="rms-' + sid + '" style="font-size:7px;padding:2px 6px;" ' +
-                'onclick="ArgusAdmin._inlineConfirmStatic(this,\'' + sid + '\')">✕ REMOVE</button>' +
-            '</span>' +
-          '</div>';
-        }).join('');
-      }
-
-      // ── § 2  PUBLISHED EVENTS ─────────────────────────────────────────────
+      // ── § 1  PUBLISHED EVENTS ─────────────────────────────────────────────
       if (publishedItems.length) {
-        html += '<div class="eq-section-hdr" style="color:#00cc66;margin-top:' + (staticItems.length ? '10px' : '0') + '">◈ PUBLISHED EVENTS — ' + publishedItems.length + ' ON GLOBE</div>';
+        html += '<div class="eq-section-hdr" style="color:#00cc66;margin-top:0">◈ PUBLISHED EVENTS — ' + publishedItems.length + ' ON GLOBE</div>';
         html += publishedItems.map(function(item) {
           var col = sevColor[item.sev] || '#00aaff';
           var pid = item.permId;
@@ -8862,19 +8794,6 @@ window.ArgusAdmin = (function() {
     parent.insertBefore(pair, btn.nextSibling);
   }
 
-  // ── Inline two-step confirm for static fixture delete buttons ────────────
-  function _inlineConfirmStatic(btn, staticId) {
-    btn.style.display = 'none';
-    var parent = btn.parentNode;
-    var pair = document.createElement('span');
-    pair.style.cssText = 'display:inline-flex;align-items:center;gap:4px;';
-    pair.innerHTML =
-      '<span style="font-size:7px;color:#ff9933;letter-spacing:1px;white-space:nowrap;">CONFIRM?</span>' +
-      '<button class="eq-btn deny" style="font-size:7px;padding:2px 6px;" onclick="ArgusAdmin.deleteStaticFixture(\'' + staticId + '\')">✓ YES</button>' +
-      '<button class="eq-btn" style="font-size:7px;padding:2px 6px;" onclick="this.parentNode.remove();document.getElementById(\'rms-' + staticId + '\').style.display=\'\'">CANCEL</button>';
-    parent.insertBefore(pair, btn.nextSibling);
-  }
-
   // ── Delete permanent event — admin/owner only ─────────────────────────────
   function deletePermanentEvent(permId, skipConfirm) {
     var tier = window.ArgusSession ? window.ArgusSession.tier : 'viewer';
@@ -8908,54 +8827,6 @@ window.ArgusAdmin = (function() {
     .catch(function(e) { alert('Delete failed: ' + e.message); });
   }
 
-  // ── Static fixture controls ────────────────────────────────────────────────
-  // Static fixtures are hard-coded in JS — no DB backing.
-  // Delete removes the mesh + ring from the globe for this session.
-  // Renew is a visual acknowledgment only (no DB — reload restores the fixture).
-  function deleteStaticFixture(staticId) {
-    var AG = window.ArgusGlobe;
-    if (!AG || !AG.eventMarkerGroup) return;
-
-    // Find the mesh by staticId
-    var mesh = null;
-    (window.eventMarkers || []).forEach(function(m) {
-      if (m.userData && m.userData.id === staticId) mesh = m;
-    });
-    if (!mesh) return;
-
-    // Remove companion pulse ring(s) at the same position
-    AG.eventMarkerGroup.children.slice().forEach(function(child) {
-      if (child.userData && child.userData.isPulseRing &&
-          !child.userData._gdeltMarker && !child.userData._unMarker && !child.userData._permanentPin) {
-        if (child.position.distanceTo(mesh.position) < 0.5) {
-          AG.eventMarkerGroup.remove(child);
-        }
-      }
-    });
-
-    // Remove the marker mesh
-    AG.eventMarkerGroup.remove(mesh);
-    window.eventMarkers = (window.eventMarkers || []).filter(function(m) { return m !== mesh; });
-
-    // Refresh queue live feed so row disappears
-    loadQueue();
-    if (typeof window.updateNodeCounts === 'function') window.updateNodeCounts();
-  }
-
-  function renewStaticFixture(staticId) {
-    // Static fixtures live only in JS — no DB expiry to extend.
-    // Acknowledge the review visually.
-    var row = document.getElementById('sf-row-' + staticId);
-    if (!row) return;
-    var btn = row.querySelector('.eq-btn');
-    if (btn) {
-      var orig = btn.textContent;
-      btn.textContent = '✓ REVIEWED';
-      btn.disabled = true;
-      setTimeout(function() { btn.textContent = orig; btn.disabled = false; }, 3000);
-    }
-  }
-
   // ── Highlight the matching canonical event card ───────────────────────────
   function highlightDupe(matchId) {
     var card = document.getElementById('eq-' + matchId);
@@ -8965,7 +8836,7 @@ window.ArgusAdmin = (function() {
     setTimeout(function() { card.classList.remove('is-dupe-highlight'); }, 2800);
   }
 
-  return { toggle: toggle, switchTab: switchTab, loadUsers: loadUsers, loadQueue: loadQueue, queueAction: queueAction, approveEvent: approveEvent, setTier: setTier, loadRequests: loadRequests, requestAction: requestAction, permanentAction: permanentAction, _reloadPermanent: _reloadPermanent, _plotAnalystPin: _plotAnalystPin, removeAnalystPin: removeAnalystPin, loadHistory: loadHistory, clearHistory: clearHistory, deletePermanentEvent: deletePermanentEvent, deletePermanentByTitle: deletePermanentByTitle, deleteStaticFixture: deleteStaticFixture, renewStaticFixture: renewStaticFixture, highlightDupe: highlightDupe, _inlineConfirmPerm: _inlineConfirmPerm, _inlineConfirmStatic: _inlineConfirmStatic, boot: boot };
+  return { toggle: toggle, switchTab: switchTab, loadUsers: loadUsers, loadQueue: loadQueue, queueAction: queueAction, approveEvent: approveEvent, setTier: setTier, loadRequests: loadRequests, requestAction: requestAction, permanentAction: permanentAction, _reloadPermanent: _reloadPermanent, _plotAnalystPin: _plotAnalystPin, removeAnalystPin: removeAnalystPin, loadHistory: loadHistory, clearHistory: clearHistory, deletePermanentEvent: deletePermanentEvent, deletePermanentByTitle: deletePermanentByTitle, highlightDupe: highlightDupe, _inlineConfirmPerm: _inlineConfirmPerm, boot: boot };
 })();
 </script>
 
@@ -11516,7 +11387,7 @@ if (document.readyState === 'loading') {
 <script src="/core/registry/argusEntityRegistry.js?v=perf-fix-8"></script>
 
 <!-- Aircraft visual layer — must load before argusTracking.js -->
-<script src="/core/globe/instancedAircraft.js?v=perf-fix-8"></script>
+<script src="/core/globe/instancedAircraft.js?v=perf-fix-9"></script>
 
 <!-- Ship visual layer — must load before argusTracking.js -->
 <script src="/core/globe/instancedShips.js?v=perf-fix-8"></script>
@@ -11921,7 +11792,7 @@ window.ArgusSidebarPanels = (function () {
 
   // First update after data systems have had time to populate
   setTimeout(_updateSnap, 8000);
-  setInterval(_updateSnap, 10000);
+  setInterval(_updateSnap, 60000);
 
   // Vessel snapshot: first read at 60s (AIS needs time to connect), then every 5 min
   setTimeout(function () { _updateVesselSnap(); setInterval(_updateVesselSnap, 300000); }, 60000);

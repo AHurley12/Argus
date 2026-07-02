@@ -183,7 +183,7 @@
               title="Toggle live aircraft (OpenSky Network · key A)">
         <span class="sb-icon">✈</span><span>AIR</span>
       </button>
-      <button id="btn-track-ais" class="sb-btn track-btn track-ais is-active"
+      <button id="btn-track-ais" class="sb-btn track-btn track-ais"
               onclick="window.ArgusAIS && ArgusAIS.toggle()"
               title="Toggle AISstream live vessels">
         <span class="sb-icon">⚓</span><span>AIS</span>
@@ -849,7 +849,7 @@ window.ArgusLayerState = {
   capitals:    false,
   vessels:     false,
   aircraft:    false,
-  aisVessels:  true,   // mirrors aisOn default (true) in ArgusAIS
+  aisVessels:  false,  // default OFF — mirrors aisOn in ArgusAIS
   weather:     false,  // animated NOAA pulse + cyclone sprite layer
   energy:      false,  // GEM energy infrastructure layer — independent of events
 };

@@ -30,7 +30,7 @@ const ENABLE_NOAA   = (process.env.ENABLE_NOAA   || 'true').toLowerCase() !== 'f
 const NOAA_BASE_URL = (process.env.NOAA_BASE_URL  || 'https://api.weather.gov').replace(/\/$/, '');
 
 const POLL_MS      = parseInt(process.env.NOAA_POLL_INTERVAL_MS || String(15 * 60 * 1000));
-const CACHE_KEY    = 'noaa_alerts_v1';
+const CACHE_KEY    = 'noaa_alerts_v2';  // bumped: stable NHC IDs (name+basin fallback)
 const CACHE_TTL_MS = POLL_MS;
 
 const MAX_ALERTS = 200;
@@ -134,8 +134,14 @@ function normalizeNHCStorm(storm) {
   else if (intensity >= 64) severity = 'Severe'; // Cat 1-2 / TS
   else if (intensity >= 34) severity = 'Moderate'; // TD
 
+  // Stable ID: prefer storm.id (e.g. "AL012025"); fall back to name+basin so
+  // the same storm gets the same key on every poll. Date.now() was the old
+  // fallback — it produced a new ID every poll, causing needless marker churn.
+  const stableKey = storm.id ||
+    (name + '_' + (storm.basin || 'XX')).replace(/\s+/g, '');
+
   return {
-    id:        'nhc_' + (storm.id || name + '_' + Date.now()),
+    id:        'nhc_' + stableKey,
     lat:       coord.lat,
     lon:       coord.lon,
     eventType: NHC_CLASS[classification] || classification,

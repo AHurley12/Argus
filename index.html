@@ -596,6 +596,9 @@
           <textarea id="es-m-impact" placeholder="context, significance, and potential impact…" oninput="ArgusEvents.checkFormReady()"></textarea>
         </div>
       </div>
+      <div id="es-modal-error" style="display:none;margin:0 16px 8px;padding:7px 10px;background:rgba(255,40,70,0.10);border:1px solid rgba(255,40,70,0.35);border-radius:3px;color:#ff4466;font-size:9px;letter-spacing:.08em;font-family:'Courier New',monospace;line-height:1.5;">
+        ⚠ SUBMISSION BLOCKED — CONTENT POLICY VIOLATION.<br>KEEP INTEL FACTUAL AND PROFESSIONAL.
+      </div>
       <div id="es-modal-footer">
         <button class="es-modal-btn" onclick="ArgusEvents.closeModal()">CANCEL</button>
         <button class="es-modal-btn is-primary" id="es-submit-btn" onclick="ArgusEvents.submitModal()" disabled>⊕ SUBMIT INTELLIGENCE</button>
@@ -6716,6 +6719,68 @@ window.ArgusEvents = (function() {
   }
 
   // ── Submit modal ──────────────────────────────────────────────────────────────
+  // ── Content moderation — blocks profanity and slurs before submission ────────
+  // Simple pattern gate: common curse words, racial/ethnic slurs, homophobic and
+  // transphobic slurs, and targeted hate phrases. Word boundaries used where the
+  // root word has legitimate uses (e.g. "ass" → standalone only).
+  // Checked against all user-entered text fields; link/URL field is excluded.
+  var _MOD_PATTERNS = [
+    // ── Profanity ──────────────────────────────────────────────────────────────
+    /fuck/i,           // fuck, fucking, fucker, motherfucker, etc.
+    /\bshit\b/i,       // shit (word boundary avoids "bullshit" false positive)
+    /\bcunt\b/i,
+    /\bbitch\b/i,
+    /\basshole\b/i,
+    /\bass\b/i,        // standalone — word boundary avoids class/mass/pass
+    /\bbastard\b/i,
+    /\bwhore\b/i,
+    /\bslut\b/i,
+    /\bdickhead\b/i,
+    /\bcocksucker\b/i,
+    // ── Racial and ethnic slurs ────────────────────────────────────────────────
+    /nigg/i,           // nigger, nigga — prefix catches all forms
+    /\bspick?\b/i,     // spic / spick
+    /\bchink\b/i,
+    /\bgook\b/i,
+    /\bwetback\b/i,
+    /\bbeaner\b/i,
+    /\bkike\b/i,
+    /sandnigg/i,
+    /\btowelhead\b/i,
+    /\braghead\b/i,
+    /\bcracker\b/i,    // racial
+    /\bwop\b/i,
+    /\bmick\b/i,
+    /\bpaki\b/i,
+    /\bgypsy\b/i,      // slur against Romani people
+    // ── Homophobic and transphobic slurs ──────────────────────────────────────
+    /\bfaggot\b/i,
+    /\bfag\b/i,
+    /\bdyke\b/i,
+    /\btrann[yi]\b/i,  // tranny / trannie
+    // ── Ableist slurs ─────────────────────────────────────────────────────────
+    /retard/i,         // retard, retarded
+    // ── Targeted hate phrases ─────────────────────────────────────────────────
+    /kill\s+yourself/i,
+    /go\s+kill/i,
+  ];
+
+  function _moderateFields(fields) {
+    var combined = fields.join(' ');
+    for (var pi = 0; pi < _MOD_PATTERNS.length; pi++) {
+      if (_MOD_PATTERNS[pi].test(combined)) return true;
+    }
+    return false;
+  }
+
+  function _showModalError() {
+    var el = document.getElementById('es-modal-error');
+    if (!el) return;
+    el.style.display = 'block';
+    clearTimeout(el._hideTimer);
+    el._hideTimer = setTimeout(function () { el.style.display = 'none'; }, 5000);
+  }
+
   function submitModal() {
     var title    = (document.getElementById('es-m-title').value    || '').trim();
     var link     = (document.getElementById('es-m-link')    ? document.getElementById('es-m-link').value    : '').trim();
@@ -6723,6 +6788,12 @@ window.ArgusEvents = (function() {
     var tags     = (document.getElementById('es-m-tag').value      || '').trim();
     var category =  document.getElementById('es-m-type').value;
     var desc     = (document.getElementById('es-m-impact').value   || '').trim();
+
+    // Content moderation — checked before field validation so the modal stays open
+    if (_moderateFields([title, location, tags, desc])) {
+      _showModalError();
+      return;
+    }
 
     // Validate all required fields
     var valid = true;

@@ -3486,10 +3486,9 @@ select.trade-select:focus {
 .trade-loading { color: #64748b; font-size: 11px; padding: 12px 0; letter-spacing: .06em; }
 
 #panel-trade {
-  left: 36px;
+  left: calc(var(--sidebar-width) + 18px);
   width: var(--panel-left-width, 320px);
-  top: 0;
-  height: 100%;
-  z-index: 90;
+  top: 126px;
+  max-height: calc(100vh - 252px);
 }
 

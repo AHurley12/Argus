@@ -136,10 +136,10 @@ window.ArgusTradeWeb = (function () {
       var matched = 0;
       events.forEach(function (ev) {
         var text = ((ev.title || '') + ' ' + (ev.description || '') + ' ' + (ev.source_country || '')).toLowerCase();
-        if (text.indexOf(repLow) !== -1 || text.indexOf(parLow) !== -1) matched++;
+        if (text.indexOf(repLow) !== -1 && text.indexOf(parLow) !== -1) matched++;
       });
 
-      // Score: percentage of recent GDELT events mentioning either country, capped at 100
+      // Score: percentage of recent GDELT events mentioning both countries, capped at 100
       var score = Math.min(100, Math.round((matched / Math.max(total, 1)) * 100 * 3));
       return { score: score, matched: matched, total: total };
     } catch (_) { return null; }

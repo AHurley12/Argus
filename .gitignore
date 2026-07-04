@@ -53,3 +53,9 @@ supabase/.temp
 .dev.vars*
 !.dev.vars.example
 !.env.example
+
+# AI tooling runtime artifacts
+.claude/
+.openclaw/
+.cagent/
+.worktrees/

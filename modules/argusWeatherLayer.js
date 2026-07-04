@@ -29,7 +29,12 @@ window.ArgusWeatherLayer = (function () {
 
   // ── Config ───────────────────────────────────────────────────────────────────
 
-  var POLL_MS    = 60 * 1000;
+  var POLL_MS          = 60 * 1000;
+  // Safety-net: prune any marker not seen in a fresh feed for this long.
+  // Handles the case where consecutive polls fail and retired storms accumulate.
+  var GHOST_MAX_AGE_MS = 90 * 60 * 1000;  // 90 minutes
+  var GHOST_PRUNE_MS   = 5  * 60 * 1000;  // check every 5 minutes
+
   var PULSE_SIZE = 56;   // canvas logical px — actual canvas is CANVAS_QUALITY× larger
   var CYCO_SIZE  = 68;   // canvas logical px — actual canvas is CANVAS_QUALITY× larger
 
@@ -1375,7 +1380,7 @@ window.ArgusWeatherLayer = (function () {
     }
 
     marker.setVisible(_enabled);
-    _markers[alert.id] = { marker: marker, mType: mType, alert: alert };
+    _markers[alert.id] = { marker: marker, mType: mType, alert: alert, _seenAt: Date.now() };
 
     // Register sprites in window.weatherMarkers so the global click handler
     // and hover raycast can reach them. Replaces the internal hover-only path.
@@ -1419,9 +1424,10 @@ window.ArgusWeatherLayer = (function () {
   // ── Poll & diff render ────────────────────────────────────────────────────────
 
   var NOAA_FN    = '/.netlify/functions/fetch-noaa';
-  var _pollTimer = null;
-  var _audit     = { polls: 0, errors: 0 };
-  var _ctrl      = null;
+  var _pollTimer  = null;
+  var _pruneTimer = null;
+  var _audit      = { polls: 0, errors: 0 };
+  var _ctrl       = null;
 
   function _enrich(al) {
     var mType = classify(al.eventType);
@@ -1465,11 +1471,29 @@ window.ArgusWeatherLayer = (function () {
       if (!incomingIds[oldId]) _removeMarker(oldId);
     }
 
-    // Add new markers
+    // Add new markers; refresh _seenAt for ones that are still present
     for (var newId in incomingIds) {
-      if (!_markers[newId]) {
+      if (_markers[newId]) {
+        _markers[newId]._seenAt = now;  // storm still active — reset ghost clock
+      } else {
         _alertCache[newId] = incomingIds[newId];
         _addMarker(incomingIds[newId]);
+      }
+    }
+  }
+
+  // ── Ghost-storm safety net ─────────────────────────────────────────────────────
+  // Prunes any marker whose _seenAt is older than GHOST_MAX_AGE_MS.
+  // Runs every GHOST_PRUNE_MS regardless of poll success/failure.
+  // Provides a backstop when consecutive polls fail and _processAlerts never runs.
+  // Does NOT fire during normal operation (active storms are refreshed each poll).
+  function _pruneGhosts() {
+    var cutoff = Date.now() - GHOST_MAX_AGE_MS;
+    for (var id in _markers) {
+      if ((_markers[id]._seenAt || 0) < cutoff) {
+        console.warn('[ArgusWeatherLayer] ghost-prune: removing stale marker id=' + id +
+          ' age=' + Math.round((Date.now() - (_markers[id]._seenAt || 0)) / 60000) + 'min');
+        _removeMarker(id);
       }
     }
   }
@@ -1610,11 +1634,13 @@ window.ArgusWeatherLayer = (function () {
     _attachMouseListener();
     // Deferred first poll: argusNoaa.js fires at 45s, ours at 55s to stagger load
     setTimeout(_poll, 55 * 1000);
-    _pollTimer = setInterval(_poll, POLL_MS);
+    _pollTimer  = setInterval(_poll, POLL_MS);
+    _pruneTimer = setInterval(_pruneGhosts, GHOST_PRUNE_MS);
   }
 
   function stop() {
-    if (_pollTimer) { clearInterval(_pollTimer); _pollTimer = null; }
+    if (_pollTimer)  { clearInterval(_pollTimer);  _pollTimer  = null; }
+    if (_pruneTimer) { clearInterval(_pruneTimer); _pruneTimer = null; }
     if (_ctrl) { try { _ctrl.abort(); } catch (e) { /* ignore */ } _ctrl = null; }
     for (var id in _markers) _removeMarker(id);
     _alertCache = {};

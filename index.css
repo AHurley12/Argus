@@ -3293,3 +3293,202 @@
 
   } /* end @media (max-width: 768px) */
 
+/* ═══════════════════════════════════════════════════════════════════════════
+   BILATERAL TRADE PANEL — ArgusTradeWeb
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.trade-selectors {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 12px 0 8px;
+}
+
+.trade-selector-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+  min-width: 130px;
+}
+
+.trade-selector-group label {
+  font-size: 10px;
+  color: #64748b;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+
+.trade-selector-arrow {
+  font-size: 16px;
+  color: #475569;
+  padding-bottom: 6px;
+}
+
+.trade-selector-year {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 76px;
+}
+
+.trade-selector-year label {
+  font-size: 10px;
+  color: #64748b;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+
+select.trade-select {
+  background: #0f172a;
+  color: #e2e8f0;
+  border: 1px solid #334155;
+  padding: 5px 8px;
+  font-size: 11px;
+  width: 100%;
+  cursor: pointer;
+  appearance: none;
+}
+
+select.trade-select:focus {
+  outline: none;
+  border-color: #475569;
+}
+
+#trade-compare-btn {
+  display: block;
+  width: 100%;
+  background: #1e293b;
+  color: #e2e8f0;
+  border: 1px solid #334155;
+  padding: 8px 16px;
+  font-size: 11px;
+  letter-spacing: .08em;
+  cursor: pointer;
+  text-transform: uppercase;
+  margin-bottom: 4px;
+}
+
+#trade-compare-btn:hover   { background: #334155; }
+#trade-compare-btn:disabled { opacity: .4; cursor: not-allowed; }
+
+.trade-summary-cards {
+  display: flex;
+  gap: 8px;
+  margin: 12px 0;
+  flex-wrap: wrap;
+}
+
+.trade-card {
+  flex: 1;
+  min-width: 100px;
+  background: #0f172a;
+  border: 1px solid #1e293b;
+  padding: 10px 12px;
+}
+
+.trade-card-label {
+  font-size: 9px;
+  color: #64748b;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+  margin-bottom: 4px;
+}
+
+.trade-card-value {
+  font-size: 17px;
+  font-weight: 700;
+  color: #e2e8f0;
+  line-height: 1.1;
+}
+
+.trade-card--exports .trade-card-value { color: #22c55e; }
+.trade-card--imports .trade-card-value { color: #f59e0b; }
+.trade-card--surplus .trade-card-value { color: #22c55e; }
+.trade-card--deficit .trade-card-value { color: #ef4444; }
+
+.trade-chart-section { margin: 12px 0; }
+
+.trade-chart-title {
+  font-size: 9px;
+  color: #64748b;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  margin-bottom: 6px;
+}
+
+.trade-chart-container {
+  background: #0f172a;
+  border: 1px solid #1e293b;
+  padding: 12px;
+}
+
+.trade-signal {
+  margin: 12px 0;
+  padding: 10px 12px;
+  background: #0f172a;
+  border: 1px solid #1e293b;
+}
+
+.trade-signal-label {
+  font-size: 9px;
+  color: #64748b;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  margin-bottom: 6px;
+}
+
+.trade-signal-bar {
+  height: 4px;
+  background: #1e293b;
+  border-radius: 2px;
+  margin: 4px 0;
+}
+
+.trade-signal-fill {
+  height: 100%;
+  background: #f59e0b;
+  border-radius: 2px;
+  transition: width .4s ease;
+}
+
+.trade-signal-fill--high { background: #ef4444; }
+.trade-signal-fill--low  { background: #22c55e; }
+
+.trade-signal-value {
+  font-size: 13px;
+  color: #e2e8f0;
+  font-weight: 600;
+}
+
+.trade-signal-note {
+  font-size: 9px;
+  color: #475569;
+  margin-top: 2px;
+}
+
+.trade-source-note {
+  font-size: 9px;
+  color: #334155;
+  margin-top: 16px;
+  text-align: right;
+}
+
+.trade-no-data {
+  color: #475569;
+  font-size: 11px;
+  padding: 20px 0;
+  text-align: center;
+}
+
+.trade-error  { color: #ef4444; font-size: 11px; padding: 12px 0; }
+.trade-loading { color: #64748b; font-size: 11px; padding: 12px 0; letter-spacing: .06em; }
+
+#panel-trade {
+  left: calc(var(--sidebar-width) + 18px);
+  width: var(--panel-left-width, 320px);
+  top: 126px;
+  max-height: calc(100vh - 252px);
+}
+

@@ -44,7 +44,7 @@ var AIS_DR_INTERVAL_MS  = 30000;     // 30 s  — re-extrapolate stale vessels e
 // ── State ──────────────────────────────────────────────────────────────────────
 var aisGroup    = null;      // THREE.Group containing all AIS sprites
 var aisMarkers  = new Map(); // mmsi → { sprite, updatedAt }
-var aisOn       = true;      // default ON (button initialised is-active)
+var aisOn       = false;     // default OFF — user enables manually to avoid rate-limit pressure on load
 var wsAIS       = null;     // live WebSocket to wss://stream.aisstream.io
 var reconnTimer = null;     // reconnect timeout handle
 var _aisMsgCount = 0;       // diagnostic counter — how many WS messages received

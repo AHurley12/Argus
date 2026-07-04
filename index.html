@@ -183,7 +183,7 @@
               title="Toggle live aircraft (OpenSky Network · key A)">
         <span class="sb-icon">✈</span><span>AIR</span>
       </button>
-      <button id="btn-track-ais" class="sb-btn track-btn track-ais is-active"
+      <button id="btn-track-ais" class="sb-btn track-btn track-ais"
               onclick="window.ArgusAIS && ArgusAIS.toggle()"
               title="Toggle AISstream live vessels">
         <span class="sb-icon">⚓</span><span>AIS</span>
@@ -230,6 +230,11 @@
               onclick="ArgusEvents.openModal()"
               title="Add Intelligence — submit report">
         <span class="sb-icon">⊕</span><span>ADD</span>
+      </button>
+      <button class="sb-btn" id="btn-sb-trade"
+              onclick="window.ArgusTradeWeb && ArgusTradeWeb.init(); window.ArgusSidebarPanels && ArgusSidebarPanels.toggle('trade')"
+              title="Bilateral Trade Analysis">
+        <span class="sb-icon">⇄</span><span>TRD</span>
       </button>
     </div>
 
@@ -507,6 +512,41 @@
     </div>
   </aside>
 
+  <!-- ── Bilateral Trade Panel ────────────────────────────────────────────────── -->
+  <aside id="panel-trade" class="panel panel--scrollable" aria-label="Bilateral Trade Analysis" style="display:none">
+    <div class="dp-header" onclick="window.ArgusSidebarPanels && ArgusSidebarPanels.toggle('trade')">
+      <span class="dp-title">BILATERAL TRADE</span>
+      <button class="panel-min-btn" id="min-btn-trade" aria-label="Close trade panel">—</button>
+    </div>
+    <div class="dp-body">
+      <div class="trade-selectors">
+        <div class="trade-selector-group">
+          <label>REPORTER</label>
+          <select id="trade-reporter-select" class="trade-select"><option value="">Select country…</option></select>
+        </div>
+        <div class="trade-selector-arrow">⇄</div>
+        <div class="trade-selector-group">
+          <label>PARTNER</label>
+          <select id="trade-partner-select" class="trade-select"><option value="">Select country…</option></select>
+        </div>
+        <div class="trade-selector-year">
+          <label>YEAR</label>
+          <select id="trade-year-select" class="trade-select">
+            <option value="2023">2023</option>
+            <option value="2022">2022</option>
+            <option value="2021">2021</option>
+            <option value="2020">2020</option>
+            <option value="2019">2019</option>
+          </select>
+        </div>
+      </div>
+      <button id="trade-compare-btn" onclick="window.ArgusTradeWeb && ArgusTradeWeb._compare()">COMPARE</button>
+      <div id="trade-results">
+        <div class="trade-no-data">Select two countries to compare bilateral trade flows.</div>
+      </div>
+    </div>
+  </aside>
+
   <!-- ── Data Sources Info (startup flash) ───────────────────────────────────── -->
   <div id="panel-data-sources" class="panel" aria-live="polite">
     <div class="data-sources__header">DATA SOURCES</div>
@@ -595,6 +635,9 @@
           <label>DESCRIPTION<span class="req-star">*</span></label>
           <textarea id="es-m-impact" placeholder="context, significance, and potential impact…" oninput="ArgusEvents.checkFormReady()"></textarea>
         </div>
+      </div>
+      <div id="es-modal-error" style="display:none;margin:0 16px 8px;padding:7px 10px;background:rgba(255,40,70,0.10);border:1px solid rgba(255,40,70,0.35);border-radius:3px;color:#ff4466;font-size:9px;letter-spacing:.08em;font-family:'Courier New',monospace;line-height:1.5;">
+        ⚠ SUBMISSION BLOCKED — CONTENT POLICY VIOLATION.<br>KEEP INTEL FACTUAL AND PROFESSIONAL.
       </div>
       <div id="es-modal-footer">
         <button class="es-modal-btn" onclick="ArgusEvents.closeModal()">CANCEL</button>
@@ -849,7 +892,7 @@ window.ArgusLayerState = {
   capitals:    false,
   vessels:     false,
   aircraft:    false,
-  aisVessels:  true,   // mirrors aisOn default (true) in ArgusAIS
+  aisVessels:  false,  // default OFF — mirrors aisOn in ArgusAIS
   weather:     false,  // animated NOAA pulse + cyclone sprite layer
   energy:      false,  // GEM energy infrastructure layer — independent of events
 };
@@ -1499,6 +1542,8 @@ document.addEventListener('DOMContentLoaded', function() {
     }).length;
     document.getElementById('ev-count').textContent   = nodes.length;
     document.getElementById('crit-count').textContent = critical;
+    var _fcel = document.getElementById('ev-feed-count');
+    if (_fcel) _fcel.textContent = nodes.length;
   };
   window.updateNodeCounts();
 
@@ -3938,9 +3983,6 @@ function renderEvents(events, isLive) {
     evList.appendChild(div);
   });
   window.updateNodeCounts();
-  document.getElementById('ev-feed-count').textContent = window.eventMarkers.filter(function(m) {
-    return !m.userData.isAircraft && !m.userData.isShip && !_isFloodMarker(m) && !_isInfraMarker(m) && !_isAcledMarker(m) && !_isLowPriorityEonet(m);
-  }).length;
 }
 // Wrap renderEvents to cache the current event list for cross-module access
 window.renderEvents = function(events, isLive) {
@@ -5616,13 +5658,105 @@ window.ArgusUI = (function() {
     badge.style.borderColor = col + '44';
     badge.style.background  = RB[_evSev] || 'transparent';
 
-    bodyEl.innerHTML =
-      '<div class="detail__row"><span class="detail__label">TYPE</span><span class="detail__value">' + d.type + '</span></div>' +
-      '<div class="detail__row"><span class="detail__label">SEVERITY</span><span class="detail__value" style="color:' + col + '">' + (_evSev || d.severity) + '</span></div>' +
-      '<div class="detail__status-box" style="background:' + (RB[_evSev] || '') + ';border-color:' + col + '44">' +
-        '<div class="detail__label" style="color:' + col + ';margin-bottom:5px">IMPACT ASSESSMENT</div>' +
-        '<div style="font-size:11px;line-height:1.7">' + (d.impact || 'No additional data') + '</div>' +
-      '</div>';
+    // ── Impact helpers — keyword extraction, no inference ──────────────────
+    var _evText = ((d.title || '') + ' ' + (d.impact || '') + ' ' + (d.type || '') + ' ' + (d.region || '')).toLowerCase();
+
+    function _evDetectThemes(t) {
+      var out = [];
+      if (/conflict|war|attack|strike|military|troops|missile|bomb|armed|insurgent|rebel|casualt|airstrike|shelling|coup/.test(t)) out.push('Conflict');
+      if (/infrastructur|pipeline|port|bridge|dam|road|power.?plant|grid|facility|terminal/.test(t)) out.push('Infrastructure');
+      if (/supply.?chain|logistics|shipment|cargo|transport|shipping/.test(t)) out.push('Supply Chain');
+      if (/trade|tariff|sanction|export|import|wto|customs|embargo/.test(t)) out.push('Trade');
+      if (/weather|storm|typhoon|hurricane|cyclone|drought|snow|rain|wind|flood/.test(t)) out.push('Weather');
+      if (/earthquake|tsunami|volcano|wildfire|fire|disaster/.test(t)) out.push('Disaster');
+      if (/election|government|minister|parliament|policy|legislation|president|congress|coup/.test(t)) out.push('Politics');
+      if (/market|stock|currency|gdp|inflation|bank|bond|economic|finance|debt|recession/.test(t)) out.push('Finance');
+      if (/oil|gas|energy|fuel|coal|nuclear|electricity|renewable|opec|lng/.test(t)) out.push('Energy');
+      if (/cyber|hack|malware|ransomware|breach|network|intrusion/.test(t)) out.push('Cyber');
+      if (/ship|vessel|maritime|strait|sea.?lane|navigation|ais|tanker/.test(t)) out.push('Transportation');
+      if (/refugee|aid|humanitarian|relief|displacement|famine|food|water|shelter/.test(t)) out.push('Humanitarian');
+      return out;
+    }
+
+    function _evDetectSectors(themes) {
+      var out = [], seen = {};
+      var _push = function(s) { if (!seen[s]) { seen[s] = true; out.push(s); } };
+      themes.forEach(function(th) {
+        if (th === 'Energy') _push('Energy');
+        if (th === 'Transportation' || th === 'Supply Chain') _push('Shipping');
+        if (th === 'Humanitarian' || th === 'Disaster' || th === 'Weather') _push('Agriculture');
+        if (th === 'Finance' || th === 'Trade') _push('Financial Markets');
+        if (th === 'Politics' || th === 'Conflict') _push('Government');
+        if (th === 'Conflict') _push('Defense');
+        if (th === 'Infrastructure') _push('Manufacturing');
+        if (th === 'Transportation') _push('Transportation');
+        if (th === 'Cyber') _push('Cyber');
+      });
+      return out;
+    }
+
+    function _evEstimateReach(region, t) {
+      var combined = ((region || '') + ' ' + t).toLowerCase();
+      if (/global|worldwide|international|multi.nation|united.nations|world/.test(combined)) return 'International';
+      if (/region|middle.east|europe|africa|asia|latin.america|central.asia|southeast.asia|pacific|gulf/.test(combined)) return 'Regional';
+      if (/national|nationwide|government.of|capital/.test(combined)) return 'National';
+      if (/local|city|province|district|town|village|county|municipality/.test(combined)) return 'Local';
+      if (region) return 'Regional';
+      return 'Unknown';
+    }
+
+    var _evThemes  = _evDetectThemes(_evText);
+    var _evSectors = _evDetectSectors(_evThemes);
+    var _evReach   = _evEstimateReach(d.region, _evText);
+
+    var _row = function(label, val, valCol) {
+      return '<div class="detail__row"><span class="detail__label">' + label + '</span>' +
+        '<span class="detail__value"' + (valCol ? ' style="color:' + valCol + '"' : '') + '>' + val + '</span></div>';
+    };
+    var _tagList = function(items) {
+      if (!items || !items.length) return '<span style="color:#2a5070;font-size:10px">Unknown</span>';
+      return items.map(function(s) {
+        return '<span style="display:inline-block;font-size:8px;letter-spacing:1px;padding:2px 6px;border:1px solid #0f2744;color:#7aafcc;background:rgba(0,153,255,0.06);margin:2px 2px 2px 0">' + s + '</span>';
+      }).join('');
+    };
+
+    var _evHtml = '';
+
+    // ── Summary ───────────────────────────────────────────────────────────
+    _evHtml += '<div class="detail__section-header">SUMMARY</div>';
+    if (d.impact) {
+      _evHtml += '<div style="font-size:11px;line-height:1.7;color:#c5d7e8;padding:2px 0 10px">' + d.impact + '</div>';
+    } else {
+      _evHtml += '<div style="font-size:10px;color:#2a5070;font-style:italic;padding:2px 0 10px">Summary unavailable.</div>';
+    }
+
+    // ── Source ────────────────────────────────────────────────────────────
+    _evHtml += '<div class="detail__section-header">SOURCE</div>';
+    var _srcName = (d.source || '').replace(/^★\s*/, '') || 'Unknown';
+    _evHtml += _row('PUBLISHER', _srcName, '');
+    if (d.link) {
+      _evHtml += '<div class="detail__row"><span class="detail__label">ARTICLE</span>' +
+        '<a href="' + d.link + '" target="_blank" rel="noopener" ' +
+        'style="font-size:11px;font-weight:600;color:#0099ff;text-decoration:underline;word-break:break-all">' +
+        (d.link.length > 55 ? d.link.slice(0, 55) + '…' : d.link) + '</a></div>';
+    } else {
+      _evHtml += _row('ARTICLE', 'Source unavailable.', '#2a5070');
+    }
+    _evHtml += _row('DATE', d.pubDate || 'Unknown', '');
+
+    // ── Event Impact ──────────────────────────────────────────────────────
+    _evHtml += '<div class="detail__section-header">EVENT IMPACT</div>';
+    _evHtml += _row('ESTIMATED REACH', _evReach, _evReach === 'Unknown' ? '#2a5070' : '#c5d7e8');
+    _evHtml += _row('ESTIMATED SEVERITY', _evSev || 'Unknown', col);
+    _evHtml += '<div class="detail__row" style="flex-direction:column;align-items:flex-start;gap:6px">' +
+      '<span class="detail__label">PRIMARY THEMES</span>' +
+      '<div>' + _tagList(_evThemes) + '</div></div>';
+    _evHtml += '<div class="detail__row" style="flex-direction:column;align-items:flex-start;gap:6px">' +
+      '<span class="detail__label">AFFECTED SECTORS</span>' +
+      '<div>' + _tagList(_evSectors) + '</div></div>';
+    _evHtml += _row('GEOGRAPHIC SCOPE', d.region || 'Unknown', d.region ? '#00ccff' : '#2a5070');
+
+    bodyEl.innerHTML = _evHtml;
 
     openDetail(col);
     ArgusAnim.cipherDecode(tagEl,  'EVENT ALERT',   320);
@@ -6716,6 +6850,68 @@ window.ArgusEvents = (function() {
   }
 
   // ── Submit modal ──────────────────────────────────────────────────────────────
+  // ── Content moderation — blocks profanity and slurs before submission ────────
+  // Simple pattern gate: common curse words, racial/ethnic slurs, homophobic and
+  // transphobic slurs, and targeted hate phrases. Word boundaries used where the
+  // root word has legitimate uses (e.g. "ass" → standalone only).
+  // Checked against all user-entered text fields; link/URL field is excluded.
+  var _MOD_PATTERNS = [
+    // ── Profanity ──────────────────────────────────────────────────────────────
+    /fuck/i,           // fuck, fucking, fucker, motherfucker, etc.
+    /\bshit\b/i,       // shit (word boundary avoids "bullshit" false positive)
+    /\bcunt\b/i,
+    /\bbitch\b/i,
+    /\basshole\b/i,
+    /\bass\b/i,        // standalone — word boundary avoids class/mass/pass
+    /\bbastard\b/i,
+    /\bwhore\b/i,
+    /\bslut\b/i,
+    /\bdickhead\b/i,
+    /\bcocksucker\b/i,
+    // ── Racial and ethnic slurs ────────────────────────────────────────────────
+    /nigg/i,           // nigger, nigga — prefix catches all forms
+    /\bspick?\b/i,     // spic / spick
+    /\bchink\b/i,
+    /\bgook\b/i,
+    /\bwetback\b/i,
+    /\bbeaner\b/i,
+    /\bkike\b/i,
+    /sandnigg/i,
+    /\btowelhead\b/i,
+    /\braghead\b/i,
+    /\bcracker\b/i,    // racial
+    /\bwop\b/i,
+    /\bmick\b/i,
+    /\bpaki\b/i,
+    /\bgypsy\b/i,      // slur against Romani people
+    // ── Homophobic and transphobic slurs ──────────────────────────────────────
+    /\bfaggot\b/i,
+    /\bfag\b/i,
+    /\bdyke\b/i,
+    /\btrann[yi]\b/i,  // tranny / trannie
+    // ── Ableist slurs ─────────────────────────────────────────────────────────
+    /retard/i,         // retard, retarded
+    // ── Targeted hate phrases ─────────────────────────────────────────────────
+    /kill\s+yourself/i,
+    /go\s+kill/i,
+  ];
+
+  function _moderateFields(fields) {
+    var combined = fields.join(' ');
+    for (var pi = 0; pi < _MOD_PATTERNS.length; pi++) {
+      if (_MOD_PATTERNS[pi].test(combined)) return true;
+    }
+    return false;
+  }
+
+  function _showModalError() {
+    var el = document.getElementById('es-modal-error');
+    if (!el) return;
+    el.style.display = 'block';
+    clearTimeout(el._hideTimer);
+    el._hideTimer = setTimeout(function () { el.style.display = 'none'; }, 5000);
+  }
+
   function submitModal() {
     var title    = (document.getElementById('es-m-title').value    || '').trim();
     var link     = (document.getElementById('es-m-link')    ? document.getElementById('es-m-link').value    : '').trim();
@@ -6723,6 +6919,12 @@ window.ArgusEvents = (function() {
     var tags     = (document.getElementById('es-m-tag').value      || '').trim();
     var category =  document.getElementById('es-m-type').value;
     var desc     = (document.getElementById('es-m-impact').value   || '').trim();
+
+    // Content moderation — checked before field validation so the modal stays open
+    if (_moderateFields([title, location, tags, desc])) {
+      _showModalError();
+      return;
+    }
 
     // Validate all required fields
     var valid = true;
@@ -8261,6 +8463,7 @@ window.ArgusAdmin = (function() {
             severity: sev,
             type:     (ev.data && ev.data.type)  || (ev.category || 'POLICY').toUpperCase(),
             impact:   (ev.data && ev.data.impact) || '',
+            url:      (ev.data && (ev.data.url || ev.data.link)) || ev.source_url || '',
           },
           created_by: window.ArgusSession ? window.ArgusSession.email : 'admin',
         })
@@ -8877,6 +9080,10 @@ window._plotPermanentMarkers = function(classified) {
       title:         ev.title,
       impact:        ev.impact   || '',
       source:        ev.source   || '★ ADMIN',
+      link:          ev.link     || '',
+      region:        ev.region   || '',
+      pubDate:       ev.pubDate  || '',
+      isPermanent:   true,
     };
     AG.eventMarkerGroup.add(mesh);
     window.eventMarkers = window.eventMarkers || [];
@@ -11622,6 +11829,12 @@ if (document.readyState === 'loading') {
 <!-- ArgusAnalytics — multi-source intelligence analytics panel (GEM / NOAA / ACLED) -->
 <script src="/modules/argusAnalytics.js?v=analytics-v3"></script>
 
+<!-- Chart.js — used by ArgusTradeWeb for commodity bar charts -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+
+<!-- ArgusTradeWeb — bilateral trade analysis panel (UN Comtrade) -->
+<script src="/modules/argusTradeWeb.js?v=trade-v1"></script>
+
 <!-- ArgusSearch — navigation registry + UI Phase 1+2 (countries, chokepoints, ports, LNG) -->
 <script src="/core/search/argusSearchRegistry.js?v=1"></script>
 <script src="/core/search/argusSearchUI.js?v=2"></script>
@@ -11684,7 +11897,8 @@ window.ArgusSidebarPanels = (function () {
 
   var _PANELS = {
     events: { panelId: 'panel-events', btnId: 'btn-sb-events' },
-    market: { panelId: 'panel-market', btnId: 'btn-sb-market' }
+    market: { panelId: 'panel-market', btnId: 'btn-sb-market' },
+    trade:  { panelId: 'panel-trade',  btnId: 'btn-sb-trade'  }
   };
 
   function toggle(name) {

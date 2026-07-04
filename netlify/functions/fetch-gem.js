@@ -33,7 +33,7 @@ const GEM_DATASET_URLS = (process.env.GEM_DATASET_URL || '')
   .map(s => s.trim())
   .filter(Boolean);
 
-const CACHE_KEY    = 'gem_infrastructure_v5';   // bumped — techToType classification fix
+const CACHE_KEY    = 'gem_infrastructure_v6';   // bumped — fuel priority reorder
 const CACHE_TTL_MS = GEM_REFRESH_HOURS * 60 * 60 * 1000;
 
 // Cap per-source to avoid hitting Supabase payload limits.
@@ -54,38 +54,40 @@ const CORS_HEADERS = {
 // Converts raw fuel/primary_fuel field values to canonical energy type strings.
 // These strings are what argusGem.js _canonicalType() matches against.
 //
-// Order matters — specific rules before general ones:
-//   lng    before gas  (liquefied natural gas descriptions may mention "gas")
-//   coal subtypes before "coal" (bituminous/anthracite don't contain "coal")
-//   geothermal before hydro (disjoint, but explicit ordering is defensive)
-//   bioenergy before biomass/waste (catch GEM-specific "bioenergy" label)
+// Priority order (first match wins):
+//   Rarest / highest interest first — so hybrid plants (e.g. "NG/FO") show the
+//   more informative type. Gas and LNG are the most common and lowest priority.
 //
-// GIPT-specific fuel values observed:
-//   bituminous, sub-bituminous, anthracite → coal
-//   natural gas                            → gas
-//   uranium                                → nuclear
-//   geothermal                             → geothermal
-//   bioenergy, biomass, waste, biogas      → bioenergy
-//   oil, petroleum, diesel, fuel oil       → oil
+//   nuclear > geothermal > bioenergy > hydro > wind > solar > coal > oil > lng > gas
+//
+// Notes:
+//   - LNG is placed AFTER oil but BEFORE gas, to prevent "liquefied natural gas"
+//     matching the gas check while still letting "NG/FO" resolve to oil.
+//   - Coal sub-types (bituminous, anthracite) don't contain the word "coal" in GIPT.
+//   - Oil handles WRI shortcodes: /fo (fuel oil), hfo, lfo, biodiesel.
+//   - Gas handles WRI "NG" abbreviation explicitly.
 function fuelToType(fuel) {
   if (!fuel) return null;
   const f = fuel.toLowerCase().trim();
-  // LNG must precede gas
-  if (f.includes('lng') || f.includes('liquefied'))                              return 'lng';
-  // GIPT coal sub-types don't contain the word "coal"
-  if (f.includes('bituminous') || f.includes('anthracite') || f.includes('sub-bitu')) return 'coal';
-  // New canonical types
+  // Rarest / most specific types first
+  if (f.includes('nuclear') || f.includes('uranium'))                            return 'nuclear';
   if (f.includes('geothermal'))                                                   return 'geothermal';
   if (f.includes('bioenergy') || f.includes('biomass') || f.includes('biogas') ||
       f.includes('landfill') || f.includes('waste'))                             return 'bioenergy';
-  // General fuel checks
-  if (f.includes('gas') || f.includes('natural gas'))                            return 'gas';
-  if (f.includes('coal') || f.includes('lignite'))                               return 'coal';
-  if (f.includes('nuclear') || f.includes('uranium'))                            return 'nuclear';
   if (f.includes('hydro') || f.includes('water'))                                return 'hydro';
   if (f.includes('wind'))                                                         return 'wind';
   if (f.includes('solar') || f.includes('photovoltaic') || f.includes(' pv'))   return 'solar';
-  if (f.includes('oil') || f.includes('petroleum') || f.includes('diesel'))     return 'oil';
+  // Coal beats oil/gas — GIPT subtypes first (bituminous/anthracite lack "coal" substring)
+  if (f.includes('bituminous') || f.includes('anthracite') || f.includes('sub-bitu') ||
+      f.includes('coal') || f.includes('lignite'))                               return 'coal';
+  // Oil beats lng/gas — handles compound codes like NG/FO (fuel oil), NG/HFO, etc.
+  if (f.includes('oil') || f.includes('petroleum') || f.includes('diesel') ||
+      f.includes('/fo') || f === 'fo' || f.includes('hfo') || f.includes('lfo') ||
+      f.includes('biodiesel'))                                                   return 'oil';
+  // LNG before gas — prevents "liquefied natural gas" from matching gas check
+  if (f.includes('lng') || f.includes('liquefied'))                              return 'lng';
+  // Gas — lowest priority. Handles "natural gas", "NG" abbreviation, compound NG/X codes.
+  if (f.includes('gas') || f === 'ng' || f.startsWith('ng/') || f.startsWith('ng ')) return 'gas';
   return null;
 }
 

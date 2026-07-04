@@ -32,8 +32,8 @@ window.ArgusNOAA = (function () {
 
   var NOAA_FN   = '/.netlify/functions/fetch-noaa';
   var POLL_MS   = 15 * 60 * 1000;  // 15 minutes
-  var CACHE_KEY = 'argus_noaa_v1';
-  var CACHE_TS  = 'argus_noaa_ts_v1';
+  var CACHE_KEY = 'argus_noaa_v2';   // bumped: stable NHC IDs (name+basin fallback)
+  var CACHE_TS  = 'argus_noaa_ts_v2';
   var CACHE_TTL = 15 * 60 * 1000;
 
   // ── Isolated weather cache ───────────────────────────────────────────────────

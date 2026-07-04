@@ -27,8 +27,8 @@ window.ArgusGEM = (function () {
   'use strict';
 
   var GEM_FN     = '/.netlify/functions/fetch-gem';
-  var CACHE_KEY  = 'argus_gem_v5';
-  var CACHE_TS   = 'argus_gem_ts_v5';
+  var CACHE_KEY  = 'argus_gem_v6';
+  var CACHE_TS   = 'argus_gem_ts_v6';
   var CACHE_TTL  = 24 * 60 * 60 * 1000;
   var REFRESH_MS = 24 * 60 * 60 * 1000;
 
@@ -379,7 +379,7 @@ window.ArgusGEM = (function () {
       }
     } catch (e) {}
 
-    setTimeout(_fetch, 60 * 1000);
+    setTimeout(_fetch, 4 * 1000);
 
     _refreshTimer = setInterval(function () {
       if (Date.now() - parseInt(localStorage.getItem(CACHE_TS) || '0') > CACHE_TTL) _fetch();

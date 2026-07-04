@@ -273,6 +273,7 @@ window.ArgusGDACS = (function () {
         title:        ev.title || (ev.category + ' event'),
         impact:       _buildImpact(ev),
         source:       'GDACS',
+        link:         ev.sourceUrl || 'https://www.gdacs.org/',
         severity:     ev.severity,
         alertScore:   ev.alertScore,
         countryCode:  null,

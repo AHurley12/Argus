@@ -3976,7 +3976,7 @@ function renderEvents(events, isLive) {
         (ev.source ? '<span style="display:block;margin-top:4px;font-size:8px;letter-spacing:1px;color:#4a6080;text-transform:uppercase">' + ev.source +
           (function() { var t = getSourceTierLabel(ev.source); return t ? ' <span style="font-size:7px;letter-spacing:1px;padding:1px 4px;border:1px solid ' + t.color + '44;color:' + t.color + ';margin-left:4px;">' + t.label + '</span>' : ''; })() +
         '</span>' : '') +
-        (ev.link   ? '<a href="' + ev.link + '" target="_blank" rel="noopener" onclick="event.stopPropagation()" ' +
+        ((ev.link || ev.url) ? '<a href="' + (ev.link || ev.url) + '" target="_blank" rel="noopener" onclick="event.stopPropagation()" ' +
           'style="display:block;margin-top:5px;color:#0099ff;font-size:8px;letter-spacing:1px;text-decoration:underline;word-break:break-all">↗ SOURCE</a>' : '') +
       '</div>';
     div.addEventListener('click', function() { div.classList.toggle('is-open'); });
@@ -5734,11 +5734,12 @@ window.ArgusUI = (function() {
     _evHtml += '<div class="detail__section-header">SOURCE</div>';
     var _srcName = (d.source || '').replace(/^★\s*/, '') || 'Unknown';
     _evHtml += _row('PUBLISHER', _srcName, '');
-    if (d.link) {
+    var _evLink = d.link || d.url || '';
+    if (_evLink) {
       _evHtml += '<div class="detail__row"><span class="detail__label">ARTICLE</span>' +
-        '<a href="' + d.link + '" target="_blank" rel="noopener" ' +
+        '<a href="' + _evLink + '" target="_blank" rel="noopener" ' +
         'style="font-size:11px;font-weight:600;color:#0099ff;text-decoration:underline;word-break:break-all">' +
-        (d.link.length > 55 ? d.link.slice(0, 55) + '…' : d.link) + '</a></div>';
+        (_evLink.length > 55 ? _evLink.slice(0, 55) + '…' : _evLink) + '</a></div>';
     } else {
       _evHtml += _row('ARTICLE', 'Source unavailable.', '#2a5070');
     }
@@ -8899,8 +8900,9 @@ window.ArgusAdmin = (function() {
       _analystPin: true, _reqId: reqId,
       type: type, severity: sev,
       title: req.title || req.location,
-      impact: (req.notes || '') + (req.source_url ? ' · ' + req.source_url : ''),
+      impact: req.notes || '',
       source: '★ ANALYST · ' + (req.submitted_by || ''),
+      link:   req.source_url || '',
     };
     AG.eventMarkerGroup.add(mesh);
     window.eventMarkers.push(mesh);

@@ -35,6 +35,132 @@
       --z-tooltip:          100;
     }
 
+    /* ── Light theme overrides ───────────────────────────────────────────────── */
+    /* Applied via data-theme="light" on <html> by ArgusSettings (set before     */
+    /* first paint to prevent FOUC). Dark is default — only overrides needed.    */
+    [data-theme="light"] {
+      --color-bg:           #e8f0f8;
+      --color-bg-panel:     rgba(240, 248, 255, 0.97);
+      --color-bg-panel-alt: rgba(220, 235, 250, 0.97);
+      --color-border:       rgba(140, 185, 220, 0.7);
+      --color-border-solid: #88b4cc;
+      --color-text:         #0a2840;
+      --color-text-dim:     #2a5888;
+      --color-text-faint:   #6a98b8;
+      --color-accent:       #0066cc;
+      --color-green:        #00884a;
+      --color-yellow:       #bb8800;
+      --color-orange:       #cc5500;
+      --color-red:          #cc0033;
+      --color-white:        #020a15;
+    }
+
+    /* ── Settings toggle controls (inside account dropdown settings pane) ──── */
+    .stg-row {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+    .stg-label {
+      font-size: 8px;
+      letter-spacing: 2px;
+      color: #2a5070;
+      font-weight: 600;
+      font-family: var(--font-mono);
+    }
+    .stg-toggle {
+      display: flex;
+      align-items: stretch;
+    }
+    .stg-btn {
+      flex: 1;
+      height: 24px;
+      padding: 0 4px;
+      background: none;
+      border: 1px solid #0d2035;
+      border-right-width: 0;
+      color: #3a6a8a;
+      font-family: var(--font-mono);
+      font-size: 9px;
+      letter-spacing: 1.5px;
+      cursor: pointer;
+      transition: background 0.12s, border-color 0.12s, color 0.12s;
+      white-space: nowrap;
+    }
+    .stg-btn:last-child { border-right-width: 1px; }
+    .stg-btn:first-child { border-radius: 2px 0 0 2px; }
+    .stg-btn:last-child  { border-radius: 0 2px 2px 0; }
+    .stg-btn:only-child  { border-radius: 2px; border-right-width: 1px; }
+    .stg-btn:hover:not(.is-active) { border-color: #1a3a5a; color: #6a9fcc; background: rgba(0,100,180,0.06); }
+    .stg-btn.is-active {
+      background: rgba(0,102,204,0.14);
+      border-color: #1a5a7a;
+      border-right-width: 1px;
+      color: var(--color-accent);
+      font-weight: 700;
+    }
+    .stg-btn.is-active + .stg-btn { border-left-width: 0; }
+
+    /* Timezone custom select — inherits theme via CSS variables */
+    #stg-tz-select {
+      width: 100%;
+      background: var(--color-bg);
+      border: 1px solid var(--color-border-solid);
+      color: var(--color-text);
+      font-family: var(--font-mono);
+      font-size: 9px;
+      padding: 4px 6px;
+      letter-spacing: 1px;
+      cursor: pointer;
+      margin-top: 2px;
+      outline: none;
+    }
+
+    /* Allow settings pane to scroll when content exceeds viewport height */
+    #acct-pane-settings {
+      max-height: calc(100vh - 140px);
+      overflow-y: auto;
+    }
+
+    /* ── Disclaimer modal ────────────────────────────────────────────────────── */
+    #argus-disclaimer-modal {
+      position: fixed;
+      inset: 0;
+      z-index: 10000;
+      background: rgba(2, 10, 21, 0.93);
+      backdrop-filter: blur(8px);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      font-family: var(--font-mono);
+    }
+    #argus-disclaimer-modal.is-visible { display: flex; }
+    .argus-disclaimer-card {
+      background: #020c1a;
+      border: 1px solid #1a3a5a;
+      border-top: 2px solid #bb2200;
+      max-width: 520px;
+      width: calc(100vw - 48px);
+      padding: 40px;
+      position: relative;
+    }
+    .argus-disclaimer-card::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0;
+      width: 14px; height: 14px;
+      border-top: 1px solid var(--color-accent);
+      border-left: 1px solid var(--color-accent);
+    }
+    .argus-disclaimer-card::after {
+      content: '';
+      position: absolute;
+      bottom: 0; right: 0;
+      width: 14px; height: 14px;
+      border-bottom: 1px solid #1a3a5a;
+      border-right: 1px solid #1a3a5a;
+    }
+
     html, body {
       width: 100vw;
       height: 100vh;

@@ -22,6 +22,17 @@
   <script src="/data/static-data-search.js?v=1"></script>
 
   <link rel="stylesheet" href="/index.css">
+
+  <!-- Anti-FOUC: apply saved theme before first paint ─────────────────────── -->
+  <script>
+  (function(){
+    var t = localStorage.getItem('argus-theme') || 'dark';
+    var e = t === 'system'
+      ? (window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark')
+      : t;
+    document.documentElement.setAttribute('data-theme', e);
+  }());
+  </script>
 </head>
 
 <body>
@@ -128,6 +139,55 @@
         </button>
         <div class="acct-feedback" id="acct-pw-feedback"></div>
       </div>
+
+      <!-- ── Display settings ─────────────────────────────────────────────── -->
+      <div class="acct-divider"></div>
+      <div class="acct-field-label" style="margin-bottom:2px">DISPLAY</div>
+
+      <div class="stg-row">
+        <div class="stg-label">THEME</div>
+        <div class="stg-toggle">
+          <button class="stg-btn" id="stg-theme-dark"   onclick="ArgusSettings.setTheme('dark')">DARK</button>
+          <button class="stg-btn" id="stg-theme-light"  onclick="ArgusSettings.setTheme('light')">LIGHT</button>
+          <button class="stg-btn" id="stg-theme-system" onclick="ArgusSettings.setTheme('system')">SYS</button>
+        </div>
+      </div>
+
+      <div class="stg-row">
+        <div class="stg-label">TEMPERATURE</div>
+        <div class="stg-toggle">
+          <button class="stg-btn" id="stg-temp-C" onclick="ArgusSettings.setTempUnit('C')">°C</button>
+          <button class="stg-btn" id="stg-temp-F" onclick="ArgusSettings.setTempUnit('F')">°F</button>
+        </div>
+      </div>
+
+      <div class="stg-row">
+        <div class="stg-label">DISTANCE</div>
+        <div class="stg-toggle">
+          <button class="stg-btn" id="stg-dist-km"  onclick="ArgusSettings.setDistUnit('km')">KM</button>
+          <button class="stg-btn" id="stg-dist-mi"  onclick="ArgusSettings.setDistUnit('mi')">MI</button>
+          <button class="stg-btn" id="stg-dist-nmi" onclick="ArgusSettings.setDistUnit('nmi')">NMI</button>
+        </div>
+      </div>
+
+      <div class="stg-row">
+        <div class="stg-label">TIME FORMAT</div>
+        <div class="stg-toggle">
+          <button class="stg-btn" id="stg-time-24h" onclick="ArgusSettings.setTimeFormat('24h')">24H</button>
+          <button class="stg-btn" id="stg-time-12h" onclick="ArgusSettings.setTimeFormat('12h')">12H</button>
+        </div>
+      </div>
+
+      <div class="stg-row">
+        <div class="stg-label">TIMEZONE</div>
+        <div class="stg-toggle">
+          <button class="stg-btn" id="stg-tz-UTC"    onclick="ArgusSettings.setTimezone('UTC')">UTC</button>
+          <button class="stg-btn" id="stg-tz-local"  onclick="ArgusSettings.setTimezone('local')">LOCAL</button>
+          <button class="stg-btn" id="stg-tz-custom" onclick="ArgusSettings.setTimezone('custom')">CUSTOM</button>
+        </div>
+        <select id="stg-tz-select" onchange="ArgusSettings.setCustomTz(this.value)"></select>
+      </div>
+
     </div>
   </div>
 
@@ -12014,6 +12074,216 @@ window.ArgusSidebarPanels = (function () {
   setTimeout(function () { _updateVesselSnap(); setInterval(_updateVesselSnap, 300000); }, 60000);
 }());
 </script>
+<!-- ── Data disclaimer modal ─────────────────────────────────────────────── -->
+<!-- Shown on first visit only (no argus-disclaimer-ack in localStorage).   -->
+<!-- Non-dismissable: "I Understand" is the only valid exit.                -->
+<div id="argus-disclaimer-modal" role="dialog" aria-modal="true" aria-label="Data disclaimer">
+  <div class="argus-disclaimer-card">
+    <div style="font-size:8px;letter-spacing:3px;color:#cc3300;margin-bottom:20px;font-weight:700">⚠ DATA DISCLAIMER</div>
+    <div style="font-size:17px;font-weight:700;color:#f0f8ff;letter-spacing:0.5px;margin-bottom:16px;line-height:1.3;font-family:'Rajdhani',sans-serif">ARGUS INTELLIGENCE PLATFORM</div>
+    <p style="font-size:12px;line-height:1.8;color:#7aafcc;margin-bottom:10px">
+      ARGUS provides aggregated intelligence data for <strong style="color:#c5d7e8">informational purposes only</strong>. Nothing on this platform constitutes investment advice, financial advice, or a recommendation to transact in any security, commodity, or financial instrument.
+    </p>
+    <p style="font-size:12px;line-height:1.8;color:#7aafcc;margin-bottom:28px">
+      Data is sourced from third parties and may be delayed, incomplete, or cached. By continuing, you acknowledge that you bear sole responsibility for any decisions made using this platform.
+    </p>
+    <div style="display:flex;gap:10px;flex-wrap:wrap">
+      <button
+        onclick="ArgusSettings.acknowledgeDisclaimer()"
+        style="flex:1;min-width:140px;height:38px;background:rgba(0,102,204,0.12);border:1px solid #1a5a7a;color:#00ccff;font-family:var(--font-mono);font-size:10px;letter-spacing:2px;font-weight:700;cursor:pointer"
+        onmouseover="this.style.background='rgba(0,102,204,0.24)'"
+        onmouseout="this.style.background='rgba(0,102,204,0.12)'"
+      >I UNDERSTAND</button>
+      <a
+        href="terms.html" target="_blank" rel="noopener"
+        style="flex:1;min-width:140px;height:38px;background:none;border:1px solid #0d2035;color:#3a6a8a;font-family:var(--font-mono);font-size:10px;letter-spacing:2px;font-weight:700;text-decoration:none;display:flex;align-items:center;justify-content:center"
+        onmouseover="this.style.borderColor='#1a3a5a';this.style.color='#6a9fcc'"
+        onmouseout="this.style.borderColor='#0d2035';this.style.color='#3a6a8a'"
+      >VIEW TERMS ↗</a>
+    </div>
+    <div style="margin-top:18px;font-size:9px;color:#2a4a68;letter-spacing:1px;text-align:center">
+      SHOWN ONCE · CLEARING BROWSER STORAGE WILL RESET THIS NOTICE
+    </div>
+  </div>
+</div>
+
+<!-- ── ArgusSettings — localStorage-backed user preferences ─────────────── -->
+<script>
+window.ArgusSettings = (function() {
+  'use strict';
+
+  var K = {
+    theme:    'argus-theme',
+    temp:     'argus-temp-unit',
+    dist:     'argus-dist-unit',
+    timeFmt:  'argus-time-format',
+    tz:       'argus-timezone',
+    tzCustom: 'argus-timezone-custom',
+    ack:      'argus-disclaimer-ack',
+  };
+
+  function _get(key, def) { return localStorage.getItem(key) || def; }
+
+  // ── Toggle active button in a group ────────────────────────────────────────
+  function _sync(prefix, val, opts) {
+    for (var i = 0; i < opts.length; i++) {
+      var btn = document.getElementById(prefix + opts[i]);
+      if (!btn) continue;
+      if (opts[i] === val) btn.classList.add('is-active');
+      else                  btn.classList.remove('is-active');
+    }
+  }
+
+  // ── Dispatch settings-changed event ────────────────────────────────────────
+  function _dispatch() {
+    document.dispatchEvent(new CustomEvent('argus-settings-changed', {
+      detail: {
+        theme:    _get(K.theme,   'dark'),
+        tempUnit: _get(K.temp,    'C'),
+        distUnit: _get(K.dist,    'km'),
+        timeFmt:  _get(K.timeFmt, '24h'),
+        tz:       _get(K.tz,      'UTC'),
+      }
+    }));
+  }
+
+  // ── THEME ──────────────────────────────────────────────────────────────────
+  function _applyTheme(theme) {
+    var effective = theme;
+    if (theme === 'system') {
+      effective = window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+    }
+    document.documentElement.setAttribute('data-theme', effective);
+  }
+
+  function setTheme(theme) {
+    localStorage.setItem(K.theme, theme);
+    _applyTheme(theme);
+    _sync('stg-theme-', theme, ['dark', 'light', 'system']);
+  }
+
+  // ── TEMPERATURE ────────────────────────────────────────────────────────────
+  // Note: temperature values are not currently displayed in the live UI.
+  // Setting is persisted and dispatched for future wiring.
+  function setTempUnit(unit) {
+    localStorage.setItem(K.temp, unit);
+    _sync('stg-temp-', unit, ['C', 'F']);
+    _dispatch();
+  }
+
+  // ── DISTANCE ───────────────────────────────────────────────────────────────
+  // Note: distances shown are wind speed (kt) and depth (km). Conversions
+  // for these units are dispatched via argus-settings-changed for future wiring.
+  function setDistUnit(unit) {
+    localStorage.setItem(K.dist, unit);
+    _sync('stg-dist-', unit, ['km', 'mi', 'nmi']);
+    _dispatch();
+  }
+
+  // ── TIME FORMAT ────────────────────────────────────────────────────────────
+  function setTimeFormat(fmt) {
+    localStorage.setItem(K.timeFmt, fmt);
+    _sync('stg-time-', fmt, ['24h', '12h']);
+    _dispatch();
+  }
+
+  // ── TIMEZONE ──────────────────────────────────────────────────────────────
+  function setTimezone(tz) {
+    localStorage.setItem(K.tz, tz);
+    _sync('stg-tz-', tz, ['UTC', 'local', 'custom']);
+    var sel = document.getElementById('stg-tz-select');
+    if (sel) sel.style.display = tz === 'custom' ? 'block' : 'none';
+    _dispatch();
+  }
+
+  function setCustomTz(tzId) {
+    localStorage.setItem(K.tzCustom, tzId);
+    _dispatch();
+  }
+
+  // ── PUBLIC: format a Date according to current timezone + time format ──────
+  // Used by argusWeatherLayer.js for expires timestamps.
+  function formatDate(date) {
+    var d   = date instanceof Date ? date : new Date(date);
+    var tz  = _get(K.tz, 'UTC');
+    var fmt = _get(K.timeFmt, '24h');
+    var tzId = tz === 'UTC'    ? 'UTC'
+             : tz === 'local'  ? Intl.DateTimeFormat().resolvedOptions().timeZone
+             :                   (_get(K.tzCustom, 'UTC'));
+    try {
+      var str = new Intl.DateTimeFormat('en-GB', {
+        timeZone: tzId,
+        day: '2-digit', month: 'short', year: 'numeric',
+        hour: '2-digit', minute: '2-digit',
+        hour12: fmt === '12h',
+      }).format(d);
+      var suffix = tz === 'UTC' ? ' UTC' : tz === 'local' ? ' (local)' : ' (' + tzId + ')';
+      return str + suffix;
+    } catch (e) {
+      return d.toUTCString();
+    }
+  }
+
+  // ── Populate timezone selector with Intl zones ─────────────────────────────
+  function _populateTzSelect() {
+    var sel = document.getElementById('stg-tz-select');
+    if (!sel || sel.options.length > 0) return;
+    var zones = [];
+    try { zones = Intl.supportedValuesOf('timeZone'); } catch (e) {}
+    var saved = _get(K.tzCustom, 'UTC');
+    for (var i = 0; i < zones.length; i++) {
+      var opt = document.createElement('option');
+      opt.value = zones[i];
+      opt.textContent = zones[i];
+      if (zones[i] === saved) opt.selected = true;
+      sel.appendChild(opt);
+    }
+  }
+
+  // ── DISCLAIMER ────────────────────────────────────────────────────────────
+  function acknowledgeDisclaimer() {
+    localStorage.setItem(K.ack, '1');
+    var modal = document.getElementById('argus-disclaimer-modal');
+    if (modal) modal.classList.remove('is-visible');
+  }
+
+  function _checkDisclaimer() {
+    if (localStorage.getItem(K.ack)) return;
+    var modal = document.getElementById('argus-disclaimer-modal');
+    if (modal) modal.classList.add('is-visible');
+  }
+
+  // ── INIT — sync all toggle UI to saved values ─────────────────────────────
+  function init() {
+    _applyTheme(_get(K.theme, 'dark'));
+    _sync('stg-theme-', _get(K.theme,   'dark'),  ['dark', 'light', 'system']);
+    _sync('stg-temp-',  _get(K.temp,    'C'),      ['C', 'F']);
+    _sync('stg-dist-',  _get(K.dist,    'km'),     ['km', 'mi', 'nmi']);
+    _sync('stg-time-',  _get(K.timeFmt, '24h'),    ['24h', '12h']);
+    _sync('stg-tz-',    _get(K.tz,      'UTC'),    ['UTC', 'local', 'custom']);
+    _populateTzSelect();
+    var sel = document.getElementById('stg-tz-select');
+    if (sel) sel.style.display = _get(K.tz, 'UTC') === 'custom' ? 'block' : 'none';
+    _checkDisclaimer();
+  }
+
+  return {
+    setTheme:              setTheme,
+    setTempUnit:           setTempUnit,
+    setDistUnit:           setDistUnit,
+    setTimeFormat:         setTimeFormat,
+    setTimezone:           setTimezone,
+    setCustomTz:           setCustomTz,
+    formatDate:            formatDate,
+    acknowledgeDisclaimer: acknowledgeDisclaimer,
+    init:                  init,
+  };
+}());
+
+// Init after DOM is ready — inline scripts at end of body run after HTML is parsed
+ArgusSettings.init();
+</script>
+
 <!-- TOS corner link — fixed bottom-right, outside all panels and overlays -->
 <a id="tos-corner" href="terms.html" target="_blank" rel="noopener"
    style="position:fixed;bottom:12px;right:14px;z-index:999;font-family:'DM Mono',monospace;font-size:8px;letter-spacing:2px;color:#3a6a8a;text-decoration:none;opacity:0.55;transition:opacity 0.2s,color 0.2s"

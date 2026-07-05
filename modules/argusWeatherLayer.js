@@ -1242,7 +1242,7 @@ window.ArgusWeatherLayer = (function () {
     }
 
     var expires = alert.expires
-      ? new Date(alert.expires).toUTCString() + ' (UTC)'
+      ? (window.ArgusSettings ? ArgusSettings.formatDate(new Date(alert.expires)) : new Date(alert.expires).toUTCString() + ' (UTC)')
       : 'N/A';
 
     var noaaUrl = mType === 'cyclone'
@@ -1329,7 +1329,7 @@ window.ArgusWeatherLayer = (function () {
       title:         alert.eventType + (alert.areaDesc ? ' — ' + alert.areaDesc.slice(0, 60) : ''),
       impact:        (alert.headline || alert.eventType || '') +
                      (alert.severity ? '. Severity: ' + alert.severity : '') +
-                     (alert.expires  ? '. Expires: ' + new Date(alert.expires).toUTCString() + ' (UTC)' : ''),
+                     (alert.expires  ? '. Expires: ' + (window.ArgusSettings ? ArgusSettings.formatDate(new Date(alert.expires)) : new Date(alert.expires).toUTCString() + ' (UTC)') : ''),
       source:        alert.source || 'NOAA',
       link:          alert.url || '',
       countryCode:   null,

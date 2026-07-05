@@ -12014,5 +12014,11 @@ window.ArgusSidebarPanels = (function () {
   setTimeout(function () { _updateVesselSnap(); setInterval(_updateVesselSnap, 300000); }, 60000);
 }());
 </script>
+<!-- TOS corner link — fixed bottom-right, outside all panels and overlays -->
+<a id="tos-corner" href="terms.html" target="_blank" rel="noopener"
+   style="position:fixed;bottom:12px;right:14px;z-index:999;font-family:'DM Mono',monospace;font-size:8px;letter-spacing:2px;color:#3a6a8a;text-decoration:none;opacity:0.55;transition:opacity 0.2s,color 0.2s"
+   onmouseover="this.style.opacity='1';this.style.color='#00aaff'"
+   onmouseout="this.style.opacity='0.55';this.style.color='#3a6a8a'"
+   title="Terms of Service · Legal · Privacy">TERMS</a>
 </body>
 </html>

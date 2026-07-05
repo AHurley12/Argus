@@ -212,7 +212,7 @@
 <header>
   <a href="login.html" class="back-link">← BACK TO LOGIN</a>
   <h1>TERMS OF SERVICE</h1>
-  <div class="doc-meta">EFFECTIVE DATE: APRIL 18, 2026 · LAST UPDATED: APRIL 18, 2026</div>
+  <div class="doc-meta">EFFECTIVE DATE: APRIL 18, 2026 · LAST UPDATED: JULY 5, 2026</div>
 </header>
 
 <div class="content">
@@ -244,6 +244,16 @@
   <li>A verified or certified intelligence service</li>
   <li>A replacement for professional analysis or judgment</li>
 </ul>
+
+<h3>1.3 Informational Purpose — No Financial or Investment Advice</h3>
+<p>Nothing on this platform constitutes, or should be construed as:</p>
+<ul>
+  <li>Investment advice, financial advice, or trading advice of any kind</li>
+  <li>A recommendation or solicitation to buy, sell, hold, or otherwise transact in any security, commodity, currency, or financial instrument</li>
+  <li>An offer or invitation to make any investment or business decision</li>
+  <li>A substitute for professional judgment from a licensed financial advisor, attorney, or other qualified professional</li>
+</ul>
+<p>By using ARGUS, you acknowledge that you bear sole responsibility for any investment, business, or operational decisions made based on information viewed on this platform.</p>
 
 <h2>2. ACCEPTABLE USE</h2>
 
@@ -333,18 +343,27 @@
 <h2>5. DATA & CONTENT</h2>
 
 <h3>5.1 Data Sources</h3>
-<p>ARGUS aggregates data from multiple third-party sources including:</p>
+<p>ARGUS aggregates data from multiple third-party sources including but not limited to:</p>
 <ul>
   <li>GDELT Project (geopolitical events)</li>
-  <li>OpenSky Network (flight tracking data)</li>
-  <li>Public energy market feeds</li>
+  <li>ACLED (armed conflict and event data)</li>
+  <li>GDACS (global disaster alerts)</li>
+  <li>NOAA / National Weather Service (weather alerts, tropical storms)</li>
+  <li>NASA EONET (Earth Observatory natural events)</li>
+  <li>UN Comtrade (bilateral trade statistics)</li>
+  <li>UN ReliefWeb (humanitarian operations)</li>
+  <li>EIA and FRED (energy and macroeconomic indicators)</li>
+  <li>OpenSky Network and ADS-B providers (flight tracking)</li>
+  <li>Maritime AIS tracking providers (vessel tracking)</li>
   <li>Other publicly available datasets</li>
 </ul>
+<p>Each third-party source operates under its own data policies, accuracy standards, and terms of use. ARGUS makes no representations regarding the completeness or reliability of data from any individual source.</p>
 
 <h3>5.2 Data Accuracy Disclaimer</h3>
 <div class="warning">
-  <strong>NO WARRANTY OF ACCURACY:</strong> We make no representations or warranties regarding the accuracy, completeness, timeliness, or reliability of any data displayed on ARGUS. Data may be delayed, incomplete, or contain errors. You use all data at your own risk.
+  <strong>NO WARRANTY OF ACCURACY:</strong> We make no representations or warranties regarding the accuracy, completeness, timeliness, or reliability of any data displayed on ARGUS. Data may be delayed, cached, and may not reflect real-time conditions. Third-party data is subject to each provider's own accuracy limitations, reporting delays, and terms of use. Data may be incomplete or contain errors. You use all data at your own risk.
 </div>
+<p>Users should independently verify any information before making decisions based on it.</p>
 
 <h3>5.3 User-Generated Content</h3>
 <p>If you submit queries, feedback, or other content to ARGUS:</p>
@@ -381,7 +400,7 @@
 <p>To the maximum extent permitted by law, our total liability to you for any claims arising from your use of ARGUS is limited to the amount you paid us in the 12 months preceding the claim.</p>
 
 <h3>7.3 No Consequential Damages</h3>
-<p>We are not liable for any indirect, incidental, special, consequential, or punitive damages, including lost profits, lost data, or business interruption.</p>
+<p>We are not liable for any direct, indirect, incidental, special, consequential, or punitive damages arising from your use of or reliance on any information provided through the platform, including lost profits, lost data, loss of opportunity, or business interruption.</p>
 
 <h3>7.4 As-Is Service</h3>
 <p>ARGUS is provided "AS IS" and "AS AVAILABLE" without warranties of any kind, express or implied, including but not limited to warranties of merchantability, fitness for a particular purpose, or non-infringement.</p>
@@ -415,9 +434,18 @@
 <h3>9.3 Continued Use = Acceptance</h3>
 <p>Your continued use of ARGUS after changes take effect constitutes acceptance of the modified Terms. If you do not agree, you must stop using the platform and cancel your subscription.</p>
 
-<h2>10. PRIVACY</h2>
+<h2>10. PRIVACY & DATA HANDLING</h2>
 
-<p>Your use of ARGUS is also governed by our <a href="privacy.html">Privacy Policy</a>, which describes how we collect, use, and protect your personal information. By using ARGUS, you consent to our privacy practices.</p>
+<p>Your use of ARGUS is also governed by our <a href="privacy.html">Privacy Policy</a>. Key points are summarized here:</p>
+<ul>
+  <li><strong>Minimal collection:</strong> We collect only what is necessary to operate the platform — primarily your email address and account status.</li>
+  <li><strong>No data selling:</strong> We do not sell, trade, or share your personal information with third parties for advertising or commercial purposes.</li>
+  <li><strong>No raw payment data:</strong> Payment processing is handled exclusively by Stripe. We never receive or store your card number, CVV, or other payment credentials.</li>
+  <li><strong>Infrastructure processors:</strong> Supabase (database and authentication) and Netlify (hosting and serverless functions) process data on our behalf under their respective privacy agreements.</li>
+  <li><strong>Intelligence data caching:</strong> ARGUS caches data from external intelligence sources (GDELT, NOAA, ACLED, etc.) in our database to reduce upstream API load. This cached data is not personal information.</li>
+  <li><strong>Your rights:</strong> Depending on your jurisdiction, you may have the right to access, correct, or request deletion of your account data. Contact us to exercise these rights.</li>
+</ul>
+<p>By using ARGUS, you consent to the data practices described above and in our complete <a href="privacy.html">Privacy Policy</a>.</p>
 
 <h2>11. GOVERNING LAW & DISPUTES</h2>
 

@@ -276,6 +276,7 @@ window.ArgusGDACS = (function () {
         severity:     ev.severity,
         alertScore:   ev.alertScore,
         countryCode:  null,
+        link:         ev.sourceUrl || '',
       };
 
       AG.eventMarkerGroup.add(mesh);

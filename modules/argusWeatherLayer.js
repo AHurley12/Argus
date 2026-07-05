@@ -1331,6 +1331,7 @@ window.ArgusWeatherLayer = (function () {
                      (alert.severity ? '. Severity: ' + alert.severity : '') +
                      (alert.expires  ? '. Expires: ' + new Date(alert.expires).toUTCString() + ' (UTC)' : ''),
       source:        alert.source || 'NOAA',
+      link:          alert.url || '',
       countryCode:   null,
       // Fields used by showEventDetail NOAA card branch
       severity:      alert.severity  || null,

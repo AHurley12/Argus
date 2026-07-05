@@ -16,17 +16,23 @@
 //   Client-side: separate TOTAL row from HS chapters, sort by primaryValue desc,
 //   top 10 each for the commodity breakdown.
 //
-// Cache TTL: 7 days (Supabase argus_cache table).
+// Caching strategy:
+//   - Fresh (< TTL_MS = 7 days)   → serve immediately, no upstream contact
+//   - Stale (< STALE_MS = 30 days) on 429/error → serve degraded with stale flag
+//   - Cross-instance coalescing via COALESCE_WINDOW_MS check
+//   - In-memory coalescing per country pair within same Lambda instance
 //
 // Env: SUPABASE_URL, SUPABASE_SERVICE_KEY, COMTRADE_SUBSCRIPTION_KEY (optional)
 
 const { createClient } = require('@supabase/supabase-js');
+const Cache = require('../lib/argus-cache');
 
 const SUPABASE_URL     = process.env.SUPABASE_URL;
 const SUPABASE_KEY     = process.env.SUPABASE_SERVICE_KEY;
 const SUBSCRIPTION_KEY = (process.env.COMTRADE_SUBSCRIPTION_KEY || '').trim();
 
-const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+const TTL_MS   = Cache.TTL.COMTRADE;    // 7 days
+const STALE_MS = Cache.STALE.COMTRADE;  // 30 days
 
 // Data endpoint requires subscription key and returns full dataset.
 // Preview endpoint is unauthenticated but heavily rate-limited.
@@ -282,44 +288,70 @@ exports.handler = async function(event) {
   const cacheKey = 'trade_' + reporter + '_' + partner + '_' + year;
   const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
-  // ── Cache read ─────────────────────────────────────────────────────────────
-  try {
-    const { data: row } = await supabase
-      .from('argus_cache')
-      .select('payload, updated_at')
-      .eq('key', cacheKey)
-      .single();
+  // ── Cache read (SWR: fresh → serve; stale → serve on error; recently written → coalesce) ──
+  const cached = await Cache.readCache(supabase, cacheKey, TTL_MS, STALE_MS);
 
-    if (row && row.payload) {
-      const age = Date.now() - new Date(row.updated_at).getTime();
-      if (age < CACHE_TTL_MS) {
-        return {
-          statusCode: 200,
-          headers: { ...CORS_HEADERS, 'Cache-Control': 'public, max-age=3600' },
-          body: JSON.stringify({ ...row.payload, cached: true }),
-        };
-      }
-    }
-  } catch (_) { /* cache miss — proceed */ }
+  if (cached.isFresh) {
+    return {
+      statusCode: 200,
+      headers: { ...CORS_HEADERS, 'Cache-Control': 'public, max-age=3600' },
+      body: JSON.stringify({ ...cached.payload, cached: true }),
+    };
+  }
 
-  // ── Fetch from Comtrade ────────────────────────────────────────────────────
+  // Cross-instance coalescing: another Lambda wrote this key within COALESCE_WINDOW_MS
+  if (cached.wasRecentlyWritten && cached.hasData) {
+    return {
+      statusCode: 200,
+      headers: { ...CORS_HEADERS, 'Cache-Control': 'public, max-age=3600' },
+      body: JSON.stringify({ ...cached.payload, cached: true }),
+    };
+  }
+
+  // ── Fetch from Comtrade (in-memory coalescing per country pair) ────────────
   let tradeData;
   try {
-    tradeData = await fetchComtradeData(reporterM49, partnerM49, year);
+    tradeData = await Cache.withCoalescing(cacheKey, function() {
+      return fetchComtradeData(reporterM49, partnerM49, year);
+    });
   } catch (err) {
-    if (err.status === 429) {
+    const isQuota = err.status === 429;
+    const isAuth  = err.status === 401 || err.status === 403;
+
+    if (isQuota) {
+      console.error('[QUOTA_EXHAUSTED][fetch-comtrade] Comtrade daily limit reached (500 calls/day) —',
+        cached.hasData
+          ? 'serving stale cache (age=' + Math.round(cached.ageMs / 86400000) + 'd)'
+          : 'no cache for ' + reporter + '/' + partner + '/' + year);
+
+      // Serve stale trade data — annual figures don't change mid-year
+      if (cached.isStale && cached.hasData) {
+        return {
+          statusCode: 200,
+          headers: { ...CORS_HEADERS, 'Cache-Control': 'no-store' },
+          body: JSON.stringify({
+            ...cached.payload,
+            cached:     true,
+            degraded:   true,
+            staleAgeMs: cached.ageMs,
+            error:      'upstream_quota_exhausted',
+          }),
+        };
+      }
+
       return {
         statusCode: 429,
         headers: CORS_HEADERS,
         body: JSON.stringify({
           error:       true,
           status:      429,
-          message:     'Comtrade rate limit reached. The free tier allows 500 requests per day.',
-          retry_after: 60,
+          message:     'Comtrade daily quota reached (500 calls/day). Data temporarily unavailable; try again tomorrow.',
+          retry_after: 86400,
         }),
       };
     }
-    if (err.status === 401 || err.status === 403) {
+
+    if (isAuth) {
       return {
         statusCode: err.status,
         headers: CORS_HEADERS,
@@ -330,7 +362,24 @@ exports.handler = async function(event) {
         }),
       };
     }
+
     console.error('[fetch-comtrade] fetch failed:', err.message);
+
+    // Serve stale on any upstream failure if within stale window
+    if (cached.isStale && cached.hasData) {
+      return {
+        statusCode: 200,
+        headers: { ...CORS_HEADERS, 'Cache-Control': 'no-store' },
+        body: JSON.stringify({
+          ...cached.payload,
+          cached:     true,
+          degraded:   true,
+          staleAgeMs: cached.ageMs,
+          error:      'upstream_error',
+        }),
+      };
+    }
+
     return {
       statusCode: 502,
       headers: CORS_HEADERS,
@@ -353,16 +402,7 @@ exports.handler = async function(event) {
   };
 
   // ── Cache write ────────────────────────────────────────────────────────────
-  try {
-    await supabase
-      .from('argus_cache')
-      .upsert(
-        { key: cacheKey, payload, updated_at: new Date().toISOString() },
-        { onConflict: 'key' }
-      );
-  } catch (err) {
-    console.warn('[fetch-comtrade] cache write failed:', err.message);
-  }
+  await Cache.writeCache(supabase, cacheKey, payload);
 
   // Write individual records to bilateral_trade_cache for analytics
   try {

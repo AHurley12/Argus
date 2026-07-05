@@ -13,6 +13,14 @@
 [functions."*"]
   timeout = 26
 
+# ── Scheduled cache pre-warmer (runs every hour) ──────────────────────────────
+# Proactively refreshes shared Supabase cache before TTLs expire.
+# Cache hits return immediately (0 external API calls); only stale entries
+# trigger real upstream requests. Comtrade: ~9 real calls/day (well under 500/day limit).
+[functions."cache-warmer"]
+  schedule = "0 * * * *"
+  timeout  = 120
+
 [functions."fetch-traffic"]
   timeout = 26
 

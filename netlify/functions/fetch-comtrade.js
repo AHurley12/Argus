@@ -1,36 +1,43 @@
 // netlify/functions/fetch-comtrade.js
 // UN Comtrade bilateral trade data proxy.
 //
-// Returns bilateral trade flows between two countries for a given year.
-// Uses the Comtrade public preview API (no key required for basic data).
-// Optional: set COMTRADE_SUBSCRIPTION_KEY for higher rate limits.
+// Two-tier endpoint strategy:
+//   DATA (authenticated, preferred):
+//     URL:    https://comtradeapi.un.org/data/v1/get/C/A/HS
+//     Header: Ocp-Apim-Subscription-Key
+//     Limits: up to 100,000 records, 500 calls/day
 //
-// Cache TTL: 7 days (Supabase argus_cache table).
+//   PREVIEW (unauthenticated, fallback when no key):
+//     URL:    https://comtradeapi.un.org/public/v1/preview/C/A/HS
+//     Key ignored. Max 500 records. Aggressive rate limits.
 //
-// Query params:
-//   reporter  — ISO3 alpha-3 code (e.g. "USA")
-//   partner   — ISO3 alpha-3 code (e.g. "CHN")
-//   year      — 4-digit year (default: 2023)
+// Call strategy: ONE request per user click.
+//   flowCode=M,X, no cmdCode → all commodities + TOTAL row for both flows.
+//   Client-side: separate TOTAL row from HS chapters, sort by primaryValue desc,
+//   top 10 each for the commodity breakdown.
 //
-// Response shape:
-//   { reporter, partner, year, exports, imports, balance_usd,
-//     top_exports, top_imports, ts, source, cached? }
+// Caching strategy:
+//   - Fresh (< TTL_MS = 7 days)   → serve immediately, no upstream contact
+//   - Stale (< STALE_MS = 30 days) on 429/error → serve degraded with stale flag
+//   - Cross-instance coalescing via COALESCE_WINDOW_MS check
+//   - In-memory coalescing per country pair within same Lambda instance
 //
 // Env: SUPABASE_URL, SUPABASE_SERVICE_KEY, COMTRADE_SUBSCRIPTION_KEY (optional)
 
 const { createClient } = require('@supabase/supabase-js');
+const Cache = require('../lib/argus-cache');
 
-const SUPABASE_URL = process.env.SUPABASE_URL;
-const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY;
-const SUBSCRIPTION_KEY = process.env.COMTRADE_SUBSCRIPTION_KEY || '';
+const SUPABASE_URL     = process.env.SUPABASE_URL;
+const SUPABASE_KEY     = process.env.SUPABASE_SERVICE_KEY;
+const SUBSCRIPTION_KEY = (process.env.COMTRADE_SUBSCRIPTION_KEY || '').trim();
 
-const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
-const MAX_RECORDS  = 500;
+const TTL_MS   = Cache.TTL.COMTRADE;    // 7 days
+const STALE_MS = Cache.STALE.COMTRADE;  // 30 days
 
-// Public preview endpoint (no key needed)
+// Data endpoint requires subscription key and returns full dataset.
+// Preview endpoint is unauthenticated but heavily rate-limited.
+const COMTRADE_DATA_BASE    = 'https://comtradeapi.un.org/data/v1/get/C/A/HS';
 const COMTRADE_PREVIEW_BASE = 'https://comtradeapi.un.org/public/v1/preview/C/A/HS';
-// Subscription endpoint (higher limits)
-const COMTRADE_SUB_BASE     = 'https://comtradeapi.un.org/data/v1/get/C/A/HS';
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin':  '*',
@@ -39,6 +46,7 @@ const CORS_HEADERS = {
 };
 
 // ── ISO3 → UN M49 numeric code map ────────────────────────────────────────────
+// Must stay in sync with data/country-codes.json (frontend dropdown source).
 const ISO3_TO_M49 = {
   AFG:'004', ALB:'008', DZA:'012', AND:'020', AGO:'024', ATG:'028',
   ARG:'032', ARM:'051', AUS:'036', AUT:'040', AZE:'031',
@@ -84,109 +92,159 @@ const ISO3_TO_M49 = {
   ZMB:'894', ZWE:'716',
 };
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
-function buildComtradeUrl(reporterM49, partnerM49, year, cmdCode, flowCode) {
-  const base  = SUBSCRIPTION_KEY ? COMTRADE_SUB_BASE : COMTRADE_PREVIEW_BASE;
-  const params = new URLSearchParams({
-    reporterCode: reporterM49,
-    partnerCode:  partnerM49,
-    period:       String(year),
-    cmdCode:      cmdCode,
-    flowCode:     flowCode,
-    maxRecords:   String(MAX_RECORDS),
-    format:       'JSON',
-    aggregateBy:  'none',
-    breakdownMode:'plus',
-  });
-  return base + '?' + params.toString();
+// ── URL builder ───────────────────────────────────────────────────────────────
+// Plain string (not URLSearchParams) keeps the comma in flowCode=M,X unencoded.
+// No cmdCode — omitting it returns all commodities + TOTAL row in one response.
+// Endpoint selection: data (authenticated) vs preview (fallback, no key).
+function buildComtradeUrl(reporterM49, partnerM49, year) {
+  var base = SUBSCRIPTION_KEY ? COMTRADE_DATA_BASE : COMTRADE_PREVIEW_BASE;
+  return base +
+    '?reporterCode=' + reporterM49 +
+    '&partnerCode='  + partnerM49 +
+    '&period='       + year +
+    '&flowCode=M,X';
 }
 
-function parsePrimaryValue(record) {
-  return parseFloat(record.primaryValue || record.TradeValue || 0) || 0;
+// ── Request headers ───────────────────────────────────────────────────────────
+// Key is only sent when using the data endpoint — preview ignores it anyway.
+function buildHeaders() {
+  var h = { 'Accept': 'application/json' };
+  if (SUBSCRIPTION_KEY) h['Ocp-Apim-Subscription-Key'] = SUBSCRIPTION_KEY;
+  return h;
+}
+
+// ── Sleep helper ──────────────────────────────────────────────────────────────
+function sleep(ms) {
+  return new Promise(function(resolve) { setTimeout(resolve, ms); });
+}
+
+// ── Single Comtrade fetch with full response validation ────────────────────────
+// Handles: 401/403 (bad key), 429 (rate limit), non-2xx, 200+error-in-body.
+async function comtradeFetch(url) {
+  var signal = AbortSignal.timeout ? AbortSignal.timeout(15000) : undefined;
+  var res = await fetch(url, { headers: buildHeaders(), signal: signal });
+
+  // 401 or 403 — invalid or missing subscription key
+  if (res.status === 401 || res.status === 403) {
+    throw Object.assign(
+      new Error('Invalid or expired Comtrade subscription key. Check COMTRADE_SUBSCRIPTION_KEY in Netlify env vars.'),
+      { status: res.status }
+    );
+  }
+
+  // 429 — rate limit
+  if (res.status === 429) {
+    throw Object.assign(
+      new Error('Comtrade rate limit reached. The free tier allows 500 requests per day.'),
+      { status: 429 }
+    );
+  }
+
+  if (!res.ok) {
+    throw new Error('Comtrade HTTP ' + res.status);
+  }
+
+  var json = await res.json();
+
+  // 200 with error body (Comtrade-specific pattern)
+  if (json && (json.statusCode >= 400 || json.error === true)) {
+    throw new Error('Comtrade error: ' + (json.message || json.statusCode || 'unknown'));
+  }
+
+  return Array.isArray(json.data) ? json.data : [];
+}
+
+// ── Record normalizer ─────────────────────────────────────────────────────────
+function parsePrimaryValue(r) {
+  return parseFloat(r.primaryValue || 0) || 0;
 }
 
 function normalizeRecord(r) {
   return {
-    code:       String(r.cmdCode || ''),
-    desc:       String(r.cmdDesc || r.CmdDesc || '').slice(0, 100),
-    flow:       String(r.flowCode || r.FlowCode || ''),
-    value_usd:  parsePrimaryValue(r),
-    quantity:   parseFloat(r.qty || r.Qty || 0) || null,
-    unit:       String(r.qtyUnitAbbr || r.QtyUnitAbbr || ''),
+    code:      String(r.cmdCode || ''),
+    desc:      String(r.cmdDesc || '').slice(0, 100),
+    flow:      String(r.flowCode || ''),
+    value_usd: parsePrimaryValue(r),
+    quantity:  parseFloat(r.qty || 0) || null,
+    unit:      String(r.qtyUnitAbbr || ''),
   };
 }
 
-// ── Main fetch ────────────────────────────────────────────────────────────────
+// ── Main data fetch: single Comtrade call ──────────────────────────────────────
+// ONE request: flowCode=M,X, no cmdCode → all commodities + TOTAL for both flows.
+// The data endpoint returns ~100-200 records for a bilateral pair; preview up to 500.
+// Client-side: find TOTAL row for headline values, filter remaining as HS chapters.
 async function fetchComtradeData(reporterM49, partnerM49, year) {
-  const fetchOpts = {
-    signal: AbortSignal.timeout ? AbortSignal.timeout(15000) : undefined,
-    headers: SUBSCRIPTION_KEY
-      ? { 'Accept': 'application/json', 'Ocp-Apim-Subscription-Key': SUBSCRIPTION_KEY }
-      : { 'Accept': 'application/json' },
-  };
+  // Preview fallback is aggressively rate-limited — add a courtesy delay.
+  if (!SUBSCRIPTION_KEY) await sleep(2000);
 
-  // Fetch TOTAL exports, TOTAL imports, and HS2 commodity breakdown in parallel
-  const [expTotalRes, impTotalRes, expCmdRes, impCmdRes] = await Promise.allSettled([
-    fetch(buildComtradeUrl(reporterM49, partnerM49, year, 'TOTAL', 'X'), fetchOpts)
-      .then(r => {
-        if (r.status === 429) throw Object.assign(new Error('rate_limit'), { status: 429 });
-        return r.ok ? r.json() : Promise.reject(new Error('Comtrade HTTP ' + r.status));
-      }),
-    fetch(buildComtradeUrl(reporterM49, partnerM49, year, 'TOTAL', 'M'), fetchOpts)
-      .then(r => {
-        if (r.status === 429) throw Object.assign(new Error('rate_limit'), { status: 429 });
-        return r.ok ? r.json() : Promise.reject(new Error('Comtrade HTTP ' + r.status));
-      }),
-    fetch(buildComtradeUrl(reporterM49, partnerM49, year, 'AG2', 'X'), fetchOpts)
-      .then(r => r.ok ? r.json() : Promise.reject(new Error('HS2 export HTTP ' + r.status))),
-    fetch(buildComtradeUrl(reporterM49, partnerM49, year, 'AG2', 'M'), fetchOpts)
-      .then(r => r.ok ? r.json() : Promise.reject(new Error('HS2 import HTTP ' + r.status))),
-  ]);
+  var url = buildComtradeUrl(reporterM49, partnerM49, year);
+  console.log('[fetch-comtrade] requesting:', url);
 
-  // Check for rate limit on either total fetch
-  for (const res of [expTotalRes, impTotalRes]) {
-    if (res.status === 'rejected' && res.reason && res.reason.message === 'rate_limit') {
-      throw Object.assign(new Error('rate_limit'), { status: 429 });
-    }
+  var allRecords = await comtradeFetch(url);
+
+  if (allRecords.length === 0) {
+    return {
+      exports:     { total_usd: 0, records: [] },
+      imports:     { total_usd: 0, records: [] },
+      balance_usd: 0,
+      top_exports: [],
+      top_imports: [],
+      no_data:     true,
+    };
   }
 
-  // Extract total values
-  const expTotalRecords = (expTotalRes.status === 'fulfilled' && expTotalRes.value && Array.isArray(expTotalRes.value.data))
-    ? expTotalRes.value.data : [];
-  const impTotalRecords = (impTotalRes.status === 'fulfilled' && impTotalRes.value && Array.isArray(impTotalRes.value.data))
-    ? impTotalRes.value.data : [];
+  // Split by flow direction
+  var expRecords = allRecords.filter(function(r) { return r.flowCode === 'X'; });
+  var impRecords = allRecords.filter(function(r) { return r.flowCode === 'M'; });
 
-  const exportTotalUSD = expTotalRecords.reduce(function(s, r) { return s + parsePrimaryValue(r); }, 0);
-  const importTotalUSD = impTotalRecords.reduce(function(s, r) { return s + parsePrimaryValue(r); }, 0);
-
-  // Extract commodity breakdown
-  const expCmdRecords = (expCmdRes.status === 'fulfilled' && expCmdRes.value && Array.isArray(expCmdRes.value.data))
-    ? expCmdRes.value.data.map(normalizeRecord) : [];
-  const impCmdRecords = (impCmdRes.status === 'fulfilled' && impCmdRes.value && Array.isArray(impCmdRes.value.data))
-    ? impCmdRes.value.data.map(normalizeRecord) : [];
-
-  // Sort by value and take top 10
-  expCmdRecords.sort(function(a, b) { return b.value_usd - a.value_usd; });
-  impCmdRecords.sort(function(a, b) { return b.value_usd - a.value_usd; });
-
-  const topExports = expCmdRecords.slice(0, 10).map(function(r) {
-    return { code: r.code, desc: r.desc, value_usd: r.value_usd };
+  // Find TOTAL row for each flow (cmdCode === 'TOTAL')
+  var expTotalRow = expRecords.find(function(r) {
+    return String(r.cmdCode).toUpperCase() === 'TOTAL';
   });
-  const topImports = impCmdRecords.slice(0, 10).map(function(r) {
-    return { code: r.code, desc: r.desc, value_usd: r.value_usd };
+  var impTotalRow = impRecords.find(function(r) {
+    return String(r.cmdCode).toUpperCase() === 'TOTAL';
   });
 
-  console.log('[fetch-comtrade]', 'export records:', expTotalRecords.length,
-    '| import records:', impTotalRecords.length,
-    '| top export cmds:', topExports.length,
-    '| top import cmds:', topImports.length);
+  // Use TOTAL row value; fall back to sum of chapters if TOTAL row absent
+  var exportTotalUSD = expTotalRow
+    ? parsePrimaryValue(expTotalRow)
+    : expRecords.reduce(function(s, r) { return s + parsePrimaryValue(r); }, 0);
+  var importTotalUSD = impTotalRow
+    ? parsePrimaryValue(impTotalRow)
+    : impRecords.reduce(function(s, r) { return s + parsePrimaryValue(r); }, 0);
+
+  // Commodity chapters: exclude TOTAL row, sort by value desc, top 10
+  var expChapters = expRecords
+    .filter(function(r) { return String(r.cmdCode).toUpperCase() !== 'TOTAL'; })
+    .map(normalizeRecord)
+    .sort(function(a, b) { return b.value_usd - a.value_usd; })
+    .slice(0, 10)
+    .map(function(r) { return { code: r.code, desc: r.desc, value_usd: r.value_usd }; });
+
+  var impChapters = impRecords
+    .filter(function(r) { return String(r.cmdCode).toUpperCase() !== 'TOTAL'; })
+    .map(normalizeRecord)
+    .sort(function(a, b) { return b.value_usd - a.value_usd; })
+    .slice(0, 10)
+    .map(function(r) { return { code: r.code, desc: r.desc, value_usd: r.value_usd }; });
+
+  var allExpNorm = expRecords.map(normalizeRecord);
+  var allImpNorm = impRecords.map(normalizeRecord);
+
+  console.log('[fetch-comtrade] exports:', exportTotalUSD,
+    'imports:', importTotalUSD,
+    '| exp chapters:', expChapters.length,
+    'imp chapters:', impChapters.length,
+    '| total rows:', allRecords.length);
 
   return {
-    exports:     { total_usd: exportTotalUSD, records: expTotalRecords.map(normalizeRecord) },
-    imports:     { total_usd: importTotalUSD, records: impTotalRecords.map(normalizeRecord) },
+    exports:     { total_usd: exportTotalUSD, records: allExpNorm },
+    imports:     { total_usd: importTotalUSD, records: allImpNorm },
     balance_usd: exportTotalUSD - importTotalUSD,
-    top_exports: topExports,
-    top_imports: topImports,
+    top_exports: expChapters,
+    top_imports: impChapters,
+    no_data:     false,
   };
 }
 
@@ -230,102 +288,155 @@ exports.handler = async function(event) {
   const cacheKey = 'trade_' + reporter + '_' + partner + '_' + year;
   const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
-  // ── Cache read ─────────────────────────────────────────────────────────────
-  try {
-    const { data: row } = await supabase
-      .from('argus_cache')
-      .select('payload, updated_at')
-      .eq('key', cacheKey)
-      .single();
+  // ── Cache read (SWR: fresh → serve; stale → serve on error; recently written → coalesce) ──
+  const cached = await Cache.readCache(supabase, cacheKey, TTL_MS, STALE_MS);
 
-    if (row && row.payload) {
-      const age = Date.now() - new Date(row.updated_at).getTime();
-      if (age < CACHE_TTL_MS) {
-        return {
-          statusCode: 200,
-          headers: { ...CORS_HEADERS, 'Cache-Control': 'public, max-age=3600' },
-          body: JSON.stringify({ ...row.payload, cached: true }),
-        };
-      }
-    }
-  } catch (_) { /* cache miss — proceed */ }
-
-  // ── Fetch from Comtrade ────────────────────────────────────────────────────
-  let tradeData;
-  try {
-    tradeData = await fetchComtradeData(reporterM49, partnerM49, year);
-  } catch (err) {
-    if (err.status === 429) {
-      return {
-        statusCode: 429,
-        headers: CORS_HEADERS,
-        body: JSON.stringify({ error: 'Comtrade rate limit', retry_after: 60 }),
-      };
-    }
-    console.error('[fetch-comtrade] fetch failed:', err.message);
+  if (cached.isFresh) {
     return {
-      statusCode: 502,
-      headers: CORS_HEADERS,
-      body: JSON.stringify({ error: 'Comtrade upstream unavailable' }),
+      statusCode: 200,
+      headers: { ...CORS_HEADERS, 'Cache-Control': 'public, max-age=3600' },
+      body: JSON.stringify({ ...cached.payload, cached: true }),
     };
   }
 
+  // Cross-instance coalescing: another Lambda wrote this key within COALESCE_WINDOW_MS
+  if (cached.wasRecentlyWritten && cached.hasData) {
+    return {
+      statusCode: 200,
+      headers: { ...CORS_HEADERS, 'Cache-Control': 'public, max-age=3600' },
+      body: JSON.stringify({ ...cached.payload, cached: true }),
+    };
+  }
+
+  // ── Fetch from Comtrade (in-memory coalescing per country pair) ────────────
+  let tradeData;
+  try {
+    tradeData = await Cache.withCoalescing(cacheKey, function() {
+      return fetchComtradeData(reporterM49, partnerM49, year);
+    });
+  } catch (err) {
+    const isQuota = err.status === 429;
+    const isAuth  = err.status === 401 || err.status === 403;
+
+    if (isQuota) {
+      console.error('[QUOTA_EXHAUSTED][fetch-comtrade] Comtrade daily limit reached (500 calls/day) —',
+        cached.hasData
+          ? 'serving stale cache (age=' + Math.round(cached.ageMs / 86400000) + 'd)'
+          : 'no cache for ' + reporter + '/' + partner + '/' + year);
+
+      // Serve stale trade data — annual figures don't change mid-year
+      if (cached.isStale && cached.hasData) {
+        return {
+          statusCode: 200,
+          headers: { ...CORS_HEADERS, 'Cache-Control': 'no-store' },
+          body: JSON.stringify({
+            ...cached.payload,
+            cached:     true,
+            degraded:   true,
+            staleAgeMs: cached.ageMs,
+            error:      'upstream_quota_exhausted',
+          }),
+        };
+      }
+
+      return {
+        statusCode: 429,
+        headers: CORS_HEADERS,
+        body: JSON.stringify({
+          error:       true,
+          status:      429,
+          message:     'Comtrade daily quota reached (500 calls/day). Data temporarily unavailable; try again tomorrow.',
+          retry_after: 86400,
+        }),
+      };
+    }
+
+    if (isAuth) {
+      return {
+        statusCode: err.status,
+        headers: CORS_HEADERS,
+        body: JSON.stringify({
+          error:   true,
+          status:  err.status,
+          message: 'Invalid or expired Comtrade subscription key. Check COMTRADE_SUBSCRIPTION_KEY in Netlify env vars.',
+        }),
+      };
+    }
+
+    console.error('[fetch-comtrade] fetch failed:', err.message);
+
+    // Serve stale on any upstream failure if within stale window
+    if (cached.isStale && cached.hasData) {
+      return {
+        statusCode: 200,
+        headers: { ...CORS_HEADERS, 'Cache-Control': 'no-store' },
+        body: JSON.stringify({
+          ...cached.payload,
+          cached:     true,
+          degraded:   true,
+          staleAgeMs: cached.ageMs,
+          error:      'upstream_error',
+        }),
+      };
+    }
+
+    return {
+      statusCode: 502,
+      headers: CORS_HEADERS,
+      body: JSON.stringify({ error: 'Comtrade upstream unavailable', message: err.message }),
+    };
+  }
+
+  // Strip raw records from payload — frontend only needs total_usd, not full commodity rows.
+  // Records are still in tradeData for the bilateral_trade_cache write below.
   const payload = {
     reporter:    reporter,
     partner:     partner,
     year:        year,
-    exports:     tradeData.exports,
-    imports:     tradeData.imports,
+    exports:     { total_usd: tradeData.exports.total_usd },
+    imports:     { total_usd: tradeData.imports.total_usd },
     balance_usd: tradeData.balance_usd,
     top_exports: tradeData.top_exports,
     top_imports: tradeData.top_imports,
+    no_data:     tradeData.no_data || false,
     ts:          Date.now(),
     source:      'UN Comtrade',
   };
 
   // ── Cache write ────────────────────────────────────────────────────────────
-  try {
-    await supabase
-      .from('argus_cache')
-      .upsert(
-        { key: cacheKey, payload, updated_at: new Date().toISOString() },
-        { onConflict: 'key' }
-      );
-  } catch (err) {
-    console.warn('[fetch-comtrade] cache write failed:', err.message);
-  }
+  await Cache.writeCache(supabase, cacheKey, payload);
 
-  // Also write individual records to bilateral_trade_cache for future analytics
+  // Write individual records to bilateral_trade_cache for analytics
   try {
     const rows = [];
     const allExport = tradeData.exports.records;
     const allImport = tradeData.imports.records;
     for (var i = 0; i < allExport.length; i++) {
       rows.push({
-        reporter_iso3:  reporter,
-        partner_iso3:   partner,
-        year:           year,
-        flow_direction: 'export',
-        commodity_code: allExport[i].code || 'TOTAL',
+        reporter_iso3:   reporter,
+        partner_iso3:    partner,
+        year:            year,
+        flow_direction:  'export',
+        commodity_code:  allExport[i].code || 'TOTAL',
         trade_value_usd: allExport[i].value_usd,
-        quantity:       allExport[i].quantity,
-        quantity_unit:  allExport[i].unit,
-        commodity_desc: allExport[i].desc,
-        fetched_at:     new Date().toISOString(),
+        quantity:        allExport[i].quantity,
+        quantity_unit:   allExport[i].unit,
+        commodity_desc:  allExport[i].desc,
+        fetched_at:      new Date().toISOString(),
       });
     }
     for (var j = 0; j < allImport.length; j++) {
       rows.push({
-        reporter_iso3:  reporter,
-        partner_iso3:   partner,
-        year:           year,
-        flow_direction: 'import',
-        commodity_code: allImport[j].code || 'TOTAL',
+        reporter_iso3:   reporter,
+        partner_iso3:    partner,
+        year:            year,
+        flow_direction:  'import',
+        commodity_code:  allImport[j].code || 'TOTAL',
         trade_value_usd: allImport[j].value_usd,
-        quantity:       allImport[j].quantity,
-        quantity_unit:  allImport[j].unit,
-        commodity_desc: allImport[j].desc,
-        fetched_at:     new Date().toISOString(),
+        quantity:        allImport[j].quantity,
+        quantity_unit:   allImport[j].unit,
+        commodity_desc:  allImport[j].desc,
+        fetched_at:      new Date().toISOString(),
       });
     }
     if (rows.length) {

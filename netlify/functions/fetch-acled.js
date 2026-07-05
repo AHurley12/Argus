@@ -5,20 +5,23 @@
 // Events are historical point-in-time records updated within 24-72h of occurrence.
 // This function caches aggressively to minimize API credit consumption.
 //
-// Cache TTL: 4 hours (configurable via ACLED_POLL_INTERVAL_MS env var).
-// Frontend module (modules/argusAcled.js) polls at the same cadence.
+// Caching strategy:
+//   - Fresh (< TTL_MS)  → serve immediately, no upstream contact
+//   - Stale (< STALE_MS) on upstream error/quota → serve degraded with stale flag
+//   - Cross-instance coalescing: if cache written within COALESCE_WINDOW_MS,
+//     serve as fresh (another Lambda already fetched)
+//   - In-memory coalescing: deduplicates within same warm Lambda instance
 //
-// Response shape:
-//   { events: [...normalizedEvents], source: 'acled', ts: epoch, count: N }
-//
-// Event schema:
-//   { id, lat, lon, eventType, subEventType, date, country, region,
-//     actor1, actor2, fatalities, notes, source }
+// ACLED quota errors:
+//   - HTTP 429: standard rate limit
+//   - HTTP 402: credit exhaustion (Payment Required)
+//   Both treated as QUOTA_EXHAUSTED and trigger stale-cache fallback.
 //
 // Env: ACLED_API_KEY, ACLED_EMAIL, ACLED_BASE_URL, ACLED_POLL_INTERVAL_MS,
 //      ENABLE_ACLED, SUPABASE_URL, SUPABASE_SERVICE_KEY
 
 const { createClient } = require('@supabase/supabase-js');
+const Cache = require('../lib/argus-cache');
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY;
@@ -28,15 +31,12 @@ const ACLED_KEY      = process.env.ACLED_API_KEY  || '';
 const ACLED_EMAIL    = process.env.ACLED_EMAIL     || '';
 const ACLED_BASE_URL = process.env.ACLED_BASE_URL  || 'https://api.acleddata.com/acled/read';
 
-// Cache TTL: env-driven or 4h default — ACLED is sparse intelligence, not realtime
-const POLL_MS      = parseInt(process.env.ACLED_POLL_INTERVAL_MS || String(4 * 60 * 60 * 1000));
-const CACHE_KEY    = 'acled_events_v1';
-const CACHE_TTL_MS = POLL_MS;
+// TTL and stale window — imported from shared constants, overridable via env
+const TTL_MS   = parseInt(process.env.ACLED_POLL_INTERVAL_MS || '') || Cache.TTL.ACLED;
+const STALE_MS = Cache.STALE.ACLED;
 
-// Max events per cycle — prevents oversized payloads
-const MAX_EVENTS = 500;
-
-// Lookback window in days
+const CACHE_KEY  = 'acled_events_v1';
+const MAX_EVENTS = 250;
 const HISTORY_DAYS = 90;
 
 const CORS_HEADERS = {
@@ -51,7 +51,6 @@ function normalizeEvent(raw, index) {
   if (!isFinite(lat) || !isFinite(lon)) return null;
   if (lat < -90 || lat > 90 || lon < -180 || lon > 180) return null;
 
-  // Stable ID: prefer composite key, fall back to index
   const id = raw.event_id_cnty
     || (raw.event_id ? String(raw.event_id) + '_' + (raw.iso || '') : null)
     || ('acled_' + index);
@@ -68,7 +67,7 @@ function normalizeEvent(raw, index) {
     actor1:       raw.actor1          || null,
     actor2:       raw.actor2          || null,
     fatalities:   parseInt(raw.fatalities) || 0,
-    notes:        (raw.notes || '').slice(0, 300),
+    notes:        (raw.notes || '').slice(0, 150),
     source:       raw.source          || 'ACLED',
   };
 }
@@ -79,12 +78,58 @@ function getDateNDaysAgo(n) {
   return d.toISOString().slice(0, 10);
 }
 
+// ── ACLED fetch ───────────────────────────────────────────────────────────────
+// Throws with err.status = 429 on rate limit, err.status = 402 on credit exhaustion.
+async function fetchAcledData() {
+  const since  = getDateNDaysAgo(HISTORY_DAYS);
+  const today  = new Date().toISOString().slice(0, 10);
+
+  const params = new URLSearchParams({
+    key:                ACLED_KEY,
+    email:              ACLED_EMAIL,
+    limit:              String(MAX_EVENTS),
+    event_date:         since + '|' + today,
+    event_date_where:   'BETWEEN',
+    fields:             'event_id_cnty,event_date,event_type,sub_event_type,actor1,actor2,country,region,latitude,longitude,fatalities,notes,source',
+  });
+
+  const resp = await fetch(ACLED_BASE_URL + '?' + params.toString(), {
+    headers: { 'Accept': 'application/json' },
+    signal:  AbortSignal.timeout ? AbortSignal.timeout(20000) : undefined,
+  });
+
+  // 429 = rate limit, 402 = credit exhaustion — both are quota errors
+  if (resp.status === 429 || resp.status === 402) {
+    throw Object.assign(
+      new Error('ACLED quota exhausted (HTTP ' + resp.status + ')'),
+      { status: resp.status }
+    );
+  }
+
+  if (!resp.ok) throw new Error('ACLED HTTP ' + resp.status);
+
+  const rawData = await resp.json();
+  const rawEvents = rawData && Array.isArray(rawData.data) ? rawData.data : [];
+  const events = [];
+  const seen   = new Set();
+
+  for (let i = 0; i < rawEvents.length && events.length < MAX_EVENTS; i++) {
+    const norm = normalizeEvent(rawEvents[i], i);
+    if (!norm) continue;
+    if (seen.has(norm.id)) continue;
+    seen.add(norm.id);
+    events.push(norm);
+  }
+
+  return { events, source: 'acled', ts: Date.now(), count: events.length };
+}
+
+// ── Handler ───────────────────────────────────────────────────────────────────
 exports.handler = async function(event) {
   if (event.httpMethod === 'OPTIONS') {
     return { statusCode: 204, headers: CORS_HEADERS, body: '' };
   }
 
-  // Feature gate — return empty payload if disabled
   if (!ENABLE_ACLED) {
     return {
       statusCode: 200,
@@ -104,84 +149,73 @@ exports.handler = async function(event) {
 
   const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
-  // ── Supabase cache read ────────────────────────────────────────────────────
-  try {
-    const { data: row } = await supabase
-      .from('argus_cache')
-      .select('payload, updated_at')
-      .eq('key', CACHE_KEY)
-      .single();
+  // ── Cache read ─────────────────────────────────────────────────────────────
+  const cached = await Cache.readCache(supabase, CACHE_KEY, TTL_MS, STALE_MS);
 
-    if (row && row.payload) {
-      const age = Date.now() - new Date(row.updated_at).getTime();
-      if (age < CACHE_TTL_MS) {
-        return {
-          statusCode: 200,
-          headers: { ...CORS_HEADERS, 'Cache-Control': 'public, max-age=3600' },
-          body: JSON.stringify({ ...row.payload, cached: true }),
-        };
-      }
-    }
-  } catch (_) { /* cache miss — proceed to fetch */ }
-
-  // ── ACLED API fetch ────────────────────────────────────────────────────────
-  const since  = getDateNDaysAgo(HISTORY_DAYS);
-  const today  = new Date().toISOString().slice(0, 10);
-
-  const params = new URLSearchParams({
-    key:                ACLED_KEY,
-    email:              ACLED_EMAIL,
-    limit:              String(MAX_EVENTS),
-    event_date:         since + '|' + today,
-    event_date_where:   'BETWEEN',
-    fields:             'event_id_cnty,event_date,event_type,sub_event_type,actor1,actor2,country,region,latitude,longitude,fatalities,notes,source',
-  });
-
-  let rawData;
-  try {
-    const url    = ACLED_BASE_URL + '?' + params.toString();
-    const resp   = await fetch(url, {
-      headers: { 'Accept': 'application/json' },
-      signal:  AbortSignal.timeout ? AbortSignal.timeout(20000) : undefined,
-    });
-    if (!resp.ok) throw new Error('ACLED HTTP ' + resp.status);
-    rawData = await resp.json();
-  } catch (err) {
-    console.error('[fetch-acled] upstream fetch failed:', err.message);
+  if (cached.isFresh) {
     return {
-      statusCode: 502,
-      headers: CORS_HEADERS,
-      body: JSON.stringify({ error: 'ACLED upstream unavailable', events: [] }),
+      statusCode: 200,
+      headers: { ...CORS_HEADERS, 'Cache-Control': 'public, max-age=3600' },
+      body: JSON.stringify({ ...cached.payload, cached: true }),
     };
   }
 
-  const rawEvents = rawData && Array.isArray(rawData.data) ? rawData.data : [];
-  const events    = [];
-  const seen      = new Set();
-
-  for (let i = 0; i < rawEvents.length && events.length < MAX_EVENTS; i++) {
-    const norm = normalizeEvent(rawEvents[i], i);
-    if (!norm) continue;
-    if (seen.has(norm.id)) continue;
-    seen.add(norm.id);
-    events.push(norm);
+  // Cross-instance coalescing: another Lambda wrote within COALESCE_WINDOW_MS
+  if (cached.wasRecentlyWritten && cached.hasData) {
+    return {
+      statusCode: 200,
+      headers: { ...CORS_HEADERS, 'Cache-Control': 'public, max-age=3600' },
+      body: JSON.stringify({ ...cached.payload, cached: true }),
+    };
   }
 
-  const payload = { events, source: 'acled', ts: Date.now(), count: events.length };
-
-  // ── Supabase cache write ───────────────────────────────────────────────────
+  // ── Fetch (in-memory coalescing within same Lambda instance) ───────────────
+  let payload;
   try {
-    await supabase
-      .from('argus_cache')
-      .upsert(
-        { key: CACHE_KEY, payload, updated_at: new Date().toISOString() },
-        { onConflict: 'key' }
-      );
+    payload = await Cache.withCoalescing(CACHE_KEY, fetchAcledData);
   } catch (err) {
-    console.warn('[fetch-acled] cache write failed:', err.message);
+    const isQuota = err.status === 429 || err.status === 402;
+
+    if (isQuota) {
+      console.error('[QUOTA_EXHAUSTED][fetch-acled] ACLED quota/rate-limit (HTTP ' + err.status + ') —',
+        cached.hasData
+          ? 'serving stale cache (age=' + Math.round(cached.ageMs / 60000) + 'min)'
+          : 'no cache available. Retry in ~24h or check ACLED account credits.');
+    } else {
+      console.error('[fetch-acled] upstream fetch failed:', err.message);
+    }
+
+    // Serve stale cache on quota exhaustion or any upstream failure
+    if (cached.isStale && cached.hasData) {
+      return {
+        statusCode: 200,
+        headers: { ...CORS_HEADERS, 'Cache-Control': 'no-store' },
+        body: JSON.stringify({
+          ...cached.payload,
+          cached:     true,
+          degraded:   true,
+          staleAgeMs: cached.ageMs,
+          error:      isQuota ? 'upstream_quota_exhausted' : 'upstream_error',
+        }),
+      };
+    }
+
+    return {
+      statusCode: isQuota ? 429 : 502,
+      headers: CORS_HEADERS,
+      body: JSON.stringify({
+        error:  isQuota
+          ? 'ACLED quota exhausted. Data temporarily unavailable; try again in 24h.'
+          : 'ACLED upstream unavailable',
+        events: [],
+      }),
+    };
   }
 
-  console.log('[fetch-acled] returned', events.length, 'events (', HISTORY_DAYS, 'day window)');
+  // ── Cache write ────────────────────────────────────────────────────────────
+  await Cache.writeCache(supabase, CACHE_KEY, payload);
+
+  console.log('[fetch-acled] returned', payload.count, 'events (', HISTORY_DAYS, 'day window)');
 
   return {
     statusCode: 200,

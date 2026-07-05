@@ -51,6 +51,7 @@ window.ArgusTradeWeb = (function () {
     year:         2023,
     data:         null,
     loading:      false,
+    controller:   null,
     chart:        null,
     countryCodes: null,
     initialized:  false,
@@ -147,7 +148,13 @@ window.ArgusTradeWeb = (function () {
 
   // ── Fetch ───────────────────────────────────────────────────────────────────
   function _fetchTrade(reporter, partner, year) {
-    if (_store.loading) return;
+    // Cancel any in-flight request before starting a new one.
+    // This releases the Lambda slot and prevents stale responses from racing.
+    if (_store.controller) {
+      _store.controller.abort();
+      _store.controller = null;
+    }
+
     _store.loading  = true;
     _store.reporter = reporter;
     _store.partner  = partner;
@@ -160,22 +167,30 @@ window.ArgusTradeWeb = (function () {
 
     _updateHash();
 
+    var ctrl = new AbortController();
+    _store.controller = ctrl;
+
     fetch('/.netlify/functions/fetch-comtrade?reporter=' + encodeURIComponent(reporter) +
           '&partner=' + encodeURIComponent(partner) +
-          '&year=' + encodeURIComponent(year))
+          '&year=' + encodeURIComponent(year),
+          { signal: ctrl.signal })
       .then(function (r) {
         if (r.status === 429) throw Object.assign(new Error('rate_limit'), { status: 429 });
         if (!r.ok) throw new Error('HTTP ' + r.status);
         return r.json();
       })
       .then(function (data) {
-        _store.data    = data;
-        _store.loading = false;
+        _store.data       = data;
+        _store.loading    = false;
+        _store.controller = null;
         if (btn) btn.disabled = false;
         _renderPanel(data);
       })
       .catch(function (err) {
-        _store.loading = false;
+        // AbortError means a newer request superseded this one — stay quiet.
+        if (err.name === 'AbortError') return;
+        _store.loading    = false;
+        _store.controller = null;
         if (btn) btn.disabled = false;
         var msg = err.status === 429
           ? 'Rate limit reached — Comtrade allows ~500 requests/day. Try again in a minute.'

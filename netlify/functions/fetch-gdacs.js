@@ -35,6 +35,7 @@ const ADAPTER     = require('../lib/gdacs-adapter');
 const VALIDATOR   = require('../lib/gdacs-validator');
 const NORMALIZER  = require('../lib/gdacs-normalizer');
 const HEALTH      = require('../lib/gdacs-health');
+const Cache       = require('../lib/argus-cache');
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY;
@@ -315,10 +316,18 @@ exports.handler = async function(event) {
   console.log(PREFIX, 'cache miss (age=' + Math.round(cacheAgeMs / 60000) + 'min) — fetching GDACS');
 
   try {
-    fetchResult = await _fetchWithRetry(gdacsUrl);
+    fetchResult = await Cache.withCoalescing(ADAPTER.cacheKey, function() {
+      return _fetchWithRetry(gdacsUrl);
+    });
   } catch (err) {
     fetchErr = err;
-    console.error(PREFIX, 'fetch failed:', err.message);
+    // Distinct log format for quota exhaustion vs other failures
+    if (err && (err.status === 429 || (err.message && err.message.includes('429')))) {
+      console.error(PREFIX, '[QUOTA_EXHAUSTED] GDACS rate limit hit —',
+        dataRow ? 'stale fallback available' : 'no cache available');
+    } else {
+      console.error(PREFIX, 'fetch failed:', err.message);
+    }
   }
 
   // ── Fetch failure path ───────────────────────────────────────────────────────

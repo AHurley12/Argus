@@ -387,12 +387,14 @@ exports.handler = async function(event) {
     };
   }
 
+  // Strip raw records from payload — frontend only needs total_usd, not full commodity rows.
+  // Records are still in tradeData for the bilateral_trade_cache write below.
   const payload = {
     reporter:    reporter,
     partner:     partner,
     year:        year,
-    exports:     tradeData.exports,
-    imports:     tradeData.imports,
+    exports:     { total_usd: tradeData.exports.total_usd },
+    imports:     { total_usd: tradeData.imports.total_usd },
     balance_usd: tradeData.balance_usd,
     top_exports: tradeData.top_exports,
     top_imports: tradeData.top_imports,

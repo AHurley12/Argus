@@ -36,7 +36,7 @@ const TTL_MS   = parseInt(process.env.ACLED_POLL_INTERVAL_MS || '') || Cache.TTL
 const STALE_MS = Cache.STALE.ACLED;
 
 const CACHE_KEY  = 'acled_events_v1';
-const MAX_EVENTS = 500;
+const MAX_EVENTS = 250;
 const HISTORY_DAYS = 90;
 
 const CORS_HEADERS = {
@@ -67,7 +67,7 @@ function normalizeEvent(raw, index) {
     actor1:       raw.actor1          || null,
     actor2:       raw.actor2          || null,
     fatalities:   parseInt(raw.fatalities) || 0,
-    notes:        (raw.notes || '').slice(0, 300),
+    notes:        (raw.notes || '').slice(0, 150),
     source:       raw.source          || 'ACLED',
   };
 }

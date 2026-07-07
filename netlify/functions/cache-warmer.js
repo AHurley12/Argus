@@ -8,10 +8,15 @@
 // absent cache entries trigger real upstream requests.
 //
 // Coverage:
-//   - NOAA   — every run (15-min TTL, short stale window)
-//   - ACLED  — every run (4h TTL; most runs are cache hits)
-//   - GDACS  — every run (30-min TTL)
-//   - Comtrade — top 30 bilateral pairs × 2 years (7-day TTL; ~9 real calls/day)
+//   - NOAA        — every run (15-min TTL, short stale window)
+//   - ACLED       — every run (4h TTL; most runs are cache hits)
+//   - GDACS       — every run (30-min TTL)
+//   - Temperature — every run (2h TTL; alternating cache hit/miss — 3 Open-Meteo calls every 2h)
+//   - Comtrade    — top 30 bilateral pairs × 2 years (7-day TTL; ~9 real calls/day)
+//
+// Temperature quota math:
+//   2h TTL → 12 real fetches/day max. Each fetch = 2 Open-Meteo requests.
+//   12 × 2 = 24 requests/day → well within the 10,000/day free tier limit.
 //
 // Comtrade quota math:
 //   30 pairs × 2 years = 60 potential calls.
@@ -105,12 +110,13 @@ exports.handler = async function(event) {
 
   var results = [];
 
-  // ── Phase 1: Single-key endpoints (NOAA, ACLED, GDACS) ────────────────────
+  // ── Phase 1: Single-key endpoints (NOAA, ACLED, GDACS, Temperature) ─────────
   // Run in parallel — these are independent and have their own caching.
   var phase1 = await Promise.allSettled([
-    warmEndpoint('fetch-noaa',  'NOAA'),
-    warmEndpoint('fetch-acled', 'ACLED'),
-    warmEndpoint('fetch-gdacs', 'GDACS'),
+    warmEndpoint('fetch-noaa',        'NOAA'),
+    warmEndpoint('fetch-acled',       'ACLED'),
+    warmEndpoint('fetch-gdacs',       'GDACS'),
+    warmEndpoint('fetch-temperature', 'TEMPERATURE'),
   ]);
 
   for (var r of phase1) {

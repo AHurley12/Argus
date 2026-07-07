@@ -29,13 +29,14 @@ const CACHE_TABLE = 'argus_cache';
 // These match the polling cadence of frontend modules so the shared Supabase
 // cache acts as the effective rate gate for all users combined.
 const TTL = {
-  NOAA:      15 * 60 * 1000,              // 15 min — NWS/NHC weather alerts
-  ACLED:      4 * 60 * 60 * 1000,        // 4h — armed conflict events
-  GDACS:     30 * 60 * 1000,              // 30 min — global disaster alerts
-  EONET:     15 * 60 * 1000,              // 15 min — NASA Earth events
-  COMTRADE:   7 * 24 * 60 * 60 * 1000,  // 7 days — annual trade data
-  RELIEFWEB:  1 * 60 * 60 * 1000,        // 1h — relief operations
-  UNHCR:     24 * 60 * 60 * 1000,        // 24h — refugee/displacement data
+  NOAA:        15 * 60 * 1000,              // 15 min — NWS/NHC weather alerts
+  ACLED:        4 * 60 * 60 * 1000,        // 4h — armed conflict events
+  GDACS:       30 * 60 * 1000,              // 30 min — global disaster alerts
+  EONET:       15 * 60 * 1000,              // 15 min — NASA Earth events
+  COMTRADE:     7 * 24 * 60 * 60 * 1000,  // 7 days — annual trade data
+  RELIEFWEB:    1 * 60 * 60 * 1000,        // 1h — relief operations
+  UNHCR:       24 * 60 * 60 * 1000,        // 24h — refugee/displacement data
+  TEMPERATURE:  2 * 60 * 60 * 1000,        // 2h — global temperature grid (Open-Meteo)
 };
 
 // ── Stale window constants ────────────────────────────────────────────────────
@@ -46,13 +47,14 @@ const TTL = {
 //   GDACS: 4h — disaster events are rarely retracted; stale is better than nothing
 //   COMTRADE: 30d — annual trade statistics; year-old data is still accurate
 const STALE = {
-  NOAA:       2 * 60 * 60 * 1000,        // 2h
-  ACLED:     24 * 60 * 60 * 1000,        // 24h
-  GDACS:      4 * 60 * 60 * 1000,        // 4h (matches existing staleCachePolicy)
-  EONET:      4 * 60 * 60 * 1000,        // 4h
-  COMTRADE:  30 * 24 * 60 * 60 * 1000,  // 30 days
-  RELIEFWEB:  6 * 60 * 60 * 1000,        // 6h
-  UNHCR:     72 * 60 * 60 * 1000,        // 72h
+  NOAA:         2 * 60 * 60 * 1000,        // 2h
+  ACLED:       24 * 60 * 60 * 1000,        // 24h
+  GDACS:        4 * 60 * 60 * 1000,        // 4h (matches existing staleCachePolicy)
+  EONET:        4 * 60 * 60 * 1000,        // 4h
+  COMTRADE:    30 * 24 * 60 * 60 * 1000,  // 30 days
+  RELIEFWEB:    6 * 60 * 60 * 1000,        // 6h
+  UNHCR:       72 * 60 * 60 * 1000,        // 72h
+  TEMPERATURE:  6 * 60 * 60 * 1000,        // 6h — temperature heatmap can tolerate a few hours stale
 };
 
 // If another instance wrote to the same cache key within this window, treat the

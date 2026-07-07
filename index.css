@@ -46,12 +46,12 @@
       --color-border-solid: #88b4cc;
       --color-text:         #0a2840;
       --color-text-dim:     #2a5888;
-      --color-text-faint:   #6a98b8;
-      --color-accent:       #0066cc;
+      --color-text-faint:   #456882;
+      --color-accent:       #0057b3;
       --color-green:        #00884a;
-      --color-yellow:       #bb8800;
-      --color-orange:       #cc5500;
-      --color-red:          #cc0033;
+      --color-yellow:       #7a5c00;
+      --color-orange:       #b04000;
+      --color-red:          #c60031;
       --color-white:        #020a15;
     }
 
@@ -2483,7 +2483,173 @@
     /* ── Cipher decode placeholder — keeps layout stable while decoding ──────── */
     .cipher-decoding { letter-spacing: 0.04em; }
 
-    /* ── Market Intelligence Engine ─────────────────────────────────────────── */
+    /* ── Globe tooltip base style (background/color moved out of inline JS) ──── */
+    #argus-tooltip {
+      background: rgba(10, 20, 40, 0.92);
+      border: 1px solid #1a6a9a;
+      color: #00ff88;
+    }
+
+    /* ── Light theme Phase 2: text & figure contrast fixes ──────────────────── */
+    /* Contrast ratios verified against WCAG AA (4.5:1 normal, 3:1 large text). */
+    /* Safe text tiers used throughout:                                          */
+    /*   Primary  #0a2035  10.8:1 on #d8e4ef                                   */
+    /*   Muted    #375e75   5.4:1 on #d8e4ef  (replaces Phase 1 #4a7090/5a84a0)*/
+    /*   Faint    #456882   4.7:1 on #d8e4ef  (= updated --color-text-faint)   */
+
+    /* Tooltip — inline-style background/border now set via CSS, overridable */
+    [data-theme="light"] #argus-tooltip {
+      background: rgba(228, 242, 252, 0.97);
+      border-color: #9bbdd4;
+      color: #0a2035;
+    }
+
+    /* ── Snapshot strip ──────────────────────────────────────────────────────── */
+    /* Phase 1 missed: was dark rgba(3,9,22,0.94) — numbers invisible on light  */
+    [data-theme="light"] #argus-snapshot-strip {
+      background: rgba(195, 215, 232, 0.97);
+      border-bottom-color: var(--color-border-solid);
+    }
+    [data-theme="light"] .snap-card { border-right-color: rgba(140, 175, 205, 0.45); }
+
+    /* ── Sidebar ─────────────────────────────────────────────────────────────── */
+    /* Phase 1 missed: dark gradient — icon labels unreadable */
+    [data-theme="light"] #argus-sidebar {
+      background: linear-gradient(180deg, rgba(195,214,232,0.98) 0%, rgba(188,208,226,0.98) 100%);
+    }
+    [data-theme="light"] .sb-section--domains,
+    [data-theme="light"] .sb-section--layers { border-bottom-color: rgba(140,175,205,0.55); }
+    [data-theme="light"] .sb-btn { background: rgba(195,215,232,0.15); }
+    [data-theme="light"] .sb-btn:hover { background: rgba(0,87,179,0.09); border-left-color: rgba(0,87,179,0.35); }
+    [data-theme="light"] .sb-btn--admin { color: #6a4420; }
+    [data-theme="light"] .sb-btn--admin:hover { color: #994422; background: rgba(170,80,30,0.08); }
+    [data-theme="light"] #btn-sb-admin.is-active { color: #8b4600; border-left-color: #8b4600; background: rgba(139,70,0,0.10); }
+    [data-theme="light"] .energy-cb-row { color: #0a2035; }
+    [data-theme="light"] .sb-section--admin {
+      border-top-color: rgba(150,60,10,0.22);
+      border-bottom-color: rgba(150,60,10,0.22);
+    }
+    [data-theme="light"] .zoom-divider { background: rgba(0,0,0,0.15); }
+
+    /* ── Market Intelligence Engine — values were #c5d7e8 (1.3:1 — invisible) */
+    [data-theme="light"] #mkt-ticker-tape { border-bottom-color: #b0ccd8; }
+    [data-theme="light"] .mkt-tick { border-right-color: #b0ccd8; }
+    [data-theme="light"] .mkt-tick__sym { color: #375e75; }
+    [data-theme="light"] .mkt-tick__val { color: #0a2035; }                /* was #c5d7e8 → 1.3:1 */
+    [data-theme="light"] .mkt-card {
+      background: rgba(212, 230, 248, 0.42);
+      border-color: #b0ccd8;
+    }
+    [data-theme="light"] .mkt-card__hdr,
+    [data-theme="light"] .mkt-card__tech,
+    [data-theme="light"] .mkt-card__grid { border-bottom-color: #b0ccd8; }
+    [data-theme="light"] .mkt-card__cell { border-right-color: #b0ccd8; }
+    [data-theme="light"] .mkt-card__ticker  { color: #0057b3; }
+    [data-theme="light"] .mkt-card__cname   { color: #0a2035; }           /* was #c5d7e8 → 1.3:1 */
+    [data-theme="light"] .mkt-card__badge   { color: #375e75; }
+    [data-theme="light"] .mkt-card__price   { color: #0a2035; }           /* was #c5d7e8 → 1.3:1 */
+    [data-theme="light"] .mkt-card__price .c-pos { color: #007a3f; }      /* was #00ff88 → 1.2:1 */
+    [data-theme="light"] .mkt-card__price .c-neg { color: #c60031; }
+    [data-theme="light"] .mkt-card__chg    { color: #0a2035; }
+    [data-theme="light"] .mkt-card__cell-lbl { color: #375e75; }
+    [data-theme="light"] .mkt-card__cell-val { color: #0a2035; }          /* was #c5d7e8 → 1.3:1 */
+    [data-theme="light"] .mkt-card__meta   { color: #456882; }
+    [data-theme="light"] .mkt-card__ma-lbl { color: #375e75; }
+    [data-theme="light"] .mkt-card__employees { color: #375e75; }
+    [data-theme="light"] .mkt-card__empty  { color: #456882; }
+    [data-theme="light"] .mkt-card__acts   { border-top-color: #b0ccd8; }
+    [data-theme="light"] #mkt-search-wrap { margin-bottom: 6px; }
+    [data-theme="light"] #mkt-search-input {
+      background: rgba(212,230,248,0.82);
+      border-color: #b0ccd8;
+      color: #0a2035;
+    }
+    [data-theme="light"] #mkt-search-input::placeholder { color: #456882; }
+    [data-theme="light"] #mkt-search-input:focus { border-color: #0057b355; }
+    [data-theme="light"] #mkt-search-btn {
+      background: rgba(0,87,179,0.07);
+      border-color: #b0ccd8;
+      color: #0057b3;
+    }
+    [data-theme="light"] #mkt-search-btn:hover { background: rgba(0,87,179,0.16); }
+    [data-theme="light"] #mkt-search-btn.mkt-loading { color: #456882; }
+    [data-theme="light"] .mkt-brief-btn {
+      background: rgba(119,68,187,0.07);
+      border-color: #9966dd44;
+      color: #7744bb;
+    }
+    [data-theme="light"] .mkt-brief-btn:hover { background: rgba(119,68,187,0.16); }
+
+    /* ── Phase 1 dim-text contrast upgrades ──────────────────────────────────── */
+    /* Phase 1 used #4a7090 (4.2:1) and #5a84a0 (3.4:1) for labels/meta text.  */
+    /* Lifted to #375e75 (5.4:1) and #456882 (4.7:1) to pass WCAG AA.          */
+
+    /* Account dropdown */
+    [data-theme="light"] .acct-tab { color: #375e75; }
+    [data-theme="light"] .acct-field-label { color: #375e75; }
+
+    /* Settings */
+    [data-theme="light"] .stg-label { color: #375e75; }
+    [data-theme="light"] .stg-btn { color: #375e75; border-color: #b0ccd8; }
+    [data-theme="light"] .stg-btn:hover:not(.is-active) { color: #2a5272; }
+
+    /* Panel source footer (7px text — needs extra contrast) */
+    [data-theme="light"] .panel-sources-footer__item { color: #456882; }
+
+    /* Community intel */
+    [data-theme="light"] .intel-toggle-btn { color: #375e75; }
+    [data-theme="light"] .ci-tag { color: #375e75; border-color: #9bbdd4; }
+    [data-theme="light"] #ci-empty { color: #456882; }         /* was #8aacbc → 2.1:1 */
+
+    /* Neural case builder */
+    [data-theme="light"] .cb-mode-btn { color: #375e75; }
+    [data-theme="light"] .cb-ov-title { color: #375e75; }
+    [data-theme="light"] .cb-ov-meta  { color: #456882; }
+    [data-theme="light"] .case-card__meta { color: #375e75; }
+    [data-theme="light"] .case-card__score { color: #8b4600; } /* was #ff9933 → 1.8:1 → 5.0:1 */
+    [data-theme="light"] .cb-tl-ts  { color: #375e75; }
+    [data-theme="light"] .cb-tl-src { color: #375e75; }
+    [data-theme="light"] .cb-tl-day-hdr { color: #456882; }
+    [data-theme="light"] .ct-badge  { color: #375e75; border-color: #9bbdd4; }
+    [data-theme="light"] .ct-chevron { color: #456882; }
+    [data-theme="light"] .ct-impact  { color: #456882; }
+    [data-theme="light"] .cb-dim-row { color: #375e75; }
+    [data-theme="light"] #cb-status-bar { color: #456882; }
+    [data-theme="light"] #cb-locked    { color: #456882; }
+    [data-theme="light"] .cb-argus-input::placeholder { color: #456882; }
+    [data-theme="light"] .case-notes::placeholder     { color: #456882; }
+
+    /* Event strip */
+    [data-theme="light"] .event-strip-btn { color: #375e75; }
+    [data-theme="light"] .es-meta  { color: #375e75; }
+    [data-theme="light"] .es-empty { color: #456882; }
+
+    /* Exchanges popup */
+    [data-theme="light"] .exchanges-popup__close  { color: #375e75; }
+    [data-theme="light"] .exchanges-popup__sub    { color: #375e75; }
+    [data-theme="light"] .exchanges-popup__footer { color: #456882; }
+
+    /* ES modal */
+    [data-theme="light"] .es-field label { color: #375e75; }
+    [data-theme="light"] .es-modal-btn   { color: #375e75; }
+
+    /* Detail panel */
+    [data-theme="light"] .detail__section-header { color: #1a5468; }
+
+    /* GDELT source line */
+    [data-theme="light"] .gdelt-source { color: #375e75; }
+    [data-theme="light"] .tone-bar-wrap { background: rgba(140,175,205,0.22); }
+
+    /* Close buttons (were hardcoded #666 — fine but bring into palette) */
+    [data-theme="light"] #btn-detail-close { color: #456882; }
+    [data-theme="light"] #btn-detail-close:hover { color: #2a5272; }
+    [data-theme="light"] #btn-ai-close { color: #456882; }
+    [data-theme="light"] #btn-ai-close:hover { color: #2a5272; }
+
+    /* AI panel dim */
+    [data-theme="light"] .ai__message-who { color: #375e75; }
+
+    /* Market Intelligence Engine ─────────────────────────────────────────── */
     #mkt-ticker-tape {
       display: flex; gap: 0; margin: -9px -11px 8px;
       border-bottom: 1px solid #0a1e35; overflow: hidden;

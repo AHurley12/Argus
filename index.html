@@ -185,7 +185,15 @@
           <button class="stg-btn" id="stg-tz-local"  onclick="ArgusSettings.setTimezone('local')">LOCAL</button>
           <button class="stg-btn" id="stg-tz-custom" onclick="ArgusSettings.setTimezone('custom')">CUSTOM</button>
         </div>
-        <select id="stg-tz-select" onchange="ArgusSettings.setCustomTz(this.value)"></select>
+        <select id="stg-tz-select" onchange="ArgusSettings.previewTz(this.value)"></select>
+        <div id="stg-tz-confirm" style="display:none;margin-top:5px;padding:6px 8px;background:rgba(0,87,179,0.07);border:1px solid var(--color-border-solid);border-radius:2px;">
+          <div style="font-size:8px;letter-spacing:1.5px;color:var(--color-text-faint);margin-bottom:4px;font-family:var(--font-mono)">APPLY TIMEZONE?</div>
+          <div id="stg-tz-confirm-text" style="font-size:9px;letter-spacing:1px;color:var(--color-text-dim);margin-bottom:6px;font-family:var(--font-mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis"></div>
+          <div style="display:flex;gap:5px">
+            <button class="stg-btn" style="flex:1" onclick="ArgusSettings.applyPendingTz()">APPLY</button>
+            <button class="stg-btn" style="flex:1" onclick="ArgusSettings.cancelPendingTz()">CANCEL</button>
+          </div>
+        </div>
       </div>
 
     </div>
@@ -252,6 +260,11 @@
               onclick="window._toggleWeatherLayer && window._toggleWeatherLayer()"
               title="Toggle NOAA weather layer (key W)">
         <span class="sb-icon">⊛</span><span>WX</span>
+      </button>
+      <button id="btn-track-temp" class="sb-btn track-btn"
+              onclick="window.ArgusTemperatureLayer && ArgusTemperatureLayer.toggle()"
+              title="Toggle global temperature heatmap (key H)">
+        <span class="sb-icon">⊙</span><span>TEMP</span>
       </button>
       <button id="btn-sb-energy" class="sb-btn"
               onclick="window._toggleEnergyLayer && window._toggleEnergyLayer()"
@@ -955,6 +968,7 @@ window.ArgusLayerState = {
   aisVessels:  false,  // default OFF — mirrors aisOn in ArgusAIS
   weather:     false,  // animated NOAA pulse + cyclone sprite layer
   energy:      false,  // GEM energy infrastructure layer — independent of events
+  temperature: false,  // global temperature heatmap (Open-Meteo)
 };
 
 document.addEventListener('DOMContentLoaded', function() {
@@ -1200,6 +1214,9 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     if (e.key.toLowerCase() === 'w') {
       _toggleWeatherLayer();
+    }
+    if (e.key.toLowerCase() === 'h') {
+      if (window.ArgusTemperatureLayer) ArgusTemperatureLayer.toggle();
     }
     if (e.key.toLowerCase() === 'k') {
       var cpOn = !(window.ArgusLayerState.chokepoints);
@@ -2500,6 +2517,9 @@ document.addEventListener('DOMContentLoaded', function() {
   // Expose for external access
   window.ArgusGlobe = { scene: scene, camera: camera, renderer: renderer, globe: Globe, globeGroup: globeGroup, dataGroup: dataGroup, eventMarkerGroup: eventMarkerGroup, weatherSpriteGroup: weatherSpriteGroup, latLonToVector: latLonToVector, R: R, clearHover: clearHoverTooltip, focusEntity: focusEntity };
   if (window.ArgusPerf) ArgusPerf.mark('ARGUS_GLOBE_EXPORTED');
+
+  // Temperature heatmap — init after ArgusGlobe is set so the module can access globeGroup
+  if (window.ArgusTemperatureLayer) ArgusTemperatureLayer.init();
 
   // ── Read-only debug interface — diagnostics only, no mutation surface ─────────
   window.ArgusDebug = Object.freeze({
@@ -6550,16 +6570,30 @@ window.ArgusAI = (function() {
 // Clock — local timezone, updates every second
 // ════════════════════════════════════════════════════════════════════════════
 (function initClock() {
-  var tz   = Intl.DateTimeFormat().resolvedOptions().timeZone;
-  var abbr = new Date().toLocaleTimeString('en-US', { timeZone: tz, timeZoneName: 'short' }).split(' ').pop();
-  document.getElementById('tz-label').textContent = abbr;
+  function _resolveTz() {
+    var mode = localStorage.getItem('argus-timezone') || 'UTC';
+    if (mode === 'local')  return Intl.DateTimeFormat().resolvedOptions().timeZone;
+    if (mode === 'custom') return localStorage.getItem('argus-timezone-custom') || 'UTC';
+    return 'UTC';
+  }
+  function _updateLabel() {
+    var tz = _resolveTz();
+    try {
+      var abbr = new Date().toLocaleTimeString('en-US', { timeZone: tz, timeZoneName: 'short' }).split(' ').pop();
+      document.getElementById('tz-label').textContent = abbr;
+    } catch (e) { document.getElementById('tz-label').textContent = 'TZ'; }
+  }
   function tick() {
+    var tz  = _resolveTz();
+    var fmt = localStorage.getItem('argus-time-format') || '24h';
     document.getElementById('utc-display').textContent = new Date().toLocaleTimeString('en-US', {
-      timeZone: tz, hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
+      timeZone: tz, hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: fmt === '12h'
     });
   }
+  _updateLabel();
   tick();
   setInterval(tick, 1000);
+  document.addEventListener('argus-settings-changed', function() { _updateLabel(); tick(); });
 })();
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -7308,6 +7342,7 @@ ArgusMarket.init();
 <script src="/modules/argusNoaa.js?v=perf-fix-9"></script>
 <script src="/modules/argusWeatherLayer.js?v=stable-v3"></script>
 <script src="/modules/argusGem.js?v=gipt-v2"></script>
+<script src="/modules/argusTemperatureLayer.js?v=1"></script>
 
   <!-- ── Global Exchanges Popup ─────────────────────────────────────────────── -->
 
@@ -12187,17 +12222,76 @@ window.ArgusSettings = (function() {
   }
 
   // ── TIMEZONE ──────────────────────────────────────────────────────────────
+  var CURATED_TZ = [
+    { id: 'UTC',                            label: 'UTC' },
+    { id: 'America/New_York',               label: 'New York (ET)' },
+    { id: 'America/Chicago',                label: 'Chicago (CT)' },
+    { id: 'America/Denver',                 label: 'Denver (MT)' },
+    { id: 'America/Los_Angeles',            label: 'Los Angeles (PT)' },
+    { id: 'America/Anchorage',              label: 'Anchorage (AKT)' },
+    { id: 'Pacific/Honolulu',               label: 'Honolulu (HST)' },
+    { id: 'America/Sao_Paulo',              label: 'São Paulo (BRT)' },
+    { id: 'America/Argentina/Buenos_Aires', label: 'Buenos Aires (ART)' },
+    { id: 'Europe/London',                  label: 'London (GMT/BST)' },
+    { id: 'Europe/Paris',                   label: 'Paris (CET)' },
+    { id: 'Europe/Helsinki',                label: 'Helsinki (EET)' },
+    { id: 'Europe/Moscow',                  label: 'Moscow (MSK)' },
+    { id: 'Africa/Cairo',                   label: 'Cairo (EET)' },
+    { id: 'Africa/Johannesburg',            label: 'Johannesburg (SAST)' },
+    { id: 'Asia/Dubai',                     label: 'Dubai (GST)' },
+    { id: 'Asia/Karachi',                   label: 'Karachi (PKT)' },
+    { id: 'Asia/Kolkata',                   label: 'Kolkata (IST)' },
+    { id: 'Asia/Bangkok',                   label: 'Bangkok (ICT)' },
+    { id: 'Asia/Singapore',                 label: 'Singapore (SGT)' },
+    { id: 'Asia/Tokyo',                     label: 'Tokyo (JST)' },
+    { id: 'Asia/Seoul',                     label: 'Seoul (KST)' },
+    { id: 'Australia/Sydney',               label: 'Sydney (AEDT/AEST)' },
+    { id: 'Pacific/Auckland',               label: 'Auckland (NZST/NZDT)' },
+  ];
+
+  var _pendingTz = null;
+
   function setTimezone(tz) {
     localStorage.setItem(K.tz, tz);
     _sync('stg-tz-', tz, ['UTC', 'local', 'custom']);
-    var sel = document.getElementById('stg-tz-select');
-    if (sel) sel.style.display = tz === 'custom' ? 'block' : 'none';
+    var sel     = document.getElementById('stg-tz-select');
+    var confirm = document.getElementById('stg-tz-confirm');
+    if (sel)     sel.style.display     = tz === 'custom' ? 'block' : 'none';
+    if (confirm) confirm.style.display = 'none';
+    _pendingTz = null;
     _dispatch();
   }
 
-  function setCustomTz(tzId) {
-    localStorage.setItem(K.tzCustom, tzId);
+  // Show confirm widget; does NOT commit to localStorage yet
+  function previewTz(tzId) {
+    _pendingTz = tzId;
+    var label = tzId;
+    for (var i = 0; i < CURATED_TZ.length; i++) {
+      if (CURATED_TZ[i].id === tzId) { label = CURATED_TZ[i].label; break; }
+    }
+    var confirmEl = document.getElementById('stg-tz-confirm');
+    var textEl    = document.getElementById('stg-tz-confirm-text');
+    if (textEl)    textEl.textContent    = label + '  (' + tzId + ')';
+    if (confirmEl) confirmEl.style.display = 'block';
+  }
+
+  // Commit pending timezone selection
+  function applyPendingTz() {
+    if (!_pendingTz) return;
+    localStorage.setItem(K.tzCustom, _pendingTz);
+    _pendingTz = null;
+    var confirmEl = document.getElementById('stg-tz-confirm');
+    if (confirmEl) confirmEl.style.display = 'none';
     _dispatch();
+  }
+
+  // Discard pending timezone selection, reset select to saved value
+  function cancelPendingTz() {
+    _pendingTz = null;
+    var confirmEl = document.getElementById('stg-tz-confirm');
+    if (confirmEl) confirmEl.style.display = 'none';
+    var sel = document.getElementById('stg-tz-select');
+    if (sel) sel.value = _get(K.tzCustom, 'UTC');
   }
 
   // ── PUBLIC: format a Date according to current timezone + time format ──────
@@ -12223,18 +12317,16 @@ window.ArgusSettings = (function() {
     }
   }
 
-  // ── Populate timezone selector with Intl zones ─────────────────────────────
+  // ── Populate timezone selector with curated major zones ──────────────────
   function _populateTzSelect() {
     var sel = document.getElementById('stg-tz-select');
     if (!sel || sel.options.length > 0) return;
-    var zones = [];
-    try { zones = Intl.supportedValuesOf('timeZone'); } catch (e) {}
     var saved = _get(K.tzCustom, 'UTC');
-    for (var i = 0; i < zones.length; i++) {
+    for (var i = 0; i < CURATED_TZ.length; i++) {
       var opt = document.createElement('option');
-      opt.value = zones[i];
-      opt.textContent = zones[i];
-      if (zones[i] === saved) opt.selected = true;
+      opt.value = CURATED_TZ[i].id;
+      opt.textContent = CURATED_TZ[i].label;
+      if (CURATED_TZ[i].id === saved) opt.selected = true;
       sel.appendChild(opt);
     }
   }
@@ -12272,7 +12364,9 @@ window.ArgusSettings = (function() {
     setDistUnit:           setDistUnit,
     setTimeFormat:         setTimeFormat,
     setTimezone:           setTimezone,
-    setCustomTz:           setCustomTz,
+    previewTz:             previewTz,
+    applyPendingTz:        applyPendingTz,
+    cancelPendingTz:       cancelPendingTz,
     formatDate:            formatDate,
     acknowledgeDisclaimer: acknowledgeDisclaimer,
     init:                  init,

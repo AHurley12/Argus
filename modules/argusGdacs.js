@@ -11,11 +11,12 @@
 //
 // Rendering:
 //   Two rendering tiers:
-//   1. Non-hazard events (volcano, tsunami): ghost mesh + InstancedMesh sphere.
+//   1. Non-hazard events (tsunami, etc.): ghost mesh + InstancedMesh sphere.
 //      Visibility tied to ArgusLayerState.events (E key).
-//   2. Hazard events (earthquake, flood, drought, wildfire, tropical_cyclone):
+//   2. Hazard events (earthquake, flood, drought, wildfire, tropical_cyclone, volcano):
 //      Ghost mesh + animated canvas sprite (ArgusWeatherLayer marker classes).
 //      tropical_cyclone → CycloneMarker (shared with NOAA NHC pathway).
+//      volcano → VolcanoMarker (red triangle + tiered severity pulse).
 //      Visibility tied to ArgusLayerState.weather (W key) — same toggle as NOAA weather.
 //   Ghost meshes always live in eventMarkerGroup for raycasting. Hazard ghost mesh visibility
 //   is controlled by ArgusGDACS.setVisible(), not the E key, to stay in sync with sprites.
@@ -179,7 +180,7 @@ window.ArgusGDACS = (function () {
       // Hazard categories have dedicated animated sprite markers — skip instanced sphere
       if (ev.category === 'drought'   || ev.category === 'wildfire' ||
           ev.category === 'flood'     || ev.category === 'earthquake' ||
-          ev.category === 'tropical_cyclone') return;
+          ev.category === 'tropical_cyclone' || ev.category === 'volcano') return;
       var pos = AG.latLonToVector(ev.lat, ev.lon, altR);
       _iDummy.position.copy(pos);
       _iDummy.scale.set(1, 1, 1);
@@ -213,7 +214,7 @@ window.ArgusGDACS = (function () {
     var altR          = (AG.R && AG.R.MARKER) || 101;
     var visible       = !!(window.ArgusLayerState && window.ArgusLayerState.events);
     var hazardVisible = !!(window.ArgusLayerState && window.ArgusLayerState.weather);
-    var _HAZARD_CATS  = { drought: 1, wildfire: 1, flood: 1, earthquake: 1, tropical_cyclone: 1 };
+    var _HAZARD_CATS  = { drought: 1, wildfire: 1, flood: 1, earthquake: 1, tropical_cyclone: 1, volcano: 1 };
     var added   = 0;
     var removed = 0;
 
@@ -284,6 +285,21 @@ window.ArgusGDACS = (function () {
       if (window.eventMarkers) window.eventMarkers.push(mesh);
       _placedIds.add(ev.eventId);
       added++;
+
+      // ── DIAG: Italy-region placement log ─────────────────────────────────────
+      // lat 35–48°N, lon 5–19°E covers mainland Italy + Sicilian volcanoes.
+      // Remove this block once Issue A / Issue B are resolved.
+      if (ev.lat >= 35 && ev.lat <= 48 && ev.lon >= 5 && ev.lon <= 19) {
+        var _toggleKey = _HAZARD_CATS[ev.category] ? 'W (weather)' : 'E (events)';
+        console.log('[ArgusGDACS][DIAG] Italy region new ghost —',
+          'id=' + ev.eventId,
+          'cat=' + ev.category,
+          'sev=' + ev.severity,
+          'lat=' + ev.lat + ' lon=' + ev.lon,
+          'toggle=' + _toggleKey,
+          'ghostVisible=' + mesh.visible
+        );
+      }
     });
 
     // ── Hazard sprites (drought/wildfire/flood/earthquake/tropical_cyclone) ──────
@@ -292,7 +308,7 @@ window.ArgusGDACS = (function () {
     gdacsEventCache.forEach(function (ev) {
       var isHazard = ev.category === 'drought'          || ev.category === 'wildfire' ||
                      ev.category === 'flood'            || ev.category === 'earthquake' ||
-                     ev.category === 'tropical_cyclone';
+                     ev.category === 'tropical_cyclone' || ev.category === 'volcano';
       if (!isHazard || _hazardSprites[ev.eventId]) return;
       if (!AG.weatherSpriteGroup) return;
       if (!window.ArgusWeatherLayer || !window.ArgusWeatherLayer.EarthquakeMarker) return;
@@ -303,9 +319,20 @@ window.ArgusGDACS = (function () {
       else if (ev.category === 'wildfire')         hmark = new window.ArgusWeatherLayer.WildfireMarker(AG.weatherSpriteGroup, hpos, hsev);
       else if (ev.category === 'earthquake')       hmark = new window.ArgusWeatherLayer.EarthquakeMarker(AG.weatherSpriteGroup, hpos, hsev);
       else if (ev.category === 'tropical_cyclone') hmark = new window.ArgusWeatherLayer.CycloneMarker(AG.weatherSpriteGroup, hpos, hsev);
+      else if (ev.category === 'volcano')          hmark = new window.ArgusWeatherLayer.VolcanoMarker(AG.weatherSpriteGroup, hpos, hsev);
       else                                          hmark = new window.ArgusWeatherLayer.FloodMarker(AG.weatherSpriteGroup, hpos, hsev, true);  // isGdacs=true → _HAZARD_SCALE
       hmark.setVisible(hazardVisible);
       _hazardSprites[ev.eventId] = hmark;
+
+      // ── DIAG: Italy-region sprite log ─────────────────────────────────────────
+      if (ev.lat >= 35 && ev.lat <= 48 && ev.lon >= 5 && ev.lon <= 19) {
+        console.log('[ArgusGDACS][DIAG] Italy region sprite created —',
+          'id=' + ev.eventId,
+          'cat=' + ev.category,
+          'sev=' + ev.severity + ' → hsev=' + hsev,
+          'spriteVisible=' + hmark.sprite.visible
+        );
+      }
     });
 
     _audit.placed  += added;

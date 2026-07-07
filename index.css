@@ -2535,7 +2535,7 @@
     [data-theme="light"] #mkt-ticker-tape { border-bottom-color: #b0ccd8; }
     [data-theme="light"] .mkt-tick { border-right-color: #b0ccd8; }
     [data-theme="light"] .mkt-tick__sym { color: #375e75; }
-    [data-theme="light"] .mkt-tick__val { color: #0a2035; }                /* was #c5d7e8 → 1.3:1 */
+    [data-theme="light"] .mkt-tick__val { color: #0a2035 !important; }     /* was #c5d7e8; !important overrides JS inline style */
     [data-theme="light"] .mkt-card {
       background: rgba(212, 230, 248, 0.42);
       border-color: #b0ccd8;
@@ -2547,10 +2547,8 @@
     [data-theme="light"] .mkt-card__ticker  { color: #0057b3; }
     [data-theme="light"] .mkt-card__cname   { color: #0a2035; }           /* was #c5d7e8 → 1.3:1 */
     [data-theme="light"] .mkt-card__badge   { color: #375e75; }
-    [data-theme="light"] .mkt-card__price   { color: #0a2035; }           /* was #c5d7e8 → 1.3:1 */
-    [data-theme="light"] .mkt-card__price .c-pos { color: #007a3f; }      /* was #00ff88 → 1.2:1 */
-    [data-theme="light"] .mkt-card__price .c-neg { color: #c60031; }
-    [data-theme="light"] .mkt-card__chg    { color: #0a2035; }
+    [data-theme="light"] .mkt-card__price   { color: #0a2035 !important; } /* was #c5d7e8; !important overrides JS inline style */
+    [data-theme="light"] .mkt-card__chg    { color: #0a2035 !important; } /* same — inline style set by renderCard() */
     [data-theme="light"] .mkt-card__cell-lbl { color: #375e75; }
     [data-theme="light"] .mkt-card__cell-val { color: #0a2035; }          /* was #c5d7e8 → 1.3:1 */
     [data-theme="light"] .mkt-card__meta   { color: #456882; }
@@ -2648,6 +2646,59 @@
 
     /* AI panel dim */
     [data-theme="light"] .ai__message-who { color: #375e75; }
+
+    /* ── Market ticker change indicator (no previous override, inline-styled) */
+    [data-theme="light"] .mkt-tick__chg { color: #375e75 !important; }
+
+    /* ── Exchanges popup index values (initial inline style="#c5d7e8" + JS) ── */
+    [data-theme="light"] .exchanges-popup__val { color: #0a2035 !important; }
+    [data-theme="light"] .exchanges-popup__chg { color: #375e75 !important; }
+
+    /* ── Bilateral Trade Panel ──────────────────────────────────────────────── */
+    /* Entire component uses hardcoded dark-navy palette (#0f172a bg, #e2e8f0    */
+    /* text). Every element needs an override — there is no CSS variable to swap. */
+
+    /* Country selectors */
+    [data-theme="light"] select.trade-select {
+      background: rgba(212,230,248,0.88);
+      border-color: #b0ccd8;
+      color: #0a2035;
+    }
+    [data-theme="light"] select.trade-select:focus { border-color: rgba(0,100,180,0.42); }
+    [data-theme="light"] .trade-selector-group label { color: #375e75; }
+    [data-theme="light"] .trade-selector-year  label { color: #375e75; }
+    [data-theme="light"] .trade-selector-arrow { color: #456882; }
+
+    /* Summary stat cards */
+    [data-theme="light"] .trade-card {
+      background: rgba(212,230,248,0.42);
+      border-color: #b0ccd8;
+    }
+    [data-theme="light"] .trade-card-label { color: #375e75; }
+    [data-theme="light"] .trade-card-value { color: #0a2035; }                     /* was #e2e8f0 — invisible on white */
+    [data-theme="light"] .trade-card--exports .trade-card-value { color: #007a3f; } /* was #22c55e — low contrast on white */
+    [data-theme="light"] .trade-card--imports .trade-card-value { color: #7a5000; } /* was #f59e0b — very low contrast on white */
+    [data-theme="light"] .trade-card--surplus .trade-card-value { color: #007a3f; }
+    [data-theme="light"] .trade-card--deficit .trade-card-value { color: #c60031; }
+
+    /* Chart and signal containers */
+    [data-theme="light"] .trade-chart-title   { color: #375e75; }
+    [data-theme="light"] .trade-chart-container {
+      background: rgba(212,230,248,0.32);
+      border-color: #b0ccd8;
+    }
+    [data-theme="light"] .trade-signal {
+      background: rgba(212,230,248,0.32);
+      border-color: #b0ccd8;
+    }
+    [data-theme="light"] .trade-signal-label  { color: #375e75; }
+    [data-theme="light"] .trade-signal-bar    { background: rgba(165,195,220,0.4); }
+    [data-theme="light"] .trade-signal-value  { color: #0a2035; }                  /* was #e2e8f0 — invisible on white */
+    [data-theme="light"] .trade-signal-note   { color: #456882; }
+    [data-theme="light"] .trade-source-note   { color: #456882; }
+    [data-theme="light"] .trade-no-data       { color: #456882; }
+    [data-theme="light"] .trade-loading       { color: #375e75; }
+    [data-theme="light"] .trade-error         { color: #c60031; }
 
     /* Market Intelligence Engine ─────────────────────────────────────────── */
     #mkt-ticker-tape {

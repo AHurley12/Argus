@@ -114,6 +114,16 @@ window.ArgusWeatherLayer = (function () {
     extreme:  { pulseSpeed: 0.030, ringThick: 1.6,  glowAlpha: 0.92, segments: 6, ringCount: 2 },
   };
 
+  // ── Volcano severity animation params ─────────────────────────────────────────
+  // Slower than earthquake — volcanic events are persistent, not instantaneous.
+  // Single ring at moderate/severe; double ring at extreme (major eruption).
+  var VOLCANO_SEV_PARAMS = {
+    minor:    { pulseSpeed: 0.006, ringThick: 0.8,  glowAlpha: 0.38, ringCount: 1 },
+    moderate: { pulseSpeed: 0.010, ringThick: 0.9,  glowAlpha: 0.50, ringCount: 1 },
+    severe:   { pulseSpeed: 0.020, ringThick: 1.2,  glowAlpha: 0.70, ringCount: 1 },
+    extreme:  { pulseSpeed: 0.034, ringThick: 1.5,  glowAlpha: 0.88, ringCount: 2 },
+  };
+
   // ── Colors ───────────────────────────────────────────────────────────────────
 
   var C_NUCLEUS = '#72eeff';
@@ -141,6 +151,12 @@ window.ArgusWeatherLayer = (function () {
   var EQ_ORANGE = '#ee5500';  // orange — moderate/severe escalation
   var EQ_RED    = '#cc2200';  // deep red — severe/extreme
   var EQ_CORE   = '#ffffff';  // white seismic flash — extreme only
+
+  // ── Volcano palette ───────────────────────────────────────────────────────────
+  var V_ORANGE = '#ff4400';   // hot volcanic orange — base ring color
+  var V_RED    = '#cc1100';   // deep volcanic red — severe/extreme ring
+  var V_GLOW   = '#ff8800';   // magma orange-yellow — nucleus glow
+  var V_CORE   = '#ffdd00';   // molten core — extreme only
 
   var TOOLTIP_SEV_COLORS = {
     minor:    '#0ea5e9',
@@ -283,6 +299,7 @@ window.ArgusWeatherLayer = (function () {
         else if (category === 'drought')    tex = new DroughtPulseTexture(severity);
         else if (category === 'wildfire')   tex = new WildfirePulseTexture(severity);
         else if (category === 'flood')      tex = new FloodPulseTexture(severity);
+        else if (category === 'volcano')    tex = new VolcanoPulseTexture(severity);
         else                                tex = new WeatherPulseTexture(severity);
         _poolEntries[k] = { tex: tex, refs: 0, sprites: [] };
       }
@@ -1187,6 +1204,147 @@ window.ArgusWeatherLayer = (function () {
     if (this.sprite.parent) this.sprite.parent.remove(this.sprite);
   };
 
+  // ── VolcanoPulseTexture ───────────────────────────────────────────────────────
+  //
+  // Animated canvas texture for GDACS volcano events.
+  // Visual language: geological, persistent, thermally extreme.
+  //
+  // Icon: upward-pointing red triangle (mountain silhouette) at center.
+  // Ring geometry: single smooth expanding ring (moderate/severe); double ring
+  // at extreme. Power-0.6 easing — fast initial pyroclastic wave, slower spread.
+  //
+  // Eruption glow: small bright dot at triangle apex — magma vent suggestion.
+  // Fades in as ring expands (energy release correlation).
+  //
+  // Palette: hot orange (minor) → volcanic red (severe) → deep red + molten
+  //   core flash (extreme).
+  // Severe/extreme: second echo ring at 50% opacity.
+
+  function VolcanoPulseTexture(severity) {
+    var c = makeCanvas(PULSE_SIZE);
+    this.canvas     = c.canvas;
+    this.ctx        = c.ctx;
+    this.severity   = severity || 'minor';
+    this.params     = VOLCANO_SEV_PARAMS[this.severity] || VOLCANO_SEV_PARAMS.minor;
+    this.t          = 0;
+    this._tickCount = 0;
+    this._frameSkip = SEV_FRAME_SKIP[this.severity] || 4;
+    this.texture    = new THREE.CanvasTexture(this.canvas);
+    this._draw();
+    this.texture.needsUpdate = true;
+  }
+
+  VolcanoPulseTexture.prototype.tick = function (dt) {
+    this._tickCount++;
+    if (this._tickCount % this._frameSkip !== 0) return;
+    this.t += dt * 60 * this._frameSkip;
+    this._draw();
+    this.texture.needsUpdate = true;
+  };
+
+  VolcanoPulseTexture.prototype._draw = function () {
+    var ctx     = this.ctx;
+    var size    = PULSE_SIZE;
+    var cx      = size / 2;
+    var cy      = size / 2;
+    var p       = this.params;
+    var t       = this.t;
+    var severe  = this.severity === 'severe' || this.severity === 'extreme';
+    var extreme = this.severity === 'extreme';
+
+    // Severity-graduated colors: orange → volcanic red → deep red
+    var ringColor = extreme ? V_RED    :
+                    severe  ? V_RED    : V_ORANGE;
+    var glowColor = extreme ? V_CORE   : V_GLOW;
+
+    ctx.clearRect(0, 0, size, size);
+    ctx.save();
+    ctx.globalCompositeOperation = 'screen';
+
+    // ── Expanding ring(s): power-eased pyroclastic spread ─────────────────────
+    var maxR = severe ? 24 : 20;
+
+    for (var ri = 0; ri < p.ringCount; ri++) {
+      var phase = ((t * p.pulseSpeed) + ri * (1 / p.ringCount)) % 1;
+      var r     = 4 + Math.pow(phase, 0.6) * maxR;
+      var alpha = p.glowAlpha * Math.pow(1 - phase, 1.6);
+      var lw    = p.ringThick * (ri === 0 ? 1.0 : 0.55);
+      var al    = alpha * (ri === 0 ? 1.0 : 0.45);
+
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      ctx.strokeStyle = hexAlpha(ringColor, al);
+      ctx.lineWidth   = lw;
+      ctx.stroke();
+    }
+
+    // ── Mountain triangle icon ────────────────────────────────────────────────
+    // Upward-pointing triangle: apex at top, base below center.
+    // Drawn last (over rings) so it's always legible.
+    var apexX = cx;
+    var apexY = cy - 11;    // apex above center
+    var baseY = cy + 9;     // base below center
+    var baseHW = 10;        // half-width of base
+
+    ctx.beginPath();
+    ctx.moveTo(apexX, apexY);
+    ctx.lineTo(apexX - baseHW, baseY);
+    ctx.lineTo(apexX + baseHW, baseY);
+    ctx.closePath();
+    ctx.fillStyle   = hexAlpha(ringColor, severe ? 0.80 : 0.62);
+    ctx.fill();
+    ctx.strokeStyle = hexAlpha(extreme ? V_CORE : V_GLOW, severe ? 0.70 : 0.40);
+    ctx.lineWidth   = 0.8;
+    ctx.stroke();
+
+    // ── Eruption glow at apex: magma vent dot ──────────────────────────────────
+    // Pulses with ring phase — energy release at the vent synced to pyroclastic spread.
+    var phase0   = (t * p.pulseSpeed) % 1;
+    var glowSize = extreme ? 2.0 : 1.5;
+    var glowAl   = (severe ? 0.85 : 0.60) * (0.6 + 0.4 * Math.sin(phase0 * Math.PI * 2));
+
+    ctx.beginPath();
+    ctx.arc(apexX, apexY, glowSize, 0, Math.PI * 2);
+    ctx.fillStyle = hexAlpha(glowColor, glowAl);
+    ctx.fill();
+
+    ctx.restore();
+  };
+
+  VolcanoPulseTexture.prototype.dispose = function () {
+    this.texture.dispose();
+  };
+
+  // ── VolcanoMarker (sprite wrapper) ────────────────────────────────────────────
+  // Pool-based: all volcano sprites of the same severity share one canvas texture.
+  // Severity-aware scale via _HAZARD_SCALE.
+
+  function VolcanoMarker(scene, position, severity) {
+    this._category = 'volcano';
+    this.severity  = severity || 'minor';
+    this.material  = new THREE.SpriteMaterial({
+      map: HazardTexturePool.get('volcano', this.severity), transparent: true,
+      blending: THREE.AdditiveBlending, depthWrite: false,
+      color: 0xffffff,
+    });
+    this.sprite = new THREE.Sprite(this.material);
+    this.sprite.scale.setScalar(_HAZARD_SCALE[this.severity] || SCALE_PULSE);
+    this.sprite.position.copy(position);
+    scene.add(this.sprite);
+    HazardTexturePool.register('volcano', this.severity, this.sprite);
+  }
+
+  VolcanoMarker.prototype.tick = function (dt) { /* no-op: HazardTexturePool.tick() drives this */ };
+
+  VolcanoMarker.prototype.setVisible = function (v) { this.sprite.visible = !!v; };
+
+  VolcanoMarker.prototype.dispose = function () {
+    HazardTexturePool.unregister('volcano', this.severity, this.sprite);
+    HazardTexturePool.release('volcano', this.severity);
+    this.material.dispose();
+    if (this.sprite.parent) this.sprite.parent.remove(this.sprite);
+  };
+
   // ── Tooltip ───────────────────────────────────────────────────────────────────
 
   var _tooltipEl = null;
@@ -1699,6 +1857,7 @@ window.ArgusWeatherLayer = (function () {
     WildfireMarker:    WildfireMarker,
     FloodMarker:       FloodMarker,
     EarthquakeMarker:  EarthquakeMarker,
+    VolcanoMarker:     VolcanoMarker,
     HazardTexturePool: HazardTexturePool,
   };
 

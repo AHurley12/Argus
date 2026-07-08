@@ -11,13 +11,15 @@
 //     (Open-Meteo 10° grid, cached server-side at 2h TTL)
 //   - Canvas: 36 cols × 18 rows (one pixel per 10° cell). THREE.LinearFilter
 //     on the GPU handles smooth interpolation between pixels.
-//   - Sphere: r=100.2, inside globeGroup with rotation.y = -π/2.
+//   - Sphere: r=100.5, 128×64 segments, inside globeGroup with rotation.y = -π/2.
 //     The -π/2 local rotation cancels globeGroup's +π/2 initial correction,
 //     giving zero net world rotation at rest. As the globe rotates, the heatmap
 //     stays in sync because dataGroup.rotation.y = globeGroup.rotation.y − π/2,
 //     which equals the heatmap sphere's effective world rotation.
-//   - The heatmap is positioned at r=100.2, above the globe surface (r=100) but
-//     below the coordinate grid (r=100.39) and all other marker layers.
+//   - r=100.5 (raised from 100.2): at 128×64 segments each quad spans 2.8°×2.8°;
+//     flat-face center dip = 100.5×(1−cos(1.4°)²) ≈ 0.061 units → minimum r≈100.44,
+//     safely above the globe surface (r=100) and coord grid (r=100.39).
+//     Previous 64×32 at r=100.2 had face centers dipping to r≈99.96 — below globe.
 //
 // Temperature-to-color mapping (Celsius):
 //   ≤ −50°C  →  deep blue-purple
@@ -50,7 +52,7 @@ window.ArgusTemperatureLayer = (function () {
 
   var GRID_ROWS   = 18;   // latitudes: 85, 75, ..., −85
   var GRID_COLS   = 36;   // longitudes: −175, −165, ..., 175
-  var SPHERE_R    = 100.2; // just above globe (100), below coord grid (100.39)
+  var SPHERE_R    = 100.5; // above globe (100); raised from 100.2 — flat-face polygon centers now clear globe surface
   var OPACITY     = 0.70;
   var FETCH_URL   = '/.netlify/functions/fetch-temperature';
   var REFRESH_MS  = 2 * 60 * 60 * 1000; // auto-refresh every 2h
@@ -253,7 +255,7 @@ window.ArgusTemperatureLayer = (function () {
     // As the globe rotates (globeGroup.rotation.y += drag):
     //   sphere world rotation Y = globeGroup.rotation.y + (−π/2)
     //                           = dataGroup.rotation.y              ✓ stays in sync
-    _mesh = new THREE.Mesh(new THREE.SphereGeometry(SPHERE_R, 64, 32), material);
+    _mesh = new THREE.Mesh(new THREE.SphereGeometry(SPHERE_R, 128, 64), material);
     _mesh.rotation.y = -Math.PI / 2;
     _mesh.visible    = false;
     AG.globeGroup.add(_mesh);

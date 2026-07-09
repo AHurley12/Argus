@@ -12076,12 +12076,10 @@ window.ArgusSidebarPanels = (function () {
   }
 
   function _updateSnap() {
-    // Critical countries
+    // Critical events — mirror header crit-count (authoritative event-marker source)
     try {
-      var crit = (window.countryMarkers || []).filter(function (m) {
-        return m.userData && m.userData._dynamicTier === 'CRITICAL';
-      }).length;
-      _set('snap-val-critical', crit || '—');
+      var critEl = document.getElementById('crit-count');
+      _set('snap-val-critical', critEl && critEl.textContent ? critEl.textContent : '—');
     } catch (_) {}
 
     // Live events count (reads existing DOM element updated by ArgusEvents)

@@ -55,14 +55,6 @@
         </div>
       </div>
       <div class="header__stats">
-        <div class="header__stat" aria-label="Total events">
-          <div class="header__stat-label">EVENTS</div>
-          <div class="header__stat-value" id="ev-count" style="color:var(--color-orange)"></div>
-        </div>
-        <div class="header__stat" aria-label="Critical events">
-          <div class="header__stat-label">CRITICAL</div>
-          <div class="header__stat-value" id="crit-count" style="color:var(--color-red)"></div>
-        </div>
         <div class="header__stat" aria-label="Local time">
           <div class="header__stat-label" id="tz-label">LOCAL</div>
           <div id="utc-display"></div>
@@ -1616,8 +1608,7 @@ document.addEventListener('DOMContentLoaded', function() {
     var critical = nodes.filter(function(m) {
       return (m.userData.severity || m.userData.risk) === 'CRITICAL';
     }).length;
-    document.getElementById('ev-count').textContent   = nodes.length;
-    document.getElementById('crit-count').textContent = critical;
+    window._argusLastCriticalCount = critical;  // read by snapshot strip
     var _fcel = document.getElementById('ev-feed-count');
     if (_fcel) _fcel.textContent = nodes.length;
   };
@@ -12076,10 +12067,10 @@ window.ArgusSidebarPanels = (function () {
   }
 
   function _updateSnap() {
-    // Critical events — mirror header crit-count (authoritative event-marker source)
+    // Critical events — read from window._argusLastCriticalCount (set by updateNodeCounts)
     try {
-      var critEl = document.getElementById('crit-count');
-      _set('snap-val-critical', critEl && critEl.textContent ? critEl.textContent : '—');
+      var cc = window._argusLastCriticalCount;
+      _set('snap-val-critical', cc != null ? cc : '—');
     } catch (_) {}
 
     // Live events count (reads existing DOM element updated by ArgusEvents)
@@ -12395,7 +12386,7 @@ ArgusSettings.init();
 
 <!-- TOS corner link — fixed bottom-right, outside all panels and overlays -->
 <a id="tos-corner" href="terms.html" target="_blank" rel="noopener"
-   style="position:fixed;bottom:12px;right:14px;z-index:999;font-family:'DM Mono',monospace;font-size:8px;letter-spacing:2px;color:#3a6a8a;text-decoration:none;opacity:0.55;transition:opacity 0.2s,color 0.2s"
+   style="position:fixed;bottom:12px;right:14px;z-index:999;font-family:'Rajdhani',sans-serif;font-size:9px;font-weight:600;letter-spacing:2.5px;color:#3a6a8a;text-decoration:none;opacity:0.55;transition:opacity 0.2s,color 0.2s"
    onmouseover="this.style.opacity='1';this.style.color='#00aaff'"
    onmouseout="this.style.opacity='0.55';this.style.color='#3a6a8a'"
    title="Terms of Service · Legal · Privacy">TERMS</a>

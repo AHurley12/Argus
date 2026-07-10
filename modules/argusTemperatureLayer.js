@@ -1,88 +1,139 @@
 'use strict';
 // modules/argusTemperatureLayer.js
-// Global temperature heatmap overlay on the Three.js globe.
+// Adaptive LOD global temperature heatmap overlay on the Three.js globe.
 //
-// Renders a 36×18 canvas texture on a sphere mesh inside globeGroup, creating
-// a smooth color gradient from blue (cold) to red (hot) showing current global
-// temperature patterns at 10° resolution.
+// ── ARCHITECTURE ──────────────────────────────────────────────────────────────
 //
-// Architecture:
-//   - Data source: Netlify function /.netlify/functions/fetch-temperature
-//     (Open-Meteo 10° grid, cached server-side at 2h TTL)
-//   - Canvas: 36 cols × 18 rows (one pixel per 10° cell). THREE.LinearFilter
-//     on the GPU handles smooth interpolation between pixels.
-//   - Sphere: r=100.5, 128×64 segments, inside globeGroup with rotation.y = -π/2.
-//     The -π/2 local rotation cancels globeGroup's +π/2 initial correction,
-//     giving zero net world rotation at rest. As the globe rotates, the heatmap
-//     stays in sync because dataGroup.rotation.y = globeGroup.rotation.y − π/2,
-//     which equals the heatmap sphere's effective world rotation.
-//   - r=100.5 (raised from 100.2): at 128×64 segments each quad spans 2.8°×2.8°;
-//     flat-face center dip = 100.5×(1−cos(1.4°)²) ≈ 0.061 units → minimum r≈100.44,
-//     safely above the globe surface (r=100) and coord grid (r=100.39).
-//     Previous 64×32 at r=100.2 had face centers dipping to r≈99.96 — below globe.
+//   Single 360×180 canvas texture (1° per pixel) mapped onto a sphere at
+//   r=100.5 (128×64 segments). THREE.LinearFilter provides GPU interpolation
+//   between adjacent pixels. No JS-side interpolation — Open-Meteo values are
+//   painted directly; the GPU smooths transitions.
 //
-// Temperature-to-color mapping (Celsius):
-//   ≤ −50°C  →  deep blue-purple
-//     −20°C  →  bright blue
-//       0°C  →  cyan
-//      15°C  →  green
-//      25°C  →  yellow
-//      35°C  →  orange-red
-//   ≥  50°C  →  deep red
+//   LOD TIERS  (camera distance from globe centre, globe radius = 100):
+//   ┌────┬─────────────┬──────┬────────────────────┬──────────────────────┐
+//   │Tier│ Label       │ Res  │ Camera dist        │ Canvas block         │
+//   ├────┼─────────────┼──────┼────────────────────┼──────────────────────┤
+//   │  0 │ Global      │ 10°  │ > 280              │ 10×10 px — base only │
+//   │  1 │ Continental │  5°  │ 200 < d ≤ 280      │  5×5 px  — tile      │
+//   │  2 │ Regional    │  2°  │ 140 < d ≤ 200      │  2×2 px  — tile      │
+//   │  3 │ City        │  1°  │      d ≤ 140       │  1×1 px  — tile      │
+//   └────┴─────────────┴──────┴────────────────────┴──────────────────────┘
 //
-// Unit display: internally stored in °C; legend labels convert to °F when
-//   ArgusSettings tempUnit = 'F'. No re-fetch needed — pure display conversion.
+//   BASE LAYER — always present:
+//     Fetched from /.netlify/functions/fetch-temperature (648 pts, 10°, 2h TTL).
+//     Painted as 10×10 px blocks on the 360×180 canvas. Covers the whole globe.
 //
-// Legend: DOM overlay positioned bottom-left of the globe canvas.
-//   Shows a color gradient strip and temperature labels in current unit.
+//   REFINED TILES — viewport only (LOD 1–3):
+//     Fetched from /.netlify/functions/fetch-temperature-tile when the camera
+//     settles (600ms debounce) at LOD > 0. Only the visible geographic bounds
+//     are requested. Fine samples overwrite the coarser base-layer blocks for
+//     that region without touching the rest of the canvas.
 //
-// Globals: window.ArgusTemperatureLayer
-//   { init, toggle, setVisible, refresh, status }
+//   PROGRESSIVE RENDERING:
+//     coarse (10°) → continental (5°) → regional (2°) → city (1°)
+//     The canvas is updated incrementally on each tile arrival. No full rebuild.
 //
-// Init: call ArgusTemperatureLayer.init() AFTER window.ArgusGlobe is set.
-//   index.html calls this right after window.ArgusGlobe = {...}.
+// ── CANVAS COORDINATES ────────────────────────────────────────────────────────
+//   Pixel (x, y) represents: lon = x − 180,  lat = 90 − y
+//   Mapping a sample (lat, lon): x = round(lon + 180),  y = round(90 − lat)
+//   Block fill: each sample paints a (res × res) px square centred at (x, y)
+//   using half = floor(res / 2), so fillRect(x−half, y−half, res, res).
+//   At all resolutions, adjacent blocks tile with zero gaps.
 //
-// Data attribution: Open-Meteo (https://open-meteo.com) — CC BY 4.0.
-//   Non-commercial use only on the free tier. See fetch-temperature.js for details.
+// ── SPHERE ────────────────────────────────────────────────────────────────────
+//   r=100.5, 128×64 segments. At 128×64 the flat-face centre dip is ≈0.06 units
+//   → minimum face radius ≈100.44, safely above globe (r=100) and coord grid
+//   (r=100.39). depthWrite:false prevents writing over marker depth values.
+//
+// ── DIAGNOSTICS ───────────────────────────────────────────────────────────────
+//   ArgusTemperatureLayer.status() returns:
+//     lod, lodLabel, visibleTiles, samplesLoaded, samplesRendered,
+//     lastBbox, lastTileMs, canvasSize, maxOpenMeteoRes,
+//     memEstimateKB, tilesInCache, hasBaseData, basePointCount, meshReady
+//
+// ── GLOBALS ───────────────────────────────────────────────────────────────────
+//   window.ArgusTemperatureLayer — { init, toggle, setVisible, refresh, status }
+//   Init: call AFTER window.ArgusGlobe is set (index.html does this).
+//
+// ── DATA ATTRIBUTION ─────────────────────────────────────────────────────────
+//   Open-Meteo (https://open-meteo.com) — CC BY 4.0.
+//   Non-commercial use only on the free tier.
 
 window.ArgusTemperatureLayer = (function () {
   'use strict';
 
   // ── Config ───────────────────────────────────────────────────────────────────
 
-  var GRID_ROWS   = 18;   // latitudes: 85, 75, ..., −85
-  var GRID_COLS   = 36;   // longitudes: −175, −165, ..., 175
-  var SPHERE_R    = 100.5; // above globe (100); raised from 100.2 — flat-face polygon centers now clear globe surface
-  var OPACITY     = 0.70;
-  var FETCH_URL   = '/.netlify/functions/fetch-temperature';
-  var REFRESH_MS  = 2 * 60 * 60 * 1000; // auto-refresh every 2h
+  var CANVAS_W        = 360;                    // 1° per pixel, longitude axis
+  var CANVAS_H        = 180;                    // 1° per pixel, latitude axis
+  var SPHERE_R        = 100.5;                  // above globe (100); flat-face centres clear surface
+  var OPACITY         = 0.70;
+  var BASE_URL        = '/.netlify/functions/fetch-temperature';
+  var TILE_URL        = '/.netlify/functions/fetch-temperature-tile';
+  var BASE_REFRESH_MS = 2 * 60 * 60 * 1000;    // base layer auto-refresh (2h)
+  var CAMERA_POLL_MS  = 500;                    // LOD check cadence (ms)
+  var DEBOUNCE_MS     = 600;                    // camera settle time before tile request
 
-  // Temperature-to-color stops (°C). Covers −50 to +50°C range.
+  // LOD tiers — checked in order, first match wins (finest-first).
+  // maxDist: camera must be ≤ this distance to activate the tier.
+  var LOD_TIERS = [
+    { lod: 3, res:  1, maxDist: 140, label: 'City'        },
+    { lod: 2, res:  2, maxDist: 200, label: 'Regional'    },
+    { lod: 1, res:  5, maxDist: 280, label: 'Continental' },
+    { lod: 0, res: 10, maxDist: Infinity, label: 'Global' },
+  ];
+
+  // Max viewport extent (degrees) per resolution — prevents exceeding server maxPts.
+  // At each tier the visible cap is usually smaller than these limits, but edge
+  // cases (very tilted globe) can widen the bbox; these caps guard against that.
+  var MAX_EXTENT = { 5: 75, 2: 55, 1: 38 };
+
+  // Temperature-to-color stops (°C). Faithful to Open-Meteo readings.
   var COLOR_STOPS = [
-    { t: -50, r: 30,  g: 30,  b: 150 },  // deep blue-purple (polar deep winter)
-    { t: -20, r: 0,   g: 80,  b: 255 },  // bright blue (sub-zero)
-    { t:   0, r: 0,   g: 200, b: 255 },  // cyan (freezing point)
-    { t:  15, r: 0,   g: 210, b: 80  },  // green (mild/temperate)
-    { t:  25, r: 255, g: 215, b: 0   },  // yellow (warm)
-    { t:  35, r: 255, g: 75,  b: 0   },  // orange-red (hot)
-    { t:  50, r: 180, g: 0,   b: 50  },  // deep red (extreme heat)
+    { t: -50, r: 30,  g: 30,  b: 150 },  // deep blue-purple  (polar deep winter)
+    { t: -20, r: 0,   g: 80,  b: 255 },  // bright blue       (sub-zero)
+    { t:   0, r: 0,   g: 200, b: 255 },  // cyan              (freezing)
+    { t:  15, r: 0,   g: 210, b: 80  },  // green             (mild / temperate)
+    { t:  25, r: 255, g: 215, b: 0   },  // yellow            (warm)
+    { t:  35, r: 255, g: 75,  b: 0   },  // orange-red        (hot)
+    { t:  50, r: 180, g: 0,   b: 50  },  // deep red          (extreme heat)
   ];
 
   // ── Module state ──────────────────────────────────────────────────────────────
 
-  var _mesh        = null;
-  var _canvasTex   = null;
-  var _canvas      = null;
-  var _ctx         = null;
-  var _visible     = false;
-  var _data        = null;  // cached grid array from last successful fetch
-  var _refreshTimer = null;
+  var _mesh          = null;
+  var _canvasTex     = null;
+  var _canvas        = null;
+  var _ctx           = null;
+  var _visible       = false;
+  var _baseData      = null;    // grid array from last base fetch
+  var _baseTimer     = null;
+  var _pollTimer     = null;
+  var _debounceTimer = null;
+  var _inflight      = {};      // tileKey → true while request is in flight
+  var _tileCache     = {};      // tileKey → payload (in-memory; avoids re-fetch within session)
+  var _currentLod    = 0;
+  var _activeTileKey = null;    // key of the most recently rendered fine tile
+
+  // Diagnostics counters
+  var _diag = {
+    lod:             0,
+    lodLabel:        'Global',
+    visibleTiles:    1,
+    samplesLoaded:   0,
+    samplesRendered: 0,
+    lastBbox:        null,
+    lastTileMs:      null,
+    canvasSize:      CANVAS_W + '×' + CANVAS_H,
+    maxOpenMeteoRes: '1°',
+    memEstimateKB:   0,
+  };
 
   // ── Temperature → color ───────────────────────────────────────────────────────
 
   function _tempToColorStr(t) {
     if (t === null || t === undefined || !isFinite(t)) {
-      return 'rgba(80,80,80,0.2)'; // transparent gray for missing data
+      return 'rgba(80,80,80,0.25)'; // dim gray for missing cells
     }
     var stops = COLOR_STOPS;
     if (t <= stops[0].t) {
@@ -95,49 +146,195 @@ window.ArgusTemperatureLayer = (function () {
     for (var i = 0; i < stops.length - 1; i++) {
       if (t <= stops[i + 1].t) {
         var frac = (t - stops[i].t) / (stops[i + 1].t - stops[i].t);
-        var r = Math.round(stops[i].r + frac * (stops[i + 1].r - stops[i].r));
-        var g = Math.round(stops[i].g + frac * (stops[i + 1].g - stops[i].g));
-        var b = Math.round(stops[i].b + frac * (stops[i + 1].b - stops[i].b));
+        var r    = Math.round(stops[i].r + frac * (stops[i + 1].r - stops[i].r));
+        var g    = Math.round(stops[i].g + frac * (stops[i + 1].g - stops[i].g));
+        var b    = Math.round(stops[i].b + frac * (stops[i + 1].b - stops[i].b));
         return 'rgb(' + r + ',' + g + ',' + b + ')';
       }
     }
     return 'rgb(' + last.r + ',' + last.g + ',' + last.b + ')';
   }
 
-  // ── Canvas drawing ────────────────────────────────────────────────────────────
-  // One canvas pixel per 10° grid cell. THREE.LinearFilter handles GPU interpolation.
-  //
-  // Canvas coordinate convention (with THREE.js flipY=true default):
-  //   Col 0  ← lon=−175 (near −180° west edge)
-  //   Col 35 ← lon=+175 (near +180° east edge)
-  //   Row 0  ← lat=+85 (near North Pole)   [flipY maps canvas y=0 → UV v=1 → North]
-  //   Row 17 ← lat=−85 (near South Pole)   [flipY maps canvas y=17 → UV v=0 → South]
+  // ── Canvas painting ───────────────────────────────────────────────────────────
+  // Each sample paints a (res × res) px block centred at its canvas pixel.
+  // half = floor(res/2) ensures adjacent blocks tile with no gaps:
+  //   res=10 → 10×10 block; res=5 → 5×5; res=2 → 2×2; res=1 → 1×1
+  // Returns the number of samples successfully painted.
 
-  function _drawCanvas(grid) {
-    if (!_ctx) return;
-
-    // Build lookup map for O(1) access
-    var map = {};
+  function _paintSamples(grid, res) {
+    if (!_ctx || !grid || !grid.length) return 0;
+    var half    = Math.floor(res / 2);
+    var painted = 0;
     for (var i = 0; i < grid.length; i++) {
-      map[grid[i].lat + '_' + grid[i].lon] = grid[i].t;
+      var s = grid[i];
+      if (s.t === null || s.t === undefined) continue;
+      var x = Math.round(s.lon + 180);
+      var y = Math.round(90   - s.lat);
+      _ctx.fillStyle = _tempToColorStr(s.t);
+      _ctx.fillRect(x - half, y - half, res, res);
+      painted++;
     }
-
-    for (var row = 0; row < GRID_ROWS; row++) {
-      var lat = 85 - row * 10;            // row 0 → lat 85, row 17 → lat −85
-      for (var col = 0; col < GRID_COLS; col++) {
-        var lon = -175 + col * 10;        // col 0 → lon −175, col 35 → lon 175
-        var t = map[lat + '_' + lon];
-        _ctx.fillStyle = _tempToColorStr(t !== undefined ? t : null);
-        _ctx.fillRect(col, row, 1, 1);
-      }
-    }
-
     if (_canvasTex) _canvasTex.needsUpdate = true;
+    return painted;
+  }
+
+  // ── LOD tier lookup ───────────────────────────────────────────────────────────
+
+  function _getLodTier(dist) {
+    for (var i = 0; i < LOD_TIERS.length; i++) {
+      if (dist <= LOD_TIERS[i].maxDist) return LOD_TIERS[i];
+    }
+    return LOD_TIERS[LOD_TIERS.length - 1]; // fallback: Global
+  }
+
+  // ── Viewport geographic bounds ────────────────────────────────────────────────
+  // Approximates which geographic region the camera currently sees.
+  //
+  // The camera is fixed; the globe rotates under it. dataGroup.rotation tracks
+  // the geographic face toward the camera:
+  //   lon_centre ≈ −dataGroup.rotation.y × (180/π)
+  //   lat_centre ≈ −dataGroup.rotation.x × (180/π)
+  //
+  // The visible angular cap radius = arcsin(globeRadius / cameraDist).
+  // A 15% buffer pre-loads tiles just outside the viewport edge.
+  // MAX_EXTENT caps the bbox to keep Open-Meteo point counts within server limits.
+
+  function _getViewportBounds(dist, res) {
+    var AG = window.ArgusGlobe;
+    if (!AG || !AG.dataGroup) {
+      return { latMin: -85, latMax: 85, lonMin: -180, lonMax: 180 };
+    }
+
+    // Visible half-angle of globe cap at this camera distance (degrees)
+    var capAngle = Math.asin(Math.min(0.999, 100 / dist)) * 180 / Math.PI;
+    var extent   = capAngle * 1.15;  // 15% buffer
+
+    // Apply per-resolution extent cap to keep point count within server limits
+    if (MAX_EXTENT[res] !== undefined && extent > MAX_EXTENT[res]) {
+      extent = MAX_EXTENT[res];
+    }
+
+    var dg         = AG.dataGroup;
+    var lonCenter  = -(dg.rotation.y) * 180 / Math.PI;
+    var latCenter  = -(dg.rotation.x) * 180 / Math.PI;
+
+    // Normalise longitude to [−180, 180]
+    lonCenter = ((lonCenter + 180) % 360 + 360) % 360 - 180;
+
+    // Clamp to valid geographic bounds (avoid exact poles)
+    var latMin = Math.max(-85, +(latCenter - extent).toFixed(1));
+    var latMax = Math.min( 85, +(latCenter + extent).toFixed(1));
+    var lonMin = Math.max(-180, +(lonCenter - extent).toFixed(1));
+    var lonMax = Math.min( 180, +(lonCenter + extent).toFixed(1));
+
+    return { latMin: latMin, latMax: latMax, lonMin: lonMin, lonMax: lonMax };
+  }
+
+  // ── Tile cache key ────────────────────────────────────────────────────────────
+  // Snap bounds to nearest res multiple to maximise cache hit rate when the
+  // camera drifts slightly between polls.
+
+  function _tileKey(res, bbox) {
+    var snap = function(v, r) { return +(Math.round(v / r) * r).toFixed(1); };
+    return res + '_' +
+      snap(bbox.latMin, res) + '_' + snap(bbox.latMax, res) + '_' +
+      snap(bbox.lonMin, res) + '_' + snap(bbox.lonMax, res);
+  }
+
+  // ── Request a refined tile ────────────────────────────────────────────────────
+  // Skips if already in-flight or memory-cached (repaint from cache directly).
+
+  function _requestTile(bbox, res) {
+    var key = _tileKey(res, bbox);
+
+    // Already cached in memory — repaint immediately, no network call
+    if (_tileCache[key]) {
+      var cached = _tileCache[key];
+      var repainted = _paintSamples(cached.grid, res);
+      _diag.samplesRendered += repainted;
+      _diag.lastBbox   = bbox;
+      _activeTileKey   = key;
+      return;
+    }
+
+    if (_inflight[key]) return;  // request already in flight
+    _inflight[key] = true;
+
+    var t0     = Date.now();
+    var params = '?latMin=' + bbox.latMin + '&latMax=' + bbox.latMax +
+                 '&lonMin=' + bbox.lonMin + '&lonMax=' + bbox.lonMax +
+                 '&res='    + res;
+
+    fetch(TILE_URL + params)
+      .then(function(r) {
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.json();
+      })
+      .then(function(data) {
+        _inflight[key] = false;
+        if (!data || !Array.isArray(data.grid)) {
+          console.warn('[ArgusTemperatureLayer] unexpected tile response');
+          return;
+        }
+
+        // Store in memory cache
+        _tileCache[key] = data;
+        _activeTileKey  = key;
+
+        // Paint fine samples over the base layer
+        var painted = _paintSamples(data.grid, res);
+
+        // Update diagnostics
+        _diag.samplesLoaded   += data.grid.length;
+        _diag.samplesRendered += painted;
+        _diag.lastBbox         = bbox;
+        _diag.lastTileMs       = Date.now() - t0;
+        _diag.visibleTiles     = Object.keys(_tileCache).length + 1;
+        _diag.memEstimateKB    = Math.round(
+          (_diag.samplesLoaded * 12 + CANVAS_W * CANVAS_H * 4) / 1024
+        );
+
+        console.log('[ArgusTemperatureLayer] LOD' + _currentLod +
+          ' (' + res + '°) ' + painted + ' samples, ' + _diag.lastTileMs + 'ms');
+      })
+      .catch(function(err) {
+        _inflight[key] = false;
+        console.warn('[ArgusTemperatureLayer] tile fetch failed:', err.message);
+      });
+  }
+
+  // ── Camera poll ───────────────────────────────────────────────────────────────
+  // Runs every CAMERA_POLL_MS. Updates LOD diagnostics immediately.
+  // For LOD > 0, debounces DEBOUNCE_MS before requesting a refined tile so
+  // fast pan/zoom gestures don't fire a tile request per-frame.
+
+  function _onCameraPoll() {
+    var AG = window.ArgusGlobe;
+    if (!AG || !AG.camera || !_visible || !_baseData) return;
+
+    var dist = AG.camera.position.length();
+    var tier = _getLodTier(dist);
+
+    _currentLod      = tier.lod;
+    _diag.lod        = tier.lod;
+    _diag.lodLabel   = tier.label;
+
+    if (tier.lod === 0) {
+      // Global view — base layer is sufficient; cancel any pending fine request
+      if (_debounceTimer) { clearTimeout(_debounceTimer); _debounceTimer = null; }
+      return;
+    }
+
+    // Fine LOD — debounce before requesting tile
+    if (_debounceTimer) clearTimeout(_debounceTimer);
+    _debounceTimer = setTimeout(function() {
+      _debounceTimer = null;
+      var bounds = _getViewportBounds(dist, tier.res);
+      _requestTile(bounds, tier.res);
+    }, DEBOUNCE_MS);
   }
 
   // ── Legend ────────────────────────────────────────────────────────────────────
-  // A compact color-gradient bar with temperature labels. Positioned
-  // bottom-left over the globe canvas, hidden when the layer is off.
 
   function _cToF(c) { return Math.round(c * 9 / 5 + 32); }
 
@@ -145,9 +342,7 @@ window.ArgusTemperatureLayer = (function () {
     var existing = document.getElementById('argus-temp-legend');
     if (existing) existing.remove();
 
-    var unit = (window.ArgusSettings
-      ? (localStorage.getItem('argus-temp-unit') || 'C')
-      : 'C');
+    var unit = localStorage.getItem('argus-temp-unit') || 'C';
 
     var el = document.createElement('div');
     el.id = 'argus-temp-legend';
@@ -160,14 +355,12 @@ window.ArgusTemperatureLayer = (function () {
       'padding:5px 8px', 'display:none', 'user-select:none',
     ].join(';');
 
-    // Header
     var hdr = document.createElement('div');
     hdr.style.cssText = 'color:#2a6a8a;margin-bottom:4px;letter-spacing:2px';
     hdr.textContent = 'TEMP (2m °' + unit + ')';
     el.appendChild(hdr);
 
-    // Gradient bar canvas (gradient drawn in JS)
-    var bar = document.createElement('canvas');
+    var bar  = document.createElement('canvas');
     bar.width = 90; bar.height = 7;
     bar.style.cssText = 'display:block;border-radius:1px;margin-bottom:3px';
     var bctx = bar.getContext('2d');
@@ -180,22 +373,19 @@ window.ArgusTemperatureLayer = (function () {
     bctx.fillRect(0, 0, 90, 7);
     el.appendChild(bar);
 
-    // Labels row
     var labels = document.createElement('div');
     labels.style.cssText = 'display:flex;justify-content:space-between;width:90px;color:#5a8aa8';
-
-    var lo = unit === 'F' ? _cToF(-50) + '°F' : '−50°C';
-    var mi = unit === 'F' ? _cToF(0)   + '°F' : '0°C';
-    var hi = unit === 'F' ? _cToF(50)  + '°F' : '50°C';
-
-    [lo, mi, hi].forEach(function(txt) {
+    [
+      unit === 'F' ? _cToF(-50) + '°F' : '−50°C',
+      unit === 'F' ? _cToF(0)   + '°F' : '0°C',
+      unit === 'F' ? _cToF(50)  + '°F' : '50°C',
+    ].forEach(function(txt) {
       var span = document.createElement('span');
       span.textContent = txt;
       labels.appendChild(span);
     });
     el.appendChild(labels);
 
-    // Attribution (Open-Meteo CC BY 4.0)
     var attr = document.createElement('div');
     attr.style.cssText = 'color:#2a4a5a;margin-top:3px;font-size:6.5px;letter-spacing:0.8px';
     attr.textContent = 'Open-Meteo CC BY 4.0';
@@ -206,17 +396,15 @@ window.ArgusTemperatureLayer = (function () {
   }
 
   // ── Init ──────────────────────────────────────────────────────────────────────
-  // Called from index.html after window.ArgusGlobe is set.
 
   function init() {
     if (_mesh) return; // idempotent
 
     var AG = window.ArgusGlobe;
     if (!AG || !AG.globeGroup) {
-      console.warn('[ArgusTemperatureLayer] window.ArgusGlobe not ready; deferred');
+      console.warn('[ArgusTemperatureLayer] ArgusGlobe not ready');
       return;
     }
-
     var THREE = window.THREE;
     if (!THREE) {
       console.warn('[ArgusTemperatureLayer] THREE not available');
@@ -224,19 +412,16 @@ window.ArgusTemperatureLayer = (function () {
     }
 
     // ── Canvas + texture ───────────────────────────────────────────────────────
-    _canvas = document.createElement('canvas');
-    _canvas.width  = GRID_COLS;  // 36
-    _canvas.height = GRID_ROWS;  // 18
-    _ctx = _canvas.getContext('2d');
+    _canvas        = document.createElement('canvas');
+    _canvas.width  = CANVAS_W;
+    _canvas.height = CANVAS_H;
+    _ctx           = _canvas.getContext('2d');
+    _ctx.clearRect(0, 0, CANVAS_W, CANVAS_H);
 
-    // Fill with transparent until data arrives
-    _ctx.clearRect(0, 0, GRID_COLS, GRID_ROWS);
-
-    _canvasTex = new THREE.CanvasTexture(_canvas);
-    _canvasTex.minFilter  = THREE.LinearFilter;
-    _canvasTex.magFilter  = THREE.LinearFilter;
-    _canvasTex.wrapS      = THREE.RepeatWrapping; // seamless antimeridian wrap
-    // flipY = true (default) — canvas y=0 → UV v=1 → North Pole ✓
+    _canvasTex           = new THREE.CanvasTexture(_canvas);
+    _canvasTex.minFilter = THREE.LinearFilter;
+    _canvasTex.magFilter = THREE.LinearFilter;
+    _canvasTex.wrapS     = THREE.RepeatWrapping; // seamless antimeridian wrap
 
     var material = new THREE.MeshBasicMaterial({
       map:         _canvasTex,
@@ -247,27 +432,17 @@ window.ArgusTemperatureLayer = (function () {
     });
 
     // ── Sphere mesh ────────────────────────────────────────────────────────────
-    // Sits at r=100.2, above globe surface (r=100) and below coord grid (r=100.39).
-    // Added to globeGroup so it rotates with the globe as the user drags.
-    //
-    // Local rotation.y = −π/2 cancels globeGroup's initial +π/2 correction so the
-    // equirectangular canvas aligns with the data coordinate system at rest.
-    // As the globe rotates (globeGroup.rotation.y += drag):
-    //   sphere world rotation Y = globeGroup.rotation.y + (−π/2)
-    //                           = dataGroup.rotation.y              ✓ stays in sync
-    _mesh = new THREE.Mesh(new THREE.SphereGeometry(SPHERE_R, 128, 64), material);
+    // r=100.5, 128×64 segments. Local rotation.y = −π/2 cancels globeGroup's
+    // +π/2 correction so the equirectangular canvas aligns with geo coordinates.
+    _mesh            = new THREE.Mesh(new THREE.SphereGeometry(SPHERE_R, 128, 64), material);
     _mesh.rotation.y = -Math.PI / 2;
     _mesh.visible    = false;
     AG.globeGroup.add(_mesh);
 
     // ── Legend ─────────────────────────────────────────────────────────────────
     _buildLegend();
-
-    // ── Event listeners ────────────────────────────────────────────────────────
-    // Rebuild legend when the user switches °C/°F in Settings
     document.addEventListener('argus-settings-changed', function(e) {
-      var unit = e && e.detail && e.detail.tempUnit;
-      if (unit) {
+      if (e && e.detail && e.detail.tempUnit) {
         _buildLegend();
         if (_visible) {
           var leg = document.getElementById('argus-temp-legend');
@@ -276,29 +451,50 @@ window.ArgusTemperatureLayer = (function () {
       }
     });
 
-    // ── First fetch + auto-refresh ─────────────────────────────────────────────
+    // ── Start timers ───────────────────────────────────────────────────────────
     refresh();
-    _refreshTimer = setInterval(refresh, REFRESH_MS);
+    _baseTimer = setInterval(refresh,        BASE_REFRESH_MS);
+    _pollTimer = setInterval(_onCameraPoll,  CAMERA_POLL_MS);
   }
 
-  // ── Fetch ─────────────────────────────────────────────────────────────────────
+  // ── Base layer fetch ──────────────────────────────────────────────────────────
+  // Fetches the global 10° grid (648 pts) and paints 10×10 px blocks covering
+  // the entire canvas. After painting the base, re-paints the active fine tile
+  // (if any) so its detail is not overwritten by the base repaint.
 
   function refresh() {
-    fetch(FETCH_URL)
+    fetch(BASE_URL)
       .then(function(r) {
         if (!r.ok) throw new Error('HTTP ' + r.status);
         return r.json();
       })
       .then(function(data) {
         if (!data || !Array.isArray(data.grid)) {
-          console.warn('[ArgusTemperatureLayer] unexpected response shape');
+          console.warn('[ArgusTemperatureLayer] unexpected base response');
           return;
         }
-        _data = data.grid;
-        _drawCanvas(_data);
+        _baseData = data.grid;
+
+        // Paint global base
+        var painted = _paintSamples(_baseData, 10);
+        _diag.samplesLoaded   += _baseData.length;
+        _diag.samplesRendered += painted;
+        _diag.memEstimateKB    = Math.round(CANVAS_W * CANVAS_H * 4 / 1024);
+
+        // Re-paint active fine tile on top of the freshly painted base
+        if (_activeTileKey && _tileCache[_activeTileKey]) {
+          var tile = _tileCache[_activeTileKey];
+          _paintSamples(tile.grid, tile.resolution);
+        } else if (_visible && _currentLod > 0 && window.ArgusGlobe && window.ArgusGlobe.camera) {
+          // Trigger a tile request for the current viewport
+          var dist  = window.ArgusGlobe.camera.position.length();
+          var tier  = _getLodTier(dist);
+          var bnds  = _getViewportBounds(dist, tier.res);
+          _requestTile(bnds, tier.res);
+        }
       })
       .catch(function(err) {
-        console.warn('[ArgusTemperatureLayer] fetch failed:', err.message);
+        console.warn('[ArgusTemperatureLayer] base fetch failed:', err.message);
       });
   }
 
@@ -312,20 +508,29 @@ window.ArgusTemperatureLayer = (function () {
     if (leg) leg.style.display = on ? 'block' : 'none';
     var btn = document.getElementById('btn-track-temp');
     if (btn) btn.classList.toggle('is-active', on);
-    // If turning on for the first time with no data, trigger a fetch
-    if (on && !_data) refresh();
+    if (on && !_baseData) refresh();
   }
 
-  function toggle() {
-    setVisible(!_visible);
-  }
+  function toggle() { setVisible(!_visible); }
+
+  // ── Diagnostics ───────────────────────────────────────────────────────────────
 
   function status() {
     return {
-      visible:    _visible,
-      hasData:    !!_data,
-      pointCount: _data ? _data.length : 0,
-      meshReady:  !!_mesh,
+      lod:              _diag.lod,
+      lodLabel:         _diag.lodLabel,
+      visibleTiles:     _diag.visibleTiles,
+      samplesLoaded:    _diag.samplesLoaded,
+      samplesRendered:  _diag.samplesRendered,
+      lastBbox:         _diag.lastBbox,
+      lastTileMs:       _diag.lastTileMs,
+      canvasSize:       _diag.canvasSize,
+      maxOpenMeteoRes:  _diag.maxOpenMeteoRes,
+      memEstimateKB:    _diag.memEstimateKB,
+      tilesInCache:     Object.keys(_tileCache).length,
+      hasBaseData:      !!_baseData,
+      basePointCount:   _baseData ? _baseData.length : 0,
+      meshReady:        !!_mesh,
     };
   }
 

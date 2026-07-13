@@ -1,46 +1,39 @@
 'use strict';
 // modules/argusTemperatureLayer.js
-// Adaptive LOD global temperature heatmap overlay on the Three.js globe.
+// Adaptive LOD global temperature heatmap with IDW interpolation.
 //
 // ── ARCHITECTURE ──────────────────────────────────────────────────────────────
 //
-//   Single 360×180 canvas texture (1° per pixel) mapped onto a sphere at
-//   r=100.5 (128×64 segments). Every pixel is computed by JS-side bilinear
-//   interpolation and written via ImageData.putImageData — one GPU upload.
-//   THREE.LinearFilter adds a final anti-alias pass on the GPU.
-//   Result: a completely smooth, continuously-refined scalar field with
-//   no visible squares, no grid artefacts, no tile seams.
+//   360×180 canvas texture (1°/pixel) mapped to a sphere at r=100.5.
+//   All interpolation math runs in a Web Worker (temperature-idw-worker.js).
+//   The main thread only handles rendering: putImageData + isotherm strokes.
 //
-//   LOD TIERS  (camera distance from globe centre, globe radius = 100):
-//   ┌────┬─────────────┬──────┬─────────────────────────────────────────┐
-//   │Tier│ Label       │ Res  │ Camera dist                             │
-//   ├────┼─────────────┼──────┼─────────────────────────────────────────┤
-//   │  0 │ Global      │ 10°  │ > 280   base only                       │
-//   │  1 │ Continental │  5°  │ 200–280 tile fetched; _updateRegion     │
-//   │  2 │ Regional    │  2°  │ 140–200 tile fetched; _updateRegion     │
-//   │  3 │ City        │  1°  │ ≤ 140   tile fetched; _updateRegion     │
-//   └────┴─────────────┴──────┴─────────────────────────────────────────┘
+//   INTERPOLATION ENGINE (Web Worker):
+//     Inverse Distance Weighting — T(x,y) = Σ(Ti/di^p) / Σ(1/di^p)
+//     Power p=2 (configurable). k=8 nearest neighbors via KD-tree.
+//     Every canvas pixel gets its own IDW estimate from all current stations.
+//     Result: fully continuous temperature field with no blocky artifacts.
 //
-//   BASE LAYER — always present:
-//     648 pts at 10°, fetched from fetch-temperature (2h TTL).
-//     _rebuildCanvas() writes all 64,800 pixels via bilinear interpolation.
+//   ISOTHERMS (Marching Squares in worker):
+//     Contour lines traced from the interpolated temperature grid at every
+//     IDW_ISOTHERM_INTERVAL degrees C. Drawn on the canvas texture after
+//     putImageData so they appear on the globe surface.
 //
-//   REFINED TILES — viewport only (LOD 1–3):
-//     Fetched from fetch-temperature-tile on camera settle (600ms debounce).
-//     _updateRegion() rewrites only the affected canvas region.
-//     Smooth-step feathering (_tileRes × 3°) eliminates tile-edge seams.
+//   HOVER TOOLTIP:
+//     Raycast from mouse position → sphere UV → lat/lon.
+//     Brute-force IDW from _allStations (≤2500 pts) on main thread.
+//     Shows "Observed" if hover is within half a grid step of a station.
 //
-// ── INTERPOLATION ─────────────────────────────────────────────────────────────
-//   Base bilinear: latN/latS from 85−10k formula; lonW/lonE from −175+10k.
-//   Tile bilinear: latN = ceil(lat/res)*res; lonW = floor(lon/res)*res.
-//   Feather: insideDist = min distance to any tile edge (degrees).
-//     insideDist ≥ feather → use tile value
-//     0 ≤ insideDist < feather → blend: w = w²(3−2w), mix base→tile
-//     insideDist < 0 → use base value
+//   LOD TIERS (camera distance, globe radius=100):
+//     Global      dist > 280  10° base only      648 pts
+//     Continental dist > 200   5° tile + base     ~800 pts
+//     Regional    dist > 140   2° tile + base     ~1000 pts
+//     City        dist ≤ 140   1° tile + base     ~2000 pts
 //
-// ── SPHERE ────────────────────────────────────────────────────────────────────
-//   r=100.5, 128×64 segments. Face centres ≈100.44, above globe (r=100).
-//   depthWrite:false prevents overwriting marker depth values.
+//   COLOR SCALE (perceptually uniform, 12 anchors):
+//     −40°C #2D004B → −30 #0C1078 → −20 #2166AC → −10 #67A9CF →
+//     0 #B2E2E2 → 10 #A1D99B → 20 #FFFFBF → 25 #FEE08B →
+//     30 #FDAE61 → 35 #F46D43 → 40 #D73027 → 45+ #67001F
 //
 // ── DATA ATTRIBUTION ─────────────────────────────────────────────────────────
 //   Open-Meteo (https://open-meteo.com) — CC BY 4.0.
@@ -50,15 +43,19 @@ window.ArgusTemperatureLayer = (function () {
 
   // ── Config ───────────────────────────────────────────────────────────────────
 
-  var CANVAS_W        = 360;
-  var CANVAS_H        = 180;
-  var SPHERE_R        = 100.5;
-  var OPACITY         = 0.70;
-  var BASE_URL        = '/.netlify/functions/fetch-temperature';
-  var TILE_URL        = '/.netlify/functions/fetch-temperature-tile';
-  var BASE_REFRESH_MS = 2 * 60 * 60 * 1000;
-  var CAMERA_POLL_MS  = 500;
-  var DEBOUNCE_MS     = 600;
+  var CANVAS_W             = 360;
+  var CANVAS_H             = 180;
+  var SPHERE_R             = 100.5;
+  var OPACITY              = 0.72;
+  var BASE_URL             = '/.netlify/functions/fetch-temperature';
+  var TILE_URL             = '/.netlify/functions/fetch-temperature-tile';
+  var WORKER_URL           = '/workers/temperature-idw-worker.js';
+  var BASE_REFRESH_MS      = 2 * 60 * 60 * 1000;
+  var CAMERA_POLL_MS       = 500;
+  var DEBOUNCE_MS          = 400;
+  var IDW_P                = 2;       // IDW power parameter
+  var IDW_N                = 8;       // IDW neighbor count
+  var IDW_ISOTHERM_INT     = 5;       // isotherm interval in °C
 
   var LOD_TIERS = [
     { lod: 3, res:  1, maxDist: 140, label: 'City'        },
@@ -67,18 +64,22 @@ window.ArgusTemperatureLayer = (function () {
     { lod: 0, res: 10, maxDist: Infinity, label: 'Global' },
   ];
 
-  // Max viewport extent per resolution — keeps Open-Meteo point counts safe
   var MAX_EXTENT = { 5: 75, 2: 55, 1: 38 };
 
-  // Temperature-to-color stops (°C)
+  // Color stops (mirrored in worker — must stay in sync)
   var COLOR_STOPS = [
-    { t: -50, r: 30,  g: 30,  b: 150 },  // deep blue-purple
-    { t: -20, r: 0,   g: 80,  b: 255 },  // bright blue
-    { t:   0, r: 0,   g: 200, b: 255 },  // cyan
-    { t:  15, r: 0,   g: 210, b: 80  },  // green
-    { t:  25, r: 255, g: 215, b: 0   },  // yellow
-    { t:  35, r: 255, g: 75,  b: 0   },  // orange-red
-    { t:  50, r: 180, g: 0,   b: 50  },  // deep red
+    { t: -40, r:  45, g:   0, b:  75 },  // #2D004B deep violet
+    { t: -30, r:  12, g:  16, b: 120 },  // #0C1078 dark blue
+    { t: -20, r:  33, g: 102, b: 172 },  // #2166AC blue
+    { t: -10, r: 103, g: 169, b: 207 },  // #67A9CF light blue
+    { t:   0, r: 178, g: 226, b: 226 },  // #B2E2E2 cyan
+    { t:  10, r: 161, g: 217, b: 155 },  // #A1D99B light green
+    { t:  20, r: 255, g: 255, b: 191 },  // #FFFFBF yellow-green
+    { t:  25, r: 254, g: 224, b: 139 },  // #FEE08B yellow
+    { t:  30, r: 253, g: 174, b:  97 },  // #FDAE61 orange
+    { t:  35, r: 244, g: 109, b:  67 },  // #F46D43 dark orange
+    { t:  40, r: 215, g:  48, b:  39 },  // #D73027 red
+    { t:  45, r: 103, g:   0, b:  31 },  // #67001F deep red
   ];
 
   // ── Module state ──────────────────────────────────────────────────────────────
@@ -88,10 +89,9 @@ window.ArgusTemperatureLayer = (function () {
   var _canvas        = null;
   var _ctx           = null;
   var _visible       = false;
-  var _baseData      = null;
-  var _baseHash      = null;   // { 'lat_lon': t } — base grid lookup
-  var _tileHash      = null;   // { 'lat_lon': t } — active fine tile lookup
-  var _tileBbox      = null;   // { latMin, latMax, lonMin, lonMax }
+  var _baseData      = null;   // raw [{lat,lon,t}] from fetch-temperature
+  var _tileData      = null;   // raw [{lat,lon,t}] from active fine tile
+  var _allStations   = [];     // merged base + tile, fed to worker & hover IDW
   var _tileRes       = 0;      // active fine tile resolution (degrees)
   var _baseTimer     = null;
   var _pollTimer     = null;
@@ -100,206 +100,324 @@ window.ArgusTemperatureLayer = (function () {
   var _tileCache     = {};
   var _currentLod    = 0;
   var _activeTileKey = null;
+  var _worker        = null;   // Web Worker instance
+  var _workerBusy    = false;  // true while a compute is in flight
+  var _pendingMsg    = null;   // most recent un-dispatched message (latest wins)
+  var _tooltip       = null;   // tooltip DOM element
+  var _raycaster     = null;   // THREE.Raycaster for hover
 
   var _diag = {
-    lod: 0, lodLabel: 'Global', visibleTiles: 1,
-    samplesLoaded: 0, samplesRendered: 0,
-    lastBbox: null, lastTileMs: null,
+    lod: 0, lodLabel: 'Global',
+    stationsTotal: 0, lastTileMs: null,
     canvasSize: CANVAS_W + '×' + CANVAS_H,
-    maxOpenMeteoRes: '1°', memEstimateKB: 0,
+    tilesInCache: 0, meshReady: false,
   };
 
-  // ── Temperature → RGB ─────────────────────────────────────────────────────────
+  // ── Color helpers (main thread — for legend only) ─────────────────────────────
 
-  function _tempToRGB(t) {
-    if (t === null || t === undefined || !isFinite(t)) {
-      return { r: 80, g: 80, b: 80 };
-    }
-    var stops = COLOR_STOPS;
-    if (t <= stops[0].t) return { r: stops[0].r, g: stops[0].g, b: stops[0].b };
-    var last = stops[stops.length - 1];
-    if (t >= last.t) return { r: last.r, g: last.g, b: last.b };
-    for (var i = 0; i < stops.length - 1; i++) {
-      if (t <= stops[i + 1].t) {
-        var frac = (t - stops[i].t) / (stops[i + 1].t - stops[i].t);
-        return {
-          r: Math.round(stops[i].r + frac * (stops[i + 1].r - stops[i].r)),
-          g: Math.round(stops[i].g + frac * (stops[i + 1].g - stops[i].g)),
-          b: Math.round(stops[i].b + frac * (stops[i + 1].b - stops[i].b)),
-        };
-      }
-    }
-    return { r: last.r, g: last.g, b: last.b };
-  }
-
-  // String form used only by the legend gradient builder
   function _tempToColorStr(t) {
-    var rgb = _tempToRGB(t);
-    return 'rgb(' + rgb.r + ',' + rgb.g + ',' + rgb.b + ')';
-  }
-
-  // ── Grid hash builder ─────────────────────────────────────────────────────────
-  // Key: 'lat_lon' — matches the keys produced by bilinear corner lookups below.
-
-  function _buildGridHash(samples) {
-    var hash = {};
-    for (var i = 0; i < samples.length; i++) {
-      var s = samples[i];
-      if (s.t !== null && s.t !== undefined) {
-        hash[s.lat + '_' + s.lon] = s.t;
+    var s = COLOR_STOPS;
+    if (t <= s[0].t) return 'rgb(' + s[0].r + ',' + s[0].g + ',' + s[0].b + ')';
+    var last = s[s.length - 1];
+    if (t >= last.t) return 'rgb(' + last.r + ',' + last.g + ',' + last.b + ')';
+    for (var i = 0; i < s.length - 1; i++) {
+      if (t <= s[i + 1].t) {
+        var f = (t - s[i].t) / (s[i + 1].t - s[i].t);
+        return 'rgb(' +
+          Math.round(s[i].r + f * (s[i + 1].r - s[i].r)) + ',' +
+          Math.round(s[i].g + f * (s[i + 1].g - s[i].g)) + ',' +
+          Math.round(s[i].b + f * (s[i + 1].b - s[i].b)) + ')';
       }
     }
-    return hash;
+    return 'rgb(' + last.r + ',' + last.g + ',' + last.b + ')';
   }
 
-  // ── 4-corner bilinear interpolation ──────────────────────────────────────────
-  // fLat/fLon clamped to [0,1] so edge pixels extrapolate to nearest value.
+  // ── Merge stations (base + tile, dedup by lat_lon key) ────────────────────────
 
-  function _bilinear4(lat, lon, latS, latN, lonW, lonE, hash) {
-    var tNW = hash[latN + '_' + lonW];
-    var tNE = hash[latN + '_' + lonE];
-    var tSW = hash[latS + '_' + lonW];
-    var tSE = hash[latS + '_' + lonE];
-
-    var fLon = (lonE > lonW)
-      ? Math.max(0, Math.min(1, (lon - lonW) / (lonE - lonW))) : 0;
-    var fLat = (latN > latS)
-      ? Math.max(0, Math.min(1, (lat - latS) / (latN - latS))) : 0;
-
-    if (tNW !== undefined && tNE !== undefined &&
-        tSW !== undefined && tSE !== undefined) {
-      var tN = tNW + fLon * (tNE - tNW);
-      var tS = tSW + fLon * (tSE - tSW);
-      return tS + fLat * (tN - tS);
-    }
-
-    // Partial corners — average what is available
-    var sum = 0, count = 0;
-    if (tNW !== undefined) { sum += tNW; count++; }
-    if (tNE !== undefined) { sum += tNE; count++; }
-    if (tSW !== undefined) { sum += tSW; count++; }
-    if (tSE !== undefined) { sum += tSE; count++; }
-    return count > 0 ? sum / count : null;
-  }
-
-  // ── Base grid bilinear ────────────────────────────────────────────────────────
-  // Base lats: 85, 75, 65, …, −85 (step −10); base lons: −175, …, 175 (step 10)
-
-  function _bilinearBase(lat, lon) {
-    if (!_baseHash) return null;
-    var latIdxN = Math.max(0, Math.min(17, Math.floor((85 - lat) / 10)));
-    var latN    = 85 - latIdxN * 10;
-    var latS    = Math.max(-85, latN - 10);
-    var lonW    = Math.max(-175, Math.floor((lon + 175) / 10) * 10 - 175);
-    var lonE    = Math.min( 175, lonW + 10);
-    return _bilinear4(lat, lon, latS, latN, lonW, lonE, _baseHash);
-  }
-
-  // ── Fine tile bilinear ────────────────────────────────────────────────────────
-  // Tile samples are at exact multiples of _tileRes within the tile bbox.
-
-  function _bilinearTile(lat, lon) {
-    if (!_tileHash || !_tileRes) return null;
-    var res  = _tileRes;
-    var latN = Math.ceil(lat  / res) * res;
-    var latS = latN - res;
-    var lonW = Math.floor(lon / res) * res;
-    var lonE = lonW + res;
-    return _bilinear4(lat, lon, latS, latN, lonW, lonE, _tileHash);
-  }
-
-  // ── Interpolated temperature ──────────────────────────────────────────────────
-  // Smooth-step blends tile into base within feather zone at tile boundary.
-  // feather = _tileRes × 3 degrees, measured inside the tile edge.
-
-  function _interpolateTemp(lat, lon) {
-    var tBase = _bilinearBase(lat, lon);
-    if (!_tileBbox || !_tileHash) return tBase;
-
-    var bbox    = _tileBbox;
-    var feather = _tileRes * 3;
-
-    // insideDist: positive inside tile, negative outside
-    var insideDist = Math.min(
-      lon - bbox.lonMin,
-      bbox.lonMax - lon,
-      lat - bbox.latMin,
-      bbox.latMax - lat
-    );
-
-    if (insideDist < 0) return tBase;                // outside tile
-
-    var tTile = _bilinearTile(lat, lon);
-    if (tTile === null) return tBase;
-
-    if (insideDist >= feather) return tTile;          // deep inside tile
-
-    // Feather blend: smooth-step w = w²(3−2w)
-    var w = insideDist / feather;
-    w = w * w * (3 - 2 * w);
-    return tBase !== null ? tBase + w * (tTile - tBase) : tTile;
-  }
-
-  // ── Full canvas rebuild ───────────────────────────────────────────────────────
-  // Writes every pixel (64,800) then uploads a single ImageData.
-  // Pixel centre: lat = 89.5 − y,  lon = x − 179.5
-
-  function _rebuildCanvas() {
-    if (!_ctx || !_baseHash) return;
-    var imgData = _ctx.createImageData(CANVAS_W, CANVAS_H);
-    var d       = imgData.data;
-    for (var y = 0; y < CANVAS_H; y++) {
-      var lat = 89.5 - y;
-      for (var x = 0; x < CANVAS_W; x++) {
-        var lon = x - 179.5;
-        var t   = _interpolateTemp(lat, lon);
-        var rgb = _tempToRGB(t);
-        var idx = (y * CANVAS_W + x) * 4;
-        d[idx]     = rgb.r;
-        d[idx + 1] = rgb.g;
-        d[idx + 2] = rgb.b;
-        d[idx + 3] = (t !== null) ? 220 : 64;
+  function _mergeStations() {
+    var seen = {};
+    var out  = [];
+    var src  = [_baseData || [], _tileData || []];
+    for (var si = 0; si < src.length; si++) {
+      var arr = src[si];
+      for (var i = 0; i < arr.length; i++) {
+        var p = arr[i];
+        var k = p.lat + '_' + p.lon;
+        if (!seen[k]) { seen[k] = true; out.push(p); }
       }
     }
-    _ctx.putImageData(imgData, 0, 0);
+    _allStations = out;
+    _diag.stationsTotal = out.length;
+  }
+
+  // ── Web Worker ────────────────────────────────────────────────────────────────
+
+  function _initWorker() {
+    if (typeof Worker === 'undefined') return;
+    try {
+      _worker = new Worker(WORKER_URL);
+      _worker.onmessage  = _onWorkerResult;
+      _worker.onerror    = function (e) {
+        console.warn('[ArgusTemperatureLayer] worker error:', e.message);
+        _workerBusy = false;
+        if (_pendingMsg) _flushPending();
+      };
+    } catch (err) {
+      console.warn('[ArgusTemperatureLayer] worker unavailable:', err.message);
+    }
+  }
+
+  // Dispatch a compute job. If worker is busy, queue latest request (latest wins).
+  function _dispatchWorker(xMin, yMin, w, h) {
+    var msg = {
+      stations:         _allStations,
+      xMin:             xMin,
+      yMin:             yMin,
+      w:                w,
+      h:                h,
+      idwP:             IDW_P,
+      idwN:             IDW_N,
+      isothermInterval: IDW_ISOTHERM_INT,
+    };
+
+    if (!_worker) {
+      // Fallback: skip computation when worker is unavailable
+      return;
+    }
+
+    if (_workerBusy) {
+      _pendingMsg = msg; // newest request always wins
+      return;
+    }
+
+    _workerBusy = true;
+    _pendingMsg = null;
+    _worker.postMessage(msg);
+  }
+
+  function _flushPending() {
+    if (!_pendingMsg || !_worker) return;
+    var msg = _pendingMsg;
+    _pendingMsg  = null;
+    _workerBusy  = true;
+    _worker.postMessage(msg);
+  }
+
+  function _onWorkerResult(e) {
+    _workerBusy = false;
+
+    var r = e.data;
+    if (r.error) {
+      console.warn('[ArgusTemperatureLayer] worker:', r.error);
+      if (_pendingMsg) _flushPending();
+      return;
+    }
+
+    if (!_ctx) return;
+
+    // Write interpolated pixels (use buffer view to avoid data copy)
+    var imgData = new ImageData(new Uint8ClampedArray(r.pixels.buffer), r.w, r.h);
+    _ctx.putImageData(imgData, r.xMin, r.yMin);
+
+    // Draw isotherms on top
+    if (r.isotherms && r.isotherms.length) {
+      _drawIsotherms(r.isotherms, r.xMin, r.yMin);
+    }
+
     if (_canvasTex) _canvasTex.needsUpdate = true;
+
+    if (_pendingMsg) _flushPending();
   }
 
-  // ── Partial region update ─────────────────────────────────────────────────────
-  // Rewrites only the canvas pixels covering bbox ± featherDeg.
-  // Called after a tile loads — avoids a full 64,800-pixel rebuild.
+  // ── Isotherm rendering ────────────────────────────────────────────────────────
+  // Draws contour line segments from the worker result onto the canvas texture.
+  // `xMin`, `yMin` are the canvas pixel offsets for this region.
+  // Segment coordinates from the worker are in region-local (col, row) space.
 
-  function _updateRegion(bbox, featherDeg) {
-    if (!_ctx || !_baseHash) return;
-    var fe   = featherDeg || 0;
-    var xMin = Math.max(0,            Math.floor(bbox.lonMin + 179.5 - fe));
-    var xMax = Math.min(CANVAS_W - 1, Math.ceil( bbox.lonMax + 179.5 + fe));
-    var yMin = Math.max(0,            Math.floor(89.5 - bbox.latMax  - fe));
-    var yMax = Math.min(CANVAS_H - 1, Math.ceil( 89.5 - bbox.latMin  + fe));
+  function _drawIsotherms(isotherms, xMin, yMin) {
+    _ctx.save();
+    _ctx.lineWidth   = 0.6;
+    _ctx.strokeStyle = 'rgba(255,255,255,0.45)';
+    _ctx.fillStyle   = 'rgba(255,255,255,0.85)';
+    _ctx.font        = '4px monospace';
+    _ctx.textAlign   = 'center';
+    _ctx.textBaseline = 'middle';
+
+    for (var i = 0; i < isotherms.length; i++) {
+      var iso  = isotherms[i];
+      var segs = iso.segs;
+      if (!segs.length) continue;
+
+      _ctx.beginPath();
+      for (var j = 0; j < segs.length; j += 4) {
+        _ctx.moveTo(xMin + segs[j],     yMin + segs[j + 1]);
+        _ctx.lineTo(xMin + segs[j + 2], yMin + segs[j + 3]);
+      }
+      _ctx.stroke();
+
+      // Temperature label every ~80 segment-pairs along the isotherm
+      var label = iso.level + '°';
+      for (var j = 0; j < segs.length; j += 320) {
+        var lx = xMin + segs[j];
+        var ly = yMin + segs[j + 1];
+        // 2px white halo then label text
+        _ctx.strokeStyle = 'rgba(0,0,0,0.7)';
+        _ctx.lineWidth   = 2;
+        _ctx.strokeText(label, lx, ly);
+        _ctx.fillText(label,   lx, ly);
+        _ctx.lineWidth   = 0.6;
+        _ctx.strokeStyle = 'rgba(255,255,255,0.45)';
+      }
+    }
+    _ctx.restore();
+  }
+
+  // ── Hover tooltip ─────────────────────────────────────────────────────────────
+
+  function _initTooltip() {
+    var el = document.createElement('div');
+    el.id = 'argus-temp-tooltip';
+    el.style.cssText = [
+      'position:fixed', 'z-index:9999', 'pointer-events:none',
+      'display:none',
+      'background:rgba(2,8,20,0.88)',
+      'border:1px solid rgba(0,140,200,0.4)',
+      'border-radius:3px',
+      'padding:5px 9px',
+      'font-family:var(--font-mono,monospace)',
+      'font-size:10px',
+      'letter-spacing:1px',
+      'color:#b0cfe0',
+      'white-space:nowrap',
+      'box-shadow:0 2px 8px rgba(0,0,0,0.6)',
+    ].join(';');
+    document.body.appendChild(el);
+    _tooltip = el;
+  }
+
+  function _showTooltip(clientX, clientY, lat, lon, t, observed) {
+    if (!_tooltip || !_visible) return;
+    var unit  = localStorage.getItem('argus-temp-unit') || 'C';
+    var tDisp = t !== null ? (unit === 'F'
+      ? (t * 9 / 5 + 32).toFixed(1) + ' °F'
+      : t.toFixed(1) + ' °C') : '—';
+    var tag   = observed ? '<span style="color:#4af;font-size:8px"> OBS</span>'
+                         : '<span style="color:#888;font-size:8px"> EST</span>';
+    _tooltip.innerHTML = tDisp + tag +
+      '<br><span style="color:#3a6a8a;font-size:8px">' +
+      Math.abs(lat).toFixed(2) + (lat >= 0 ? '°N ' : '°S ') +
+      Math.abs(lon).toFixed(2) + (lon >= 0 ? '°E' : '°W') + '</span>';
+    _tooltip.style.display  = 'block';
+    _tooltip.style.left     = (clientX + 14) + 'px';
+    _tooltip.style.top      = (clientY - 10) + 'px';
+  }
+
+  function _hideTooltip() {
+    if (_tooltip) _tooltip.style.display = 'none';
+  }
+
+  // ── IDW at a point — main thread (for hover, brute force over ≤2500 pts) ──────
+
+  function _idwAtPoint(lat, lon) {
+    if (!_allStations.length) return { t: null, observed: false };
+
+    var k = Math.min(IDW_N, _allStations.length);
+    // Simple linear scan — acceptable for k=8, N≤2500 per hover event
+    var best = [];
+    for (var i = 0; i < _allStations.length; i++) {
+      var s    = _allStations[i];
+      if (s.t === null || s.t !== s.t) continue;
+      var dlat = lat - s.lat;
+      var dlon = lon - s.lon;
+      var d2   = dlat * dlat + dlon * dlon;
+      if (best.length < k) {
+        best.push({ d2: d2, t: s.t });
+        if (best.length === k) best.sort(function(a,b){return b.d2-a.d2;});
+      } else if (d2 < best[0].d2) {
+        best[0] = { d2: d2, t: s.t };
+        best.sort(function(a,b){return b.d2-a.d2;});
+      }
+    }
+
+    if (!best.length) return { t: null, observed: false };
+
+    // Exact station hit?
+    var threshold = _tileRes > 0 ? (_tileRes * 0.5) * (_tileRes * 0.5) : 25; // (res/2)²
+    if (best[best.length - 1].d2 < threshold * 0.01) {
+      return { t: best[best.length - 1].t, observed: true };
+    }
+
+    var wSum = 0, tSum = 0;
+    for (var j = 0; j < best.length; j++) {
+      if (best[j].d2 === 0) return { t: best[j].t, observed: true };
+      var w = 1 / Math.pow(best[j].d2, IDW_P / 2);
+      wSum += w;
+      tSum += w * best[j].t;
+    }
+    return { t: wSum > 0 ? tSum / wSum : null, observed: false };
+  }
+
+  // ── Hover raycasting ──────────────────────────────────────────────────────────
+
+  function _initHover() {
+    var AG  = window.ArgusGlobe;
+    var THREE = window.THREE;
+    if (!AG || !AG.renderer || !THREE || !_mesh) return;
+
+    _raycaster = new THREE.Raycaster();
+    var mouse  = new THREE.Vector2();
+    var canvas = AG.renderer.domElement;
+
+    canvas.addEventListener('pointermove', function (e) {
+      if (!_visible || !_raycaster) return;
+
+      var rect = canvas.getBoundingClientRect();
+      mouse.x  =  ((e.clientX - rect.left) / rect.width)  * 2 - 1;
+      mouse.y  = -((e.clientY - rect.top)  / rect.height) * 2 + 1;
+
+      _raycaster.setFromCamera(mouse, AG.camera);
+      var hits = _raycaster.intersectObject(_mesh);
+      if (!hits.length) { _hideTooltip(); return; }
+
+      var uv  = hits[0].uv;
+      // UV u/v map directly to canvas x/y:
+      //   canvas x = u * 360  → lon = x - 179.5
+      //   canvas y = v * 180  → lat = 89.5 - y
+      var lon = uv.x * 360 - 179.5;
+      var lat = 89.5 - uv.y * 180;
+
+      var res = _idwAtPoint(lat, lon);
+      _showTooltip(e.clientX, e.clientY, lat, lon, res.t, res.observed);
+    });
+
+    canvas.addEventListener('pointerleave', _hideTooltip);
+    canvas.addEventListener('pointerdown',  _hideTooltip);
+  }
+
+  // ── Worker dispatch helpers ───────────────────────────────────────────────────
+
+  // Full canvas redraw — used for global base refresh or returning to LOD 0.
+  function _scheduleFullRedraw() {
+    _mergeStations();
+    if (!_allStations.length) return;
+    _dispatchWorker(0, 0, CANVAS_W, CANVAS_H);
+  }
+
+  // Viewport region redraw — used after a fine tile lands.
+  function _scheduleRegionRedraw(bbox) {
+    _mergeStations();
+    if (!_allStations.length) return;
+    var feather = (_tileRes || 10) * 3;
+    var xMin = Math.max(0,            Math.floor(bbox.lonMin + 179.5 - feather));
+    var xMax = Math.min(CANVAS_W - 1, Math.ceil( bbox.lonMax + 179.5 + feather));
+    var yMin = Math.max(0,            Math.floor(89.5 - bbox.latMax  - feather));
+    var yMax = Math.min(CANVAS_H - 1, Math.ceil( 89.5 - bbox.latMin  + feather));
     var w    = xMax - xMin + 1;
     var h    = yMax - yMin + 1;
-    if (w <= 0 || h <= 0) return;
-
-    var imgData = _ctx.createImageData(w, h);
-    var d       = imgData.data;
-    for (var row = 0; row < h; row++) {
-      var lat = 89.5 - (yMin + row);
-      for (var col = 0; col < w; col++) {
-        var lon = (xMin + col) - 179.5;
-        var t   = _interpolateTemp(lat, lon);
-        var rgb = _tempToRGB(t);
-        var idx = (row * w + col) * 4;
-        d[idx]     = rgb.r;
-        d[idx + 1] = rgb.g;
-        d[idx + 2] = rgb.b;
-        d[idx + 3] = (t !== null) ? 220 : 64;
-      }
-    }
-    _ctx.putImageData(imgData, xMin, yMin);
-    if (_canvasTex) _canvasTex.needsUpdate = true;
+    if (w > 0 && h > 0) _dispatchWorker(xMin, yMin, w, h);
   }
 
-  // ── LOD tier lookup ───────────────────────────────────────────────────────────
+  // ── LOD + viewport helpers ────────────────────────────────────────────────────
 
   function _getLodTier(dist) {
     for (var i = 0; i < LOD_TIERS.length; i++) {
@@ -307,8 +425,6 @@ window.ArgusTemperatureLayer = (function () {
     }
     return LOD_TIERS[LOD_TIERS.length - 1];
   }
-
-  // ── Viewport geographic bounds ────────────────────────────────────────────────
 
   function _getViewportBounds(dist, res) {
     var AG = window.ArgusGlobe;
@@ -332,8 +448,6 @@ window.ArgusTemperatureLayer = (function () {
     };
   }
 
-  // ── Tile cache key ────────────────────────────────────────────────────────────
-
   function _tileKey(res, bbox) {
     var snap = function (v, r) { return +(Math.round(v / r) * r).toFixed(1); };
     return res + '_' +
@@ -341,20 +455,17 @@ window.ArgusTemperatureLayer = (function () {
       snap(bbox.lonMin, res) + '_' + snap(bbox.lonMax, res);
   }
 
-  // ── Request a refined tile ────────────────────────────────────────────────────
+  // ── Tile request ──────────────────────────────────────────────────────────────
 
   function _requestTile(bbox, res) {
     var key = _tileKey(res, bbox);
 
-    // Memory cache hit — activate immediately, redraw region
     if (_tileCache[key]) {
       var hit    = _tileCache[key];
-      _tileHash      = _buildGridHash(hit.grid);
-      _tileBbox      = hit.bbox;
+      _tileData      = hit.grid;
       _tileRes       = hit.resolution;
       _activeTileKey = key;
-      _updateRegion(hit.bbox, res * 3);
-      _diag.lastBbox = bbox;
+      _scheduleRegionRedraw(hit.bbox);
       return;
     }
 
@@ -377,23 +488,14 @@ window.ArgusTemperatureLayer = (function () {
           console.warn('[ArgusTemperatureLayer] unexpected tile response');
           return;
         }
-
         _tileCache[key] = data;
-        _tileHash       = _buildGridHash(data.grid);
-        _tileBbox       = data.bbox;
+        _tileData       = data.grid;
         _tileRes        = data.resolution;
         _activeTileKey  = key;
+        _diag.tilesInCache = Object.keys(_tileCache).length;
+        _diag.lastTileMs   = Date.now() - t0;
 
-        _updateRegion(data.bbox, res * 3);
-
-        _diag.samplesLoaded   += data.grid.length;
-        _diag.samplesRendered += data.grid.length;
-        _diag.lastBbox         = bbox;
-        _diag.lastTileMs       = Date.now() - t0;
-        _diag.visibleTiles     = Object.keys(_tileCache).length + 1;
-        _diag.memEstimateKB    = Math.round(
-          (_diag.samplesLoaded * 12 + CANVAS_W * CANVAS_H * 4) / 1024
-        );
+        _scheduleRegionRedraw(data.bbox);
 
         console.log('[ArgusTemperatureLayer] LOD' + _currentLod +
           ' (' + res + '°) ' + data.grid.length + ' pts, ' + _diag.lastTileMs + 'ms');
@@ -419,13 +521,12 @@ window.ArgusTemperatureLayer = (function () {
 
     if (tier.lod === 0) {
       if (_debounceTimer) { clearTimeout(_debounceTimer); _debounceTimer = null; }
-      // Zoomed back out — discard tile, rebuild base-only canvas
-      if (_tileHash) {
-        _tileHash      = null;
-        _tileBbox      = null;
+      if (_tileData) {
+        // Returned to global — drop tile, full redraw with base only
+        _tileData      = null;
         _tileRes       = 0;
         _activeTileKey = null;
-        _rebuildCanvas();
+        _scheduleFullRedraw();
       }
       return;
     }
@@ -454,46 +555,48 @@ window.ArgusTemperatureLayer = (function () {
       'position:absolute', 'bottom:44px', 'left:12px',
       'z-index:50', 'pointer-events:none',
       'font-family:var(--font-mono,monospace)', 'font-size:7.5px',
-      'letter-spacing:1.2px', 'background:rgba(2,8,20,0.78)',
+      'letter-spacing:1.2px', 'background:rgba(2,8,20,0.82)',
       'border:1px solid rgba(0,100,160,0.38)', 'border-radius:2px',
-      'padding:5px 8px', 'display:none', 'user-select:none',
+      'padding:6px 8px', 'display:none', 'user-select:none',
     ].join(';');
 
     var hdr = document.createElement('div');
-    hdr.style.cssText = 'color:#2a6a8a;margin-bottom:4px;letter-spacing:2px';
+    hdr.style.cssText = 'color:#2a6a8a;margin-bottom:5px;letter-spacing:2px';
     hdr.textContent = 'TEMP (2m °' + unit + ')';
     el.appendChild(hdr);
 
-    var bar  = document.createElement('canvas');
-    bar.width = 90; bar.height = 7;
-    bar.style.cssText = 'display:block;border-radius:1px;margin-bottom:3px';
+    // Gradient bar
+    var bar = document.createElement('canvas');
+    bar.width  = 100; bar.height = 8;
+    bar.style.cssText = 'display:block;border-radius:1px;margin-bottom:4px';
     var bctx = bar.getContext('2d');
-    var grad = bctx.createLinearGradient(0, 0, 90, 0);
+    var grad = bctx.createLinearGradient(0, 0, 100, 0);
     COLOR_STOPS.forEach(function (s, idx) {
       grad.addColorStop(idx / (COLOR_STOPS.length - 1),
         'rgb(' + s.r + ',' + s.g + ',' + s.b + ')');
     });
     bctx.fillStyle = grad;
-    bctx.fillRect(0, 0, 90, 7);
+    bctx.fillRect(0, 0, 100, 8);
     el.appendChild(bar);
 
-    var labels = document.createElement('div');
-    labels.style.cssText = 'display:flex;justify-content:space-between;width:90px;color:#5a8aa8';
-    [
-      unit === 'F' ? _cToF(-50) + '°F' : '−50°C',
-      unit === 'F' ? _cToF(0)   + '°F' : '0°C',
-      unit === 'F' ? _cToF(50)  + '°F' : '50°C',
-    ].forEach(function (txt) {
+    // Tick labels
+    var ticks = document.createElement('div');
+    ticks.style.cssText = 'display:flex;justify-content:space-between;width:100px;color:#5a8aa8';
+    var labelVals = unit === 'F'
+      ? [_cToF(-40) + '°', _cToF(0) + '°', _cToF(25) + '°', _cToF(45) + '°']
+      : ['−40°', '0°', '25°', '45°'];
+    labelVals.forEach(function (txt) {
       var span = document.createElement('span');
       span.textContent = txt;
-      labels.appendChild(span);
+      ticks.appendChild(span);
     });
-    el.appendChild(labels);
+    el.appendChild(ticks);
 
-    var attr = document.createElement('div');
-    attr.style.cssText = 'color:#2a4a5a;margin-top:3px;font-size:6.5px;letter-spacing:0.8px';
-    attr.textContent = 'Open-Meteo CC BY 4.0';
-    el.appendChild(attr);
+    // Isotherm note
+    var note = document.createElement('div');
+    note.style.cssText = 'color:#2a4a5a;margin-top:4px;font-size:6.5px;letter-spacing:0.8px';
+    note.textContent = 'Open-Meteo CC BY 4.0 · IDW interpolation · isotherms ' + IDW_ISOTHERM_INT + '°C';
+    el.appendChild(note);
 
     document.body.appendChild(el);
     return el;
@@ -504,17 +607,18 @@ window.ArgusTemperatureLayer = (function () {
   function init() {
     if (_mesh) return;
 
-    var AG = window.ArgusGlobe;
+    var AG    = window.ArgusGlobe;
+    var THREE = window.THREE;
     if (!AG || !AG.globeGroup) {
       console.warn('[ArgusTemperatureLayer] ArgusGlobe not ready');
       return;
     }
-    var THREE = window.THREE;
     if (!THREE) {
       console.warn('[ArgusTemperatureLayer] THREE not available');
       return;
     }
 
+    // ── Canvas + sphere mesh ───────────────────────────────────────────────────
     _canvas        = document.createElement('canvas');
     _canvas.width  = CANVAS_W;
     _canvas.height = CANVAS_H;
@@ -526,7 +630,7 @@ window.ArgusTemperatureLayer = (function () {
     _canvasTex.magFilter = THREE.LinearFilter;
     _canvasTex.wrapS     = THREE.RepeatWrapping;
 
-    var material = new THREE.MeshBasicMaterial({
+    var mat  = new THREE.MeshBasicMaterial({
       map:         _canvasTex,
       transparent: true,
       opacity:     OPACITY,
@@ -534,11 +638,20 @@ window.ArgusTemperatureLayer = (function () {
       side:        THREE.FrontSide,
     });
 
-    _mesh            = new THREE.Mesh(new THREE.SphereGeometry(SPHERE_R, 128, 64), material);
+    _mesh            = new THREE.Mesh(new THREE.SphereGeometry(SPHERE_R, 128, 64), mat);
     _mesh.rotation.y = -Math.PI / 2;
     _mesh.visible    = false;
     AG.globeGroup.add(_mesh);
+    _diag.meshReady  = true;
 
+    // ── Worker + tooltip + hover ───────────────────────────────────────────────
+    _initWorker();
+    _initTooltip();
+
+    // Defer hover init until after Three.js renderer is ready
+    setTimeout(_initHover, 500);
+
+    // ── Legend ─────────────────────────────────────────────────────────────────
     _buildLegend();
     document.addEventListener('argus-settings-changed', function (e) {
       if (e && e.detail && e.detail.tempUnit) {
@@ -550,14 +663,13 @@ window.ArgusTemperatureLayer = (function () {
       }
     });
 
+    // ── Timers ─────────────────────────────────────────────────────────────────
     refresh();
     _baseTimer = setInterval(refresh,       BASE_REFRESH_MS);
     _pollTimer = setInterval(_onCameraPoll, CAMERA_POLL_MS);
   }
 
   // ── Base layer fetch ──────────────────────────────────────────────────────────
-  // Builds _baseHash then calls _rebuildCanvas(), which auto-blends the active
-  // tile (if any) via _interpolateTemp — no separate tile repaint needed.
 
   function refresh() {
     fetch(BASE_URL)
@@ -571,13 +683,9 @@ window.ArgusTemperatureLayer = (function () {
           return;
         }
         _baseData = data.grid;
-        _baseHash = _buildGridHash(_baseData);
 
-        _rebuildCanvas();
-
-        _diag.samplesLoaded   += _baseData.length;
-        _diag.samplesRendered += _baseData.length;
-        _diag.memEstimateKB    = Math.round(CANVAS_W * CANVAS_H * 4 / 1024);
+        // Full canvas IDW redraw. Worker blends tile data too if still active.
+        _scheduleFullRedraw();
       })
       .catch(function (err) {
         console.warn('[ArgusTemperatureLayer] base fetch failed:', err.message);
@@ -594,6 +702,7 @@ window.ArgusTemperatureLayer = (function () {
     if (leg) leg.style.display = on ? 'block' : 'none';
     var btn = document.getElementById('btn-track-temp');
     if (btn) btn.classList.toggle('is-active', on);
+    if (!on) _hideTooltip();
     if (on && !_baseData) refresh();
   }
 
@@ -603,20 +712,17 @@ window.ArgusTemperatureLayer = (function () {
 
   function status() {
     return {
-      lod:             _diag.lod,
-      lodLabel:        _diag.lodLabel,
-      visibleTiles:    _diag.visibleTiles,
-      samplesLoaded:   _diag.samplesLoaded,
-      samplesRendered: _diag.samplesRendered,
-      lastBbox:        _diag.lastBbox,
-      lastTileMs:      _diag.lastTileMs,
-      canvasSize:      _diag.canvasSize,
-      maxOpenMeteoRes: _diag.maxOpenMeteoRes,
-      memEstimateKB:   _diag.memEstimateKB,
-      tilesInCache:    Object.keys(_tileCache).length,
-      hasBaseData:     !!_baseData,
-      basePointCount:  _baseData ? _baseData.length : 0,
-      meshReady:       !!_mesh,
+      lod:            _diag.lod,
+      lodLabel:       _diag.lodLabel,
+      stationsTotal:  _diag.stationsTotal,
+      stationsBase:   _baseData ? _baseData.length : 0,
+      stationsTile:   _tileData ? _tileData.length : 0,
+      lastTileMs:     _diag.lastTileMs,
+      tilesInCache:   _diag.tilesInCache,
+      workerReady:    !!_worker,
+      workerBusy:     _workerBusy,
+      meshReady:      _diag.meshReady,
+      canvasSize:     _diag.canvasSize,
     };
   }
 

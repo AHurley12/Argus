@@ -235,37 +235,18 @@ window.ArgusTemperatureLayer = (function () {
     _ctx.save();
     _ctx.lineWidth   = 0.6;
     _ctx.strokeStyle = 'rgba(255,255,255,0.45)';
-    _ctx.fillStyle   = 'rgba(255,255,255,0.85)';
-    _ctx.font        = '4px monospace';
-    _ctx.textAlign   = 'center';
-    _ctx.textBaseline = 'middle';
 
     for (var i = 0; i < isotherms.length; i++) {
-      var iso  = isotherms[i];
-      var segs = iso.segs;
+      var segs = isotherms[i].segs;
       if (!segs.length) continue;
-
       _ctx.beginPath();
       for (var j = 0; j < segs.length; j += 4) {
         _ctx.moveTo(xMin + segs[j],     yMin + segs[j + 1]);
         _ctx.lineTo(xMin + segs[j + 2], yMin + segs[j + 3]);
       }
       _ctx.stroke();
-
-      // Temperature label every ~80 segment-pairs along the isotherm
-      var label = iso.level + '°';
-      for (var j = 0; j < segs.length; j += 320) {
-        var lx = xMin + segs[j];
-        var ly = yMin + segs[j + 1];
-        // 2px white halo then label text
-        _ctx.strokeStyle = 'rgba(0,0,0,0.7)';
-        _ctx.lineWidth   = 2;
-        _ctx.strokeText(label, lx, ly);
-        _ctx.fillText(label,   lx, ly);
-        _ctx.lineWidth   = 0.6;
-        _ctx.strokeStyle = 'rgba(255,255,255,0.45)';
-      }
     }
+
     _ctx.restore();
   }
 

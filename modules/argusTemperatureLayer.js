@@ -67,19 +67,15 @@ window.ArgusTemperatureLayer = (function () {
   var MAX_EXTENT = { 5: 75, 2: 55, 1: 38 };
 
   // Color stops (mirrored in worker — must stay in sync)
+  // Classic rainbow: violet (cold) → blue → cyan → green → yellow → orange → red (hot)
   var COLOR_STOPS = [
-    { t: -40, r:  45, g:   0, b:  75 },  // #2D004B deep violet
-    { t: -30, r:  12, g:  16, b: 120 },  // #0C1078 dark blue
-    { t: -20, r:  33, g: 102, b: 172 },  // #2166AC blue
-    { t: -10, r: 103, g: 169, b: 207 },  // #67A9CF light blue
-    { t:   0, r: 178, g: 226, b: 226 },  // #B2E2E2 cyan
-    { t:  10, r: 161, g: 217, b: 155 },  // #A1D99B light green
-    { t:  20, r: 255, g: 255, b: 191 },  // #FFFFBF yellow-green
-    { t:  25, r: 254, g: 224, b: 139 },  // #FEE08B yellow
-    { t:  30, r: 253, g: 174, b:  97 },  // #FDAE61 orange
-    { t:  35, r: 244, g: 109, b:  67 },  // #F46D43 dark orange
-    { t:  40, r: 215, g:  48, b:  39 },  // #D73027 red
-    { t:  45, r: 103, g:   0, b:  31 },  // #67001F deep red
+    { t: -50, r: 148, g:   0, b: 211 },  // violet
+    { t: -30, r:   0, g:   0, b: 255 },  // blue
+    { t: -10, r:   0, g: 255, b: 255 },  // cyan
+    { t:  10, r:   0, g: 255, b:   0 },  // green
+    { t:  25, r: 255, g: 255, b:   0 },  // yellow
+    { t:  35, r: 255, g: 127, b:   0 },  // orange
+    { t:  50, r: 255, g:   0, b:   0 },  // red
   ];
 
   // ── Module state ──────────────────────────────────────────────────────────────
@@ -608,8 +604,8 @@ window.ArgusTemperatureLayer = (function () {
     var ticks = document.createElement('div');
     ticks.style.cssText = 'display:flex;justify-content:space-between;width:100px;color:#5a8aa8';
     var labelVals = unit === 'F'
-      ? [_cToF(-40) + '°', _cToF(0) + '°', _cToF(25) + '°', _cToF(45) + '°']
-      : ['−40°', '0°', '25°', '45°'];
+      ? [_cToF(-50) + '°', _cToF(-10) + '°', _cToF(25) + '°', _cToF(50) + '°']
+      : ['−50°', '−10°', '25°', '50°'];
     labelVals.forEach(function (txt) {
       var span = document.createElement('span');
       span.textContent = txt;

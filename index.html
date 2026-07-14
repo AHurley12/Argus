@@ -12384,11 +12384,11 @@ window.ArgusSettings = (function() {
 ArgusSettings.init();
 </script>
 
-<!-- TOS corner link — fixed bottom-right, outside all panels and overlays -->
-<a id="tos-corner" href="terms.html" target="_blank" rel="noopener"
-   style="position:fixed;bottom:12px;right:14px;z-index:999;font-family:'Rajdhani',sans-serif;font-size:9px;font-weight:600;letter-spacing:2.5px;color:#3a6a8a;text-decoration:none;opacity:0.55;transition:opacity 0.2s,color 0.2s"
-   onmouseover="this.style.opacity='1';this.style.color='#00aaff'"
-   onmouseout="this.style.opacity='0.55';this.style.color='#3a6a8a'"
-   title="Terms of Service · Legal · Privacy">TERMS</a>
+<!-- Legal corner links — fixed bottom-right, pointer-events:all so they're clickable under overlays -->
+<div id="legal-corner" style="position:fixed;bottom:12px;right:14px;z-index:999;display:flex;align-items:center;gap:0;pointer-events:all;font-family:'DM Mono',monospace;font-size:9px;letter-spacing:2px;text-transform:uppercase;line-height:1;">
+  <a href="terms.html"   target="_blank" rel="noopener" style="color:#3a6a8a;text-decoration:none;opacity:0.6;transition:color 0.18s,opacity 0.18s;" onmouseover="this.style.color='#00aaff';this.style.opacity='1'" onmouseout="this.style.color='#3a6a8a';this.style.opacity='0.6'">TERMS</a>
+  <span style="color:#3a6a8a;opacity:0.4;margin:0 5px;">&middot;</span>
+  <a href="privacy.html" target="_blank" rel="noopener" style="color:#3a6a8a;text-decoration:none;opacity:0.6;transition:color 0.18s,opacity 0.18s;" onmouseover="this.style.color='#00aaff';this.style.opacity='1'" onmouseout="this.style.color='#3a6a8a';this.style.opacity='0.6'">PRIVACY</a>
+</div>
 </body>
 </html>

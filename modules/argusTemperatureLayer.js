@@ -104,6 +104,7 @@ window.ArgusTemperatureLayer = (function () {
   var _workerBusy    = false;  // true while a compute is in flight
   var _pendingMsg    = null;   // most recent un-dispatched message (latest wins)
   var _tooltip       = null;   // tooltip DOM element
+  var _tooltipTimer  = null;   // auto-dismiss timer for touch taps
   var _raycaster     = null;   // THREE.Raycaster for hover
 
   var _diag = {
@@ -313,6 +314,7 @@ window.ArgusTemperatureLayer = (function () {
   }
 
   function _hideTooltip() {
+    if (_tooltipTimer) { clearTimeout(_tooltipTimer); _tooltipTimer = null; }
     if (_tooltip) _tooltip.style.display = 'none';
   }
 
@@ -358,40 +360,63 @@ window.ArgusTemperatureLayer = (function () {
   }
 
   // ── Hover raycasting ──────────────────────────────────────────────────────────
+  // Desktop: tooltip follows cursor (pointermove). Hides on pointerleave.
+  // Mobile:  tooltip appears on tap (pointerdown). Auto-dismisses after 4s.
+  //          Touch drag (pointermove with pointerType≠mouse) is ignored to
+  //          avoid flickering during globe pan gestures.
 
   function _initHover() {
-    var AG  = window.ArgusGlobe;
+    var AG    = window.ArgusGlobe;
     var THREE = window.THREE;
-    if (!AG || !AG.renderer || !THREE || !_mesh) return;
+    if (!AG || !AG.renderer || !THREE || !_mesh) {
+      // Renderer not ready yet — retry once after a further delay
+      setTimeout(_initHover, 1000);
+      return;
+    }
 
     _raycaster = new THREE.Raycaster();
     var mouse  = new THREE.Vector2();
     var canvas = AG.renderer.domElement;
 
-    canvas.addEventListener('pointermove', function (e) {
-      if (!_visible || !_raycaster) return;
-
+    function _hitToTooltip(clientX, clientY) {
       var rect = canvas.getBoundingClientRect();
-      mouse.x  =  ((e.clientX - rect.left) / rect.width)  * 2 - 1;
-      mouse.y  = -((e.clientY - rect.top)  / rect.height) * 2 + 1;
+      mouse.x  =  ((clientX - rect.left) / rect.width)  * 2 - 1;
+      mouse.y  = -((clientY - rect.top)  / rect.height) * 2 + 1;
 
       _raycaster.setFromCamera(mouse, AG.camera);
       var hits = _raycaster.intersectObject(_mesh);
       if (!hits.length) { _hideTooltip(); return; }
 
-      var uv  = hits[0].uv;
-      // UV u/v map directly to canvas x/y:
-      //   canvas x = u * 360  → lon = x - 179.5
-      //   canvas y = v * 180  → lat = 89.5 - y
-      var lon = uv.x * 360 - 179.5;
-      var lat = 89.5 - uv.y * 180;
+      var uv = hits[0].uv;
+      // UV maps directly to canvas coordinates:
+      //   canvas x = u × 360  →  lon = canvas_x − 180  (approx)
+      //   canvas y = v × 180  →  lat = 90 − canvas_y   (v=0 = north pole)
+      var lon = uv.x * 360 - 180;
+      var lat = 90   - uv.y * 180;
 
       var res = _idwAtPoint(lat, lon);
-      _showTooltip(e.clientX, e.clientY, lat, lon, res.t, res.observed);
+      _showTooltip(clientX, clientY, lat, lon, res.t, res.observed);
+    }
+
+    // Desktop — follow cursor
+    canvas.addEventListener('pointermove', function (e) {
+      if (!_visible || !_raycaster || e.pointerType !== 'mouse') return;
+      _hitToTooltip(e.clientX, e.clientY);
     });
 
-    canvas.addEventListener('pointerleave', _hideTooltip);
-    canvas.addEventListener('pointerdown',  _hideTooltip);
+    // Mobile — show on tap, auto-dismiss after 4 s
+    canvas.addEventListener('pointerdown', function (e) {
+      if (!_visible || !_raycaster || e.pointerType === 'mouse') return;
+      if (_tooltipTimer) { clearTimeout(_tooltipTimer); _tooltipTimer = null; }
+      _hitToTooltip(e.clientX, e.clientY);
+      _tooltipTimer = setTimeout(_hideTooltip, 4000);
+    });
+
+    // Desktop — hide when cursor leaves globe canvas
+    canvas.addEventListener('pointerleave', function (e) {
+      if (e.pointerType !== 'mouse') return;
+      _hideTooltip();
+    });
   }
 
   // ── Worker dispatch helpers ───────────────────────────────────────────────────
@@ -647,9 +672,9 @@ window.ArgusTemperatureLayer = (function () {
     // ── Worker + tooltip + hover ───────────────────────────────────────────────
     _initWorker();
     _initTooltip();
-
-    // Defer hover init until after Three.js renderer is ready
-    setTimeout(_initHover, 500);
+    // Defer hover init — renderer.domElement may not exist at init() call time.
+    // _initHover retries automatically if renderer is still unavailable.
+    setTimeout(_initHover, 800);
 
     // ── Legend ─────────────────────────────────────────────────────────────────
     _buildLegend();

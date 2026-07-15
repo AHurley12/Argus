@@ -6,18 +6,13 @@
 //
 //   360×180 canvas texture (1°/pixel) mapped to a sphere at r=100.5.
 //   All interpolation math runs in a Web Worker (temperature-idw-worker.js).
-//   The main thread only handles rendering: putImageData + isotherm strokes.
+//   The main thread only handles rendering: putImageData.
 //
 //   INTERPOLATION ENGINE (Web Worker):
 //     Inverse Distance Weighting — T(x,y) = Σ(Ti/di^p) / Σ(1/di^p)
 //     Power p=2 (configurable). k=8 nearest neighbors via KD-tree.
 //     Every canvas pixel gets its own IDW estimate from all current stations.
 //     Result: fully continuous temperature field with no blocky artifacts.
-//
-//   ISOTHERMS (Marching Squares in worker):
-//     Contour lines traced from the interpolated temperature grid at every
-//     IDW_ISOTHERM_INTERVAL degrees C. Drawn on the canvas texture after
-//     putImageData so they appear on the globe surface.
 //
 //   HOVER TOOLTIP:
 //     Raycast from mouse position → sphere UV → lat/lon.
@@ -55,7 +50,6 @@ window.ArgusTemperatureLayer = (function () {
   var DEBOUNCE_MS          = 400;
   var IDW_P                = 2;       // IDW power parameter
   var IDW_N                = 8;       // IDW neighbor count
-  var IDW_ISOTHERM_INT     = 5;       // isotherm interval in °C
 
   var LOD_TIERS = [
     { lod: 3, res:  1, maxDist: 140, label: 'City'        },
@@ -99,9 +93,11 @@ window.ArgusTemperatureLayer = (function () {
   var _worker        = null;   // Web Worker instance
   var _workerBusy    = false;  // true while a compute is in flight
   var _pendingMsg    = null;   // most recent un-dispatched message (latest wins)
+  var _lastResult    = null;   // cached last worker result for export
   var _tooltip       = null;   // tooltip DOM element
   var _tooltipTimer  = null;   // auto-dismiss timer for touch taps
   var _raycaster     = null;   // THREE.Raycaster for hover
+  var _exportBtn     = null;   // export button DOM element
 
   var _diag = {
     lod: 0, lodLabel: 'Global',
@@ -167,14 +163,13 @@ window.ArgusTemperatureLayer = (function () {
   // Dispatch a compute job. If worker is busy, queue latest request (latest wins).
   function _dispatchWorker(xMin, yMin, w, h) {
     var msg = {
-      stations:         _allStations,
-      xMin:             xMin,
-      yMin:             yMin,
-      w:                w,
-      h:                h,
-      idwP:             IDW_P,
-      idwN:             IDW_N,
-      isothermInterval: IDW_ISOTHERM_INT,
+      stations: _allStations,
+      xMin:     xMin,
+      yMin:     yMin,
+      w:        w,
+      h:        h,
+      idwP:     IDW_P,
+      idwN:     IDW_N,
     };
 
     if (!_worker) {
@@ -216,38 +211,13 @@ window.ArgusTemperatureLayer = (function () {
     var imgData = new ImageData(new Uint8ClampedArray(r.pixels.buffer), r.w, r.h);
     _ctx.putImageData(imgData, r.xMin, r.yMin);
 
-    // Draw isotherms on top
-    if (r.isotherms && r.isotherms.length) {
-      _drawIsotherms(r.isotherms, r.xMin, r.yMin);
-    }
-
     if (_canvasTex) _canvasTex.needsUpdate = true;
 
+    // Cache result for export
+    _lastResult = { temps: r.temps, xMin: r.xMin, yMin: r.yMin, w: r.w, h: r.h, ts: Date.now() };
+    if (_exportBtn) _exportBtn.disabled = false;
+
     if (_pendingMsg) _flushPending();
-  }
-
-  // ── Isotherm rendering ────────────────────────────────────────────────────────
-  // Draws contour line segments from the worker result onto the canvas texture.
-  // `xMin`, `yMin` are the canvas pixel offsets for this region.
-  // Segment coordinates from the worker are in region-local (col, row) space.
-
-  function _drawIsotherms(isotherms, xMin, yMin) {
-    _ctx.save();
-    _ctx.lineWidth   = 0.6;
-    _ctx.strokeStyle = 'rgba(255,255,255,0.45)';
-
-    for (var i = 0; i < isotherms.length; i++) {
-      var segs = isotherms[i].segs;
-      if (!segs.length) continue;
-      _ctx.beginPath();
-      for (var j = 0; j < segs.length; j += 4) {
-        _ctx.moveTo(xMin + segs[j],     yMin + segs[j + 1]);
-        _ctx.lineTo(xMin + segs[j + 2], yMin + segs[j + 3]);
-      }
-      _ctx.stroke();
-    }
-
-    _ctx.restore();
   }
 
   // ── Hover tooltip ─────────────────────────────────────────────────────────────
@@ -541,13 +511,140 @@ window.ArgusTemperatureLayer = (function () {
     }, DEBOUNCE_MS);
   }
 
-  // ── Legend ────────────────────────────────────────────────────────────────────
+  // ── Export ────────────────────────────────────────────────────────────────────
 
   function _cToF(c) { return Math.round(c * 9 / 5 + 32); }
+
+  function _distNearestKm(lat, lon) {
+    var best = Infinity;
+    for (var i = 0; i < _allStations.length; i++) {
+      var s    = _allStations[i];
+      var dlat = lat - s.lat;
+      var dlon = lon - s.lon;
+      var d2   = dlat * dlat + dlon * dlon;
+      if (d2 < best) best = d2;
+    }
+    return best === Infinity ? null : +(Math.sqrt(best) * 111.32).toFixed(1);
+  }
+
+  function _buildExportGrid() {
+    if (!_lastResult) return [];
+    var r         = _lastResult;
+    var rows      = [];
+    var obsThresh = _tileRes > 0 ? _tileRes * 0.5 * 111.32 * 0.1 : 5.57;
+    for (var row = 0; row < r.h; row++) {
+      var lat = 89.5 - (r.yMin + row);
+      for (var col = 0; col < r.w; col++) {
+        var lon = (r.xMin + col) - 179.5;
+        var t   = r.temps[row * r.w + col];
+        if (t !== t) continue; // NaN = no data
+        var nearKm  = _distNearestKm(lat, lon);
+        var isObs   = nearKm !== null && nearKm < obsThresh;
+        rows.push({
+          lat:        +lat.toFixed(3),
+          lon:        +lon.toFixed(3),
+          t_c:        +t.toFixed(2),
+          t_f:        +(t * 9 / 5 + 32).toFixed(2),
+          type:       isObs ? 'observed' : 'estimated',
+          confidence: isObs ? 'HIGH' : 'MEDIUM',
+          nearest_km: nearKm,
+        });
+      }
+    }
+    return rows;
+  }
+
+  function _timestamp() {
+    var d = new Date();
+    return d.getFullYear() +
+      ('0' + (d.getMonth() + 1)).slice(-2) +
+      ('0' + d.getDate()).slice(-2) + '_' +
+      ('0' + d.getHours()).slice(-2) +
+      ('0' + d.getMinutes()).slice(-2) +
+      ('0' + d.getSeconds()).slice(-2);
+  }
+
+  function _triggerDownload(content, filename, mimeType) {
+    var blob = new Blob([content], { type: mimeType });
+    var url  = URL.createObjectURL(blob);
+    var a    = document.createElement('a');
+    a.href     = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(function () { URL.revokeObjectURL(url); }, 5000);
+  }
+
+  function _exportJSON() {
+    if (!_lastResult) return;
+    var grid    = _buildExportGrid();
+    var payload = {
+      metadata: {
+        generated:   new Date().toISOString(),
+        source:      'Open-Meteo CC BY 4.0 (IDW interpolation)',
+        stations:    _allStations.length,
+        grid_pixels: grid.length,
+        region: {
+          xMin: _lastResult.xMin, yMin: _lastResult.yMin,
+          w:    _lastResult.w,    h:    _lastResult.h,
+        },
+      },
+      stations: _allStations.map(function (s) {
+        return { lat: s.lat, lon: s.lon, t_c: s.t,
+          t_f: +(s.t * 9 / 5 + 32).toFixed(2) };
+      }),
+      grid: grid,
+    };
+    _triggerDownload(JSON.stringify(payload, null, 2),
+      'argus_thermal_' + _timestamp() + '.json', 'application/json');
+  }
+
+  function _exportMDS() {
+    if (!_lastResult) return;
+    var grid  = _buildExportGrid();
+    var lines = [
+      '# ARGUS THERMAL EXPORT',
+      '# Generated: '  + new Date().toISOString(),
+      '# Source: Open-Meteo CC BY 4.0 (IDW interpolation)',
+      '# Stations: '   + _allStations.length,
+      '# Grid: ' + _lastResult.w + 'x' + _lastResult.h +
+        ' pixels, xMin=' + _lastResult.xMin + ' yMin=' + _lastResult.yMin,
+      'LAT,LON,TEMP_C,TEMP_F,TYPE,CONFIDENCE,NEAREST_KM',
+    ];
+    for (var i = 0; i < grid.length; i++) {
+      var g = grid[i];
+      lines.push(g.lat + ',' + g.lon + ',' + g.t_c + ',' + g.t_f + ',' +
+        g.type + ',' + g.confidence + ',' +
+        (g.nearest_km !== null ? g.nearest_km : ''));
+    }
+    _triggerDownload(lines.join('\n'),
+      'argus_thermal_' + _timestamp() + '.mds', 'text/plain');
+  }
+
+  function _doExport(format) {
+    if (!_lastResult || !_exportBtn) return;
+    var label        = _exportBtn.textContent;
+    _exportBtn.textContent = 'EXPORTING...';
+    _exportBtn.disabled    = true;
+    setTimeout(function () {
+      try {
+        if (format === 'json') _exportJSON();
+        else if (format === 'mds') _exportMDS();
+      } catch (err) {
+        console.warn('[ArgusTemperatureLayer] export failed:', err.message);
+      }
+      _exportBtn.textContent = label;
+      _exportBtn.disabled    = !_lastResult;
+    }, 40);
+  }
+
+  // ── Legend ────────────────────────────────────────────────────────────────────
 
   function _buildLegend() {
     var existing = document.getElementById('argus-temp-legend');
     if (existing) existing.remove();
+    _exportBtn = null;
 
     var unit = localStorage.getItem('argus-temp-unit') || 'C';
 
@@ -594,11 +691,103 @@ window.ArgusTemperatureLayer = (function () {
     });
     el.appendChild(ticks);
 
-    // Isotherm note
+    // Attribution note
     var note = document.createElement('div');
     note.style.cssText = 'color:#2a4a5a;margin-top:4px;font-size:6.5px;letter-spacing:0.8px';
-    note.textContent = 'Open-Meteo CC BY 4.0 · IDW interpolation · isotherms ' + IDW_ISOTHERM_INT + '°C';
+    note.textContent = 'Open-Meteo CC BY 4.0 · IDW interpolation';
     el.appendChild(note);
+
+    // Export row
+    var exportRow = document.createElement('div');
+    exportRow.style.cssText = 'margin-top:5px;position:relative;pointer-events:all';
+
+    var btn = document.createElement('button');
+    btn.textContent = 'EXPORT';
+    btn.disabled    = !_lastResult;
+    btn.style.cssText = [
+      'font-family:var(--font-mono,monospace)',
+      'font-size:9px',
+      'letter-spacing:2px',
+      'text-transform:uppercase',
+      'background:transparent',
+      'border:1px solid rgba(0,100,160,0.45)',
+      'color:#3a6a8a',
+      'padding:2px 7px',
+      'border-radius:2px',
+      'cursor:pointer',
+      'transition:border-color 0.15s,color 0.15s,background 0.15s',
+      'width:100%',
+    ].join(';');
+    btn.onmouseover = function () {
+      if (!btn.disabled) {
+        btn.style.borderColor = '#00aaff';
+        btn.style.color       = '#00aaff';
+        btn.style.background  = 'rgba(0,170,255,0.08)';
+      }
+    };
+    btn.onmouseout = function () {
+      btn.style.borderColor = 'rgba(0,100,160,0.45)';
+      btn.style.color       = '#3a6a8a';
+      btn.style.background  = 'transparent';
+    };
+
+    // Dropdown
+    var drop = document.createElement('div');
+    drop.style.cssText = [
+      'display:none',
+      'position:absolute',
+      'bottom:calc(100% + 3px)',
+      'left:0',
+      'background:rgba(2,8,20,0.95)',
+      'border:1px solid rgba(0,100,160,0.45)',
+      'border-radius:2px',
+      'overflow:hidden',
+      'min-width:100%',
+      'z-index:100',
+    ].join(';');
+
+    function _makeDropItem(label, fmt) {
+      var item = document.createElement('button');
+      item.textContent = label;
+      item.style.cssText = [
+        'display:block', 'width:100%', 'text-align:left',
+        'font-family:var(--font-mono,monospace)',
+        'font-size:9px', 'letter-spacing:2px', 'text-transform:uppercase',
+        'background:transparent', 'border:none',
+        'color:#3a6a8a', 'padding:4px 8px', 'cursor:pointer',
+        'transition:color 0.12s,background 0.12s',
+      ].join(';');
+      item.onmouseover = function () {
+        item.style.color      = '#00aaff';
+        item.style.background = 'rgba(0,170,255,0.08)';
+      };
+      item.onmouseout = function () {
+        item.style.color      = '#3a6a8a';
+        item.style.background = 'transparent';
+      };
+      item.onclick = function (e) {
+        e.stopPropagation();
+        drop.style.display = 'none';
+        _doExport(fmt);
+      };
+      return item;
+    }
+
+    drop.appendChild(_makeDropItem('JSON', 'json'));
+    drop.appendChild(_makeDropItem('MDS',  'mds'));
+
+    btn.onclick = function (e) {
+      e.stopPropagation();
+      drop.style.display = drop.style.display === 'none' ? 'block' : 'none';
+    };
+
+    document.addEventListener('click', function () { drop.style.display = 'none'; });
+
+    exportRow.appendChild(drop);
+    exportRow.appendChild(btn);
+    el.appendChild(exportRow);
+
+    _exportBtn = btn;
 
     document.body.appendChild(el);
     return el;

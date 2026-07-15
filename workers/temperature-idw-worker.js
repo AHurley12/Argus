@@ -1,21 +1,19 @@
 'use strict';
 // workers/temperature-idw-worker.js
-// IDW spatial interpolation + Marching Squares isotherm generator.
+// IDW spatial interpolation worker.
 // Runs off the main thread. Receives station data + viewport region,
-// outputs RGBA pixel array + isotherm line segments.
+// outputs RGBA pixel array and raw temperature grid.
 //
-// Message IN:  { stations, xMin, yMin, w, h, idwP, idwN, isothermInterval }
-//   stations         — [{lat, lon, t}, ...]  all available data points
-//   xMin/yMin        — top-left canvas pixel of the region to compute
-//   w/h              — region dimensions in canvas pixels
-//   idwP             — IDW power (default 2)
-//   idwN             — neighbor count (default 8)
-//   isothermInterval — degrees C between contour lines (default 5)
+// Message IN:  { stations, xMin, yMin, w, h, idwP, idwN }
+//   stations  — [{lat, lon, t}, ...]  all available data points
+//   xMin/yMin — top-left canvas pixel of the region to compute
+//   w/h       — region dimensions in canvas pixels
+//   idwP      — IDW power (default 2)
+//   idwN      — neighbor count (default 8)
 //
-// Message OUT: { pixels, temps, isotherms, xMin, yMin, w, h }
-//   pixels    — Uint8Array (RGBA, w×h), transferred
-//   temps     — Float32Array (w×h), transferred (NaN = no data)
-//   isotherms — [{level, segs:[x,y,x,y,...]}] in region-local coords
+// Message OUT: { pixels, temps, xMin, yMin, w, h }
+//   pixels — Uint8Array (RGBA, w×h), transferred
+//   temps  — Float32Array (w×h), transferred (NaN = no data)
 
 // ── Color scale ───────────────────────────────────────────────────────────────
 // Perceptually uniform anchor points for temperature (°C → RGB).
@@ -122,69 +120,6 @@ function idwInterpolate(qlat, qlon, kRoot, k, p) {
   return wSum > 0 ? tSum / wSum : NaN;
 }
 
-// ── Marching Squares ──────────────────────────────────────────────────────────
-// Traces contour lines through a w×h float grid at each value in `levels`.
-// Returns [{level, segs:[x1,y1,x2,y2,...]}] where x,y are region-local
-// coordinates (fractional, for smooth sub-pixel positioning).
-//
-// Edge enumeration per 2×2 cell (TL=c00, TR=c01, BR=c11, BL=c10):
-//   top: TL→TR  right: TR→BR  bottom: BR→BL  left: BL→TL
-
-function marchingSquares(temps, w, h, levels) {
-  var results = [];
-  // Temporary arrays reused across cells (avoids GC pressure)
-  var cx = new Float32Array(4);
-  var cy = new Float32Array(4);
-
-  for (var li = 0; li < levels.length; li++) {
-    var level = levels[li];
-    var segs  = [];
-
-    for (var row = 0; row < h - 1; row++) {
-      for (var col = 0; col < w - 1; col++) {
-        var c00 = temps[ row      * w + col    ];
-        var c01 = temps[ row      * w + col + 1];
-        var c10 = temps[(row + 1) * w + col    ];
-        var c11 = temps[(row + 1) * w + col + 1];
-
-        // Skip cells with missing data
-        if (c00 !== c00 || c01 !== c01 || c10 !== c10 || c11 !== c11) continue;
-
-        var nc = 0, t;
-
-        // top edge: (row, col) → (row, col+1)
-        if ((c00 >= level) !== (c01 >= level)) {
-          t = (level - c00) / (c01 - c00);
-          cx[nc] = col + t;  cy[nc] = row;      nc++;
-        }
-        // right edge: (row, col+1) → (row+1, col+1)
-        if ((c01 >= level) !== (c11 >= level)) {
-          t = (level - c01) / (c11 - c01);
-          cx[nc] = col + 1;  cy[nc] = row + t;  nc++;
-        }
-        // bottom edge: (row+1, col+1) → (row+1, col)
-        if ((c11 >= level) !== (c10 >= level)) {
-          t = (level - c11) / (c10 - c11);
-          cx[nc] = col + 1 - t;  cy[nc] = row + 1;  nc++;
-        }
-        // left edge: (row+1, col) → (row, col)
-        if ((c10 >= level) !== (c00 >= level)) {
-          t = (level - c10) / (c00 - c10);
-          cx[nc] = col;  cy[nc] = row + 1 - t;  nc++;
-        }
-
-        // Pair crossings: 0-1 and 2-3 (handles saddle cases cleanly)
-        for (var ci = 0; ci + 1 < nc; ci += 2) {
-          segs.push(cx[ci], cy[ci], cx[ci + 1], cy[ci + 1]);
-        }
-      }
-    }
-
-    results.push({ level: level, segs: segs });
-  }
-  return results;
-}
-
 // ── Worker message handler ────────────────────────────────────────────────────
 
 self.onmessage = function (e) {
@@ -197,7 +132,6 @@ self.onmessage = function (e) {
   var h        = msg.h;
   var idwP     = msg.idwP    || 2;
   var idwN     = msg.idwN    || 8;
-  var interval = msg.isothermInterval || 5;
 
   if (!stations || !stations.length || w <= 0 || h <= 0) {
     self.postMessage({ error: 'no stations or zero region' });
@@ -240,34 +174,13 @@ self.onmessage = function (e) {
     }
   }
 
-  // ── Compute isotherm levels covering the data range ───────────────────────
-  var tMin = Infinity, tMax = -Infinity;
-  for (var i = 0; i < temps.length; i++) {
-    var tv = temps[i];
-    if (tv === tv) {
-      if (tv < tMin) tMin = tv;
-      if (tv > tMax) tMax = tv;
-    }
-  }
-
-  var levels = [];
-  if (isFinite(tMin) && isFinite(tMax)) {
-    var firstLevel = Math.ceil(tMin / interval) * interval;
-    for (var lv = firstLevel; lv <= tMax; lv += interval) {
-      levels.push(lv);
-    }
-  }
-
-  var isotherms = marchingSquares(temps, w, h, levels);
-
   // ── Transfer buffers back to main thread ──────────────────────────────────
   self.postMessage({
-    pixels:    pixels,
-    temps:     temps,
-    isotherms: isotherms,
-    xMin:      xMin,
-    yMin:      yMin,
-    w:         w,
-    h:         h,
+    pixels: pixels,
+    temps:  temps,
+    xMin:   xMin,
+    yMin:   yMin,
+    w:      w,
+    h:      h,
   }, [pixels.buffer, temps.buffer]);
 };

@@ -408,8 +408,10 @@ window.ArgusTemperatureLayer = (function () {
     if (MAX_EXTENT[res] !== undefined && extent > MAX_EXTENT[res]) extent = MAX_EXTENT[res];
 
     var dg        = AG.dataGroup;
-    var lonCenter = -(dg.rotation.y) * 180 / Math.PI;
-    var latCenter = -(dg.rotation.x) * 180 / Math.PI;
+    // dataGroup.rotation.y = -lon×π/180 − π/2, so lon = -(Ry + π/2)×180/π
+    var lonCenter = -(dg.rotation.y) * 180 / Math.PI - 90;
+    // dataGroup.rotation.x ≈ lat×π/180 (from focusEntity), so lat = Rx×180/π
+    var latCenter =  (dg.rotation.x) * 180 / Math.PI;
     lonCenter     = ((lonCenter + 180) % 360 + 360) % 360 - 180;
 
     return {

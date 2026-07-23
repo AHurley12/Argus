@@ -335,11 +335,14 @@ window.ArgusTemperatureLayer = (function () {
       if (!hits.length) { _hideTooltip(); return; }
 
       var uv = hits[0].uv;
-      // UV maps directly to canvas coordinates:
-      //   canvas x = u × 360  →  lon = canvas_x − 180  (approx)
-      //   canvas y = v × 180  →  lat = 90 − canvas_y   (v=0 = north pole)
+      // Raycaster returns raw geometry UV (Three.js SphereGeometry stores v=1 at
+      // north pole, v=0 at south pole).  flipY=true on the texture only affects
+      // GPU sampling; the raycaster UV is pre-flip, so latitude must be computed
+      // as: lat = uv.y × 180 − 90  (NOT 90 − uv.y × 180, which inverts N/S).
+      //   canvas x = u × 360  →  lon = u × 360 − 180
+      //   v=1 = north pole (UV.y × 180 − 90 = 90°)
       var lon = uv.x * 360 - 180;
-      var lat = 90   - uv.y * 180;
+      var lat = uv.y * 180 - 90;
 
       var res = _idwAtPoint(lat, lon);
       _showTooltip(clientX, clientY, lat, lon, res.t, res.observed);

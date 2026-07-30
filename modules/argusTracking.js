@@ -575,6 +575,16 @@ function renderAircraft(json) {
     ArgusPerf.mark('FIRST_AIRCRAFT_RENDER');
   }
   updateStatus();
+  // GIS spatial index — rebuild after every aircraft refresh (~every 90s)
+  if (window.ArgusGIS) {
+    var _acPts = [];
+    for (var _ai = 0; _ai < aircraftHits.length; _ai++) {
+      var _ud = aircraftHits[_ai].userData;
+      if (_ud && _ud.lat != null && _ud.lon != null)
+        _acPts.push({ lat: _ud.lat, lon: _ud.lon, data: _ud });
+    }
+    window.ArgusGIS.rebuild('aircraft', _acPts);
+  }
 }
 
 // ── Ship backend fetch — calls Netlify function (VesselAPI, Supabase-cached) ──
@@ -679,6 +689,16 @@ function renderShips() {
     setTimeout(normalizeTracking, 0);
   }
   updateStatus();
+  // GIS spatial index — rebuild after every ship refresh (~every 30min)
+  if (window.ArgusGIS) {
+    var _shPts = [];
+    for (var _si = 0; _si < shipHits.length; _si++) {
+      var _sud = shipHits[_si].userData;
+      if (_sud && _sud.lat != null && _sud.lon != null)
+        _shPts.push({ lat: _sud.lat, lon: _sud.lon, data: _sud });
+    }
+    window.ArgusGIS.rebuild('ship', _shPts);
+  }
 }
 
 // ── Toggle functions (public) ─────────────────────────────────────────────────

@@ -413,6 +413,15 @@ window.ArgusGDACS = (function () {
       var evt = json.events[j];
       if (!evt || !evt.eventId || evt.lat == null || evt.lon == null) continue;
       gdacsEventCache.set(evt.eventId, evt);
+      if (window.ArgusGISEnrich) ArgusGISEnrich.enrich(evt);
+    }
+    // GIS spatial index — rebuild after cache update
+    if (window.ArgusGIS && gdacsEventCache.size > 0) {
+      var _pts = [];
+      gdacsEventCache.forEach(function (ev) {
+        _pts.push({ lat: ev.lat, lon: ev.lon, data: ev });
+      });
+      window.ArgusGIS.rebuild('gdacs', _pts);
     }
 
     // Sync _rwData for tooltip system

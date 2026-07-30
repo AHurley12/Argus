@@ -375,6 +375,15 @@ window.ArgusEONET = (function () {
       }
 
       eonetEventCache.set(evt.id, evt);
+      if (window.ArgusGISEnrich) ArgusGISEnrich.enrich(evt);
+    }
+    // GIS spatial index — rebuild after cache update
+    if (window.ArgusGIS && eonetEventCache.size > 0) {
+      var _pts = [];
+      eonetEventCache.forEach(function (ev) {
+        _pts.push({ lat: ev.lat, lon: ev.lon, data: ev });
+      });
+      window.ArgusGIS.rebuild('eonet', _pts);
     }
 
     _audit.normalized = eonetEventCache.size;

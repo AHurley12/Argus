@@ -1,0 +1,81 @@
+{
+  "routes": [
+    {
+      "id": "asia_europe_suez",
+      "name": "Asia-Europe (Suez)",
+      "type": "shipping",
+      "waypoints": [
+        {"id": "singapore",  "label": "Singapore",        "lat": 1.26,  "lon": 103.82, "port": "SGSIN"},
+        {"id": "sri_lanka",  "label": "Colombo",          "lat": 6.50,  "lon": 79.00,  "port": "LKCMB"},
+        {"id": "bab",        "label": "Bab el-Mandeb",    "lat": 12.00, "lon": 44.00,  "port": null   },
+        {"id": "red_sea_n",  "label": "Red Sea North",    "lat": 27.00, "lon": 34.50,  "port": null   },
+        {"id": "port_said",  "label": "Port Said",        "lat": 31.26, "lon": 32.28,  "port": "EGPSD"},
+        {"id": "med_east",   "label": "E. Mediterranean", "lat": 34.00, "lon": 22.00,  "port": null   },
+        {"id": "algeciras",  "label": "Algeciras",        "lat": 36.13, "lon": -5.44,  "port": "ESALG"},
+        {"id": "rotterdam",  "label": "Rotterdam",        "lat": 51.92, "lon": 4.48,   "port": "NLRTM"}
+      ]
+    },
+    {
+      "id": "trans_pacific",
+      "name": "Trans-Pacific (Asia-US West)",
+      "type": "shipping",
+      "waypoints": [
+        {"id": "shanghai",   "label": "Shanghai",         "lat": 31.36, "lon": 121.51, "port": "CNSHA"},
+        {"id": "pac_n",      "label": "North Pacific",    "lat": 40.00, "lon": 170.00, "port": null   },
+        {"id": "pac_mid",    "label": "Mid Pacific",      "lat": 38.00, "lon": -155.00,"port": null   },
+        {"id": "los_angeles","label": "Los Angeles",      "lat": 33.73, "lon": -118.27,"port": "USLAX"}
+      ]
+    },
+    {
+      "id": "cape_route",
+      "name": "Asia-Europe (Cape of Good Hope)",
+      "type": "shipping",
+      "waypoints": [
+        {"id": "singapore",  "label": "Singapore",        "lat": 1.26,  "lon": 103.82, "port": "SGSIN"},
+        {"id": "lombok_st",  "label": "Lombok Strait",    "lat": -8.50, "lon": 115.70, "port": null   },
+        {"id": "ind_ocean",  "label": "Indian Ocean",     "lat": -20.00,"lon": 75.00,  "port": null   },
+        {"id": "cape",       "label": "Cape of Good Hope","lat": -35.00,"lon": 18.50,  "port": null   },
+        {"id": "w_africa",   "label": "West Africa",      "lat": 5.00,  "lon": 3.00,   "port": null   },
+        {"id": "canaries",   "label": "Canary Islands",   "lat": 28.00, "lon": -14.00, "port": null   },
+        {"id": "rotterdam",  "label": "Rotterdam",        "lat": 51.92, "lon": 4.48,   "port": "NLRTM"}
+      ]
+    },
+    {
+      "id": "asia_us_east_panama",
+      "name": "Asia-US East (Panama Canal)",
+      "type": "shipping",
+      "waypoints": [
+        {"id": "shanghai",   "label": "Shanghai",         "lat": 31.36, "lon": 121.51, "port": "CNSHA"},
+        {"id": "pac_mid",    "label": "Pacific",          "lat": 15.00, "lon": 165.00, "port": null   },
+        {"id": "balboa",     "label": "Balboa",           "lat": 8.94,  "lon": -79.57, "port": "PABBA"},
+        {"id": "cristobal",  "label": "Cristobal",        "lat": 9.36,  "lon": -79.90, "port": "PACCT"},
+        {"id": "caribbean",  "label": "Caribbean",        "lat": 18.00, "lon": -72.00, "port": null   },
+        {"id": "new_york",   "label": "New York",         "lat": 40.70, "lon": -74.15, "port": "USNYC"}
+      ]
+    },
+    {
+      "id": "persian_gulf_run",
+      "name": "Asia-Persian Gulf",
+      "type": "shipping",
+      "waypoints": [
+        {"id": "singapore",  "label": "Singapore",        "lat": 1.26,  "lon": 103.82, "port": "SGSIN"},
+        {"id": "colombo",    "label": "Colombo",          "lat": 6.50,  "lon": 79.00,  "port": "LKCMB"},
+        {"id": "ind_nw",     "label": "Indian Ocean NW",  "lat": 15.00, "lon": 62.00,  "port": null   },
+        {"id": "muscat",     "label": "Muscat approach",  "lat": 22.00, "lon": 59.00,  "port": null   },
+        {"id": "hormuz",     "label": "Strait of Hormuz", "lat": 26.30, "lon": 56.50,  "port": null   },
+        {"id": "jebel_ali",  "label": "Jebel Ali",        "lat": 24.99, "lon": 55.08,  "port": "AEJEA"}
+      ]
+    },
+    {
+      "id": "trans_atlantic",
+      "name": "Trans-Atlantic (Europe-Americas)",
+      "type": "shipping",
+      "waypoints": [
+        {"id": "rotterdam",  "label": "Rotterdam",        "lat": 51.92, "lon": 4.48,   "port": "NLRTM"},
+        {"id": "channel",    "label": "English Channel",  "lat": 50.00, "lon": -4.00,  "port": null   },
+        {"id": "mid_atl",    "label": "Mid-Atlantic",     "lat": 46.00, "lon": -30.00, "port": null   },
+        {"id": "new_york",   "label": "New York",         "lat": 40.70, "lon": -74.15, "port": "USNYC"}
+      ]
+    }
+  ]
+}

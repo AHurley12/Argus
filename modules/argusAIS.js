@@ -150,11 +150,30 @@ function updateVesselState(mmsi, name, lat, lon, heading, velocity, shipType, na
 // Diagnostic gates and rate sampling live here (not in ingest or sprite paths).
 // ── Post-batch finalization — runs after all chunks complete ──────────────────
 // Calls renderAIS(), syncs selection state and InstancedMesh dim/scale.
+// GIS index rebuild — throttled so the KD-tree isn't rebuilt every 300ms tick.
+var _gisAisLastRebuild = 0;
+var _GIS_AIS_THROTTLE_MS = 5000;
+
+function _rebuildGISAIS() {
+  if (!window.ArgusGIS) return;
+  var now = Date.now();
+  if (now - _gisAisLastRebuild < _GIS_AIS_THROTTLE_MS) return;
+  _gisAisLastRebuild = now;
+  var pts = [];
+  aisMarkers.forEach(function (m) {
+    var ud = m.sprite && m.sprite.userData;
+    if (ud && ud.lat != null && ud.lon != null)
+      pts.push({ lat: ud.lat, lon: ud.lon, data: ud });
+  });
+  window.ArgusGIS.rebuild('ais_vessel', pts);
+}
+
 function _finishProcessAndRender() {
   // Reset re-entrancy flag immediately — must run even if renderAIS() or dim
   // sync throws, so subsequent setInterval ticks are not permanently blocked.
   _processingInProgress = false;
   renderAIS();
+  _rebuildGISAIS();
 
   // ── Rate sample cleanup — once per tick, not once per vessel ─────────────
   // The per-vessel path only pushed; trimming here is O(window-size) once

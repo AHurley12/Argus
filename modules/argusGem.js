@@ -329,6 +329,15 @@ window.ArgusGEM = (function () {
 
       energyInfrastructureCache.set(asset.id, asset);
     }
+    // GIS spatial index — rebuild after full load (daily fetch)
+    if (window.ArgusGIS && energyInfrastructureCache.size > 0) {
+      var _pts = [];
+      energyInfrastructureCache.forEach(function (asset) {
+        if (asset.lat != null && asset.lon != null)
+          _pts.push({ lat: asset.lat, lon: asset.lon, data: asset });
+      });
+      window.ArgusGIS.rebuild('gem', _pts);
+    }
   }
 
   // ── Fetch ─────────────────────────────────────────────────────────────────────

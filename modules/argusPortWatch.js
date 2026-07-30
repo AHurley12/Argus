@@ -75,6 +75,9 @@ window.ArgusPortWatch = (function () {
     period:    '',
     signals:   [],
   };
+
+  // ── Audit — separate from _state for isolation ────────────────────────────────
+  var _audit = { unmatchedPorts: [] };
   window._portWatchState = _state;
 
   // ── Normalization (spec §2 strict schema) ────────────────────────────────────
@@ -132,6 +135,23 @@ window.ArgusPortWatch = (function () {
     var maxV   = Math.max.apply(null, values);
     ports.forEach(function (p) {
       p.visual = getPortIntensity(p.total_calls, minV, maxV);
+    });
+  }
+
+  // ── Geo enrichment — attach lat/lon/region from ArgusBoundaryManager ────────
+  // Called after assignVisuals. Graceful: unmatched ports work fine without lat/lon.
+  function _geoEnrichPorts(ports) {
+    var bm = window.ArgusBoundaryManager;
+    if (!bm || typeof bm.getPortByName !== 'function') return;
+    ports.forEach(function (port) {
+      var match = bm.getPortByName(port.port);
+      if (match) {
+        port.lat    = match.lat;
+        port.lon    = match.lon;
+        port.region = match.region;
+      } else {
+        _audit.unmatchedPorts.push(port.port);
+      }
     });
   }
 
@@ -267,9 +287,10 @@ window.ArgusPortWatch = (function () {
       _state.lastHash = hash;
       _state.period   = json.period || '';
 
-      // ── Normalize → color → state → analytics ──────────────────────────────
+      // ── Normalize → color → geo-enrich → state → analytics ────────────────
       var ports = normalizeIMFPortData(features);  // strict schema
       assignVisuals(ports);                         // min/max color scale
+      _geoEnrichPorts(ports);                       // attach lat/lon from port-locations.json
 
       _state.ports.clear();
       ports.forEach(function (p) { _state.ports.set(p.id, p); });

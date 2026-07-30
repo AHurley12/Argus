@@ -230,6 +230,15 @@ window.ArgusACLED = (function () {
       var evt = json.events[j];
       if (!evt || !evt.id || evt.lat == null || evt.lon == null) continue;
       acledEventCache.set(evt.id, evt);
+      if (window.ArgusGISEnrich) ArgusGISEnrich.enrich(evt);
+    }
+    // GIS spatial index — rebuild after cache update
+    if (window.ArgusGIS && acledEventCache.size > 0) {
+      var _pts = [];
+      acledEventCache.forEach(function (ev) {
+        _pts.push({ lat: ev.lat, lon: ev.lon, data: ev });
+      });
+      window.ArgusGIS.rebuild('acled', _pts);
     }
   }
 

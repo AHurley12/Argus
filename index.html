@@ -1113,32 +1113,6 @@ document.addEventListener('DOMContentLoaded', function() {
         });
       });
 
-      // Country borders — white semi-transparent
-      // lineWidth 1.1 at 4096px wide: thin enough to be subtle at full-globe zoom,
-      // crisp and well-defined when zoomed in (texture magnification naturally
-      // scales border width with zoom level).
-      _ctx.strokeStyle = 'rgba(210,230,255,0.82)';
-      _ctx.lineWidth = 0.8;
-      geo.features.forEach(function(f) {
-        var g = f.geometry;
-        (g.type === 'Polygon' ? [g.coordinates] : g.coordinates).forEach(function(rings) {
-          rings.forEach(function(ring) {
-            _ctx.beginPath();
-            ring.forEach(function(pt, i) {
-              var x = _tx(pt[0]), y = _ty(pt[1]);
-              if (i === 0) {
-                _ctx.moveTo(x, y);
-              } else {
-                Math.abs(x - _tx(ring[i - 1][0])) > _W / 2
-                  ? _ctx.moveTo(x, y) : _ctx.lineTo(x, y);
-              }
-            });
-            _ctx.closePath();
-            _ctx.stroke();
-          });
-        });
-      });
-
       // PNG preserves exact pixel values — JPEG DCT compression smears fine lines
       // like border strokes before they even reach the GPU texture.
       Globe.globeImageUrl(_cv.toDataURL('image/png'));

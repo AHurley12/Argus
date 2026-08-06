@@ -3057,6 +3057,11 @@ function buildOpenSkyAnalytics() {
 // ── Collapsible section helper (toggle via onclick on header) ─────────────────
 var _portMacroCollapsed = { macro: false, meso: false, opensky: false, regions: false, ports: false, imf_global: false, imf_regions: true, imf_signals: true };
 
+// ── Analytics subheader — thin divider + label for grouping fields ─────────────
+function _aSubhdr(label) {
+  return '<div style="font-size:8px;letter-spacing:2px;color:#4a6888;margin:12px 0 6px;padding-top:8px;border-top:1px solid rgba(42,16,80,0.7)">' + label + '</div>';
+}
+
 function _macroSection(id, title, badge, colorCls, contentHtml) {
   // 'r_*' region keys default to collapsed (not in initial object)
   var collapsed = (id in _portMacroCollapsed)
@@ -3064,13 +3069,13 @@ function _macroSection(id, title, badge, colorCls, contentHtml) {
     : (id.length > 2 && id.charAt(0) === 'r' && id.charAt(1) === '_');
   var arrow = collapsed ? '▸' : '▾';
   var display = collapsed ? 'none' : 'block';
-  return '<div style="margin-bottom:2px">' +
-    '<div data-pwsec="' + id + '" style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;padding:4px 0;border-bottom:1px solid #1a0840;user-select:none" ' +
+  return '<div style="margin-bottom:6px">' +
+    '<div data-pwsec="' + id + '" style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;padding:5px 0 5px 8px;border-bottom:1px solid rgba(74,125,168,0.2);border-left:2px solid ' + colorCls + ';user-select:none" ' +
       'onclick="window._pwToggle(\'' + id + '\')">' +
       '<span style="font-size:9px;letter-spacing:1.5px;color:' + colorCls + '">' + arrow + ' ' + title + '</span>' +
       (badge ? '<span style="font-size:8px;color:#4a6888">' + badge + '</span>' : '') +
     '</div>' +
-    '<div id="pw-sec-' + id + '" style="display:' + display + '">' + contentHtml + '</div>' +
+    '<div id="pw-sec-' + id + '" style="display:' + display + ';padding-left:8px">' + contentHtml + '</div>' +
   '</div>';
 }
 
@@ -3355,6 +3360,8 @@ function renderAnalytics() {
     mesoInner += field('FLIGHTS TRACKED',
       snap.flights.length + '&nbsp;&nbsp;' + chgFmt(flightChange, snap.flights.length));
 
+    mesoInner += _aSubhdr('COMPOSITION');
+
     if (snap.ships.length > 0) {
       var SHIP_COLORS2 = { cargo:'#4488ff', tanker:'#ff9933', military:'#ff4444', passenger:'#00ff88', fishing:'#ffcc00', other:'#5577aa' };
       var gShipDist = categoryDistribution(snap.ships);
@@ -3375,7 +3382,7 @@ function renderAnalytics() {
 
     var cpKeys = Object.keys(analytics);
     if (cpKeys.length) {
-      mesoInner += '<div style="font-size:9px;letter-spacing:1.5px;color:var(--nw-purple);margin:12px 0 6px;padding-top:8px;border-top:1px solid #1a0840">◈ CHOKEPOINT VOLUMES <span style="color:#4a6888;font-size:8px">(450km radius)</span></div>';
+      mesoInner += '<div style="font-size:9px;letter-spacing:1.5px;color:var(--nw-purple);margin:12px 0 6px;padding-top:8px;border-top:1px solid rgba(119,85,204,0.4)">◈ CHOKEPOINT VOLUMES <span style="color:#4a6888;font-size:8px">(450km radius)</span></div>';
       var sortedCps = cpKeys.map(function(k){ return analytics[k]; })
         .sort(function(a,b){ return (b.shipCount + b.flightCount) - (a.shipCount + a.flightCount) });
       var RISK_COL2 = { CRITICAL:'#ff0044', WARNING:'#ff9933', WATCH:'#ffcc00', LOW:'#00ff88' };
@@ -3441,6 +3448,8 @@ function renderAnalytics() {
     oskyInner += trHtml;
     oskyInner += field('SUPPLEMENTAL AC', oskyData.total + '&nbsp;&nbsp;' + oskyChgFmt(oskyChange));
 
+    oskyInner += _aSubhdr('COMPOSITION');
+
     // Flight type distribution
     var OSKY_TYPE_COL = { commercial: '#66ddff', cargo: '#4488ff', military: '#ff4444', unknown: '#5577aa' };
     var oskyTypeHtml = Object.keys(oskyData.typePct)
@@ -3463,11 +3472,13 @@ function renderAnalytics() {
     }
 
     // Average speed
+    oskyInner += _aSubhdr('PERFORMANCE');
     if (oskyData.avgGs != null) {
       oskyInner += field('AVG SPEED', '<span style="color:#66ddff">' + oskyData.avgGs + '</span> <span style="color:#4a6888">kt</span>');
     }
 
     // Regional distribution (top 5)
+    oskyInner += _aSubhdr('COVERAGE');
     var oskyRegKeys = Object.keys(oskyData.regionPct)
       .sort(function (a, b) { return oskyData.regionPct[b] - oskyData.regionPct[a]; })
       .slice(0, 5);
@@ -4065,6 +4076,15 @@ function buildNodeCandidates(type, query) {
   return results.slice(0, 40);
 }
 
+// ── HTML escape helper ────────────────────────────────────────────────────────
+function _esc(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
 // ── Render candidate list with draggable items ────────────────────────────────
 var _candidateCache = {};
 
@@ -4084,7 +4104,7 @@ function renderNodeCandidates(type, query) {
     var cpLbl = cpObj ? cpObj.label : state.selectedChokepoint;
     html += '<div style="display:flex;align-items:center;gap:6px;padding:6px 10px 4px;border-bottom:1px solid #1a0840">' +
       '<button data-nw-back-vessels style="background:none;border:1px solid #2a1050;color:#7755cc;font-size:7px;letter-spacing:1px;padding:2px 6px;cursor:pointer;border-radius:2px">← BACK</button>' +
-      '<span style="font-size:7px;letter-spacing:1px;color:#4a7da8;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">◇ ' + cpLbl.toUpperCase() + '</span>' +
+      '<span style="font-size:7px;letter-spacing:1px;color:#4a7da8;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">◇ ' + _esc(cpLbl.toUpperCase()) + '</span>' +
       '</div>';
   }
 
@@ -4103,9 +4123,9 @@ function renderNodeCandidates(type, query) {
       var vesCount = r._vesselCount || 0;
       return '<div class="nw-candidate" draggable="true" data-nid="' + r.id + '" title="Drag to add, or use ▸ to browse vessels">' +
         '<span class="nw-candidate-icon">' + icon + '</span>' +
-        '<span class="nw-candidate-label" style="flex:1">' + r.label.slice(0, 60) + '</span>' +
+        '<span class="nw-candidate-label" style="flex:1">' + _esc(r.label.slice(0, 60)) + '</span>' +
         '<span style="font-size:7px;color:#4a7da8;margin-right:4px;flex-shrink:0">' + (vesCount ? '⚓' + vesCount : '') + '</span>' +
-        '<span class="nw-candidate-meta" style="background:' + hexToRgba(bc,0.15) + ';color:' + bc + ';border:1px solid ' + hexToRgba(bc,0.4) + '">' + r.badge + '</span>' +
+        '<span class="nw-candidate-meta" style="background:' + hexToRgba(bc,0.15) + ';color:' + bc + ';border:1px solid ' + hexToRgba(bc,0.4) + '">' + _esc(r.badge) + '</span>' +
         '<button data-nw-drill="' + r.chokepointId + '" title="Browse vessels at this chokepoint" ' +
           'style="margin-left:4px;background:none;border:1px solid #2a1050;color:#7755cc;font-size:8px;padding:1px 5px;cursor:pointer;border-radius:2px;flex-shrink:0">▸</button>' +
         '</div>';
@@ -4114,12 +4134,12 @@ function renderNodeCandidates(type, query) {
     html += results.map(function(r) {
       var bc = r.badgeColor || '#4a7da8';
       var sub = (type === 'vessels' && r.chokepointLabel)
-        ? '<span style="font-size:6px;color:#4a6888;display:block;margin-top:1px">◇ ' + r.chokepointLabel + '</span>'
+        ? '<span style="font-size:6px;color:#4a6888;display:block;margin-top:1px">◇ ' + _esc(r.chokepointLabel) + '</span>'
         : '';
       return '<div class="nw-candidate" draggable="true" data-nid="' + r.id + '" title="Drag to canvas or click to add">' +
         '<span class="nw-candidate-icon">' + icon + '</span>' +
-        '<span class="nw-candidate-label" style="flex:1">' + r.label.slice(0, 80) + sub + '</span>' +
-        '<span class="nw-candidate-meta" style="background:' + hexToRgba(bc,0.15) + ';color:' + bc + ';border:1px solid ' + hexToRgba(bc,0.4) + '">' + r.badge + '</span>' +
+        '<span class="nw-candidate-label" style="flex:1">' + _esc(r.label.slice(0, 80)) + sub + '</span>' +
+        '<span class="nw-candidate-meta" style="background:' + hexToRgba(bc,0.15) + ';color:' + bc + ';border:1px solid ' + hexToRgba(bc,0.4) + '">' + _esc(r.badge) + '</span>' +
         '</div>';
     }).join('');
   }

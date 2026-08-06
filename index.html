@@ -4960,7 +4960,7 @@ async function fetchAndClassify() {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndidnpseHRyb2V3eHJtb254b2R4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM3OTQzNzMsImV4cCI6MjA4OTM3MDM3M30.0zp-wQ3wKpYc0f7LqFCOEea_d9HJuWnUSWgF4BAW82w'
+        'Authorization': 'Bearer ' + SUPA_ANON_GDELT
       },
       body: JSON.stringify({ source: 'newsdata', url: newsUrl }),
       signal: _fetchCtrl.signal
@@ -7521,6 +7521,7 @@ ArgusMarket.init();
 (function() {
   var SUPABASE_URL  = 'https://wbvzlxtroewxrmonxodx.supabase.co';
   var SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndidnpseHRyb2V3eHJtb254b2R4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM3OTQzNzMsImV4cCI6MjA4OTM3MDM3M30.0zp-wQ3wKpYc0f7LqFCOEea_d9HJuWnUSWgF4BAW82w';
+  window._ARGUS_ANON = SUPABASE_ANON; // shared ref for other script blocks
 
   window.ArgusSession = { tier: 'viewer', email: null, token: null };
 
@@ -7763,7 +7764,7 @@ ArgusMarket.init();
           '?select=created_at,last_seen&id=eq.' + sess.userId,
           {
             headers: {
-              'apikey':        'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndidnpseHRyb2V3eHJtb254b2R4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM3OTQzNzMsImV4cCI6MjA4OTM3MDM3M30.0zp-wQ3wKpYc0f7LqFCOEea_d9HJuWnUSWgF4BAW82w',
+              'apikey':        SUPABASE_ANON,
               'Authorization': 'Bearer ' + sess.token,
             }
           }
@@ -7784,7 +7785,7 @@ ArgusMarket.init();
         var r = await fetch('https://wbvzlxtroewxrmonxodx.supabase.co/auth/v1/resend', {
           method: 'POST',
           headers: {
-            'apikey':       'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndidnpseHRyb2V3eHJtb254b2R4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM3OTQzNzMsImV4cCI6MjA4OTM3MDM3M30.0zp-wQ3wKpYc0f7LqFCOEea_d9HJuWnUSWgF4BAW82w',
+            'apikey':       SUPABASE_ANON,
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({ type: 'signup', email: email })
@@ -7864,7 +7865,7 @@ ArgusMarket.init();
         fetch('https://wbvzlxtroewxrmonxodx.supabase.co/auth/v1/logout', {
           method: 'POST',
           headers: {
-            'apikey':        'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndidnpseHRyb2V3eHJtb254b2R4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM3OTQzNzMsImV4cCI6MjA4OTM3MDM3M30.0zp-wQ3wKpYc0f7LqFCOEea_d9HJuWnUSWgF4BAW82w',
+            'apikey':        SUPABASE_ANON,
             'Authorization': 'Bearer ' + sess.token,
           }
         }).catch(function() {});
@@ -7885,7 +7886,7 @@ ArgusMarket.init();
         var r = await fetch('https://wbvzlxtroewxrmonxodx.supabase.co/auth/v1/recover?redirect_to=' + encodeURIComponent('https://argusintel.live/reset-password.html'), {
           method: 'POST',
           headers: {
-            'apikey':       'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndidnpseHRyb2V3eHJtb254b2R4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM3OTQzNzMsImV4cCI6MjA4OTM3MDM3M30.0zp-wQ3wKpYc0f7LqFCOEea_d9HJuWnUSWgF4BAW82w',
+            'apikey':       SUPABASE_ANON,
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({ email: email })
@@ -8040,7 +8041,7 @@ ArgusMarket.init();
 <script>
 window.ArgusAnalyst = (function() {
   var SUPA_URL  = 'https://wbvzlxtroewxrmonxodx.supabase.co';
-  var SUPA_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndidnpseHRyb2V3eHJtb254b2R4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM3OTQzNzMsImV4cCI6MjA4OTM3MDM3M30.0zp-wQ3wKpYc0f7LqFCOEea_d9HJuWnUSWgF4BAW82w';
+  var SUPA_ANON = window._ARGUS_ANON;
 
   var SUBMIT_TIERS = ['pro','admin','owner'];
 
@@ -8198,7 +8199,7 @@ window.ArgusAnalyst = (function() {
 <script>
 window.ArgusAdmin = (function() {
   var SUPA_URL  = 'https://wbvzlxtroewxrmonxodx.supabase.co';
-  var SUPA_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndidnpseHRyb2V3eHJtb254b2R4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM3OTQzNzMsImV4cCI6MjA4OTM3MDM3M30.0zp-wQ3wKpYc0f7LqFCOEea_d9HJuWnUSWgF4BAW82w';
+  var SUPA_ANON = window._ARGUS_ANON;
 
   var ALLOWED = ['owner','admin'];
   var expanded = (localStorage.getItem('argus_admin_open') === '1');

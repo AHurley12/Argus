@@ -49,6 +49,12 @@ var wsAIS       = null;     // live WebSocket to wss://stream.aisstream.io
 var reconnTimer = null;     // reconnect timeout handle
 var _aisMsgCount = 0;       // diagnostic counter — how many WS messages received
 
+// ── Reconnect backoff ─────────────────────────────────────────────────────────
+// Resets to 0 on every clean connection; doubles on each failure up to 5 min cap.
+var _reconnectAttempts = 0;
+var _RECONNECT_BASE_MS = 5000;   // 5 s initial delay
+var _RECONNECT_MAX_MS  = 300000; // 5 min cap
+
 // Expose Map for console inspection. Sprite array access goes through ArgusEntityRegistry.
 window._aisMarkers = aisMarkers;
 
@@ -727,6 +733,9 @@ function connectAISStream() {
 
   ws.onopen = function () {
     if (window.ArgusPerf) ArgusPerf.mark('AIS_WEBSOCKET_OPEN');
+    _reconnectAttempts = 0;  // reset backoff on clean connect
+    var _btn = document.getElementById('btn-track-ais');
+    if (_btn && _btn.dataset.aisError) { _btn.removeAttribute('data-ais-error'); _btn.title = ''; }
     console.log('[ArgusAIS] AISstream connected — subscribing (28 strategic regions)');
     // 26 strategic maritime regions.
     // Regional targeting gives proportional global coverage while avoiding the
@@ -783,10 +792,22 @@ function connectAISStream() {
   };
 
   ws.onclose = function (e) {
-    console.warn('[ArgusAIS] AISstream disconnected (code=' + e.code + ', reason="' + (e.reason || 'none') + '", clean=' + e.wasClean + ') — reconnecting in 5 s');
     wsAIS = null;
+    var delay = Math.min(_RECONNECT_BASE_MS * Math.pow(2, _reconnectAttempts), _RECONNECT_MAX_MS);
+    _reconnectAttempts++;
+    console.warn(
+      '[ArgusAIS] AISstream disconnected (code=' + e.code +
+      ', reason="' + (e.reason || 'none') + '", clean=' + e.wasClean +
+      ') — reconnecting in ' + Math.round(delay / 1000) + 's (attempt ' + _reconnectAttempts + ')'
+    );
+    // Surface reconnect state on the AIS button so the issue is visible without opening devtools
+    var _btn = document.getElementById('btn-track-ais');
+    if (_btn) {
+      _btn.dataset.aisError = '1';
+      _btn.title = 'AIS disconnected (code ' + e.code + ') — reconnecting in ' + Math.round(delay / 1000) + 's';
+    }
     if (reconnTimer) clearTimeout(reconnTimer);
-    reconnTimer = setTimeout(connectAISStream, 5000);
+    reconnTimer = setTimeout(connectAISStream, delay);
   };
 }
 

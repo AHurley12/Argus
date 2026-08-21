@@ -12,6 +12,7 @@
 //   - ACLED       — every run (4h TTL; most runs are cache hits)
 //   - GDACS       — every run (30-min TTL)
 //   - Temperature — every run (2h TTL; alternating cache hit/miss — 3 Open-Meteo calls every 2h)
+//   - Vessels     — every run (1.5–4h TTL per region; most runs are cache hits — detects VesselAPI key failures within 1h)
 //   - Comtrade    — top 30 bilateral pairs × 2 years (7-day TTL; ~9 real calls/day)
 //
 // Temperature quota math:
@@ -110,13 +111,14 @@ exports.handler = async function(event) {
 
   var results = [];
 
-  // ── Phase 1: Single-key endpoints (NOAA, ACLED, GDACS, Temperature) ─────────
+  // ── Phase 1: Single-key endpoints (NOAA, ACLED, GDACS, Temperature, Vessels) ──
   // Run in parallel — these are independent and have their own caching.
   var phase1 = await Promise.allSettled([
     warmEndpoint('fetch-noaa',        'NOAA'),
     warmEndpoint('fetch-acled',       'ACLED'),
     warmEndpoint('fetch-gdacs',       'GDACS'),
     warmEndpoint('fetch-temperature', 'TEMPERATURE'),
+    warmEndpoint('fetch-vessels',     'VESSELS'),
   ]);
 
   for (var r of phase1) {

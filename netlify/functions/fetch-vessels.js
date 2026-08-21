@@ -410,6 +410,7 @@ exports.handler = async function (event) {
     },
     body: JSON.stringify({
       source:  stale.length ? 'live' : 'cache',
+      cached:  stale.length === 0,
       regions: regionStatus,
       total:   vessels.length,
       vessels,

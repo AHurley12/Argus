@@ -244,6 +244,7 @@ window.ArgusGDACS = (function () {
       for (var he = 0; he < hazardEvict.length; he++) {
         _hazardSprites[hazardEvict[he]].dispose();
         delete _hazardSprites[hazardEvict[he]];
+        if (window.ArgusWeatherGate) window.ArgusWeatherGate.release(hazardEvict[he], 'GDACS');
       }
     }
 
@@ -309,9 +310,29 @@ window.ArgusGDACS = (function () {
       var isHazard = ev.category === 'drought'          || ev.category === 'wildfire' ||
                      ev.category === 'flood'            || ev.category === 'earthquake' ||
                      ev.category === 'tropical_cyclone' || ev.category === 'volcano';
-      if (!isHazard || _hazardSprites[ev.eventId]) return;
+      if (!isHazard) return;
+
+      // Existing sprite: verify gate ownership hasn't transferred away from GDACS
+      if (_hazardSprites[ev.eventId]) {
+        if (window.ArgusWeatherGate) {
+          var _gEntry = window.ArgusWeatherGate.query(ev);
+          if (_gEntry && _gEntry.ownerSource && _gEntry.ownerSource !== 'GDACS') {
+            // Higher-priority source (e.g. NOAA) claimed this event — relinquish sprite
+            _hazardSprites[ev.eventId].dispose();
+            delete _hazardSprites[ev.eventId];
+          }
+        }
+        return;
+      }
+
       if (!AG.weatherSpriteGroup) return;
       if (!window.ArgusWeatherLayer || !window.ArgusWeatherLayer.EarthquakeMarker) return;
+
+      // Gate: block creation if another higher-priority source already owns this event
+      if (window.ArgusWeatherGate) {
+        var _gResult = window.ArgusWeatherGate.claim(ev, 'GDACS');
+        if (!_gResult.allowed) return;
+      }
       var hsev  = _mapHazardSeverity(ev.severity);
       var hpos  = AG.latLonToVector(ev.lat, ev.lon, altR + 0.5);
       var hmark;
@@ -469,6 +490,22 @@ window.ArgusGDACS = (function () {
     var now = Date.now();
     var dt  = _lastHazardT ? Math.min((now - _lastHazardT) / 1000, 0.1) : 0.016;
     _lastHazardT = now;
+
+    // Gate handoff removals: dispose sprites for events whose ownership transferred
+    // to a higher-priority source (e.g. NOAA claiming a cyclone from GDACS).
+    if (window.ArgusWeatherGate) {
+      var _gRemovals = window.ArgusWeatherGate.getPendingRemovals('GDACS');
+      if (_gRemovals) {
+        for (var _gri = 0; _gri < _gRemovals.length; _gri++) {
+          var _gid = _gRemovals[_gri];
+          if (_hazardSprites[_gid]) {
+            _hazardSprites[_gid].dispose();
+            delete _hazardSprites[_gid];
+          }
+        }
+      }
+    }
+
     var AG     = window.ArgusGlobe;
     var camPos = AG && AG.camera ? AG.camera.position : null;
     var LOD    = 350;

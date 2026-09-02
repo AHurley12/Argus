@@ -248,6 +248,7 @@ window.ArgusEONET = (function () {
       for (var d = 0; d < toDisposeSprites.length; d++) {
         _hazardSprites[toDisposeSprites[d]].dispose();
         delete _hazardSprites[toDisposeSprites[d]];
+        if (window.ArgusWeatherGate) window.ArgusWeatherGate.release(toDisposeSprites[d], 'EONET');
       }
     }
 
@@ -257,6 +258,12 @@ window.ArgusEONET = (function () {
     eonetEventCache.forEach(function (ev) {
       if (_placedIds.has(ev.id)) return;
       if (ev._correlated)        return;  // duplicate — do not render separately
+
+      // Gate: block ghost mesh if a higher-priority source already owns this event
+      if (window.ArgusWeatherGate) {
+        var _gResult = window.ArgusWeatherGate.claim(ev, 'EONET');
+        if (!_gResult.allowed) return;
+      }
 
       var pos     = AG.latLonToVector(ev.lat, ev.lon, altR);
       var iceberg = _isIceberg(ev);
@@ -313,9 +320,28 @@ window.ArgusEONET = (function () {
     eonetEventCache.forEach(function (ev) {
       if (!_HAZARD_CATS[ev.category]) return;
       if (ev._correlated)             return;
-      if (_hazardSprites[ev.id])      return;  // already created
+
+      // Existing sprite: verify gate ownership hasn't transferred away from EONET
+      if (_hazardSprites[ev.id]) {
+        if (window.ArgusWeatherGate) {
+          var _gEntry = window.ArgusWeatherGate.query(ev);
+          if (_gEntry && _gEntry.ownerSource && _gEntry.ownerSource !== 'EONET') {
+            _hazardSprites[ev.id].dispose();
+            delete _hazardSprites[ev.id];
+          }
+        }
+        return;
+      }
+
       if (!AG.weatherSpriteGroup)     return;
       if (!window.ArgusWeatherLayer || !window.ArgusWeatherLayer.EarthquakeMarker) return;
+
+      // Gate: block creation if a higher-priority source already owns this event.
+      // Uses the fast-path if EONET already registered in the ghost mesh loop above.
+      if (window.ArgusWeatherGate) {
+        var _gResult = window.ArgusWeatherGate.claim(ev, 'EONET');
+        if (!_gResult.allowed) return;
+      }
 
       var hsev  = _hazardSeverity(ev);
       var hpos  = AG.latLonToVector(ev.lat, ev.lon, altR + 0.5);
@@ -498,6 +524,22 @@ window.ArgusEONET = (function () {
     var now = Date.now();
     var dt  = _lastHazardT ? Math.min((now - _lastHazardT) / 1000, 0.1) : 0.016;
     _lastHazardT = now;
+
+    // Gate handoff removals: dispose sprites for events whose ownership transferred
+    // to a higher-priority source (e.g. NOAA or GDACS claiming from EONET).
+    if (window.ArgusWeatherGate) {
+      var _gRemovals = window.ArgusWeatherGate.getPendingRemovals('EONET');
+      if (_gRemovals) {
+        for (var _gri = 0; _gri < _gRemovals.length; _gri++) {
+          var _gid = _gRemovals[_gri];
+          if (_hazardSprites[_gid]) {
+            _hazardSprites[_gid].dispose();
+            delete _hazardSprites[_gid];
+          }
+        }
+      }
+    }
+
     var AG     = window.ArgusGlobe;
     var camPos = AG && AG.camera ? AG.camera.position : null;
     var LOD    = 350;

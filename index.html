@@ -7392,6 +7392,19 @@ ArgusMarket.init();
 <script src="/modules/argusGdelt.js?v=api-fix-2"></script>
 
 <!-- ══════════════════════════════════════════════════════════════════════════════
+     SCRIPT 4-pre — ArgusWeatherGate: Cross-Source Event Deduplication Gate
+     Purpose : Prevents duplicate markers when NOAA, GDACS, and EONET all report
+               the same real-world disaster. Enforces one canonical marker per event
+               with priority ownership assigned by organizational credibility per
+               event type (e.g. NOAA NHC > GDACS for tropical cyclones; NASA EONET
+               > GDACS for wildfires). Priority only activates on duplicate detection.
+     Exposes : window.ArgusWeatherGate — { claim, keepAlive, release,
+                                           getPendingRemovals, query, diagReport }
+     Load order: MUST be before argusGdacs, argusEonet, argusNoaa, argusWeatherLayer.
+══════════════════════════════════════════════════════════════════════════════ -->
+<script src="/modules/argusWeatherGate.js?v=gate-v1"></script>
+
+<!-- ══════════════════════════════════════════════════════════════════════════════
      SCRIPT 4 — GDACS Global Disaster Intelligence
      Sources : /.netlify/functions/fetch-gdacs — normalized ARGUS event schema
      Exposes : window.ArgusGDACS — { start, stop, refresh, status, setVisible }

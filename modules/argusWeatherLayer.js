@@ -1462,6 +1462,7 @@ window.ArgusWeatherLayer = (function () {
   var _alertCache   = {};    // id → enriched alert
   var _spriteIndex  = [];    // [{ obj: THREE.Sprite, id: String }]
   var _enabled      = false;
+  var _firstPollDone = false; // true once any _poll() call has started — guards demand-fetch in setVisible()
   var _altR         = 104.0;
   var _hoveredId    = null;
 
@@ -1557,6 +1558,7 @@ window.ArgusWeatherLayer = (function () {
   function _removeMarker(id) {
     var entry = _markers[id];
     if (!entry) return;
+    if (window.ArgusWeatherGate) window.ArgusWeatherGate.release(id, 'NOAA');
     entry.marker.dispose();
     // Rebuild sprite index without this id
     var next = [];
@@ -1634,9 +1636,15 @@ window.ArgusWeatherLayer = (function () {
     for (var newId in incomingIds) {
       if (_markers[newId]) {
         _markers[newId]._seenAt = now;  // storm still active — reset ghost clock
+        if (window.ArgusWeatherGate) window.ArgusWeatherGate.keepAlive(newId, 'NOAA');
       } else {
-        _alertCache[newId] = incomingIds[newId];
-        _addMarker(incomingIds[newId]);
+        var _al = incomingIds[newId];
+        if (window.ArgusWeatherGate) {
+          var _gateResult = window.ArgusWeatherGate.claim(_al, 'NOAA');
+          if (!_gateResult.allowed) continue;  // suppressed — higher-priority source owns this event
+        }
+        _alertCache[newId] = _al;
+        _addMarker(_al);
       }
     }
   }
@@ -1658,6 +1666,7 @@ window.ArgusWeatherLayer = (function () {
   }
 
   function _poll() {
+    _firstPollDone = true;
     if (_ctrl) { try { _ctrl.abort(); } catch (e) { /* ignore */ } }
     _ctrl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
     _audit.polls++;
@@ -1766,6 +1775,17 @@ window.ArgusWeatherLayer = (function () {
     var AG     = window.ArgusGlobe;
     var camPos = AG && AG.camera ? AG.camera.position : null;
 
+    // Gate handoff removals: if another source took priority ownership of a NOAA event,
+    // remove the NOAA marker so only the higher-priority source's marker remains.
+    if (window.ArgusWeatherGate) {
+      var _gRemovals = window.ArgusWeatherGate.getPendingRemovals('NOAA');
+      if (_gRemovals) {
+        for (var _gri = 0; _gri < _gRemovals.length; _gri++) {
+          if (_markers[_gRemovals[_gri]]) _removeMarker(_gRemovals[_gri]);
+        }
+      }
+    }
+
     // CycloneMarker still uses per-instance textures — tick individually with LOD guard.
     // Pool-based markers (PulseMarker, FloodMarker) have no-op tick() calls here.
     for (var id in _markers) {
@@ -1791,8 +1811,8 @@ window.ArgusWeatherLayer = (function () {
   function start() {
     if (_pollTimer) return;
     _attachMouseListener();
-    // Deferred first poll: argusNoaa.js fires at 45s, ours at 55s to stagger load
-    setTimeout(_poll, 55 * 1000);
+    // Deferred first poll: 8s — Supabase cache is already warm so response is ~500ms
+    setTimeout(_poll, 8 * 1000);
     _pollTimer  = setInterval(_poll, POLL_MS);
     _pruneTimer = setInterval(_pruneGhosts, GHOST_PRUNE_MS);
   }
@@ -1818,6 +1838,7 @@ window.ArgusWeatherLayer = (function () {
     _enabled = !!v;
     if (window.ArgusLayerState) window.ArgusLayerState.weather = _enabled;
     _updateAllVisibility();
+    if (_enabled && !_firstPollDone) _poll(); // demand-fetch if user enables before first timer fires
   }
 
   function refresh() { _poll(); }

@@ -734,19 +734,19 @@
   <div id="hud-legend" role="complementary" aria-label="HUD legend">
     <div id="hud-legend-body">
       <div class="hud-section">HOTKEYS</div>
-      <div class="kbd-row"><span class="kbd-key">G</span><span class="kbd-label">GRID</span></div>
-      <div class="kbd-row"><span class="kbd-key">T</span><span class="kbd-label">TRADE ROUTES</span></div>
-      <div class="kbd-row"><span class="kbd-key">C</span><span class="kbd-label">COUNTRIES</span></div>
-      <div class="kbd-row"><span class="kbd-key">V</span><span class="kbd-label">CITIES</span></div>
-      <div class="kbd-row"><span class="kbd-key">E</span><span class="kbd-label">EVENTS</span></div>
-      <div class="kbd-row"><span class="kbd-key">W</span><span class="kbd-label">WEATHER</span></div>
-      <div class="kbd-row"><span class="kbd-key">A</span><span class="kbd-label">AIRCRAFT</span></div>
-      <div class="kbd-row"><span class="kbd-key">K</span><span class="kbd-label">CHOKEPOINTS</span></div>
-      <div class="kbd-row"><span class="kbd-key">N</span><span class="kbd-label">NEURAL WEB</span></div>
-      <div class="kbd-row"><span class="kbd-key">M</span><span class="kbd-label">VESSELS</span></div>
-      <div class="kbd-row"><span class="kbd-key">I</span><span class="kbd-label">ENERGY INFRA</span></div>
-      <div class="kbd-row"><span class="kbd-key">B</span><span class="kbd-label">BORDERS</span></div>
-      <div class="kbd-row"><span class="kbd-key">R</span><span class="kbd-label">SHIP LANES</span></div>
+      <button type="button" class="kbd-row" data-layer="grid"        aria-pressed="true" ><span class="kbd-key">G</span><span class="kbd-label">GRID</span></button>
+      <button type="button" class="kbd-row" data-layer="tradeRoutes" aria-pressed="true" ><span class="kbd-key">T</span><span class="kbd-label">TRADE ROUTES</span></button>
+      <button type="button" class="kbd-row" data-layer="countries"   aria-pressed="false"><span class="kbd-key">C</span><span class="kbd-label">COUNTRIES</span></button>
+      <button type="button" class="kbd-row" data-layer="cities"      aria-pressed="false"><span class="kbd-key">V</span><span class="kbd-label">CITIES</span></button>
+      <button type="button" class="kbd-row" data-layer="events"      aria-pressed="false"><span class="kbd-key">E</span><span class="kbd-label">EVENTS</span></button>
+      <button type="button" class="kbd-row" data-layer="weather"     aria-pressed="false"><span class="kbd-key">W</span><span class="kbd-label">WEATHER</span></button>
+      <button type="button" class="kbd-row" data-layer="aircraft"    aria-pressed="false"><span class="kbd-key">A</span><span class="kbd-label">AIRCRAFT</span></button>
+      <button type="button" class="kbd-row" data-layer="chokepoints" aria-pressed="false"><span class="kbd-key">K</span><span class="kbd-label">CHOKEPOINTS</span></button>
+      <button type="button" class="kbd-row" data-layer="neuralweb"   aria-pressed="false"><span class="kbd-key">N</span><span class="kbd-label">NEURAL WEB</span></button>
+      <button type="button" class="kbd-row" data-layer="vessels"     aria-pressed="false"><span class="kbd-key">M</span><span class="kbd-label">VESSELS</span></button>
+      <button type="button" class="kbd-row" data-layer="energy"      aria-pressed="false"><span class="kbd-key">I</span><span class="kbd-label">ENERGY INFRA</span></button>
+      <button type="button" class="kbd-row" data-layer="borders"     aria-pressed="false"><span class="kbd-key">B</span><span class="kbd-label">BORDERS</span></button>
+      <button type="button" class="kbd-row" data-layer="shipLanes"   aria-pressed="false"><span class="kbd-key">R</span><span class="kbd-label">SHIP LANES</span></button>
 
       <div class="hud-section">RISK LEVEL</div>
       <div class="legend__row">
@@ -1018,6 +1018,8 @@ window._pulseRings       = [];   // all isPulseRing:true meshes — pre-cached f
 // ── Layer visibility — Single Source of Truth ────────────────────────────────
 // All hover detection and tooltip rendering MUST derive from this state.
 window.ArgusLayerState = {
+  grid:        true,   // coordinate grid — starts ON
+  tradeRoutes: true,   // trade-route arc lines — starts ON
   events:      false,
   chokepoints: false,
   countries:   false,
@@ -1207,6 +1209,119 @@ document.addEventListener('DOMContentLoaded', function() {
     return group;
   })();
 
+  // ── Per-layer toggle functions ────────────────────────────────────────────
+  function _toggleGrid() {
+    window.ArgusLayerState.grid = !window.ArgusLayerState.grid;
+    coordinateGrid.visible = window.ArgusLayerState.grid;
+  }
+  function _toggleTradeRoutes() {
+    window.ArgusLayerState.tradeRoutes = !window.ArgusLayerState.tradeRoutes;
+    var on = window.ArgusLayerState.tradeRoutes;
+    routeArcLines.forEach(function(l) { l.visible = on; });
+  }
+  function _toggleCountries() {
+    var on = !window.ArgusLayerState.countries;
+    window.ArgusLayerState.countries = on;
+    window.countryMarkers.forEach(function(m) { m.visible = on; });
+    if (window.ArgusCountriesInstanced) window.ArgusCountriesInstanced.setVisible(on);
+    if (!on) clearHoverTooltip();
+  }
+  function _toggleCities() {
+    var on = !window.ArgusLayerState.capitals;
+    window.ArgusLayerState.capitals = on;
+    capitalMarkers.forEach(function(m) { m.visible = on; });
+    if (window.ArgusCapitalsInstanced) window.ArgusCapitalsInstanced.setVisible(on);
+    if (!on) clearHoverTooltip();
+  }
+  function _toggleEvents() {
+    var on = !window.ArgusLayerState.events;
+    window.ArgusLayerState.events = on;
+    var _eHazardCats = { earthquake: 1, flood: 1, drought: 1, wildfire: 1 };
+    window.eventMarkers.forEach(function(m) {
+      if (m.userData && m.userData.isGDACS && _eHazardCats[m.userData.type]) return;
+      if (m.userData && m.userData.isEONET) return;
+      if (m.userData && m.userData._gemMarker) return;
+      m.visible = on;
+    });
+    var _emg = window.ArgusGlobe && window.ArgusGlobe.eventMarkerGroup;
+    if (_emg) _emg.children.forEach(function(obj) {
+      if (obj.userData && obj.userData.isPulseRing && !obj.userData._noaaMarker) obj.visible = on;
+    });
+    if (window.ArgusACLED && window.ArgusACLED.setVisible) window.ArgusACLED.setVisible(on);
+    if (!on) clearHoverTooltip();
+  }
+  function _toggleChokepoints() {
+    var on = !window.ArgusLayerState.chokepoints;
+    window.ArgusLayerState.chokepoints = on;
+    window.chokepointMarkers.forEach(function(m) { m.visible = on; });
+    window.chokepointSpikes.forEach(function(m)  { m.visible = on; });
+    window.chokepointRings.forEach(function(m)   { m.visible = on; });
+    if (!on) clearHoverTooltip();
+  }
+
+  // ── LAYERS registry — maps data-layer id → keyboard key ─────────────────
+  var _LAYER_DEFS = [
+    { id: 'grid',        key: 'g' },
+    { id: 'tradeRoutes', key: 't' },
+    { id: 'countries',   key: 'c' },
+    { id: 'cities',      key: 'v' },
+    { id: 'events',      key: 'e' },
+    { id: 'weather',     key: 'w' },
+    { id: 'aircraft',    key: 'a' },
+    { id: 'chokepoints', key: 'k' },
+    { id: 'neuralweb',   key: 'n' },
+    { id: 'vessels',     key: 'm' },
+    { id: 'energy',      key: 'i' },
+    { id: 'borders',     key: 'b' },
+    { id: 'shipLanes',   key: 'r' },
+  ];
+
+  function _isLayerOn(id) {
+    switch (id) {
+      case 'grid':        return !!window.ArgusLayerState.grid;
+      case 'tradeRoutes': return !!window.ArgusLayerState.tradeRoutes;
+      case 'countries':   return !!window.ArgusLayerState.countries;
+      case 'cities':      return !!window.ArgusLayerState.capitals;
+      case 'events':      return !!window.ArgusLayerState.events;
+      case 'weather':     return !!window.ArgusLayerState.weather;
+      case 'aircraft':    return !!window.ArgusLayerState.aircraft;
+      case 'chokepoints': return !!window.ArgusLayerState.chokepoints;
+      case 'neuralweb':   return !!(window.ArgusLayerState.neuralweb);
+      case 'vessels':     return !!window.ArgusLayerState.aisVessels;
+      case 'energy':      return !!window.ArgusLayerState.energy;
+      case 'borders':     return !!window.ArgusLayerState.borders;
+      case 'shipLanes':   return !!window.ArgusLayerState.routes;
+      default:            return false;
+    }
+  }
+
+  function _syncLayerBtn(id) {
+    var on = _isLayerOn(id);
+    var btn = document.querySelector('.kbd-row[data-layer="' + id + '"]');
+    if (!btn) return;
+    btn.setAttribute('aria-pressed', String(on));
+    btn.classList.toggle('is-off', !on);
+  }
+
+  function _toggleLayerById(id) {
+    switch (id) {
+      case 'grid':        _toggleGrid();             break;
+      case 'tradeRoutes': _toggleTradeRoutes();       break;
+      case 'countries':   _toggleCountries();         break;
+      case 'cities':      _toggleCities();            break;
+      case 'events':      _toggleEvents();            break;
+      case 'weather':     _toggleWeatherLayer();      break;
+      case 'aircraft':    /* not yet implemented */   break;
+      case 'chokepoints': _toggleChokepoints();       break;
+      case 'neuralweb':   /* not yet implemented */   break;
+      case 'vessels':     if (window.ArgusAIS) window.ArgusAIS.toggle(); break;
+      case 'energy':      _toggleEnergyLayer();       break;
+      case 'borders':     _toggleBorders();           break;
+      case 'shipLanes':   _toggleShippingRoutes();    break;
+    }
+    _syncLayerBtn(id);
+  }
+
   evtMgr.add(window, 'keydown', function(e) {
     // Never fire globe shortcuts while user is typing in any input/textarea/select
     var tag = document.activeElement && document.activeElement.tagName;
@@ -1216,69 +1331,12 @@ document.addEventListener('DOMContentLoaded', function() {
     if (document.querySelector('#analyst-modal-overlay.is-open')) return;
     if (document.querySelector('#es-modal-overlay.is-open')) return;
     if (document.querySelector('#panel-ai.is-open')) return;
-    if (e.key.toLowerCase() === 'g') coordinateGrid.visible = !coordinateGrid.visible;
-    if (e.key.toLowerCase() === 't') routeArcLines.forEach(function(l) { l.visible = !l.visible; });
-    if (e.key.toLowerCase() === 'c') {
-      var cnOn = !(window.ArgusLayerState.countries);
-      window.ArgusLayerState.countries = cnOn;
-      window.countryMarkers.forEach(function(m) { m.visible = cnOn; });
-      if (window.ArgusCountriesInstanced) window.ArgusCountriesInstanced.setVisible(cnOn);
-      if (!cnOn) clearHoverTooltip();
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    var k = e.key.toLowerCase();
+    for (var _li = 0; _li < _LAYER_DEFS.length; _li++) {
+      if (_LAYER_DEFS[_li].key === k) { _toggleLayerById(_LAYER_DEFS[_li].id); break; }
     }
-    if (e.key.toLowerCase() === 'v') {
-      var capOn = !(window.ArgusLayerState.capitals);
-      window.ArgusLayerState.capitals = capOn;
-      capitalMarkers.forEach(function(m) { m.visible = capOn; });
-      if (window.ArgusCapitalsInstanced) window.ArgusCapitalsInstanced.setVisible(capOn);
-      if (!capOn) clearHoverTooltip();
-    }
-    if (e.key.toLowerCase() === 'e') {
-      var evOn = !(window.ArgusLayerState.events);
-      window.ArgusLayerState.events = evOn;
-      // eventMarkers: ACLED, GEM, GDACS non-hazard — NOT NOAA weather, NOT GDACS hazards.
-      // Hazard events (earthquake/flood/drought/wildfire) are on W key via ArgusGDACS.setVisible().
-      var _eHazardCats = { earthquake: 1, flood: 1, drought: 1, wildfire: 1 };
-      window.eventMarkers.forEach(function(m) {
-        if (m.userData && m.userData.isGDACS && _eHazardCats[m.userData.type]) return;
-        if (m.userData && m.userData.isEONET) return;  // EONET follows W key, not E key
-        if (m.userData && m.userData._gemMarker) return; // GEM energy follows I key, not E key
-        m.visible = evOn;
-      });
-      // Also toggle pulse rings that belong to non-weather events
-      var _emg = window.ArgusGlobe && window.ArgusGlobe.eventMarkerGroup;
-      if (_emg) _emg.children.forEach(function(obj) {
-        if (obj.userData && obj.userData.isPulseRing && !obj.userData._noaaMarker) obj.visible = evOn;
-      });
-      // ACLED InstancedMesh — GEM energy is on its own toggle (I key)
-      if (window.ArgusACLED && window.ArgusACLED.setVisible) window.ArgusACLED.setVisible(evOn);
-      if (!evOn) clearHoverTooltip();
-    }
-    if (e.key.toLowerCase() === 'w') {
-      _toggleWeatherLayer();
-    }
-    if (e.key.toLowerCase() === 'h') {
-      if (window.ArgusTemperatureLayer) ArgusTemperatureLayer.toggle();
-    }
-    if (e.key.toLowerCase() === 'k') {
-      var cpOn = !(window.ArgusLayerState.chokepoints);
-      window.ArgusLayerState.chokepoints = cpOn;
-      window.chokepointMarkers.forEach(function(m) { m.visible = cpOn; });
-      window.chokepointSpikes.forEach(function(m)  { m.visible = cpOn; });
-      window.chokepointRings.forEach(function(m)   { m.visible = cpOn; });
-      if (!cpOn) clearHoverTooltip();
-    }
-    if (e.key.toLowerCase() === 'm') {
-      if (window.ArgusAIS) window.ArgusAIS.toggle();
-    }
-    if (e.key.toLowerCase() === 'i') {
-      _toggleEnergyLayer();
-    }
-    if (e.key.toLowerCase() === 'b') {
-      _toggleBorders();
-    }
-    if (e.key.toLowerCase() === 'r') {
-      _toggleShippingRoutes();
-    }
+    if (k === 'h') { if (window.ArgusTemperatureLayer) ArgusTemperatureLayer.toggle(); }
   });
 
   // ── Energy infrastructure toggle — I key + sidebar INFRA button ───────────────
@@ -2582,7 +2640,23 @@ document.addEventListener('DOMContentLoaded', function() {
 
   // Expose for external access
   window.ArgusGlobe = { scene: scene, camera: camera, renderer: renderer, globe: Globe, globeGroup: globeGroup, dataGroup: dataGroup, eventMarkerGroup: eventMarkerGroup, weatherSpriteGroup: weatherSpriteGroup, latLonToVector: latLonToVector, R: R, clearHover: clearHoverTooltip, focusEntity: focusEntity };
+  window.ArgusGlobe.toggleLayer  = _toggleLayerById;
+  window.ArgusGlobe.isLayerOn    = _isLayerOn;
+  window.ArgusGlobe.syncLayerBtn = _syncLayerBtn;
   if (window.ArgusPerf) ArgusPerf.mark('ARGUS_GLOBE_EXPORTED');
+
+  // ── Layer button click delegation — single listener for all kbd-row buttons ──
+  (function() {
+    var legendBody = document.getElementById('hud-legend-body');
+    if (!legendBody) return;
+    legendBody.addEventListener('click', function(e) {
+      var row = e.target.closest('.kbd-row[data-layer]');
+      if (!row) return;
+      e.stopPropagation();
+      _toggleLayerById(row.dataset.layer);
+      row.blur();
+    });
+  })();
 
   // Temperature heatmap — init after ArgusGlobe is set so the module can access globeGroup
   if (window.ArgusTemperatureLayer) ArgusTemperatureLayer.init();

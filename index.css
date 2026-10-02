@@ -2135,6 +2135,17 @@
       align-items: center;
       gap: 5px;
       margin-bottom: 3px;
+      background: none;
+      border: 0;
+      padding: 2px 0;
+      margin-left: 0;
+      cursor: pointer;
+      font: inherit;
+      text-align: left;
+      color: inherit;
+      width: 100%;
+      -webkit-tap-highlight-color: transparent;
+      touch-action: manipulation;
     }
     .kbd-key {
       display: inline-flex;
@@ -2157,6 +2168,9 @@
       color: var(--color-text-faint);
       font-weight: 400;
     }
+    .kbd-row.is-off .kbd-label { text-decoration: line-through; opacity: .45; }
+    .kbd-row.is-off .kbd-key   { opacity: .45; }
+    .kbd-row:focus-visible     { outline: 1px solid var(--color-accent); outline-offset: 1px; border-radius: 2px; }
 
     .legend__row { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
     .legend__dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
@@ -4020,6 +4034,11 @@
 
     /* ── Prevent horizontal body overflow ───────────────────────────────── */
     #app { overflow-x: hidden; }
+
+    /* ── HUD legend kbd-rows: touch-friendly tap targets ────────────────── */
+    .kbd-row  { min-height: 44px; padding: 6px 4px; }
+    .kbd-key  { width: 20px; height: 20px; font-size: 11px; }
+    .kbd-label { font-size: 11px; }
 
   } /* end @media (max-width: 768px) */
 

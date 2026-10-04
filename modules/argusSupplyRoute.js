@@ -34,16 +34,46 @@ window.ArgusSupplyRoute = (function () {
   // ── Risk tier colours (mirrors RISK_CSS in index.html) ────────────────────────
   var _RISK_CSS = { CRITICAL: '#ff0044', WARNING: '#ff9933', WATCH: '#ffcc00', LOW: '#00ff88' };
 
+  // ── Nominatim result ranking ──────────────────────────────────────────────────
+  // Prefers settlement-class results over landmarks, buildings, amenities.
+  // Lower score wins. Prevents e.g. "casa blanca" → White House, DC.
+  var _PLACE_TYPES = { city: 1, town: 2, village: 3, municipality: 4, administrative: 5 };
+
+  function _pickBestResult(candidates) {
+    var best = null, bestScore = 99;
+    candidates.forEach(function (r) {
+      var cls  = r['class'] || '';
+      var typ  = r['type']  || '';
+      var score;
+      if (cls === 'place' && _PLACE_TYPES[typ] !== undefined) {
+        score = _PLACE_TYPES[typ];   // 1–5: city / town / village / …
+      } else if (cls === 'place') {
+        score = 10;                   // place, unknown sub-type
+      } else if (cls === 'boundary') {
+        score = 20;                   // administrative boundary
+      } else {
+        score = 30;                   // building, amenity, tourism, etc.
+      }
+      if (score < bestScore) { bestScore = score; best = r; }
+    });
+    return best || candidates[0];
+  }
+
   // ── Nominatim geocoder ────────────────────────────────────────────────────────
-  // Same pattern as ArgusEvents.geocode (index.html L6796).
   function _geocode(query) {
     var url = 'https://nominatim.openstreetmap.org/search?q=' +
-      encodeURIComponent(query) + '&format=json&limit=1';
+      encodeURIComponent(query) + '&format=json&limit=5';
     return fetch(url, { headers: { 'Accept-Language': 'en', 'User-Agent': 'ArgusIntel/1.0' } })
       .then(function (r) { return r.json(); })
       .then(function (res) {
         if (!res || !res.length) throw new Error('Location not found: ' + query);
-        return { lat: parseFloat(res[0].lat), lon: parseFloat(res[0].lon), name: res[0].display_name };
+        var best = _pickBestResult(res);
+        return {
+          lat:  parseFloat(best.lat),
+          lon:  parseFloat(best.lon),
+          name: best.display_name,
+          type: best['type'] || '',
+        };
       });
   }
 
@@ -376,8 +406,12 @@ window.ArgusSupplyRoute = (function () {
 
     _geocode(query)
       .then(function (loc) {
-        // Truncate display name to first two comma-segments
-        var shortName = loc.name.split(',').slice(0, 2).join(',').trim();
+        // Show: "City, Country (type)" so users can verify what was matched
+        var _parts    = loc.name.split(',');
+        var _city     = _parts[0].trim();
+        var _country  = _parts[_parts.length - 1].trim();
+        var _badge    = loc.type ? ' (' + loc.type + ')' : '';
+        var shortName = _city + (_country && _country !== _city ? ', ' + _country : '') + _badge;
         statusEl.textContent = shortName;
         statusEl.style.color = type === 'export' ? '#ffcc00' : '#00ff88';
 

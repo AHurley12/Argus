@@ -332,8 +332,6 @@ window.ArgusSupplyRoute = (function () {
     if (!panel) return;
     panel.style.display = '';
     _panelOpen = true;
-    var btn = document.getElementById('btn-sb-routes');
-    if (btn) btn.classList.add('is-active');
   }
 
   function close() {
@@ -357,8 +355,6 @@ window.ArgusSupplyRoute = (function () {
     if (expSt) expSt.textContent = '';
     if (impSt) impSt.textContent = '';
     if (body)  body.style.display = 'none';
-    var btn = document.getElementById('btn-sb-routes');
-    if (btn) btn.classList.remove('is-active');
   }
 
   function toggle() {

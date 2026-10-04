@@ -626,6 +626,59 @@
     </div>
   </aside>
 
+  <!-- ── Supply Chain Route Analysis Panel ───────────────────────────────────── -->
+  <aside id="panel-supply-route" class="panel panel--scrollable"
+         style="display:none" aria-label="Supply Chain Route Analysis">
+    <div class="dp-header">
+      <span class="dp-title">SUPPLY CHAIN ROUTE</span>
+      <button class="panel-min-btn"
+              onclick="window.ArgusSupplyRoute && ArgusSupplyRoute.close()"
+              aria-label="Close supply route panel">—</button>
+    </div>
+    <div class="dp-body">
+
+      <!-- Export origin -->
+      <div class="srl-field">
+        <div class="srl-label" style="color:#ffcc00">⬆ EXPORT ORIGIN</div>
+        <div class="srl-row">
+          <input id="srl-export-input" class="srl-input" type="text"
+                 placeholder="Port, city or country…"
+                 onkeydown="if(event.key==='Enter') window.ArgusSupplyRoute && ArgusSupplyRoute.search('export')">
+          <button class="srl-btn"
+                  onclick="window.ArgusSupplyRoute && ArgusSupplyRoute.search('export')">▶</button>
+        </div>
+        <div id="srl-export-status" class="srl-status"></div>
+      </div>
+
+      <!-- Import destination -->
+      <div class="srl-field">
+        <div class="srl-label" style="color:#00ff88">⬇ IMPORT DESTINATION</div>
+        <div class="srl-row">
+          <input id="srl-import-input" class="srl-input" type="text"
+                 placeholder="Port, city or country…"
+                 onkeydown="if(event.key==='Enter') window.ArgusSupplyRoute && ArgusSupplyRoute.search('import')">
+          <button class="srl-btn"
+                  onclick="window.ArgusSupplyRoute && ArgusSupplyRoute.search('import')">▶</button>
+        </div>
+        <div id="srl-import-status" class="srl-status"></div>
+      </div>
+
+      <!-- Results — hidden until both locations are set -->
+      <div id="srl-route-body" style="display:none">
+        <div class="srl-section">ROUTE RISK</div>
+        <div id="srl-risk-display"></div>
+        <div class="srl-section">LIVE TRAFFIC</div>
+        <div id="srl-traffic-display"></div>
+        <div class="srl-section">ROUTE CHOKEPOINTS</div>
+        <div id="srl-chokepoints-display"></div>
+      </div>
+
+      <button class="srl-clear-btn"
+              onclick="window.ArgusSupplyRoute && ArgusSupplyRoute.clear()">✕ CLEAR ROUTE</button>
+
+    </div>
+  </aside>
+
   <!-- ── Data Sources Info (startup flash) ───────────────────────────────────── -->
   <div id="panel-data-sources" class="panel" aria-live="polite">
     <div class="data-sources__header">DATA SOURCES</div>
@@ -1014,6 +1067,7 @@ window.chokepointMarkers = [];   // unused after refactor, kept for external com
 window.chokepointSpikes  = [];   // rotating prism meshes (isStaticSpike)
 window.chokepointRings   = [];   // pulse ring meshes (isPulseRingStatic)
 window._pulseRings       = [];   // all isPulseRing:true meshes — pre-cached for animate() loop
+window._supplyRoutePins  = [];   // ArgusSupplyRoute export/import cone pin meshes
 
 // ── Layer visibility — Single Source of Truth ────────────────────────────────
 // All hover detection and tooltip rendering MUST derive from this state.
@@ -1368,6 +1422,11 @@ document.addEventListener('DOMContentLoaded', function() {
     if (window.ArgusRouteRenderer) window.ArgusRouteRenderer.setVisible(on);
     var btn = document.getElementById('btn-sb-routes');
     if (btn) btn.classList.toggle('is-active', on);
+    // Open / close the supply chain route analysis panel with the lane layer
+    if (window.ArgusSupplyRoute) {
+      if (on) window.ArgusSupplyRoute.open();
+      else    window.ArgusSupplyRoute.close();
+    }
   }
   window._toggleShippingRoutes = _toggleShippingRoutes;
 
@@ -1501,6 +1560,9 @@ document.addEventListener('DOMContentLoaded', function() {
   };
 
   function buildTooltipRow(d) {
+    // Supply route pins: delegate to ArgusSupplyRoute for rich trade/risk tooltip
+    if (d._supplyRoute && window.ArgusSupplyRoute)
+      return window.ArgusSupplyRoute.buildPinTooltip(d);
     var risk = d.severity || d.risk || 'LOW';
     // Normalize raw GDACS severity ('red'/'orange'/'green') → canonical keys
     var _rawSevMap = { red: 'CRITICAL', orange: 'WARNING', green: 'WATCH' };
@@ -2128,6 +2190,7 @@ document.addEventListener('DOMContentLoaded', function() {
     if (!ls) return true;
     var d = obj.userData;
     if (!d) return true;
+    if (d._supplyRoute)  return true;            // supply route pins always interactive
     if (d.isAircraft)    return ls.aircraft;
     if (d.isAISVessel)   return ls.aisVessels;  // AIS gate — independent of VesselAPI ships
     if (d.isShip)        return ls.vessels;
@@ -2241,6 +2304,7 @@ document.addEventListener('DOMContentLoaded', function() {
       (!ls || ls.aircraft)    ? (window._aircraftMarkers || []) : null,
       (!ls || ls.vessels)     ? (window._vesselMarkers   || []) : null,
       (!ls || ls.aisVessels)  ? (window._aisSprites      || []) : null,
+      (window._supplyRoutePins && window._supplyRoutePins.length) ? window._supplyRoutePins : null,
     ]);
     var allHits = raycasterHover.intersectObjects(_candidates)
       .concat(countryHits)
@@ -12128,6 +12192,7 @@ if (document.readyState === 'loading') {
 
 <!-- ArgusTradeWeb — bilateral trade analysis panel (UN Comtrade) -->
 <script src="/modules/argusTradeWeb.js?v=trade-v1"></script>
+<script src="/modules/argusSupplyRoute.js?v=sr-v1"></script>
 
 <!-- ArgusSearch — navigation registry + UI Phase 1+2 (countries, chokepoints, ports, LNG) -->
 <script src="/core/search/argusSearchRegistry.js?v=1"></script>

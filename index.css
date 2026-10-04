@@ -4241,3 +4241,73 @@ select.trade-select:focus {
   max-height: calc(100vh - 252px);
 }
 
+/* ── Supply Chain Route Analysis panel ──────────────────────────────────────── */
+#panel-supply-route {
+  bottom: 100px;
+  left: calc(var(--sidebar-width) + 18px);
+  width: 272px;
+  max-height: 360px;
+}
+
+.srl-field    { margin-bottom: 10px; }
+.srl-label    { font-size: 7px; letter-spacing: 1.5px; font-weight: 700; margin-bottom: 4px; }
+.srl-row      { display: flex; gap: 4px; align-items: center; }
+.srl-input {
+  flex: 1;
+  background: rgba(5,15,30,0.7);
+  border: 1px solid var(--color-border-solid);
+  border-radius: 2px;
+  color: var(--color-text);
+  font-family: var(--font-mono);
+  font-size: 8px;
+  padding: 4px 6px;
+  outline: none;
+}
+.srl-input:focus { border-color: var(--color-accent); }
+.srl-btn {
+  background: rgba(5,15,30,0.8);
+  border: 1px solid var(--color-border-solid);
+  color: var(--color-accent);
+  font-size: 9px;
+  padding: 3px 7px;
+  cursor: pointer;
+  border-radius: 2px;
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+}
+.srl-btn:hover { background: rgba(26,74,112,0.6); }
+.srl-status {
+  font-size: 8px;
+  color: var(--color-text-faint);
+  font-family: var(--font-mono);
+  margin-top: 3px;
+  min-height: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.srl-section {
+  font-size: 7px;
+  letter-spacing: 2px;
+  font-weight: 700;
+  color: var(--color-text-faint);
+  margin: 8px 0 4px;
+  font-family: var(--font-mono);
+}
+.srl-clear-btn {
+  display: block;
+  width: 100%;
+  margin-top: 8px;
+  background: none;
+  border: 1px solid rgba(255,68,0,0.3);
+  color: #ff4400;
+  font-family: var(--font-mono);
+  font-size: 7px;
+  letter-spacing: 1px;
+  padding: 4px;
+  cursor: pointer;
+  border-radius: 2px;
+}
+.srl-clear-btn:hover { border-color: #ff4400; background: rgba(255,68,0,0.08); }
+
+
